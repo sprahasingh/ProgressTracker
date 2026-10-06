@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project foundation is in place. The current interface is a responsive application shell; daily tracking, local persistence, authentication, and cloud sync are planned implementation steps and are not available yet.
+The project foundation, reusable interface layer, IndexedDB schema, and local repositories are in place. The current interface is still a responsive application shell; daily tracking UI, authentication, and cloud sync are planned implementation steps and are not available yet.
 
 ## Tech stack
 
@@ -13,6 +13,7 @@ The project foundation is in place. The current interface is a responsive applic
 - Tailwind CSS 4 for utility styling, with a small CSS layer for the initial visual system
 - React Router using hash-based URLs for reliable navigation and refreshes on GitHub Pages
 - React Hook Form and Zod for upcoming form workflows
+- Supabase JavaScript client for optional account-based cloud integration
 - Vitest, jsdom, and React Testing Library for upcoming domain and UI tests
 
 ## Application structure
@@ -31,6 +32,10 @@ Shared UI components should remain presentation-focused. Product rules belong in
 Dexie wraps IndexedDB behind `src/db/localRepository.ts`; components should call repository methods rather than access object stores directly. The versioned database contains categories, per-category daily entries, daily journals, goals, goal metrics, append-only metric progress snapshots, settings, and a pending sync operation table. Calendar dates are stored as `YYYY-MM-DD` strings, separate from event timestamps.
 
 Database schema version 2 upgrades version 1 records in place. It preserves record IDs and history, fills missing update timestamps from creation timestamps, and adds deletion tombstones without clearing site data. Daily entries have a unique category/date index to prevent duplicate logical records. Repository methods validate calendar dates and use date strings as the daily identity, separate from timestamps. Progress history stores each recorded value; it does not keep only a mutable current total. Sync execution is planned for a later step.
+
+## Supabase configuration
+
+The browser client is optional until configured. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. The publishable key is expected to be visible in a client bundle; database access must be protected by authenticated sessions and Row Level Security. Never place a Supabase secret key or legacy `service_role` key in Vite variables. Local IndexedDB use does not require Supabase configuration.
 
 ## Local development
 
