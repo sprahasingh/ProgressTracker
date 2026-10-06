@@ -2,6 +2,7 @@ import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '../app/AppShell'
 import { TodayPage } from '../features/today/TodayPage'
 import { PlaceholderPage } from '../features/shared/PlaceholderPage'
+import { AuthPage } from '../features/auth/AuthPage'
 
 export const router = createHashRouter([
   {
@@ -14,6 +15,7 @@ export const router = createHashRouter([
       { path: 'goals', element: <PlaceholderPage title="Goals" /> },
       { path: 'achievements', element: <PlaceholderPage title="Achievements" /> },
       { path: 'settings', element: <PlaceholderPage title="Settings" /> },
+      { path: 'auth', element: <AuthPage /> },
     ],
   },
 ])

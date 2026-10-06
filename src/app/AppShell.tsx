@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../features/auth/AuthProvider'
 
 const navigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
@@ -9,6 +10,9 @@ const navigation = [
 ]
 
 export function AppShell() {
+  const { status } = useAuth()
+  const localStatus = status === 'signed-in' ? 'Account ready' : status === 'loading' ? 'Checking account' : 'Local mode'
+
   return (
     <div className="app-frame">
       <aside className="sidebar" aria-label="Main navigation">
@@ -31,7 +35,7 @@ export function AppShell() {
           <NavLink to="/settings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             <span className="nav-icon" aria-hidden="true">⚙</span>Settings
           </NavLink>
-          <div className="sync-state"><span className="sync-dot" />Local mode <span className="sync-note">· ready</span></div>
+          <div className="sync-state"><span className="sync-dot" />{localStatus}<span className="sync-note">· saved here</span></div>
         </div>
       </aside>
 
@@ -40,7 +44,7 @@ export function AppShell() {
           <div className="mobile-brand"><span className="brand-mark" aria-hidden="true">p</span> ProgressTracker</div>
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
-          <button className="avatar" aria-label="Open account settings" onClick={() => { window.location.hash = '#/settings' }}>S</button>
+          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
         </header>
         <div className="page-content"><Outlet /></div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
