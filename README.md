@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project foundation, reusable interface layer, IndexedDB schema, and local repositories are in place. The current interface is still a responsive application shell; daily tracking UI, authentication, and cloud sync are planned implementation steps and are not available yet.
+The project foundation, reusable interface layer, IndexedDB schema, and local repositories are in place. A Supabase email-link sign-in screen and persisted browser session handling are implemented. Daily tracking UI and cloud synchronization are still planned steps.
 
 ## Tech stack
 
@@ -36,6 +36,12 @@ Database schema version 2 upgrades version 1 records in place. It preserves reco
 ## Supabase configuration
 
 The browser client is optional until configured. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. The publishable key is expected to be visible in a client bundle; database access must be protected by authenticated sessions and Row Level Security. Never place a Supabase secret key or legacy `service_role` key in Vite variables. Local IndexedDB use does not require Supabase configuration.
+
+## Email authentication
+
+ProgressTracker requests a passwordless email sign-in link through Supabase Auth. The callback uses PKCE and returns to the current app path, which is compatible with the GitHub Pages repository path and hash-based client routing. The Supabase JS client persists the session locally and refreshes it; logging in does not yet synchronize productivity records.
+
+In **Authentication → URL Configuration**, set the Site URL to `https://sprahasingh.github.io/ProgressTracker/` and add that URL plus `http://localhost:5173/ProgressTracker/` to the allowed Redirect URLs. Keep the Email provider enabled under **Authentication → Sign In / Providers**. Supabase's built-in email sender is limited to project organization members and 2 emails per hour; broader delivery requires custom SMTP, which is not configured by this project.
 
 ## Dependency audit note
 
