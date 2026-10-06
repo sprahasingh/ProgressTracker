@@ -1,6 +1,7 @@
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProgressTrackerDatabase } from './database'
+import type { DailyEntry } from './models'
 
 const openedDatabases: Dexie[] = []
 
@@ -49,7 +50,7 @@ describe('ProgressTracker database migrations', () => {
     const database = new ProgressTrackerDatabase(`unique-${crypto.randomUUID()}`)
     openedDatabases.push(database)
     await database.open()
-    const first = {
+    const first: DailyEntry = {
       id: 'entry-a', categoryId: 'cat-1', date: '2026-02-03', status: 'completed' as const,
       note: '', createdAt: '2026-02-03T10:00:00.000Z', updatedAt: '2026-02-03T10:00:00.000Z', deletedAt: null,
     }
