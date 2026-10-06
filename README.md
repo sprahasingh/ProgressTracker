@@ -26,6 +26,12 @@ The project foundation is in place. The current interface is a responsive applic
 
 Shared UI components should remain presentation-focused. Product rules belong in domain modules as those features are introduced. The design tokens include a dark palette hook (`data-theme="dark"`); appearance controls are not implemented yet.
 
+## Local data foundation
+
+Dexie wraps IndexedDB behind `src/db/localRepository.ts`; components should call repository methods rather than access object stores directly. The versioned database contains categories, per-category daily entries, daily journals, goals, goal metrics, append-only metric progress snapshots, settings, and a pending sync operation table. Calendar dates are stored as `YYYY-MM-DD` strings, separate from event timestamps.
+
+Database schema version 2 upgrades version 1 records in place. It preserves record IDs and history, fills missing update timestamps from creation timestamps, and adds deletion tombstones without clearing site data. Daily entries have a unique category/date index to prevent duplicate logical records. Repository methods validate calendar dates and use date strings as the daily identity, separate from timestamps. Progress history stores each recorded value; it does not keep only a mutable current total. Sync execution is planned for a later step.
+
 ## Local development
 
 Requires Node.js 20.19 or newer and npm.
@@ -53,4 +59,4 @@ The current visual language uses a muted botanical green accent, warm neutral su
 
 ## Planned architecture
 
-IndexedDB will provide immediate local persistence. Supabase Authentication and PostgreSQL with Row Level Security will support optional account-based synchronization across devices. The deployed static application will not include a custom backend. No analytics service is configured.
+IndexedDB provides the immediate local persistence layer through Dexie repositories. Supabase Authentication and PostgreSQL with Row Level Security will support optional account-based synchronization across devices. The deployed static application will not include a custom backend. No analytics service is configured.
