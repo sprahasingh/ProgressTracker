@@ -1,4 +1,10 @@
+import type { TrackerDefinition, TrackerEntry } from '../domain/trackers/types'
+
 export type CalendarDate = `${number}-${number}-${number}`
+
+/** Persisted generic domain rows introduced by the non-destructive Dexie v3 upgrade. */
+export type StoredTrackerDefinition = TrackerDefinition
+export type StoredTrackerEntry = TrackerEntry
 
 export type CategorySchedule =
   | { kind: 'every-day' }

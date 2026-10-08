@@ -7,8 +7,11 @@ import type {
   Goal,
   GoalMetric,
   GoalProgressLog,
+  StoredTrackerDefinition,
+  StoredTrackerEntry,
   SyncOperation,
 } from './models'
+import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -34,6 +37,8 @@ export class ProgressTrackerDatabase extends Dexie {
   goalProgressLogs!: Table<GoalProgressLog, string>
   settings!: Table<AppSettings, string>
   syncOperations!: Table<SyncOperation, string>
+  trackers!: Table<StoredTrackerDefinition, string>
+  trackerEntries!: Table<StoredTrackerEntry, string>
 
   constructor(name = 'ProgressTracker') {
     super(name)
@@ -54,6 +59,25 @@ export class ProgressTrackerDatabase extends Dexie {
         dailyJournals: 'id, &date, updatedAt, deletedAt',
         syncOperations: 'id, entity, entityId, operation, updatedAt, [entity+entityId]',
       })
+
+    this.version(3)
+      .stores({
+        ...coreSchema,
+        dailyJournals: 'id, &date, updatedAt, deletedAt',
+        syncOperations: 'id, entity, entityId, operation, updatedAt, [entity+entityId]',
+        trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+        trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      })
+      .upgrade(async (transaction) => {
+        const [categories, entries] = await Promise.all([
+          transaction.table('categories').toArray() as Promise<Category[]>,
+          transaction.table('dailyEntries').toArray() as Promise<DailyEntry[]>,
+        ])
+        const trackers = transaction.table('trackers')
+        const trackerEntries = transaction.table('trackerEntries')
+        await trackers.bulkAdd(categories.map(categoryToTracker))
+        await trackerEntries.bulkAdd(entries.map(dailyEntryToTrackerEntry))
+      })
       .upgrade(async (transaction) => {
         const tables = ['categories', 'dailyEntries', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings']
         await Promise.all(tables.map((tableName) => transaction.table(tableName).toCollection().modify((record) => {
@@ -66,7 +90,7 @@ export class ProgressTrackerDatabase extends Dexie {
 }
 
 export const db = new ProgressTrackerDatabase()
-export const DATABASE_SCHEMA_VERSION = 2
+export const DATABASE_SCHEMA_VERSION = 3
 
 export async function openDatabase(): Promise<void> {
   if (typeof indexedDB === 'undefined') {

@@ -5,7 +5,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 ## Repository audit
 
 - The current Today page is a welcome/empty-state shell; it does not yet provide routine logging, goal planning, streaks, analytics, or adaptive planning.
-- Dexie v2 already stores categories, daily entries, journals, goals, metrics, progress snapshots, settings, and a pending-operation table. Existing IDs, timestamps, and deletion tombstones are useful compatibility anchors.
+- Dexie v3 stores legacy categories/daily entries alongside the generic tracker/entry tables; journals, legacy goals, metrics, progress snapshots, settings, and pending operations remain in their original stores.
 - `localRepository.ts` wraps local reads and writes. UI code should continue to use repositories rather than reach into Dexie directly.
 - Supabase currently has seven user-owned tables with RLS and a locally passing 55-assertion pgTAP suite. That migration is treated as applied history and must not be edited or replayed against the hosted project as a schema redesign mechanism.
 - Supabase magic-link authentication is present. Password authentication and synchronization are not part of the generic domain step.
@@ -14,14 +14,14 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 
 - `src/domain/trackers` owns transport- and storage-independent tracker definitions, schedule shapes, metrics, qualification rules, custom fields, milestones, and entry values.
 - Zod schemas validate persisted/imported/API-shaped values at boundaries. Evaluation and planning remain pure domain operations in a later step.
-- `src/db` remains the IndexedDB adapter. Legacy adapters are read-only projections; introducing a generic domain model must not rewrite or delete existing rows.
+- `src/db` remains the IndexedDB adapter. The v3 upgrade uses pure legacy projections and retains original rows/IDs/tombstones in the legacy stores.
 - Future cloud persistence requires additive, forward-only migrations and RLS/pgTAP coverage. Keep sync transport out of components and do not treat client timestamps as trusted concurrency data.
 
 ## Stages
 
 1. **Generic domain foundation** — define versioned generic tracker/entry types, validate schedules, metrics, rules, custom fields and milestones, and add non-destructive projections from legacy categories and daily entries. (Current step.)
 2. **Pure domain behavior** — completed in this phase: deterministic achievement classification, nested AND/OR/at-least rule evaluation, rest-day-aware workload distribution, recalculation, and deadline state results. Timezone-aware schedules and richer recurrence semantics remain limitations to close before shipping UI.
-3. **IndexedDB evolution** — add a forward Dexie version and converters that preserve legacy IDs/history/tombstones; test upgrades from representative v1/v2 fixtures and interruption/reopen behavior.
+3. **IndexedDB evolution** — completed in this phase: Dexie v3 generic tracker/entry tables and a transactional projection of legacy categories/entries, verified from v1/v2 fixtures and after reopen. Original legacy rows remain intact.
 4. **Cloud schema evolution** — design a new migration that adds generic records or a normalized equivalent without modifying the applied initial migration; extend local pgTAP coverage for ownership, references, tombstones, and revisions.
 5. **Tracker setup flows** — build create/edit flows for habits, goals, challenges, and projects with sensible defaults and validation.
 6. **Metrics and rules editor** — support numeric/duration/checklist metrics, thresholds, custom fields, milestones, and nested qualification rules with accessible controls.
@@ -36,7 +36,7 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 
 ## Known limitations and risks
 
-- The new domain model is currently an in-memory validated contract; it is not yet used by UI or persisted in IndexedDB/PostgreSQL.
+- Generic definitions and entries are now persisted in IndexedDB by the Dexie v3 migration, but new UI writes and cloud persistence are not yet implemented. Legacy records continue to be retained as compatibility copies.
 - The read-only legacy projection maps each old category to a boolean habit with one completion metric. It cannot infer quantitative progress from the free-form note field.
 - Category schedules lack an explicit timezone. Schedule evaluation must define whether it uses the user’s selected timezone before streak or occurrence behavior is shipped.
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
