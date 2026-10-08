@@ -7,7 +7,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 - The current Today page is a welcome/empty-state shell; it does not yet provide routine logging, goal planning, streaks, analytics, or adaptive planning.
 - Dexie v3 stores legacy categories/daily entries alongside the generic tracker/entry tables; journals, legacy goals, metrics, progress snapshots, settings, and pending operations remain in their original stores.
 - `localRepository.ts` wraps local reads and writes. UI code should continue to use repositories rather than reach into Dexie directly.
-- Supabase currently has seven user-owned tables with RLS and a locally passing 55-assertion pgTAP suite. That migration is treated as applied history and must not be edited or replayed against the hosted project as a schema redesign mechanism.
+- Supabase has the seven legacy user-owned tables plus forward-only generic `trackers` and `tracker_entries` tables, each protected by RLS. The original migration is treated as applied history and must not be edited as a schema redesign mechanism.
 - Supabase magic-link authentication is present. Password authentication and synchronization are not part of the generic domain step.
 
 ## Architecture boundaries
@@ -22,7 +22,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 1. **Generic domain foundation** — define versioned generic tracker/entry types, validate schedules, metrics, rules, custom fields and milestones, and add non-destructive projections from legacy categories and daily entries. (Current step.)
 2. **Pure domain behavior** — completed in this phase: deterministic achievement classification, nested AND/OR/at-least rule evaluation, rest-day-aware workload distribution, recalculation, and deadline state results. Timezone-aware schedules and richer recurrence semantics remain limitations to close before shipping UI.
 3. **IndexedDB evolution** — completed in this phase: Dexie v3 generic tracker/entry tables and a transactional projection of legacy categories/entries, verified from v1/v2 fixtures and after reopen. Original legacy rows remain intact.
-4. **Cloud schema evolution** — design a new migration that adds generic records or a normalized equivalent without modifying the applied initial migration; extend local pgTAP coverage for ownership, references, tombstones, and revisions.
+4. **Cloud schema evolution** — implemented in this phase as an additive migration and pgTAP coverage for generic tracker ownership, cross-user references, tombstones, and revisions. Hosted application remains a user-run dashboard step; no hosted project was accessed.
 5. **Tracker setup flows** — build create/edit flows for habits, goals, challenges, and projects with sensible defaults and validation.
 6. **Metrics and rules editor** — support numeric/duration/checklist metrics, thresholds, custom fields, milestones, and nested qualification rules with accessible controls.
 7. **Daily logging and adaptive schedules** — implement quick logging, skips, schedule-aware prompts, and explainable qualification states.
@@ -40,6 +40,6 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 - The read-only legacy projection maps each old category to a boolean habit with one completion metric. It cannot infer quantitative progress from the free-form note field.
 - Category schedules lack an explicit timezone. Schedule evaluation must define whether it uses the user’s selected timezone before streak or occurrence behavior is shipped.
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
-- Existing cloud tables describe the legacy model. Cloud support for generic trackers must be additive, preserve RLS ownership guarantees, and be verified before any client writes to it.
+- Generic cloud tables are now defined, but the new app client does not read or write them. Apply the new migration to the hosted project and verify it before any future client integration.
 - Authentication remains magic-link only. Password flows and sync are deliberately later stages.
 - Phase 2 planning currently treats dates as UTC calendar dates and has a deliberately simple cadence model; monthly/weekly quotas are approximate distribution rules, not a timezone-aware recurrence engine. Daily recurring and cumulative-deadline are caller-selected modes and both return deadline/status information; product policy for carrying missed work forward must be finalized before UI integration.
