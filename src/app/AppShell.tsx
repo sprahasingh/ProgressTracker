@@ -5,6 +5,7 @@ const navigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
   { to: '/dashboard', label: 'Overview', icon: '▦' },
   { to: '/history', label: 'History', icon: '▤' },
+  { to: '/trackers', label: 'Trackers', icon: '✳' },
   { to: '/goals', label: 'Goals', icon: '◎' },
   { to: '/achievements', label: 'Wins', icon: '✳' },
 ]
