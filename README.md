@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project foundation, reusable interface layer, IndexedDB schema, and local repositories are in place. A Supabase email-link sign-in screen and persisted browser session handling are implemented. Daily tracking UI and cloud synchronization are still planned steps.
+The project has a reusable interface foundation, IndexedDB schema/repositories, Supabase magic-link authentication, and a validated generic tracker domain contract. The current Today page is still a welcome/empty-state shell: tracker setup, daily logging, adaptive planning, analytics, password authentication, and synchronization remain future work. See [the product and architecture roadmap](docs/ROADMAP.md).
 
 ## Tech stack
 
@@ -26,6 +26,12 @@ The project foundation, reusable interface layer, IndexedDB schema, and local re
 - `src/test` contains shared test setup.
 
 Shared UI components should remain presentation-focused. Product rules belong in domain modules as those features are introduced. The design tokens include a dark palette hook (`data-theme="dark"`); appearance controls are not implemented yet.
+
+## Generic tracker domain foundation
+
+`src/domain/trackers/types.ts` defines a storage-independent, schema-versioned tracker model for habits, goals, challenges, and projects. It represents schedule variants, typed metrics and thresholds, nested qualification rules, custom fields, milestones, and dated entries with extensible JSON values. `schema.ts` validates definitions and entries with Zod at data boundaries, including schedule ranges, threshold ordering, metric references, and custom-field option rules.
+
+`legacyAdapters.ts` projects existing category and daily-entry records into this domain shape without writing to IndexedDB or changing any stored IDs/history. A legacy category is represented as a boolean habit, and completed/skipped entries retain their identity and metadata. Quantitative progress cannot be inferred from legacy free-text notes. The generic model is not yet persisted or consumed by the application UI; the existing Dexie v2 schema, Supabase migration, and authentication behavior are unchanged. See `docs/ROADMAP.md` for the staged plan and known risks.
 
 ## Local data foundation
 
