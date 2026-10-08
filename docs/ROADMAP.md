@@ -20,7 +20,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 ## Stages
 
 1. **Generic domain foundation** — define versioned generic tracker/entry types, validate schedules, metrics, rules, custom fields and milestones, and add non-destructive projections from legacy categories and daily entries. (Current step.)
-2. **Pure domain behavior** — implement schedule occurrence and qualification evaluation with deterministic tests for time zones, threshold direction, nested rules, and edge dates.
+2. **Pure domain behavior** — completed in this phase: deterministic achievement classification, nested AND/OR/at-least rule evaluation, rest-day-aware workload distribution, recalculation, and deadline state results. Timezone-aware schedules and richer recurrence semantics remain limitations to close before shipping UI.
 3. **IndexedDB evolution** — add a forward Dexie version and converters that preserve legacy IDs/history/tombstones; test upgrades from representative v1/v2 fixtures and interruption/reopen behavior.
 4. **Cloud schema evolution** — design a new migration that adds generic records or a normalized equivalent without modifying the applied initial migration; extend local pgTAP coverage for ownership, references, tombstones, and revisions.
 5. **Tracker setup flows** — build create/edit flows for habits, goals, challenges, and projects with sensible defaults and validation.
@@ -42,3 +42,4 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
 - Existing cloud tables describe the legacy model. Cloud support for generic trackers must be additive, preserve RLS ownership guarantees, and be verified before any client writes to it.
 - Authentication remains magic-link only. Password flows and sync are deliberately later stages.
+- Phase 2 planning currently treats dates as UTC calendar dates and has a deliberately simple cadence model; monthly/weekly quotas are approximate distribution rules, not a timezone-aware recurrence engine. Daily recurring and cumulative-deadline are caller-selected modes and both return deadline/status information; product policy for carrying missed work forward must be finalized before UI integration.
