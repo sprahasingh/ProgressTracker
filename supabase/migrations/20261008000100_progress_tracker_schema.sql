@@ -14,6 +14,8 @@ create table if not exists public.categories (
   position integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   archived_at timestamptz,
   deleted_at timestamptz,
   unique (user_id, id)
@@ -31,11 +33,13 @@ create table if not exists public.goals (
   completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   deleted_at timestamptz,
   unique (user_id, id),
   constraint goals_date_order check (target_date >= start_date),
   constraint goals_category_owner_fk foreign key (user_id, category_id)
-    references public.categories (user_id, id) on delete restrict
+    references public.categories (user_id, id) on delete no action deferrable initially immediate
 );
 
 create table if not exists public.daily_entries (
@@ -47,11 +51,13 @@ create table if not exists public.daily_entries (
   note text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   deleted_at timestamptz,
   unique (user_id, id),
   unique (user_id, category_id, entry_date),
   constraint daily_entries_category_owner_fk foreign key (user_id, category_id)
-    references public.categories (user_id, id) on delete restrict
+    references public.categories (user_id, id) on delete no action deferrable initially immediate
 );
 
 create table if not exists public.daily_journals (
@@ -61,6 +67,8 @@ create table if not exists public.daily_journals (
   body text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   deleted_at timestamptz,
   unique (user_id, id),
   unique (user_id, journal_date)
@@ -77,10 +85,12 @@ create table if not exists public.goal_metrics (
   position integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   deleted_at timestamptz,
   unique (user_id, id),
   constraint goal_metrics_goal_owner_fk foreign key (user_id, goal_id)
-    references public.goals (user_id, id) on delete restrict
+    references public.goals (user_id, id) on delete no action deferrable initially immediate
 );
 
 create table if not exists public.goal_progress_logs (
@@ -91,11 +101,13 @@ create table if not exists public.goal_progress_logs (
   value numeric not null check (value >= 0 and value < 'Infinity'::numeric),
   recorded_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0),
   deleted_at timestamptz,
   note text,
   unique (user_id, id),
   constraint goal_progress_metric_owner_fk foreign key (user_id, metric_id)
-    references public.goal_metrics (user_id, id) on delete restrict
+    references public.goal_metrics (user_id, id) on delete no action deferrable initially immediate
 );
 
 create table if not exists public.app_settings (
@@ -104,8 +116,72 @@ create table if not exists public.app_settings (
   timezone text not null default 'UTC',
   appearance text not null default 'system' check (appearance in ('light', 'dark', 'system')),
   backup_reminder_days integer check (backup_reminder_days is null or backup_reminder_days > 0),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  server_changed_at timestamptz not null default clock_timestamp(),
+  server_revision bigint not null default 1 check (server_revision > 0)
 );
+
+-- updated_at remains client event metadata; server_revision is the concurrency token.
+create or replace function public.bump_server_revision()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  current_revision bigint;
+  key_column text;
+  key_value uuid;
+begin
+  if tg_op = 'UPDATE' then
+    if new.server_revision is distinct from old.server_revision then
+      raise exception 'stale ProgressTracker row revision'
+        using errcode = '40001';
+    end if;
+    new.server_revision := old.server_revision + 1;
+  else
+    -- Preserve the caller's expected revision on an INSERT ... ON CONFLICT
+    -- update path; initialize genuine new rows at revision 1.
+    key_column := coalesce(nullif(tg_argv[0], ''), 'id');
+    if key_column = 'user_id' then
+      key_value := new.user_id;
+    else
+      key_value := new.id;
+    end if;
+    execute format(
+      'select server_revision from %I.%I where %I = $1',
+      tg_table_schema, tg_table_name, key_column
+    ) into current_revision using key_value;
+    if current_revision is null then
+      new.server_revision := 1;
+    end if;
+  end if;
+  new.server_changed_at := clock_timestamp();
+  return new;
+end;
+$$;
+revoke all on function public.bump_server_revision() from public, anon, authenticated;
+
+drop trigger if exists categories_server_revision on public.categories;
+create trigger categories_server_revision before insert or update on public.categories
+  for each row execute function public.bump_server_revision();
+drop trigger if exists goals_server_revision on public.goals;
+create trigger goals_server_revision before insert or update on public.goals
+  for each row execute function public.bump_server_revision();
+drop trigger if exists daily_entries_server_revision on public.daily_entries;
+create trigger daily_entries_server_revision before insert or update on public.daily_entries
+  for each row execute function public.bump_server_revision();
+drop trigger if exists daily_journals_server_revision on public.daily_journals;
+create trigger daily_journals_server_revision before insert or update on public.daily_journals
+  for each row execute function public.bump_server_revision();
+drop trigger if exists goal_metrics_server_revision on public.goal_metrics;
+create trigger goal_metrics_server_revision before insert or update on public.goal_metrics
+  for each row execute function public.bump_server_revision();
+drop trigger if exists goal_progress_logs_server_revision on public.goal_progress_logs;
+create trigger goal_progress_logs_server_revision before insert or update on public.goal_progress_logs
+  for each row execute function public.bump_server_revision();
+drop trigger if exists app_settings_server_revision on public.app_settings;
+create trigger app_settings_server_revision before insert or update on public.app_settings
+  for each row execute function public.bump_server_revision('user_id');
 
 -- RLS is mandatory on every exposed application table.
 alter table public.categories enable row level security;
@@ -223,21 +299,25 @@ create policy app_settings_delete_own on public.app_settings for delete to authe
   using ((select auth.uid()) is not null and user_id = (select auth.uid()));
 
 -- Support per-user scans and reverse FK checks/deletes without table scans.
-create index if not exists categories_user_updated_idx on public.categories (user_id, updated_at);
-create index if not exists goals_user_updated_idx on public.goals (user_id, updated_at);
+create index if not exists categories_user_server_changed_idx on public.categories (user_id, server_changed_at);
+create index if not exists goals_user_server_changed_idx on public.goals (user_id, server_changed_at);
 create index if not exists goals_user_category_idx on public.goals (user_id, category_id);
 create index if not exists daily_entries_user_date_idx on public.daily_entries (user_id, entry_date);
 create index if not exists daily_entries_category_fk_idx on public.daily_entries (user_id, category_id);
-create index if not exists daily_journals_user_updated_idx on public.daily_journals (user_id, updated_at);
+create index if not exists daily_entries_user_server_changed_idx on public.daily_entries (user_id, server_changed_at);
+create index if not exists daily_journals_user_server_changed_idx on public.daily_journals (user_id, server_changed_at);
 create index if not exists goal_metrics_user_goal_idx on public.goal_metrics (user_id, goal_id);
-create index if not exists goal_metrics_user_updated_idx on public.goal_metrics (user_id, updated_at);
+create index if not exists goal_metrics_user_server_changed_idx on public.goal_metrics (user_id, server_changed_at);
 create index if not exists goal_progress_user_metric_date_idx on public.goal_progress_logs (user_id, metric_id, progress_date);
-create index if not exists goal_progress_user_updated_idx on public.goal_progress_logs (user_id, updated_at);
+create index if not exists goal_progress_user_server_changed_idx on public.goal_progress_logs (user_id, server_changed_at);
+create index if not exists app_settings_user_server_changed_idx on public.app_settings (user_id, server_changed_at);
 
 comment on table public.categories is 'User-owned ProgressTracker categories; deleted_at is a sync tombstone.';
 comment on table public.daily_entries is 'User-owned category/date activity; retain deleted rows until sync acknowledges tombstones.';
 comment on table public.daily_journals is 'One user-owned journal per calendar date.';
 comment on table public.goal_progress_logs is 'User-owned progress snapshots; clients upsert by UUID for retry-safe synchronization.';
-comment on column public.categories.updated_at is 'Client-supplied last mutation timestamp used for future sync conflict resolution; not a trusted audit clock.';
+comment on column public.categories.updated_at is 'Client-supplied last mutation/event timestamp; not trusted for audit or concurrency control.';
+comment on column public.categories.server_revision is 'Server-maintained optimistic concurrency token. Updates must submit the revision last read; stale writes fail with SQLSTATE 40001.';
+comment on column public.categories.server_changed_at is 'Server-maintained change timestamp and scan hint; clients cannot override it, and timestamp alone is not a commit-safe cursor.';
 
 commit;
