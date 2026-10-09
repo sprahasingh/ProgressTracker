@@ -63,7 +63,7 @@ The default reward policy grants 10 points for each qualifying retained entry an
 
 ## Overview and history
 
-The Overview route now summarizes actual local activity: active tracker count, successful scheduled check-ins over the rolling seven-day window, weekly consistency, derived reward points, current-month activity, and per-tracker current/best streaks with each latest recorded value. History lists actual entries with their values, notes, skip/success state, and filters for a tracker and the last 7, 30, or 90 days. The activity calendar covers the current local month. These views use `listTrackerEntriesBetween` and never seed sample activity. They remain device-local and read-only; past entries cannot be edited from History, and calendar month navigation and longer custom date ranges are not available.
+The Overview route now summarizes actual local activity: active tracker count, successful scheduled check-ins over the rolling seven-day window, weekly consistency, derived reward points, current-month activity, and per-tracker current/best streaks with each latest recorded value. History lists actual entries with their values, notes, skip/success state, and filters for a tracker and the last 7, 30, or 90 days, or a custom inclusive start/end date range. Custom ranges cannot end after today in the active workspace time zone. The activity calendar covers the current local month. These views use `listTrackerEntriesBetween` and never seed sample activity. They remain device-local and read-only; past entries cannot be edited from History, and calendar month navigation is not available.
 
 ## Quality and accessibility checks
 
