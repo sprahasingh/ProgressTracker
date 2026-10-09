@@ -7,6 +7,7 @@ import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { isSchemaV3WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -42,11 +43,15 @@ export function GoalsPage() {
       const trackers = await localRepository.listTrackers(true)
       const goalTrackers = trackers.filter((tracker) => tracker.kind === 'goal' && tracker.deletedAt === null)
       let earliest: CalendarDate = today
+      let latest: CalendarDate = today
       for (const tracker of goalTrackers) {
-        const start = (tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), timeZone)) as CalendarDate
+        const trackerZone = tracker.schemaVersion === 3 ? tracker.goalPlanning?.planningTimeZone ?? timeZone : timeZone
+        const start = (tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), trackerZone)) as CalendarDate
+        const trackerToday = localCalendarDate(new Date(), trackerZone) as CalendarDate
         if (start < earliest) earliest = start
+        if (trackerToday > latest) latest = trackerToday
       }
-      const entries = goalTrackers.length ? await localRepository.listTrackerEntriesBetween(earliest, today) : []
+      const entries = goalTrackers.length ? await localRepository.listTrackerEntriesBetween(earliest, latest) : []
       const goals = goalTrackers.map((tracker) => ({
         tracker,
         entries: entries.filter((entry) => entry.trackerId === tracker.id),
@@ -88,12 +93,14 @@ export function GoalsPage() {
       </div>
       <div className="tracker-card-grid">
         {goals.map(({ tracker, entries: goalEntries }) => {
+          const planningTimeZone = tracker.schemaVersion === 3 ? tracker.goalPlanning?.planningTimeZone ?? timeZone : timeZone
+          const planningToday = localCalendarDate(new Date(), planningTimeZone)
           const recorded = goalEntries.filter((entry) => entry.outcome === 'recorded')
           const latest = goalEntries[0]
-          const overdue = tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < today)
+          const overdue = tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < planningToday)
           const state = overdue ? 'Overdue' : tracker.status === 'completed' ? 'Completed' : tracker.status === 'paused' ? 'Paused' : tracker.status === 'archived' ? 'Archived' : 'In progress'
           const latestQualified = latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
-          const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), timeZone)
+          const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
           const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           return <Surface className="goal-card" key={tracker.id}>
             <div className="tracker-card-top"><span className="tracker-kind-chip">{state}</span>{tracker.deadline && <span>{overdue ? 'Was due' : 'Due'} {calendarDateLabel(tracker.deadline)}</span>}</div>
@@ -107,14 +114,14 @@ export function GoalsPage() {
                 return <li key={metric.id}><span>{metric.name}</span><strong>{valueText}{target !== undefined ? ` · target ${target}${metric.unit ? ` ${metric.unit}` : ''}` : ''}</strong></li>
               })}
             </ul>}
-            {tracker.schemaVersion === 2 && tracker.goalPlanning && <section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
+            {(tracker.schemaVersion === 2 || tracker.schemaVersion === 3) && tracker.goalPlanning && <section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
               <h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
                   const metric = tracker.metrics.find((item) => item.id === metricId)
                   if (!metric) return null
-                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: today, startDate })
+                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate })
                   const recentDays = plan.days.slice(-14)
                   const missed = plan.days.filter((day) => ['missed', 'skipped', 'below-target'].includes(day.state)).length
                   return <div className="goal-daily-metric" key={metricId}>
@@ -129,7 +136,7 @@ export function GoalsPage() {
                   : <div className="goal-cumulative-plans">{Object.entries(tracker.goalPlanning.cumulativeTargets).map(([metricId, totalTarget]) => {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
-                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: today, startDate, progressSemantics: 'incremental' })
+                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental' })
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
                     const expectedPercent = totalTarget === 0 ? 100 : Math.min(100, plan.expectedProgress / totalTarget * 100)
@@ -142,8 +149,10 @@ export function GoalsPage() {
                       <dl className="goal-plan-facts"><div><dt>Actual progress</dt><dd>{plan.actualProgress}{unit}</dd></div><div><dt>Expected progress</dt><dd>{plan.expectedProgress.toFixed(1)}{unit}</dd></div><div><dt>Remaining</dt><dd>{plan.remainingWork}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${plan.requiredDailyPace.toFixed(2)}${unit} / scheduled day`}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
-                        key={`${tracker.id}:${metricId}:${today}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
-                        tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={today} timeZone={timeZone}
+                        key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
+                        tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
+                        v3WritesEnabled={isSchemaV3WriteEnabled()}
+                        onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh() }}
                       />}
                     </div>
                   })}</div>}

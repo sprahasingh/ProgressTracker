@@ -17,6 +17,7 @@ async function emptyActiveAccountExceptMetadata() {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   db.close()
   const names = ['ProgressTracker', ...accountIds.splice(0).map((id) => `ProgressTracker:account:${encodeURIComponent(id)}`)]
   await Promise.all(names.map(async (name) => {
@@ -42,6 +43,41 @@ describe('workspace backups', () => {
     await restoreWorkspaceBackup(backup, accountId)
     await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: planned.goalPlanning })
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'tracker', planned.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 2, goalPlanning: planned.goalPlanning } })
+  })
+
+  it('exports and restores v3 allocations and timezone together with the queued cloud payload', async () => {
+    const accountId = `planning-v3-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    const planned = {
+      ...restoreTracker, id: 'backup-v3-goal', schemaVersion: 3 as const, kind: 'goal' as const, deadline: '2026-12-31',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages' }],
+      goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 100 }, planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(planned as never)
+    const backup = await createWorkspaceBackup(accountId)
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+    await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: planned.goalPlanning })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'tracker', planned.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 3, goalPlanning: planned.goalPlanning } })
+  })
+
+  it('refuses to restore a v3 backup in production while migration readiness is disabled', async () => {
+    const accountId = `planning-v3-gate-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    const planned = {
+      ...restoreTracker, id: 'backup-v3-gate-goal', schemaVersion: 3 as const, kind: 'goal' as const, deadline: '2026-12-31',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const }],
+      goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 100 }, planningTimeZone: 'UTC', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(planned as never)
+    const backup = await createWorkspaceBackup(accountId)
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', '')
+    await expect(restoreWorkspaceBackup(backup, accountId)).rejects.toThrow(/cannot restore schema v3/)
+    await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 3 })
   })
 
   it('exports a consistent, versioned snapshot of the current workspace, including pending sync data', async () => {

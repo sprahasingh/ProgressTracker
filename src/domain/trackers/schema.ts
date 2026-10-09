@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isTrackerScheduledOccurrence } from './planning'
 
 const id = z.string().min(1)
 const calendarDate = z.iso.date()
@@ -85,7 +86,13 @@ const goalPlanningSchema = z.object({
   progressSemantics: z.record(z.string(), z.enum(['incremental', 'snapshot'])),
   dailyTargets: z.record(z.string(), planningTarget),
   cumulativeTargets: z.record(z.string(), planningTarget),
+  planningTimeZone: z.string().min(1).optional(),
+  allocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
 })
+
+function isIanaTimeZone(value: string): boolean {
+  try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false }
+}
 
 const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof metricSchema>>, context: z.RefinementCtx, path: (string | number)[] = []) => {
   if (typeof rule !== 'object' || rule === null) return
@@ -103,7 +110,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -127,7 +134,10 @@ export const trackerDefinitionSchema = z.object({
   deletedAt: z.iso.datetime().nullable(),
 }).superRefine((tracker, context) => {
   if (tracker.schemaVersion === 1 && tracker.goalPlanning) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Planning configuration requires tracker schema version 2.' })
-  if (tracker.schemaVersion === 2 && (tracker.kind !== 'goal' || !tracker.goalPlanning)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 2 is reserved for goals with planning configuration.' })
+  if ((tracker.schemaVersion === 2 || tracker.schemaVersion === 3) && (tracker.kind !== 'goal' || !tracker.goalPlanning)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: `Schema version ${tracker.schemaVersion} is reserved for goals with planning configuration.` })
+  if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
+  if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
+  if (tracker.schemaVersion === 3 && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
@@ -163,6 +173,26 @@ export const trackerDefinitionSchema = z.object({
       const metric = metrics.get(metricId)
       if (!metric) context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Progress semantics reference an unknown metric.' })
       else if (metric.valueType === 'boolean') context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Boolean metrics do not support numeric progress semantics.' })
+    }
+    if (plan.allocations) {
+      for (const [metricId, datedAmounts] of Object.entries(plan.allocations)) {
+        const metric = metrics.get(metricId)
+        if (!metric) {
+          context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId], message: 'Allocation references an unknown metric.' })
+          continue
+        }
+        if (metric.valueType === 'boolean' || plan.progressSemantics[metricId] !== 'incremental' || plan.cumulativeTargets[metricId] === undefined) {
+          context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId], message: 'Allocations require an incremental metric with a cumulative target.' })
+          continue
+        }
+        for (const [date, amount] of Object.entries(datedAmounts)) {
+          if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
+          if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
+          const effectiveStartDate = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+          const scheduled = tracker.deadline && date >= effectiveStartDate && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date)
+          if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocations must use scheduled dates within the goal start and deadline.' })
+        }
+      }
     }
   }
   if (tracker.qualificationRule) ruleMetricsCheck(tracker.qualificationRule, metrics, context, ['qualificationRule'])

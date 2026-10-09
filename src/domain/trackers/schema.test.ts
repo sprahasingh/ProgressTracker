@@ -38,6 +38,41 @@ describe('generic tracker schemas', () => {
     expect(parsed.goalPlanning).toMatchObject({ mode: 'cumulative-deadline', dailyTargets: { pages: 2 }, cumulativeTargets: { pages: 100 } })
   })
 
+  it('accepts v3 persistent per-date allocations while preserving legacy versions', () => {
+    const v3: TrackerDefinition = {
+      ...tracker, schemaVersion: 3, kind: 'goal', schedule: { kind: 'weekdays' },
+      goalPlanning: {
+        mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' },
+        dailyTargets: { pages: 2 }, cumulativeTargets: { pages: 100 }, planningTimeZone: 'Asia/Kolkata',
+        allocations: { pages: { '2026-01-05': 4, '2026-01-06': 6 } },
+      },
+    }
+    expect(trackerDefinitionSchema.parse(tracker).schemaVersion).toBe(1)
+    expect(trackerDefinitionSchema.parse({ ...v3, schemaVersion: 2, goalPlanning: { ...v3.goalPlanning, planningTimeZone: undefined, allocations: undefined } }).schemaVersion).toBe(2)
+    expect(trackerDefinitionSchema.parse(v3)).toMatchObject({ schemaVersion: 3, goalPlanning: { planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-01-05': 4 } } } })
+  })
+
+  it('rejects invalid v3 dates, time zones, metric types, amounts, and ineligible schedule days', () => {
+    const v3 = {
+      ...tracker, schemaVersion: 3 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const },
+      goalPlanning: {
+        mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 100 },
+        planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-01-05': 4 } },
+      },
+    }
+    expect(trackerDefinitionSchema.safeParse({ ...v3, goalPlanning: { ...v3.goalPlanning, planningTimeZone: 'Mars/Olympus' } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v3, goalPlanning: { ...v3.goalPlanning, allocations: { pages: { '2026-01-06': -1 } } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v3, goalPlanning: { ...v3.goalPlanning, allocations: { pages: { '2026-01-10': 2 } } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v3, deadline: '2026-01-04' }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v3, goalPlanning: { ...v3.goalPlanning, allocations: { minutes: { '2026-01-05': 2 } } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v3, goalPlanning: { ...v3.goalPlanning, progressSemantics: { pages: 'snapshot' }, allocations: { pages: { '2026-01-05': 2 } } } }).success).toBe(false)
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [{ id: 'one', label: 'One', position: 0 }, { id: 'two', label: 'Two', position: 1 }] }
+    const checklistGoal = { ...v3, qualificationRule: undefined, milestones: [], metrics: [checklist], goalPlanning: { ...v3.goalPlanning, progressSemantics: { steps: 'incremental' as const }, cumulativeTargets: { steps: 10 }, allocations: { steps: { '2026-01-05': 2 } } } }
+    expect(trackerDefinitionSchema.safeParse(checklistGoal).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...checklistGoal, goalPlanning: { ...checklistGoal.goalPlanning, allocations: { steps: { '2026-01-05': 2.5 } } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...checklistGoal, goalPlanning: { ...checklistGoal.goalPlanning, allocations: { steps: { '2026-01-05': 3 } } } }).success).toBe(false)
+  })
+
   it('rejects planning on v1 and non-goal v2 definitions', () => {
     const planning = { mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} }
     expect(trackerDefinitionSchema.safeParse({ ...tracker, goalPlanning: planning }).success).toBe(false)

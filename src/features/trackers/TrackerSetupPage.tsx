@@ -110,16 +110,18 @@ export function TrackerSetupPage() {
     const invalidatedIds = configuration.metrics.filter((oldMetric) => {
       const replacement = metrics.find((metric) => metric.id === oldMetric.id)
       const hasPlanData = goalPlanning.progressSemantics[oldMetric.id] !== undefined ||
-        goalPlanning.dailyTargets[oldMetric.id] !== undefined || goalPlanning.cumulativeTargets[oldMetric.id] !== undefined
+        goalPlanning.dailyTargets[oldMetric.id] !== undefined || goalPlanning.cumulativeTargets[oldMetric.id] !== undefined ||
+        goalPlanning.allocations?.[oldMetric.id] !== undefined
       return hasPlanData && (!nextIds.has(oldMetric.id) || replacement?.valueType === 'boolean')
     }).map((metric) => metric.id)
     if (invalidatedIds.length && !window.confirm('Removing or changing this measure to yes/no will also remove its planning semantics and targets. Its saved check-in history remains unchanged. Continue?')) return
     if (invalidatedIds.length) {
-      const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets } }
+      const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets }, allocations: { ...(goalPlanning.allocations ?? {}) } }
       for (const id of invalidatedIds) {
         delete nextPlanning.progressSemantics[id]
         delete nextPlanning.dailyTargets[id]
         delete nextPlanning.cumulativeTargets[id]
+        delete nextPlanning.allocations[id]
       }
       setGoalPlanning(nextPlanning)
     }
@@ -150,7 +152,7 @@ export function TrackerSetupPage() {
       const persistGoalPlanning = kind === 'goal' && planWasConfigured
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
-        schemaVersion: persistGoalPlanning ? 2 : existing?.schemaVersion ?? 1, id, name: form.name, description: form.description.trim(), kind,
+        schemaVersion: existing?.schemaVersion === 3 ? 3 : persistGoalPlanning ? 2 : existing?.schemaVersion ?? 1, id, name: form.name, description: form.description.trim(), kind,
         status: existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,

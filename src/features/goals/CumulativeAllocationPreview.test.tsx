@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { TrackerDefinition } from '../../domain/trackers/types'
 import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
@@ -11,16 +11,33 @@ const tracker: TrackerDefinition = {
   createdAt: '2026-01-05T00:00:00.000Z', updatedAt: '2026-01-05T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
-describe('cumulative allocation preview UI', () => {
-  it('labels values as an unsaved preview and reports manual over-allocation', () => {
-    render(<CumulativeAllocationPreview tracker={tracker} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="Asia/Kolkata" />)
+afterEach(() => cleanup())
 
-    expect(screen.getByText('Unsaved proposal only. Adjustments disappear when you leave or refresh; actual check-ins, goal targets, and sync data are unchanged. Dates use the Asia/Kolkata workspace calendar.')).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton', { name: 'Preview allocation for 2026-01-05' })).toHaveValue(3.33)
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Preview allocation for 2026-01-05' }), { target: { value: '5' } })
+describe('cumulative allocation preview UI', () => {
+  it('labels values as a preview, tracks unsaved edits, and reports manual over-allocation', () => {
+    render(<CumulativeAllocationPreview tracker={tracker} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="Asia/Kolkata" onSave={vi.fn()} v3WritesEnabled />)
+
+    expect(screen.getByText('Preview only. Allocations become persistent only after Save Plan. Planned amounts remain separate from actual check-ins. Dates use the Asia/Kolkata planning calendar.')).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' })).toHaveValue(3.33)
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' }), { target: { value: '5' } })
+    expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
     expect(screen.getByText('1.67 pages is allocated beyond the remaining target.')).toBeInTheDocument()
     expect(screen.getAllByText('Actual recorded')).toHaveLength(2)
-    fireEvent.click(screen.getByRole('button', { name: 'Reset even distribution' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to Suggested Allocation' }))
     expect(screen.queryByText(/allocated beyond the remaining target/)).not.toBeInTheDocument()
+  })
+
+  it('saves allocations as v3 with the planning timezone and can discard unsaved changes', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<CumulativeAllocationPreview tracker={tracker} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="Asia/Kolkata" onSave={onSave} v3WritesEnabled />)
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' }), { target: { value: '4' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save Plan' })[0]!)
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({ schemaVersion: 3, goalPlanning: { planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-01-05': 4 } } } })
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' }), { target: { value: '7' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }))
+    expect(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' })).toHaveValue(3.33)
+    expect(screen.queryByText('UNSAVED CHANGES')).not.toBeInTheDocument()
   })
 })

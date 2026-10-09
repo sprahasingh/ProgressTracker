@@ -87,10 +87,14 @@ export type GoalPlanningConfiguration = {
   dailyTargets: Record<string, number>
   /** Whole-period totals; only metrics explicitly marked incremental may use these. */
   cumulativeTargets: Record<string, number>
+  /** IANA zone in which allocation calendar dates were planned (schema v3). */
+  planningTimeZone?: string
+  /** Confirmed cumulative per-metric allocations, keyed by metric ID then calendar date. */
+  allocations?: Record<string, Record<string, number>>
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   id: string
   name: string
   description: string
