@@ -41,7 +41,7 @@ export class ProgressTrackerDatabase extends Dexie {
   syncOperations!: Table<SyncOperation, string>
   trackers!: Table<StoredTrackerDefinition, string>
   trackerEntries!: Table<StoredTrackerEntry, string>
-  workspaceMetadata!: Table<{ key: string; userId: string | null; guestDecision?: 'imported' | 'kept-separate'; importedAt?: string }, string>
+  workspaceMetadata!: Table<{ key: string; userId: string | null; guestDecision?: 'imported' | 'imported-as-copies' | 'kept-separate'; importedAt?: string }, string>
   syncRecords!: Table<SyncRecordState, string>
   syncConflicts!: Table<SyncConflict, string>
 
@@ -169,7 +169,9 @@ export async function getGuestWorkspaceSummary(): Promise<GuestWorkspaceSummary>
   } finally { guest.close() }
 }
 
-export async function getGuestDecision(userId: string): Promise<'imported' | 'kept-separate' | undefined> {
+export type GuestDataDecision = 'imported' | 'imported-as-copies' | 'kept-separate'
+
+export async function getGuestDecision(userId: string): Promise<GuestDataDecision | undefined> {
   const target = new ProgressTrackerDatabase(databaseNameFor(userId))
   await target.open()
   try { return (await target.workspaceMetadata.get('workspace'))?.guestDecision }
@@ -177,44 +179,131 @@ export async function getGuestDecision(userId: string): Promise<'imported' | 'ke
 }
 
 /** Imports guest rows once, transactionally; source rows are retained as a recovery copy. */
-export async function decideGuestData(userId: string, decision: 'imported' | 'kept-separate'): Promise<void> {
+export async function decideGuestData(userId: string, decision: GuestDataDecision): Promise<void> {
   const guest = new ProgressTrackerDatabase(guestDatabaseName)
   const target = new ProgressTrackerDatabase(databaseNameFor(userId))
   await Promise.all([guest.open(), target.open()])
   try {
-    const guestRows = new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]])))
+    // Read every source table from one IndexedDB snapshot. The guest database
+    // stays available in other tabs while an account import is underway.
+    const guestRows = await guest.transaction('r', workspaceTables.map((table) => guest.table(table)), async () =>
+      new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]]))),
+    )
     await target.transaction('rw', [target.workspaceMetadata, target.syncOperations, target.syncRecords, ...workspaceTables.map((table) => target.table(table))], async () => {
       const metadata = await target.workspaceMetadata.get('workspace')
       if (metadata?.guestDecision) return
-      if (decision === 'imported') {
-        for (const tableName of workspaceTables) {
+      if (decision === 'imported' || decision === 'imported-as-copies') {
+        const remappedIds = new Map<string, Map<string, string>>()
+        const forcedForkIds = new Map<string, Set<string>>()
+        const copiedTrackers: StoredTrackerDefinition[] = []
+        const copiedEntries: StoredTrackerEntry[] = []
+        const remap = (tableName: string, id: unknown): unknown => typeof id === 'string' ? remappedIds.get(tableName)?.get(id) ?? id : id
+        const transform = (tableName: string, source: unknown): Record<string, unknown> => {
+          const row = source as Record<string, unknown>
+          switch (tableName) {
+            case 'dailyEntries': return { ...row, categoryId: remap('categories', row.categoryId) }
+            case 'goals': return { ...row, categoryId: remap('categories', row.categoryId) }
+            case 'goalMetrics': return { ...row, goalId: remap('goals', row.goalId) }
+            case 'goalProgressLogs': return { ...row, metricId: remap('goalMetrics', row.metricId) }
+            case 'trackers': return { ...row, categoryId: remap('categories', row.categoryId) }
+            case 'trackerEntries': return { ...row, trackerId: remap('trackers', row.trackerId) }
+            default: return { ...row }
+          }
+        }
+        // Parents precede children so every copied foreign key uses its final ID.
+        const importOrder = ['categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings', 'trackers', 'trackerEntries']
+        if (decision === 'imported-as-copies') {
+          const categoryForks = new Set<string>()
+          for (const entry of (guestRows.get('dailyEntries') ?? []) as DailyEntry[]) {
+            const collision = await target.dailyEntries.where('[categoryId+date]').equals([entry.categoryId, entry.date]).first()
+            if (collision && JSON.stringify(collision) !== JSON.stringify(entry)) categoryForks.add(entry.categoryId)
+          }
+          forcedForkIds.set('categories', categoryForks)
+          const trackerForks = new Set<string>()
+          for (const entry of (guestRows.get('trackerEntries') ?? []) as StoredTrackerEntry[]) {
+            const collision = await target.trackerEntries.where('[trackerId+date]').equals([entry.trackerId, entry.date]).first()
+            if (collision && JSON.stringify(collision) !== JSON.stringify(entry)) trackerForks.add(entry.trackerId)
+          }
+          forcedForkIds.set('trackers', trackerForks)
+        }
+        for (const tableName of importOrder) {
           const sourceRows = guestRows.get(tableName) ?? []
           const targetTable = target.table(tableName)
+          const idMap = new Map<string, string>()
+          remappedIds.set(tableName, idMap)
           for (const source of sourceRows) {
-            const key = (source as { id?: string; key?: string }).id ?? (source as { key: string }).key
-            const existing = await targetTable.get(key)
-            if (existing && JSON.stringify(existing) !== JSON.stringify(source)) {
-              throw new Error(`Guest import stopped because ${tableName} contains a different record with the same ID. Guest data is unchanged.`)
+            const sourceKey = (source as { id?: string; key?: string }).id ?? (source as { key: string }).key
+            const candidate = transform(tableName, source)
+            const existing = await targetTable.get(sourceKey)
+            const forceFork = forcedForkIds.get(tableName)?.has(sourceKey) ?? false
+            if (tableName === 'dailyJournals') {
+              const journalDate = (source as { date?: string }).date
+              const dateCollision = journalDate ? await target.dailyJournals.where('date').equals(journalDate).first() : undefined
+              if (dateCollision && JSON.stringify(dateCollision) !== JSON.stringify(source)) {
+                throw new Error(`Guest import stopped because both workspaces have a journal for ${journalDate}. Both copies are unchanged; keep the workspaces separate.`)
+              }
             }
-            if (!existing) await targetTable.put(source)
+            if (tableName === 'dailyEntries' && decision !== 'imported-as-copies') {
+              const entry = source as DailyEntry
+              const dateCollision = await target.dailyEntries.where('[categoryId+date]').equals([entry.categoryId, entry.date]).first()
+              if (dateCollision && dateCollision.id !== sourceKey) {
+                throw new Error(`Guest import stopped because both workspaces have activity for this category on ${entry.date}. Both copies are unchanged; choose the collision-safe copy option.`)
+              }
+            }
+            if (tableName === 'trackerEntries' && decision !== 'imported-as-copies') {
+              const entry = source as StoredTrackerEntry
+              const dateCollision = await target.trackerEntries.where('[trackerId+date]').equals([entry.trackerId, entry.date]).first()
+              if (dateCollision && dateCollision.id !== sourceKey) {
+                throw new Error(`Guest import stopped because both workspaces have a tracker entry for this date. Both copies are unchanged; choose the collision-safe copy option.`)
+              }
+            }
+            if (tableName === 'settings' && existing && JSON.stringify(existing) !== JSON.stringify(candidate)) {
+              // There is one settings row per workspace. Keep the account's current preferences;
+              // the complete guest settings copy remains untouched in the guest workspace.
+              idMap.set(sourceKey, sourceKey)
+              continue
+            }
+            if (existing && JSON.stringify(existing) === JSON.stringify(candidate) && !forceFork) {
+              idMap.set(sourceKey, sourceKey)
+              continue
+            }
+            let importedKey = sourceKey
+            if (existing || forceFork) {
+              if (decision !== 'imported-as-copies' || tableName === 'settings') {
+                throw new Error(`Guest import stopped because ${tableName} contains a different record with the same ID. Guest data is unchanged.`)
+              }
+              importedKey = crypto.randomUUID()
+              candidate.id = importedKey
+            }
+            idMap.set(sourceKey, importedKey)
+            await targetTable.put(candidate)
+            if (tableName === 'trackers') copiedTrackers.push(candidate as unknown as StoredTrackerDefinition)
+            if (tableName === 'trackerEntries') copiedEntries.push(candidate as unknown as StoredTrackerEntry)
           }
         }
-        for (const tableName of workspaceTables) {
+        for (const tableName of importOrder) {
           const sourceRows = guestRows.get(tableName) ?? []
+          if (tableName === 'settings' && decision === 'imported-as-copies') continue
           for (const source of sourceRows) {
-            const key = (source as { id?: string; key?: string }).id ?? (source as { key: string }).key
-            const imported = await target.table(tableName).get(key)
-            if (JSON.stringify(imported) !== JSON.stringify(source)) throw new Error('Guest import verification failed. Guest data is unchanged.')
+            const sourceKey = (source as { id?: string; key?: string }).id ?? (source as { key: string }).key
+            const importedKey = remappedIds.get(tableName)?.get(sourceKey) ?? sourceKey
+            const imported = await target.table(tableName).get(importedKey)
+            const expected = transform(tableName, source)
+            if (importedKey !== sourceKey) expected.id = importedKey
+            if (JSON.stringify(imported) !== JSON.stringify(expected)) throw new Error('Guest import verification failed. Guest data is unchanged.')
           }
         }
-        for (const payload of (guestRows.get('trackers') ?? []) as StoredTrackerDefinition[]) {
+        for (const payload of copiedTrackers) {
           await queueSyncMutation(target, userId, 'tracker', payload)
         }
-        for (const payload of (guestRows.get('trackerEntries') ?? []) as StoredTrackerEntry[]) {
+        for (const payload of copiedEntries) {
           await queueSyncMutation(target, userId, 'tracker_entry', payload)
         }
       }
-      await target.workspaceMetadata.put({ key: 'workspace', userId, guestDecision: decision, importedAt: decision === 'imported' ? new Date().toISOString() : undefined })
+      await target.workspaceMetadata.put({
+        key: 'workspace', userId, guestDecision: decision,
+        importedAt: decision === 'kept-separate' ? undefined : new Date().toISOString(),
+      })
     })
   } finally { guest.close(); target.close() }
 }

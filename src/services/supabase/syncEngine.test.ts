@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { activateWorkspace, db } from '../../db/database'
+import { activateWorkspace, db, queueSyncMutation } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
@@ -17,11 +17,11 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[] } = {}) {
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[] } = {}) {
   const rpc = vi.fn().mockResolvedValue({ data: options.rpcResult ?? null, error: options.rpcError ?? null })
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const from = vi.fn((table: string) => {
-    const rows = table === 'trackers' ? options.trackerRows ?? [] : []
+    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : []
     const builder = {
       select: () => builder,
       order: () => builder,
@@ -52,6 +52,27 @@ describe('account-scoped sync engine', () => {
     }))
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').count()).resolves.toBe(0)
     await expect(db.syncRecords.get('tracker:sync-tracker')).resolves.toMatchObject({ serverRevision: 1, ownerUserId: 'sync-user' })
+  })
+
+  it('preserves an offline edit made while the earlier version is in flight', async () => {
+    await activateWorkspace('sync-user')
+    const original = tracker()
+    await localRepository.saveTracker(original)
+    let finishRequest: ((result: { data: unknown; error: null }) => void) | undefined
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(() => new Promise((resolve) => { finishRequest = resolve }))
+
+    const syncing = synchronizeWorkspace('sync-user', client)
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalledOnce())
+    await localRepository.saveTracker({ ...original, name: 'Edited during upload' })
+    finishRequest?.({ data: { status: 'applied', record: serverTracker(original, 'sync-user', 1) }, error: null })
+    await syncing
+
+    await expect(db.trackers.get(original.id)).resolves.toMatchObject({ name: 'Edited during upload' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', original.id]).first()).resolves.toMatchObject({
+      status: 'pending', expectedRevision: 1, payload: { name: 'Edited during upload' },
+    })
+    await expect(db.syncRecords.get(`tracker:${original.id}`)).resolves.toMatchObject({ serverRevision: 1 })
   })
 
   it('uploads tracker parents before entry tombstones and keeps retries ordered', async () => {
@@ -164,5 +185,83 @@ describe('account-scoped sync engine', () => {
     const { client: foreignClient } = fakeClient({ trackerRows: [serverTracker(tracker('foreign-tracker'), 'other-user')] })
     await expect(synchronizeWorkspace('sync-user', foreignClient)).rejects.toThrow('different account')
     await expect(db.trackers.get('foreign-tracker')).resolves.toBeUndefined()
+  })
+
+  it('downloads PostgreSQL-style tracker timestamps as canonical UTC without changing their instants', async () => {
+    await activateWorkspace('sync-user')
+    const remote = {
+      ...tracker('postgres-tracker'),
+      createdAt: '2026-10-09 04:05:06.123456+00',
+      updatedAt: '2026-10-09T09:35:06.123456+05:30',
+    }
+    const { client } = fakeClient({ trackerRows: [serverTracker(remote)] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get('postgres-tracker')).resolves.toMatchObject({
+      createdAt: '2026-10-09T04:05:06.123456Z',
+      updatedAt: '2026-10-09T04:05:06.123456Z',
+    })
+  })
+
+  it('downloads PostgreSQL timestamp columns for entries without weakening entry validation', async () => {
+    await activateWorkspace('sync-user')
+    const remoteEntry = {
+      id: 'postgres-entry', user_id: 'sync-user', tracker_id: 'parent', entry_date: '2026-10-09', outcome: 'recorded',
+      entry_values: {}, note: 'round trip', created_at: '2026-10-09 04:05:06.123456+00',
+      updated_at: '2026-10-09T09:35:06.123456+05:30', deleted_at: null, server_revision: 1,
+    }
+    const { client } = fakeClient({ trackerEntryRows: [remoteEntry] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackerEntries.get('postgres-entry')).resolves.toMatchObject({
+      createdAt: '2026-10-09T04:05:06.123456Z',
+      updatedAt: '2026-10-09T04:05:06.123456Z',
+    })
+  })
+
+  it('uploads previously persisted offset timestamps using UTC while preserving the IndexedDB copy', async () => {
+    await activateWorkspace('sync-user')
+    const legacy = {
+      ...tracker('legacy-offset-tracker'),
+      createdAt: '2026-10-09T09:35:06.123456+05:30',
+      updatedAt: '2026-10-09 04:05:06.123456+00',
+    } as StoredTrackerDefinition
+    await db.trackers.put(legacy)
+    await queueSyncMutation(db, 'sync-user', 'tracker', legacy)
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      const payload = args.p_record as Record<string, unknown>
+      return { data: { status: 'applied', record: {
+        ...payload, user_id: 'sync-user', schema_version: 1, kind: 'habit', status: 'active',
+        definition: payload.definition, created_at: payload.created_at, updated_at: payload.updated_at,
+        deleted_at: null, server_revision: 1,
+      } }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      p_record: expect.objectContaining({
+        created_at: '2026-10-09T04:05:06.123456Z',
+        updated_at: '2026-10-09T04:05:06.123456Z',
+        definition: expect.objectContaining({
+          createdAt: '2026-10-09T04:05:06.123456Z',
+          updatedAt: '2026-10-09T04:05:06.123456Z',
+        }),
+      }),
+    }))
+    await expect(db.trackers.get(legacy.id)).resolves.toMatchObject({ createdAt: legacy.createdAt, updatedAt: legacy.updatedAt })
+  })
+
+  it('retains a malformed pre-existing local timestamp and its queued operation for recovery', async () => {
+    await activateWorkspace('sync-user')
+    const malformed = { ...tracker('malformed-local'), createdAt: 'not-a-datetime' } as StoredTrackerDefinition
+    await db.trackers.put(malformed)
+    await queueSyncMutation(db, 'sync-user', 'tracker', malformed)
+    const { client, rpc } = fakeClient()
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.trackers.get(malformed.id)).resolves.toMatchObject({ createdAt: 'not-a-datetime' })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', attempts: 1 })
   })
 })

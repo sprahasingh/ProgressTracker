@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
-import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestWorkspaceSummary } from '../../db/database'
+import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestDataDecision, type GuestWorkspaceSummary } from '../../db/database'
 import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
@@ -15,7 +15,7 @@ type AuthState = {
   workspaceUserId: string | null
   guestSummary: GuestWorkspaceSummary | null
   workspaceError: string | null
-  chooseGuestData: (decision: 'imported' | 'kept-separate') => Promise<void>
+  chooseGuestData: (decision: GuestDataDecision) => Promise<void>
   retryWorkspace: () => void
   syncStatus: 'idle' | 'syncing' | 'complete' | 'error'
   syncSummary: SyncSummary | null
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPasswordRecovery(false)
   }
 
-  async function chooseGuestData(decision: 'imported' | 'kept-separate') {
+  async function chooseGuestData(decision: GuestDataDecision) {
     if (!user?.id || workspaceUserId !== user.id || workspaceStatus !== 'needs-guest-choice') return
     const ownerId = user.id
     setWorkspaceStatus('loading')

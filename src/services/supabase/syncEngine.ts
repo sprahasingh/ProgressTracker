@@ -4,6 +4,7 @@ import { openDatabase } from '../../db/database'
 import type { StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { getSupabaseClient } from './client'
+import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -22,21 +23,23 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function toServerPayload(operation: SyncOperation): Record<string, unknown> {
   if (!operation.payload) throw new Error('This sync operation has no saved record payload.')
   if (operation.entity === 'tracker') {
-    const tracker = trackerDefinitionSchema.parse(operation.payload as StoredTrackerDefinition)
+    // Older IndexedDB rows can contain an equivalent PostgreSQL/offset timestamp.
+    // Canonicalize the outgoing copy; leave the persisted local record untouched.
+    const tracker = trackerDefinitionSchema.parse(normalizeTrackerTimestamps(operation.payload))
     return { id: tracker.id, schema_version: tracker.schemaVersion, kind: tracker.kind, status: tracker.status, name: tracker.name, definition: tracker, created_at: tracker.createdAt, updated_at: tracker.updatedAt, deleted_at: tracker.deletedAt }
   }
-  const entry = trackerEntrySchema.parse(operation.payload as StoredTrackerEntry)
+  const entry = trackerEntrySchema.parse(normalizeTrackerEntryTimestamps(operation.payload))
   return { id: entry.id, tracker_id: entry.trackerId, entry_date: entry.date, outcome: entry.outcome, entry_values: entry.values, note: entry.note, created_at: entry.createdAt, updated_at: entry.updatedAt, deleted_at: entry.deletedAt }
 }
 
 function trackerFromServer(row: ServerTracker): StoredTrackerDefinition {
-  const parsed = trackerDefinitionSchema.parse(row.definition)
+  const parsed = trackerDefinitionSchema.parse(normalizeTrackerTimestamps(row.definition))
   if (parsed.id !== row.id || parsed.kind !== row.kind || parsed.status !== row.status) throw new Error('Cloud tracker fields do not match its stored definition.')
   return parsed as StoredTrackerDefinition
 }
 
 function entryFromServer(row: ServerEntry): StoredTrackerEntry {
-  return trackerEntrySchema.parse({ id: row.id, trackerId: row.tracker_id, date: row.entry_date, outcome: row.outcome, values: row.entry_values, note: row.note, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at })
+  return trackerEntrySchema.parse(normalizeTrackerEntryTimestamps({ id: row.id, trackerId: row.tracker_id, date: row.entry_date, outcome: row.outcome, values: row.entry_values, note: row.note, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at }))
 }
 
 async function assertUser(client: SyncClient, expectedUserId: string) {
