@@ -130,6 +130,23 @@ a { color: inherit; text-decoration: none; }
 .tracker-card-description { min-height: 40px; margin: 8px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
 .tracker-card-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 18px; color: var(--ink-subtle); font-size: 10px; }
 .tracker-card-actions { display: flex; align-items: center; gap: 5px; margin: 17px -4px -4px; padding-top: 13px; border-top: 1px solid var(--line); }
+.today-page > .surface { margin-top: 25px; }
+.today-storage-note { display: flex; align-items: center; gap: 8px; margin: 25px 0 17px; color: var(--ink-subtle); font-size: 11px; }
+.today-checkin-list { display: grid; gap: 15px; }
+.today-checkin-card { padding: 23px; }
+.today-checkin-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.today-checkin-heading h2 { margin: 10px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 25px; font-weight: 400; }
+.today-checkin-heading p { margin: 6px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
+.today-state { flex: 0 0 auto; padding: 6px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
+.today-state.skipped { background: #f2eee5; color: #8b7650; }
+.today-entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
+.today-check { min-height: 38px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); }
+.today-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.today-checklist { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.today-checklist legend { margin-bottom: 8px; color: var(--ink); font-size: 12px; font-weight: 650; }
+.today-validation { margin: 13px 0 0; color: #963e32; font-size: 12px; }
+.today-result { margin: 15px 0 0; color: var(--accent); font-size: 12px; }
+.today-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .tracker-form-card { max-width: 760px; margin-top: 30px; }
 .tracker-form { padding: 4px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 21px 18px; }
@@ -205,6 +222,9 @@ a { color: inherit; text-decoration: none; }
   .page-title { margin-top: 25px; font-size: 48px; }
   .surface-padded { padding: 18px; }
   .tracker-card-grid { grid-template-columns: 1fr; }
+  .today-entry-fields { grid-template-columns: 1fr; }
+  .today-checkin-card { padding: 17px; }
+  .today-checkin-heading { flex-direction: column; }
   .form-grid { grid-template-columns: 1fr; gap: 17px; }
   .form-field-wide { grid-column: auto; }
   .tracker-form-card { margin-top: 23px; }

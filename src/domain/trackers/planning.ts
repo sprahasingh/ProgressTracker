@@ -31,6 +31,38 @@ export type WorkPlan = {
   overdueByDays: number
 }
 
+/** Returns whether an active tracker has a planned occurrence on this calendar date. */
+export function isScheduledDate(tracker: TrackerDefinition, date: string): boolean {
+  const time = parseDate(date)
+  if (tracker.status !== 'active' || tracker.deletedAt !== null) return false
+  if (tracker.startDate && date < tracker.startDate) return false
+  if (tracker.deadline && date > tracker.deadline) return false
+  const weekday = new Date(time).getUTCDay()
+  const schedule = tracker.schedule
+  switch (schedule.kind) {
+    case 'none': return false
+    case 'every-day': return true
+    case 'weekdays': return weekday > 0 && weekday < 6
+    case 'selected-weekdays': return schedule.weekdays.includes(weekday)
+    case 'every-n-days': {
+      const anchor = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+      const elapsed = daysBetween(anchor, date)
+      return elapsed >= 0 && elapsed % schedule.interval === 0
+    }
+    case 'times-per-week': {
+      if (schedule.preferredWeekdays) return schedule.preferredWeekdays.includes(weekday)
+      return Math.floor((weekday + 1) * schedule.count / 7) > Math.floor(weekday * schedule.count / 7)
+    }
+    case 'times-per-month': {
+      const day = Number(date.slice(8, 10))
+      const monthDays = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0)).getUTCDate()
+      return Math.floor(day * schedule.count / monthDays) > Math.floor((day - 1) * schedule.count / monthDays)
+    }
+    case 'specific-dates': return schedule.dates.includes(date)
+    case 'once': return schedule.date === date
+  }
+}
+
 const DAY_MS = 86_400_000
 const parseDate = (value: string): number => {
   const time = Date.parse(`${value}T00:00:00.000Z`)
