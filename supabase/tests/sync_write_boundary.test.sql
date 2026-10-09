@@ -29,7 +29,10 @@ select is((public.apply_tracker_sync_operation(
   '{"id":"00000000-0000-4000-8000-000000000301","schema_version":1,"kind":"habit","status":"active","name":"Owner one row","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000301","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}'
 ))->>'status', 'applied'::text, 'identical operation retry replays its receipt');
 select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000301'), 1::bigint, 'retry does not duplicate the tracker');
+reset role;
 select is((select count(*) from public.sync_operation_receipts where operation_id = '00000000-0000-4000-8000-000000000401'), 1::bigint, 'retry keeps one operation receipt');
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000031';
 select throws_ok($$select public.apply_tracker_sync_operation(
   '00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000401', 'tracker', null,
   '{"id":"00000000-0000-4000-8000-000000000301","schema_version":1,"kind":"habit","status":"active","name":"Changed payload","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000301","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')$$,

@@ -10,6 +10,8 @@ import type {
   StoredTrackerDefinition,
   StoredTrackerEntry,
   SyncOperation,
+  SyncConflict,
+  SyncRecordState,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 
@@ -40,6 +42,8 @@ export class ProgressTrackerDatabase extends Dexie {
   trackers!: Table<StoredTrackerDefinition, string>
   trackerEntries!: Table<StoredTrackerEntry, string>
   workspaceMetadata!: Table<{ key: string; userId: string | null; guestDecision?: 'imported' | 'kept-separate'; importedAt?: string }, string>
+  syncRecords!: Table<SyncRecordState, string>
+  syncConflicts!: Table<SyncConflict, string>
 
   constructor(name = 'ProgressTracker') {
     super(name)
@@ -96,6 +100,30 @@ export class ProgressTrackerDatabase extends Dexie {
       trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
       workspaceMetadata: 'key',
     })
+
+    this.version(5).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+    }).upgrade(async (transaction) => {
+      const metadata = await transaction.table('workspaceMetadata').get('workspace') as { userId?: string | null } | undefined
+      if (!metadata?.userId) return
+      const [trackers, entries] = await Promise.all([
+        transaction.table('trackers').toArray() as Promise<StoredTrackerDefinition[]>,
+        transaction.table('trackerEntries').toArray() as Promise<StoredTrackerEntry[]>,
+      ])
+      const operations = transaction.table('syncOperations')
+      const now = new Date().toISOString()
+      await operations.bulkAdd([
+        ...trackers.map((payload) => ({ id: crypto.randomUUID(), ownerUserId: metadata.userId!, entity: 'tracker' as const, entityId: payload.id, operation: 'upsert' as const, expectedRevision: null, payload, createdAt: now, attempts: 0, status: 'pending' as const, lastError: null })),
+        ...entries.map((payload) => ({ id: crypto.randomUUID(), ownerUserId: metadata.userId!, entity: 'tracker_entry' as const, entityId: payload.id, operation: 'upsert' as const, expectedRevision: null, payload, createdAt: now, attempts: 0, status: 'pending' as const, lastError: null })),
+      ])
+    })
   }
 }
 
@@ -103,7 +131,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 4
+export const DATABASE_SCHEMA_VERSION = 5
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 
@@ -155,7 +183,7 @@ export async function decideGuestData(userId: string, decision: 'imported' | 'ke
   await Promise.all([guest.open(), target.open()])
   try {
     const guestRows = new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]])))
-    await target.transaction('rw', [target.workspaceMetadata, ...workspaceTables.map((table) => target.table(table))], async () => {
+    await target.transaction('rw', [target.workspaceMetadata, target.syncOperations, target.syncRecords, ...workspaceTables.map((table) => target.table(table))], async () => {
       const metadata = await target.workspaceMetadata.get('workspace')
       if (metadata?.guestDecision) return
       if (decision === 'imported') {
@@ -179,10 +207,34 @@ export async function decideGuestData(userId: string, decision: 'imported' | 'ke
             if (JSON.stringify(imported) !== JSON.stringify(source)) throw new Error('Guest import verification failed. Guest data is unchanged.')
           }
         }
+        for (const payload of (guestRows.get('trackers') ?? []) as StoredTrackerDefinition[]) {
+          await queueSyncMutation(target, userId, 'tracker', payload)
+        }
+        for (const payload of (guestRows.get('trackerEntries') ?? []) as StoredTrackerEntry[]) {
+          await queueSyncMutation(target, userId, 'tracker_entry', payload)
+        }
       }
       await target.workspaceMetadata.put({ key: 'workspace', userId, guestDecision: decision, importedAt: decision === 'imported' ? new Date().toISOString() : undefined })
     })
   } finally { guest.close(); target.close() }
+}
+
+export async function queueSyncMutation(
+  database: ProgressTrackerDatabase,
+  ownerUserId: string | null,
+  entity: 'tracker' | 'tracker_entry',
+  payload: StoredTrackerDefinition | StoredTrackerEntry,
+): Promise<void> {
+  if (!ownerUserId) return
+  const entityId = payload.id
+  const existing = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, entityId]).toArray()
+  if (existing.length) await database.syncOperations.bulkDelete(existing.map(({ id }) => id))
+  const state = await database.syncRecords.get(`${entity}:${entityId}`)
+  await database.syncOperations.add({
+    id: crypto.randomUUID(), ownerUserId, entity, entityId, operation: 'upsert',
+    expectedRevision: state?.serverRevision ?? null, payload, createdAt: new Date().toISOString(),
+    attempts: 0, status: 'pending', lastError: null,
+  })
 }
 
 export async function openDatabase(): Promise<ProgressTrackerDatabase> {

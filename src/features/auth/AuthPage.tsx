@@ -23,7 +23,7 @@ type SetPasswordValues = z.infer<typeof setPasswordSchema>
 function getCallbackUrl(): string { return `${window.location.origin}${window.location.pathname}` }
 
 export function AuthPage() {
-  const { status, user, signOut, passwordRecovery, completePasswordRecovery } = useAuth()
+  const { status, user, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncSummary, syncError } = useAuth()
   const [mode, setMode] = useState<AuthMode>('magic-link')
   const [notice, setNotice] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -101,10 +101,12 @@ export function AuthPage() {
         {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">⌂</span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}
 
         {status === 'signed-in' && !isRecovery && requestedMode !== 'set-password' && (
-          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your data is still saved locally. Cloud synchronization will become available in a later step.</p>
+          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Sync runs only when you request it; local edits remain saved if a sync attempt fails.</p>
+            {syncError && <p className="auth-error" role="alert">{syncError}</p>}
+            {syncSummary && <p className="auth-success" role="status">Sync checked {syncSummary.uploaded} uploads and {syncSummary.downloaded} downloads; {syncSummary.conflicts} conflicts need review.</p>}
             {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
             {notice && <p className="auth-success" role="status">{notice}</p>}
-            <div className="auth-actions"><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
+            <div className="auth-actions"><Button onClick={() => void syncNow?.()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
           </div>
         )}
 

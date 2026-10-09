@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestWorkspaceSummary } from '../../db/database'
+import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -16,6 +17,10 @@ type AuthState = {
   workspaceError: string | null
   chooseGuestData: (decision: 'imported' | 'kept-separate') => Promise<void>
   retryWorkspace: () => void
+  syncStatus: 'idle' | 'syncing' | 'complete' | 'error'
+  syncSummary: SyncSummary | null
+  syncError: string | null
+  syncNow: () => Promise<void>
   signOut: () => Promise<string | null>
 }
 
@@ -30,6 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceRetry, setWorkspaceRetry] = useState(0)
+  const [syncStatus, setSyncStatus] = useState<AuthState['syncStatus']>('idle')
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const authUserIdRef = useRef<string | null>(null)
   authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
 
@@ -56,6 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = status === 'signed-in' ? user?.id ?? null : null
     setWorkspaceStatus('loading')
     setWorkspaceError(null)
+    setSyncStatus('idle')
+    setSyncSummary(null)
+    setSyncError(null)
     void (async () => {
       try {
         await activateWorkspace(userId)
@@ -106,7 +117,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function retryWorkspace() { setWorkspaceRetry((attempt) => attempt + 1) }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace, signOut }}>{children}</AuthContext.Provider>
+  async function syncNow() {
+    const ownerId = user?.id
+    if (!ownerId || status !== 'signed-in' || workspaceStatus !== 'ready' || workspaceUserId !== ownerId) {
+      setSyncError('Open this account’s local workspace before syncing.')
+      setSyncStatus('error')
+      return
+    }
+    setSyncStatus('syncing')
+    setSyncError(null)
+    try {
+      const result = await synchronizeWorkspace(ownerId)
+      if (authUserIdRef.current !== ownerId) return
+      setSyncSummary(result)
+      setSyncStatus(result.failed > 0 ? 'error' : 'complete')
+      if (result.failed > 0) setSyncError('Some changes remain on this device. Check your connection and retry.')
+    } catch (cause) {
+      if (authUserIdRef.current !== ownerId) return
+      setSyncError(cause instanceof Error ? cause.message : 'Sync could not complete. Your local records are retained.')
+      setSyncStatus('error')
+    }
+  }
+
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncSummary, syncError, syncNow, signOut }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {

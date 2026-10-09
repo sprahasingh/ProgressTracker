@@ -1,4 +1,4 @@
-import { openDatabase } from './database'
+import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
@@ -26,7 +26,7 @@ export const localRepository = {
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
-    return database.transaction('rw', database.trackers, async () => {
+    return database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
       const existing = await database.trackers.get(draft.id)
       const record: StoredTrackerDefinition = {
         ...draft,
@@ -35,6 +35,8 @@ export const localRepository = {
         deletedAt: null,
       }
       await database.trackers.put(record)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      await queueSyncMutation(database, workspace?.userId ?? null, 'tracker', record)
       return record
     })
   },
@@ -65,7 +67,7 @@ export const localRepository = {
     const checked = trackerEntrySchema.safeParse({ ...draft, id: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
     const database = await openDatabase()
-    return database.transaction('rw', database.trackers, database.trackerEntries, async () => {
+    return database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
       const tracker = await database.trackers.get(draft.trackerId)
       if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
       const valueIssue = validateTrackerEntryValues(tracker, draft.values)
@@ -80,6 +82,8 @@ export const localRepository = {
         deletedAt: null,
       }) as StoredTrackerEntry
       await database.trackerEntries.put(entry)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      await queueSyncMutation(database, workspace?.userId ?? null, 'tracker_entry', entry)
       return entry
     })
   },
@@ -87,22 +91,27 @@ export const localRepository = {
   async deleteTrackerEntry(trackerId: string, date: CalendarDate): Promise<void> {
     assertCalendarDate(date)
     const database = await openDatabase()
-    await database.transaction('rw', database.trackerEntries, async () => {
+    await database.transaction('rw', [database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
       const entry = await database.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
       if (!entry || entry.deletedAt !== null) return
       const now = new Date().toISOString()
-      await database.trackerEntries.put({ ...entry, updatedAt: now, deletedAt: now })
+      const tombstone = { ...entry, updatedAt: now, deletedAt: now }
+      await database.trackerEntries.put(tombstone)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      await queueSyncMutation(database, workspace?.userId ?? null, 'tracker_entry', tombstone)
     })
   },
 
   async archiveTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
     const database = await openDatabase()
-    return database.transaction('rw', database.trackers, async () => {
+    return database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
       const existing = await database.trackers.get(id)
       if (!existing || existing.deletedAt !== null) return undefined
       const now = new Date().toISOString()
       const archived: StoredTrackerDefinition = { ...existing, status: 'archived', archivedAt: now, updatedAt: now }
       await database.trackers.put(archived)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      await queueSyncMutation(database, workspace?.userId ?? null, 'tracker', archived)
       return archived
     })
   },

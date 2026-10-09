@@ -118,4 +118,14 @@ describe('AuthPage', () => {
     render(<AuthPage />)
     expect(screen.getByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument()
   })
+
+  it('starts cloud sync only after the signed-in user explicitly requests it', async () => {
+    const user = userEvent.setup()
+    const syncNow = vi.fn()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { email: 'person@example.com' }, signOut: vi.fn(), passwordRecovery: false, syncNow, syncStatus: 'idle' })
+    render(<AuthPage />)
+    expect(syncNow).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Sync this account' }))
+    expect(syncNow).toHaveBeenCalledOnce()
+  })
 })

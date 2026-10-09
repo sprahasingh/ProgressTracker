@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 describe('ProgressTracker database migrations', () => {
-  it('preserves existing records and projects them when upgrading schema v1 through v4', async () => {
+  it('preserves existing records and projects them when upgrading schema v1 through v5', async () => {
     const name = `migration-${crypto.randomUUID()}`
     const legacy = new Dexie(name)
     legacy.version(1).stores({
@@ -38,7 +38,7 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(upgraded)
     await upgraded.open()
 
-    expect(upgraded.verno).toBe(4)
+    expect(upgraded.verno).toBe(5)
     await expect(upgraded.categories.get('cat-1')).resolves.toMatchObject({
       id: 'cat-1', name: 'DSA', createdAt: '2026-01-01T12:00:00.000Z', updatedAt: '2026-01-01T12:00:00.000Z', deletedAt: null,
     })
@@ -73,7 +73,7 @@ describe('ProgressTracker database migrations', () => {
     const upgraded = new ProgressTrackerDatabase(name)
     openedDatabases.push(upgraded)
     await upgraded.open()
-    expect(upgraded.verno).toBe(4)
+    expect(upgraded.verno).toBe(5)
     await expect(upgraded.categories.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z' })
     await expect(upgraded.dailyEntries.get('entry-tombstone')).resolves.toMatchObject({ id: 'entry-tombstone', deletedAt: '2026-02-04T00:00:00.000Z' })
     await expect(upgraded.trackers.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z', status: 'archived' })
@@ -99,16 +99,49 @@ describe('ProgressTracker database migrations', () => {
     await expect(database.dailyEntries.add({ ...first, id: 'entry-b' })).rejects.toThrow()
   })
 
+  it('backfills account-owned sync jobs when a v4 workspace upgrades to v5', async () => {
+    const name = `account-v4-${crypto.randomUUID()}`
+    const previous = new Dexie(name)
+    previous.version(4).stores({
+      categories: 'id, name, position, archivedAt, updatedAt, deletedAt',
+      dailyEntries: 'id, categoryId, date, status, updatedAt, deletedAt, &[categoryId+date]',
+      goals: 'id, categoryId, status, targetDate, updatedAt, deletedAt',
+      goalMetrics: 'id, goalId, name, position, updatedAt, deletedAt',
+      goalProgressLogs: 'id, metricId, date, recordedAt, updatedAt, deletedAt',
+      settings: 'id, updatedAt', dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, entity, entityId, operation, updatedAt, [entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      workspaceMetadata: 'key',
+    })
+    openedDatabases.push(previous)
+    await previous.open()
+    await previous.table('workspaceMetadata').put({ key: 'workspace', userId: 'backfill-user', guestDecision: 'kept-separate' })
+    await previous.table('trackers').put({ id: 'existing-account-tracker', name: 'Existing account data', deletedAt: null })
+    await previous.table('trackerEntries').put({ id: 'existing-account-entry', trackerId: 'existing-account-tracker', date: '2026-10-09', deletedAt: null })
+    previous.close()
+    openedDatabases.splice(openedDatabases.indexOf(previous), 1)
+
+    const upgraded = new ProgressTrackerDatabase(name)
+    openedDatabases.push(upgraded)
+    await upgraded.open()
+    await expect(upgraded.syncOperations.where('ownerUserId').equals('backfill-user').count()).resolves.toBe(2)
+    await expect(upgraded.syncOperations.where('ownerUserId').equals('backfill-user').toArray()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ entity: 'tracker', entityId: 'existing-account-tracker', expectedRevision: null, status: 'pending' }),
+      expect.objectContaining({ entity: 'tracker_entry', entityId: 'existing-account-entry', expectedRevision: null, status: 'pending' }),
+    ]))
+  })
+
   it('keeps guest and authenticated account workspaces isolated, including operation queues', async () => {
     await activateWorkspace(null)
     openedDatabases.push(db)
     await db.trackers.put({ id: 'guest-tracker', name: 'Guest record' } as never)
-    await db.syncOperations.put({ id: 'guest-operation', entity: 'category', entityId: 'legacy-1', operation: 'upsert', updatedAt: '2026-01-01T00:00:00.000Z', attempts: 0, lastError: null })
+    await db.syncOperations.put({ id: 'guest-operation', ownerUserId: null, entity: 'category', entityId: 'legacy-1', operation: 'upsert', expectedRevision: null, createdAt: '2026-01-01T00:00:00.000Z', attempts: 0, status: 'pending', lastError: null })
 
     await activateWorkspace('account-a')
     openedDatabases.push(db)
     await db.trackers.put({ id: 'account-a-tracker', name: 'A record' } as never)
-    await db.syncOperations.put({ id: 'account-a-operation', entity: 'category', entityId: 'account-a-tracker', operation: 'upsert', updatedAt: '2026-01-02T00:00:00.000Z', attempts: 1, lastError: null })
+    await db.syncOperations.put({ id: 'account-a-operation', ownerUserId: 'account-a', entity: 'category', entityId: 'account-a-tracker', operation: 'upsert', expectedRevision: null, createdAt: '2026-01-02T00:00:00.000Z', attempts: 1, status: 'pending', lastError: null })
     await expect(db.trackers.get('guest-tracker')).resolves.toBeUndefined()
 
     await activateWorkspace('account-b')
@@ -137,6 +170,7 @@ describe('ProgressTracker database migrations', () => {
     await activateWorkspace('import-account')
     openedDatabases.push(db)
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
+    await expect(db.syncOperations.where('ownerUserId').equals('import-account').count()).resolves.toBe(1)
     await activateWorkspace(null)
     openedDatabases.push(db)
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
