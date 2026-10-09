@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -8,7 +8,7 @@ import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { HistoryPage } from './HistoryPage'
 
-afterEach(async () => { cleanup(); await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 
 const definition: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'history-run', name: 'Morning run', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -46,5 +46,16 @@ describe('local check-in history', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
     expect(screen.queryByText(/Success rule met/)).not.toBeInTheDocument()
+  })
+
+  it('offers retry when the local history read fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(localRepository, 'listTrackerEntriesBetween').mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
+    expect(screen.getByText('Your history is still here')).toBeInTheDocument()
+    expect(screen.queryByText('No check-ins in this range')).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -7,7 +7,7 @@ import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { TodayPage } from './TodayPage'
 
-afterEach(async () => { cleanup(); await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 const today = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` as `${number}-${number}-${number}`
 
 const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-day' }): StoredTrackerDefinition => ({
@@ -26,6 +26,8 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
+    await user.tab()
+    expect(screen.getByLabelText('Pages')).toHaveFocus()
     await user.type(screen.getByLabelText('Pages'), '5')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Please complete all required fields.')
@@ -55,5 +57,16 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await user.click(await screen.findByRole('button', { name: 'Skip today' }))
     await waitFor(() => expect(screen.getByText('Skipped')).toBeInTheDocument())
+  })
+
+  it('shows a retry state rather than treating a failed local read as an empty day', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(localRepository, 'listTrackers').mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
+    expect(screen.getByText('Your check-ins are still here')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing scheduled today')).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Nothing scheduled today')).toBeInTheDocument()
   })
 })
