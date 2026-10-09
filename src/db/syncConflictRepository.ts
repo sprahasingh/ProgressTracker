@@ -14,7 +14,7 @@ function parseEntry(value: unknown): StoredTrackerEntry {
 
 function trackerFromRemote(row: Record<string, unknown>): StoredTrackerDefinition {
   const tracker = parseTracker(row.definition)
-  if (row.user_id === undefined || row.id !== tracker.id || row.kind !== tracker.kind || row.status !== tracker.status || row.name !== tracker.name) {
+  if (row.user_id === undefined || row.id !== tracker.id || row.kind !== tracker.kind || row.status !== tracker.status || row.name !== tracker.name || row.schema_version !== tracker.schemaVersion) {
     throw new Error('The cloud tracker does not match its stored definition.')
   }
   return tracker as StoredTrackerDefinition

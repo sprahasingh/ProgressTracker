@@ -77,8 +77,20 @@ export type TrackerMilestoneDefinition = {
   position: number
 }
 
+export type GoalPlanningMode = 'daily-recurring' | 'cumulative-deadline'
+export type MetricProgressSemantics = 'incremental' | 'snapshot'
+export type GoalPlanningConfiguration = {
+  mode: GoalPlanningMode
+  /** Missing semantics are treated as snapshots and are never summed. */
+  progressSemantics: Record<string, MetricProgressSemantics>
+  /** Per-scheduled-day targets. These are separate from metric thresholds. */
+  dailyTargets: Record<string, number>
+  /** Whole-period totals; only metrics explicitly marked incremental may use these. */
+  cumulativeTargets: Record<string, number>
+}
+
 export type TrackerDefinition = {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   id: string
   name: string
   description: string
@@ -95,6 +107,7 @@ export type TrackerDefinition = {
   qualificationRule?: TrackerRule
   customFields: CustomFieldDefinition[]
   milestones: TrackerMilestoneDefinition[]
+  goalPlanning?: GoalPlanningConfiguration
   createdAt: string
   updatedAt: string
   archivedAt: string | null

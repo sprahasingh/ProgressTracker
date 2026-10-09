@@ -31,6 +31,152 @@ export type WorkPlan = {
   overdueByDays: number
 }
 
+export type GoalPlanDayState = 'rest' | 'future' | 'pending' | 'met' | 'below-target' | 'missed' | 'skipped'
+export type GoalPlanDay = { date: string; state: GoalPlanDayState; value: number | null }
+export type DailyRecurringMetricPlan = {
+  metricId: string
+  target: number
+  direction: 'increase' | 'decrease'
+  days: GoalPlanDay[]
+  metCount: number
+  elapsedOpportunities: number
+  scheduledDaysRemaining: number
+  consistencyPercent: number | null
+}
+export type CumulativeMetricPlan = {
+  metricId: string
+  totalTarget: number
+  actualProgress: number
+  expectedProgress: number
+  remainingWork: number
+  requiredDailyPace: number | null
+  scheduledDaysRemaining: number
+  scheduledDaysTotal: number
+  status: 'not-started' | 'active' | 'completed' | 'overdue' | 'no-scheduled-days'
+  paceStatus: 'not-started' | 'ahead' | 'on-track' | 'behind' | 'overdue' | 'no-scheduled-days'
+}
+
+function dateRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = []
+  for (let time = parseDate(startDate); time <= parseDate(endDate); time += DAY_MS) dates.push(dateText(time))
+  return dates
+}
+
+function latestEntriesByDate(tracker: TrackerDefinition, entries: readonly TrackerEntry[]): Map<string, TrackerEntry> {
+  const latest = new Map<string, TrackerEntry>()
+  for (const entry of entries) {
+    if (entry.trackerId !== tracker.id) continue
+    const current = latest.get(entry.date)
+    if (!current || entry.updatedAt > current.updatedAt || (entry.updatedAt === current.updatedAt && entry.id > current.id)) latest.set(entry.date, entry)
+  }
+  return new Map([...latest].filter(([, entry]) => entry.deletedAt === null))
+}
+
+function numericMetricValue(metric: TrackerMetricDefinition, value: TrackerValue | undefined): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null) {
+    return Object.values(value).filter((item) => item === true).length
+  }
+  return null
+}
+
+/** Calculates a per-scheduled-day target without changing check-in threshold semantics. */
+export function calculateDailyRecurringMetricPlan(input: {
+  tracker: TrackerDefinition
+  entries: readonly TrackerEntry[]
+  metricId: string
+  target: number
+  asOfDate: string
+  startDate: string
+}): DailyRecurringMetricPlan {
+  const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
+  if (!metric || metric.valueType === 'boolean') throw new RangeError('Daily planning requires a numeric or checklist metric.')
+  if (!Number.isFinite(input.target) || input.target < 0 || input.target > Number.MAX_SAFE_INTEGER) throw new RangeError('Planning target must be a finite nonnegative number.')
+  if (metric.valueType === 'checklist' && (!Number.isInteger(input.target) || input.target > (metric.checklistItems?.length ?? 0))) throw new RangeError('Daily checklist target must be a whole count within the checklist size.')
+  const asOf = parseDate(input.asOfDate)
+  const direction = metric.thresholds?.direction ?? 'increase'
+  const tracker = { ...input.tracker, startDate: input.startDate }
+  const horizon = dateText(asOf + 14 * DAY_MS)
+  const endDate = tracker.status === 'active'
+    ? tracker.deadline && tracker.deadline < horizon ? tracker.deadline : horizon
+    : input.asOfDate
+  if (endDate < input.startDate) return { metricId: metric.id, target: input.target, direction, days: [], metCount: 0, elapsedOpportunities: 0, scheduledDaysRemaining: 0, consistencyPercent: null }
+  const latest = latestEntriesByDate(tracker, input.entries)
+  const days = dateRange(input.startDate, endDate).map((date): GoalPlanDay => {
+    if (!isTrackerScheduledOccurrence(tracker, date)) return { date, state: 'rest', value: null }
+    const dateTime = parseDate(date)
+    const entry = latest.get(date)
+    if (dateTime > asOf) return { date, state: 'future', value: null }
+    if (!entry) return { date, state: date === input.asOfDate ? 'pending' : 'missed', value: null }
+    if (entry.outcome === 'skipped') return { date, state: 'skipped', value: null }
+    const value = numericMetricValue(metric, entry.values[metric.id])
+    if (value === null) return { date, state: 'missed', value: null }
+    const met = direction === 'increase' ? value >= input.target : value <= input.target
+    return { date, state: met ? 'met' : 'below-target', value }
+  })
+  const elapsedOpportunities = days.filter((day) => day.state !== 'rest' && day.state !== 'future' && day.state !== 'pending').length
+  const scheduledDaysRemaining = days.filter((day) => day.state === 'future' || day.state === 'pending').length
+  const metCount = days.filter((day) => day.state === 'met').length
+  return {
+    metricId: metric.id, target: input.target, direction, days, metCount, elapsedOpportunities, scheduledDaysRemaining,
+    consistencyPercent: elapsedOpportunities === 0 ? null : Math.round(metCount / elapsedOpportunities * 100),
+  }
+}
+
+/** Calculates one cumulative, explicitly incremental metric. Snapshots must never be passed here. */
+export function calculateCumulativeMetricPlan(input: {
+  tracker: TrackerDefinition
+  entries: readonly TrackerEntry[]
+  metricId: string
+  totalTarget: number
+  asOfDate: string
+  startDate: string
+  progressSemantics: 'incremental' | 'snapshot'
+}): CumulativeMetricPlan {
+  const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
+  if (!metric || metric.valueType === 'boolean') throw new RangeError('Cumulative planning requires a numeric or checklist metric.')
+  if (input.progressSemantics !== 'incremental') throw new RangeError('Cumulative planning can only sum explicitly incremental entries.')
+  if (!Number.isFinite(input.totalTarget) || input.totalTarget < 0 || input.totalTarget > Number.MAX_SAFE_INTEGER) throw new RangeError('Cumulative target must be a finite nonnegative number.')
+  if (metric.valueType === 'checklist' && !Number.isInteger(input.totalTarget)) throw new RangeError('Cumulative checklist target must be a whole item count.')
+  if (!input.tracker.deadline) throw new RangeError('Cumulative planning requires a deadline.')
+  const start = parseDate(input.startDate)
+  const deadline = parseDate(input.tracker.deadline)
+  const asOf = parseDate(input.asOfDate)
+  if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
+  const tracker = { ...input.tracker, startDate: input.startDate }
+  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date))
+  const latest = latestEntriesByDate(tracker, input.entries)
+  let actualProgress = 0
+  for (const [date, entry] of latest) {
+    const timestamp = parseDate(date)
+    if (timestamp < start || timestamp > asOf || entry.outcome !== 'recorded') continue
+    const value = numericMetricValue(metric, entry.values[metric.id])
+    // Incremental progress on a rest date remains real progress; the schedule controls pace only.
+    if (value !== null) actualProgress += value
+  }
+  const scheduledDaysTotal = scheduledDates.length
+  const elapsedScheduledDays = scheduledDates.filter((date) => parseDate(date) <= asOf).length
+  const scheduledDaysRemaining = scheduledDates.filter((date) => parseDate(date) >= asOf).length
+  const remainingWork = Math.max(0, input.totalTarget - actualProgress)
+  const expectedProgress = scheduledDaysTotal === 0 ? 0 : input.totalTarget * elapsedScheduledDays / scheduledDaysTotal
+  let status: CumulativeMetricPlan['status']
+  if (asOf < start) status = 'not-started'
+  else if (remainingWork === 0) status = 'completed'
+  else if (scheduledDaysTotal === 0) status = 'no-scheduled-days'
+  else if (asOf > deadline || scheduledDaysRemaining === 0) status = 'overdue'
+  else status = 'active'
+  const paceStatus: CumulativeMetricPlan['paceStatus'] = status === 'not-started' ? 'not-started'
+    : status === 'completed' ? 'ahead'
+      : status === 'overdue' ? 'overdue'
+        : status === 'no-scheduled-days' ? 'no-scheduled-days'
+          : actualProgress >= expectedProgress ? actualProgress > expectedProgress ? 'ahead' : 'on-track' : 'behind'
+  return {
+    metricId: metric.id, totalTarget: input.totalTarget, actualProgress, expectedProgress, remainingWork,
+    requiredDailyPace: remainingWork === 0 ? 0 : scheduledDaysRemaining > 0 ? remainingWork / scheduledDaysRemaining : null,
+    scheduledDaysRemaining, scheduledDaysTotal, status, paceStatus,
+  }
+}
+
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */
 export function isTrackerScheduledOccurrence(tracker: TrackerDefinition, date: string): boolean {
   const time = parseDate(date)

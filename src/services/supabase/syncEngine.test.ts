@@ -10,6 +10,11 @@ const tracker = (id = 'sync-tracker'): StoredTrackerDefinition => ({
   tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [], customFields: [], milestones: [],
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', archivedAt: null, deletedAt: null,
 })
+const plannedGoal: StoredTrackerDefinition = {
+  ...tracker('planned-goal'), schemaVersion: 2, kind: 'goal', deadline: '2026-12-31',
+  metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', minimum: 2, target: 5, stretch: 8, streakQualification: 'minimum' } }],
+  goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 3 }, cumulativeTargets: { pages: 100 } },
+}
 
 const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', revision = 1) => ({
   id: record.id, user_id: owner, schema_version: record.schemaVersion, kind: record.kind, status: record.status,
@@ -40,6 +45,27 @@ afterEach(async () => {
 })
 
 describe('account-scoped sync engine', () => {
+  it('uploads and downloads version 2 planning fields without changing thresholds or revisions', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(plannedGoal)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(plannedGoal, 'sync-user', 1) } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    const uploadedRecord = rpc.mock.calls[0]?.[1]?.p_record as Record<string, unknown>
+    const uploadedDefinition = uploadedRecord.definition as StoredTrackerDefinition
+    expect(uploadedRecord.schema_version).toBe(2)
+    expect(uploadedDefinition.schemaVersion).toBe(2)
+    expect(uploadedDefinition.goalPlanning).toEqual(plannedGoal.goalPlanning)
+    expect(uploadedDefinition.metrics[0]?.thresholds).toMatchObject({ minimum: 2, target: 5, stretch: 8 })
+    await expect(db.syncRecords.get(`tracker:${plannedGoal.id}`)).resolves.toMatchObject({ serverRevision: 1 })
+
+    await db.trackers.clear()
+    await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(plannedGoal)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(plannedGoal.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: plannedGoal.goalPlanning })
+  })
+
   it('uploads only the active owner’s queued tracker and records the server revision', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())

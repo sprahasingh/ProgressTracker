@@ -42,13 +42,18 @@ describe('tracker setup flow', () => {
     await user.type(screen.getByLabelText('Name'), 'Distance')
     await user.clear(screen.getByLabelText(/Target threshold/))
     await user.type(screen.getByLabelText(/Target threshold/), '10')
+    await user.type(await screen.findByLabelText(/daily planning target/), '4')
     await user.type(screen.getByLabelText('Unit'), 'km')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.objectContaining({ state: expect.any(Object) })))
     const saved = await localRepository.listTrackers()
     expect(saved).toHaveLength(1)
-    expect(saved[0]).toMatchObject({ kind: 'goal', name: 'Run a 10K', metrics: [{ name: 'Distance', unit: 'km', thresholds: { target: 10 } }] })
+    expect(saved[0]).toMatchObject({
+      schemaVersion: 2, kind: 'goal', name: 'Run a 10K',
+      metrics: [{ name: 'Distance', unit: 'km', thresholds: { target: 10 } }],
+      goalPlanning: { mode: 'daily-recurring', dailyTargets: { [saved[0]!.metrics[0]!.id]: 4 } },
+    })
   })
 
   it('saves multiple measures, nested success rules, select fields, and milestones', async () => {
@@ -105,6 +110,7 @@ describe('tracker setup flow', () => {
     expect(saved?.id).toBe(existing.id)
     expect(saved?.createdAt).toBe(existing.createdAt)
     expect(saved?.name).toBe('Updated name')
+    expect(saved?.schemaVersion).toBe(1)
   })
 
   it('archives without deleting and can still list the archived tracker', async () => {
