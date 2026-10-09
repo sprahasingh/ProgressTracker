@@ -9,11 +9,13 @@ import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import { calculateProgressRewards, calculateStreak } from '../../domain/trackers/progression'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[] }
 
 export function DashboardPage() {
-  const today = useMemo(localCalendarDate, [])
+  const { timeZone } = useWorkspaceTimeZone()
+  const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [data, setData] = useState<DashboardData>({ trackers: [], entries: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

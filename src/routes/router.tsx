@@ -1,12 +1,13 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '../app/AppShell'
 import { TodayPage } from '../features/today/TodayPage'
-import { PlaceholderPage } from '../features/shared/PlaceholderPage'
 import { AuthPage } from '../features/auth/AuthPage'
+import { PlaceholderPage } from '../features/shared/PlaceholderPage'
 import { TrackerLibraryPage } from '../features/trackers/TrackerLibraryPage'
 import { TrackerSetupPage } from '../features/trackers/TrackerSetupPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
+import { SettingsPage } from '../features/settings/WorkspaceTimeZone'
 
 export const router = createHashRouter([
   {
@@ -21,7 +22,7 @@ export const router = createHashRouter([
       { path: 'trackers/new', element: <TrackerSetupPage /> },
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
       { path: 'achievements', element: <PlaceholderPage title="Achievements" /> },
-      { path: 'settings', element: <PlaceholderPage title="Settings" /> },
+      { path: 'settings', element: <SettingsPage /> },
       { path: 'auth', element: <AuthPage /> },
     ],
   },

@@ -8,11 +8,13 @@ import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
 type HistoryRange = 7 | 30 | 90
 
 export function HistoryPage() {
-  const today = useMemo(localCalendarDate, [])
+  const { timeZone } = useWorkspaceTimeZone()
+  const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [range, setRange] = useState<HistoryRange>(30)
   const [trackerFilter, setTrackerFilter] = useState('all')
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])

@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
+import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 
 const navigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
@@ -80,7 +81,7 @@ export function AppShell() {
                 <button className="button button-secondary button-medium" onClick={() => void chooseGuestData?.('kept-separate')}>Keep guest progress separate</button>
               </div>
             </section>
-          ) : <Outlet />}
+          ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {navigation.slice(0, 5).map(({ to, label, icon, end }) => (

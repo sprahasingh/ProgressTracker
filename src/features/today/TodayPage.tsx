@@ -10,11 +10,13 @@ import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/pla
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
 const dateLabel = (value: string) => calendarDateLabel(value, { weekday: 'long', month: 'long', day: 'numeric' })
 
 export function TodayPage() {
-  const today = useMemo(localCalendarDate, [])
+  const { timeZone } = useWorkspaceTimeZone()
+  const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [loading, setLoading] = useState(true)
