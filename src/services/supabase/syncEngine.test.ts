@@ -107,6 +107,23 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get('sync-tracker')).resolves.toMatchObject({ name: 'Sync tracker' })
   })
 
+  it('keeps an operation queued when the server rejects it after an account-session switch', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker())
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      // Models the session changing after the last client-side getUser check but before
+      // the server evaluates auth.uid() and the expected workspace owner.
+      expect(args.p_expected_user_id).toBe('sync-user')
+      return { data: null, error: { code: '42501', message: 'authenticated owner does not match sync workspace' } }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
+    expect(rpc).toHaveBeenCalledOnce()
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', attempts: 1 })
+    await expect(db.trackers.get('sync-tracker')).resolves.toMatchObject({ name: 'Sync tracker' })
+  })
+
   it('retains the local version and records a server revision conflict', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())
