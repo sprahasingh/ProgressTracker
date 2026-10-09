@@ -5,11 +5,12 @@ import { isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
-export const WORKSPACE_BACKUP_VERSION = 1
+export const WORKSPACE_BACKUP_VERSION = 2
 
 const backupStores = [
   'categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs',
   'settings', 'trackers', 'trackerEntries', 'workspaceMetadata', 'syncOperations', 'syncRecords', 'syncConflicts',
+  'permanentDeletionRequests', 'permanentDeletionLedger', 'trackerVerification',
 ] as const
 
 export type WorkspaceBackup = {
@@ -45,21 +46,28 @@ const settingsRow = z.object({ id: z.literal('general'), timezone: z.string(), a
 const operationRow = z.object({ id: rowId, ownerUserId: rowId.nullable().optional(), entity: z.enum(['category', 'daily-entry', 'daily-journal', 'goal', 'goal-metric', 'goal-progress', 'settings', 'tracker', 'tracker_entry']), entityId: rowId, operation: z.literal('upsert'), expectedRevision: z.number().int().positive().nullable().optional(), payload: z.unknown().optional(), createdAt: timestamp.optional(), updatedAt: timestamp.optional(), attempts: z.number().int().nonnegative().optional(), status: z.enum(['pending', 'conflict']).optional(), lastError: z.string().nullable().optional() })
 const syncRecordRow = z.object({ key: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry']), entityId: rowId, serverRevision: z.number().int().positive() })
 const syncConflictRow = z.object({ id: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry']), entityId: rowId, localPayload: z.unknown(), remoteRecord: z.record(z.string(), z.json()).nullable(), detectedAt: timestamp })
+const deletionRequestRow = z.object({ id: rowId, ownerUserId: rowId, trackerId: rowId, requestedAt: timestamp, status: z.enum(['pending', 'conflict', 'failed']), lastError: z.string().nullable() })
+const deletionLedgerRow = z.object({ key: rowId, ownerUserId: rowId, trackerId: rowId, permanentlyDeletedAt: timestamp })
+const trackerVerificationRow = z.object({ trackerId: rowId, status: z.literal('pending-server-check') })
 const metadataRow = z.object({ key: z.literal('workspace'), userId: rowId.nullable(), guestDecision: z.enum(['imported', 'imported-as-copies', 'kept-separate']).optional(), importedAt: timestamp.optional() })
 const backupSchema = z.object({
-  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.literal(WORKSPACE_BACKUP_VERSION), exportedAt: timestamp,
+  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.union([z.literal(1), z.literal(WORKSPACE_BACKUP_VERSION)]), exportedAt: timestamp,
   workspace: z.object({ kind: z.enum(['guest', 'account']), ownerUserId: rowId.nullable() }),
   stores: z.object({
     categories: z.array(categoryRow), dailyEntries: z.array(dailyEntryRow), dailyJournals: z.array(dailyJournalRow),
     goals: z.array(goalRow), goalMetrics: z.array(goalMetricRow), goalProgressLogs: z.array(goalProgressRow),
     settings: z.array(settingsRow), trackers: z.array(trackerDefinitionSchema), trackerEntries: z.array(trackerEntrySchema),
     workspaceMetadata: z.array(metadataRow), syncOperations: z.array(operationRow), syncRecords: z.array(syncRecordRow), syncConflicts: z.array(syncConflictRow),
+    permanentDeletionRequests: z.array(deletionRequestRow).optional().default([]),
+    permanentDeletionLedger: z.array(deletionLedgerRow).optional().default([]),
+    trackerVerification: z.array(trackerVerificationRow).optional().default([]),
   }),
 })
 
 const primaryKeyFor: Record<(typeof backupStores)[number], string> = {
   categories: 'id', dailyEntries: 'id', dailyJournals: 'id', goals: 'id', goalMetrics: 'id', goalProgressLogs: 'id',
   settings: 'id', trackers: 'id', trackerEntries: 'id', workspaceMetadata: 'key', syncOperations: 'id', syncRecords: 'key', syncConflicts: 'id',
+  permanentDeletionRequests: 'id', permanentDeletionLedger: 'key', trackerVerification: 'trackerId',
 }
 
 function stableJson(value: unknown): string {
@@ -73,7 +81,7 @@ function stableJson(value: unknown): string {
 function parseAndCheckBackup(value: unknown, expectedOwnerUserId: string | null): WorkspaceBackup {
   const parsed = backupSchema.safeParse(value)
   if (!parsed.success) throw new Error(`Backup validation failed: ${parsed.error.issues[0]?.path.join('.') || 'invalid backup'} — ${parsed.error.issues[0]?.message ?? 'unsupported data'}`)
-  const backup = value as WorkspaceBackup
+  const backup = { ...parsed.data, version: WORKSPACE_BACKUP_VERSION } as WorkspaceBackup
   if (backup.workspace.ownerUserId !== expectedOwnerUserId || backup.workspace.kind !== (expectedOwnerUserId === null ? 'guest' : 'account')) {
     throw new Error('This backup belongs to a different workspace. Sign into the matching account or open the guest workspace.')
   }
@@ -97,6 +105,12 @@ function parseAndCheckBackup(value: unknown, expectedOwnerUserId: string | null)
     for (const record of parsed.data.stores[name]) {
       if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId) throw new Error(`Backup contains ${name} data for another workspace.`)
     }
+  }
+  for (const record of parsed.data.stores.permanentDeletionRequests) {
+    if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId) throw new Error('Backup contains a permanent deletion request for another workspace.')
+  }
+  for (const record of parsed.data.stores.permanentDeletionLedger) {
+    if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId || record.key !== `${expectedOwnerUserId}:${record.trackerId}`) throw new Error('Backup contains an invalid permanent-deletion ledger record.')
   }
   for (const conflict of parsed.data.stores.syncConflicts) {
     const local = conflict.entity === 'tracker' ? trackerDefinitionSchema.safeParse(conflict.localPayload) : trackerEntrySchema.safeParse(conflict.localPayload)
@@ -197,7 +211,15 @@ export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId
       const additions = []
       for (const row of candidates) {
         const existing = await table.get(row[primaryKeyFor[storeName]] as never) as Record<string, unknown> | undefined
-        if (!existing) additions.push(row)
+        if (!existing) {
+          if (storeName === 'permanentDeletionRequests') additions.push({ ...row, status: 'failed', lastError: 'Imported deletion requests are inert. Confirm permanent deletion again from the Bin.' })
+          else additions.push(row)
+          if (storeName === 'trackers' && expectedOwnerUserId) {
+            const verification = database.table('trackerVerification')
+            const trackerId = String(row.id)
+            if (!await verification.get(trackerId)) await verification.put({ trackerId, status: 'pending-server-check' })
+          }
+        }
       }
       if (additions.length) await table.bulkAdd(additions as never[])
     }

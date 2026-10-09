@@ -34,47 +34,41 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000011';
 select results_eq($$select id from public.trackers order by id$$,
   $$values ('00000000-0000-4000-8000-000000000111'::uuid)$$, 'owner one sees only their generic tracker');
-select lives_ok($$insert into public.trackers (id, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000113', 'project', 'active', 'Owner one new tracker',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000113","kind":"project","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
-  'owner one can create a tracker with auth.uid() owner default');
-select throws_ok($$insert into public.trackers (id, user_id, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000114', '00000000-0000-4000-8000-000000000012', 'habit', 'active', 'forged',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000114","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
-  '42501', null, 'owner cannot assign a tracker to another account');
-select lives_ok($$insert into public.tracker_entries (id, tracker_id, entry_date, outcome, entry_values, server_changed_at) values
-  ('00000000-0000-4000-8000-000000000211', '00000000-0000-4000-8000-000000000111', '2026-10-09', 'recorded', '{"00000000-0000-4000-8000-000000000111":true}', '2000-01-01T00:00:00Z')$$,
-  'owner can insert an entry for their tracker');
-select throws_ok($$insert into public.tracker_entries (id, tracker_id, entry_date, outcome) values
-  ('00000000-0000-4000-8000-000000000212', '00000000-0000-4000-8000-000000000112', '2026-10-09', 'recorded')$$,
-  '23503', null, 'entry cannot reference another user tracker through the composite foreign key');
-select throws_ok($$insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome) values
-  ('00000000-0000-4000-8000-000000000214', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000112', '2026-10-09', 'recorded')$$,
-  '42501', null, 'owner cannot assign an entry to another account');
-select lives_ok($$update public.tracker_entries set note = 'updated', server_revision = 1 where id = '00000000-0000-4000-8000-000000000211'$$,
-  'matching revision permits an entry update');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000501','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000113","schema_version":1,"kind":"project","status":"active","name":"Owner one new tracker","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000113","kind":"project","status":"active","metrics":[],"schedule":{"kind":"none"}}}')::jsonb)->>'status', 'applied', 'owner can create a tracker through the authenticated sync RPC');
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000502','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000114","schema_version":1,"kind":"habit","status":"active","name":"forged","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000114","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
+  '42501', null, 'owner cannot target another account through the RPC');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000503','tracker_entry',null,
+  '{"id":"00000000-0000-4000-8000-000000000211","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"recorded","entry_values":{"00000000-0000-4000-8000-000000000111":true},"created_at":"2026-10-09T00:00:00Z","updated_at":"2026-10-09T00:00:00Z"}')::jsonb)->>'status', 'applied', 'owner can insert an entry for their tracker through the RPC');
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000504','tracker_entry',null,
+  '{"id":"00000000-0000-4000-8000-000000000212","tracker_id":"00000000-0000-4000-8000-000000000112","entry_date":"2026-10-09","outcome":"recorded"}')$$,
+  '23503', null, 'RPC rejects an entry referencing another account tracker');
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000505','tracker_entry',null,
+  '{"id":"00000000-0000-4000-8000-000000000214","tracker_id":"00000000-0000-4000-8000-000000000112","entry_date":"2026-10-09","outcome":"recorded"}')$$,
+  '42501', null, 'owner cannot write an entry to another account workspace');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000506','tracker_entry',1,
+  '{"id":"00000000-0000-4000-8000-000000000211","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"recorded","note":"updated"}')::jsonb)->>'status', 'applied', 'matching revision permits an entry update through the RPC');
 select ok((select server_changed_at > '2000-01-01T00:00:00Z'::timestamptz from public.tracker_entries where id = '00000000-0000-4000-8000-000000000211'),
   'entry server change time cannot be forged');
-select throws_ok($$update public.tracker_entries set note = 'stale', server_revision = 1 where id = '00000000-0000-4000-8000-000000000211'$$,
-  '40001', null, 'stale entry revision is rejected');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000507','tracker_entry',1,
+  '{"id":"00000000-0000-4000-8000-000000000211","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"recorded","note":"stale"}')::jsonb)->>'status', 'conflict', 'stale entry revision is rejected through the RPC');
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000012';
 select results_eq($$select id from public.trackers order by id$$,
   $$values ('00000000-0000-4000-8000-000000000112'::uuid)$$, 'owner two sees only their generic tracker');
 select results_eq($$select id from public.tracker_entries$$, $$select null::uuid where false$$, 'owner two cannot read owner one entries');
-select results_eq($$update public.trackers set name = 'stolen' where id = '00000000-0000-4000-8000-000000000111' returning id$$,
-  $$select null::uuid where false$$, 'owner two cannot update owner one tracker');
-select results_eq($$delete from public.trackers where id = '00000000-0000-4000-8000-000000000111' returning id$$,
-  $$select null::uuid where false$$, 'owner two cannot delete owner one tracker');
+select throws_ok($$update public.trackers set name = 'stolen' where id = '00000000-0000-4000-8000-000000000111'$$, '42501', null, 'direct tracker updates are revoked for authenticated clients');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000508','tracker',1,
+  '{"id":"00000000-0000-4000-8000-000000000111","schema_version":1,"kind":"habit","status":"active","name":"stolen","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000111","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')::jsonb)->>'status', 'conflict', 'owner two cannot update owner one tracker through the RPC');
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000011';
-select lives_ok($$update public.tracker_entries set deleted_at = now(), server_revision = 2 where id = '00000000-0000-4000-8000-000000000211'$$,
-  'entry can be tombstoned');
-select throws_ok($$insert into public.tracker_entries (id, tracker_id, entry_date, outcome) values
-  ('00000000-0000-4000-8000-000000000215', '00000000-0000-4000-8000-000000000111', '2026-10-09', 'skipped')$$,
-  '23505', null, 'tombstone reserves tracker/date uniqueness');
-select lives_ok($$update public.tracker_entries set deleted_at = null, server_revision = 3 where id = '00000000-0000-4000-8000-000000000211'$$,
-  'entry can be restored using its original UUID');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000509','tracker_entry',2,
+  '{"id":"00000000-0000-4000-8000-000000000211","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"recorded","deleted_at":"2026-10-10T00:00:00Z"}')::jsonb)->>'status', 'applied', 'entry can be tombstoned through the RPC');
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000510','tracker_entry',null,
+  '{"id":"00000000-0000-4000-8000-000000000215","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"skipped"}')$$, '23505', null, 'tombstone reserves tracker/date uniqueness');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000511','tracker_entry',3,
+  '{"id":"00000000-0000-4000-8000-000000000211","tracker_id":"00000000-0000-4000-8000-000000000111","entry_date":"2026-10-09","outcome":"recorded","deleted_at":null}')::jsonb)->>'status', 'applied', 'entry can be restored through the RPC');
 select results_eq($$select deleted_at is null, server_revision from public.tracker_entries where id = '00000000-0000-4000-8000-000000000211'$$,
   $$values (true, 4::bigint)$$, 'restoration advances the server revision');
 
