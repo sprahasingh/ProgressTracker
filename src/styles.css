@@ -984,6 +984,76 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   .install-app-button { transition-duration: .01ms !important; }
 }
 
+/* Today is the home ritual: a glance at the week, a tiny next action, and a
+   clear sense of what has already been recorded. */
+.today-storage-note { display: flex; align-items: center; gap: 8px; margin: 15px 0 20px; font-size: 10px; }
+.today-storage-note .sync-dot { flex: 0 0 auto; width: 6px; height: 6px; margin: 0; }
+.week-rhythm {
+  margin: 0 0 14px;
+  padding: 18px 20px 14px;
+  border-color: color-mix(in srgb, var(--joy-sun) 20%, var(--line));
+  background: linear-gradient(120deg, var(--surface), color-mix(in srgb, var(--joy-sun-soft) 64%, var(--surface)) 58%, color-mix(in srgb, var(--joy-teal-soft) 58%, var(--surface)));
+}
+.week-rhythm-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.week-rhythm-heading h2 { margin: 6px 0 0; color: var(--ink); font-size: 17px; letter-spacing: -.3px; }
+.week-rhythm-count { color: var(--joy-coral); font-size: 22px; font-weight: 800; letter-spacing: -1px; }
+.week-rhythm-count small { color: var(--ink-subtle); font-size: 10px; font-weight: 600; letter-spacing: 0; }
+.week-rhythm-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-top: 15px; }
+.week-rhythm-day {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: var(--ink-muted);
+}
+.week-rhythm-weekday { font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.week-rhythm-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--surface-raised); color: var(--ink-subtle); font-size: 17px; font-weight: 800; }
+.week-rhythm-date { color: var(--ink-subtle); font-size: 9px; line-height: 1; }
+.week-rhythm-day.complete { background: color-mix(in srgb, var(--joy-teal-soft) 62%, transparent); }
+.week-rhythm-day.complete .week-rhythm-mark { background: var(--joy-teal); color: #fff; box-shadow: 0 3px 9px color-mix(in srgb, var(--joy-teal) 25%, transparent); }
+.week-rhythm-day.partial .week-rhythm-mark { background: var(--joy-citrus-soft); color: var(--warning); }
+.week-rhythm-day.today { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: color-mix(in srgb, var(--joy-coral-soft) 68%, transparent); }
+.week-rhythm-day.today .week-rhythm-weekday { color: var(--accent-strong); }
+.week-rhythm-day.today .week-rhythm-mark { color: var(--accent-strong); }
+.week-rhythm-day.rest .week-rhythm-mark { background: transparent; color: var(--ink-subtle); }
+.week-rhythm-caption { margin: 10px 0 0; color: var(--ink-subtle); font-size: 10px; text-align: center; }
+.today-overview { margin-top: 0; }
+.today-overview.all-handled { background: linear-gradient(112deg, var(--joy-teal-soft), var(--joy-citrus-soft) 58%, var(--joy-coral-soft)); }
+.today-overview.all-handled .today-overview-copy h2 { color: var(--positive); }
+.today-progress-track i { background: linear-gradient(90deg, var(--joy-coral), var(--joy-citrus), var(--joy-teal)); }
+.today-progress-track i[style*="100%"] { box-shadow: 0 0 12px color-mix(in srgb, var(--joy-teal) 42%, transparent); }
+.today-checkin-list { gap: 11px; }
+.today-checkin-card { padding: 17px 19px; border-top-width: 3px; }
+.today-checkin-card:nth-child(4n + 1) { border-top-color: var(--joy-coral); }
+.today-checkin-card:nth-child(4n + 2) { border-top-color: var(--joy-teal); }
+.today-checkin-card:nth-child(4n + 3) { border-top-color: var(--joy-citrus); }
+.today-checkin-card:nth-child(4n + 4) { border-top-color: var(--joy-blue); }
+.today-checkin-card.checked-in { background: linear-gradient(110deg, var(--surface), color-mix(in srgb, var(--positive-soft) 50%, var(--surface))); }
+.today-checkin-heading h2 { font-family: var(--font-sans); font-size: 19px; font-weight: 730; letter-spacing: -.3px; }
+.today-entry-fields { gap: 12px; margin-top: 15px; }
+.today-note-details { margin-top: 11px; }
+.today-note-details summary { width: fit-content; padding: 6px 0; color: var(--accent-strong); cursor: pointer; font-size: 11px; font-weight: 650; list-style: none; }
+.today-note-details summary::-webkit-details-marker { display: none; }
+.today-note-details summary::before { display: inline-block; width: 16px; content: "+"; font-size: 15px; }
+.today-note-details[open] summary::before { content: "−"; }
+.today-note-details summary span { margin-left: 4px; color: var(--ink-subtle); font-size: 9px; font-weight: 450; }
+.today-note-details .form-field { margin-top: 6px; }
+.today-note-details .tracker-textarea { min-height: 65px; }
+.today-actions { margin-top: 12px; padding-top: 11px; }
+[data-theme='dark'] .week-rhythm { background: linear-gradient(120deg, var(--surface), color-mix(in srgb, var(--joy-sun-soft) 30%, var(--surface)) 58%, color-mix(in srgb, var(--joy-teal-soft) 34%, var(--surface))); }
+[data-theme='dark'] .today-overview.all-handled { background: linear-gradient(112deg, color-mix(in srgb, var(--joy-teal) 17%, var(--surface)), color-mix(in srgb, var(--joy-citrus) 15%, var(--surface)) 58%, color-mix(in srgb, var(--joy-coral) 14%, var(--surface))); }
+@media (max-width: 600px) {
+  .week-rhythm { padding: 16px 10px 12px; }
+  .week-rhythm-days { gap: 2px; margin-top: 12px; }
+  .week-rhythm-day { padding-right: 1px; padding-left: 1px; }
+  .week-rhythm-mark { width: 27px; height: 27px; }
+  .today-checkin-card { padding: 15px; }
+  .today-actions .button-primary { flex: 1 1 100%; }
+}
+
 .sync-state { display: flex; width: auto; align-items: center; gap: 4px; color: var(--ink-muted); text-decoration: none; }
 .sync-state:hover { color: var(--accent-strong); }
 .sync-state.error, .topbar-sync-state.error { color: var(--danger); }
