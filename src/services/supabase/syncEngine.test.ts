@@ -76,6 +76,21 @@ describe('account-scoped sync engine', () => {
     }))
   })
 
+  it('does not upload child entries when their parent tracker has a revision conflict', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker()
+    await localRepository.saveTracker(definition)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'Child must wait' })
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'conflict', record: serverTracker({ ...definition, name: 'Cloud parent' }, 'sync-user', 3) } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 1, uploaded: 0 })
+
+    expect(rpc).toHaveBeenCalledOnce()
+    expect(rpc.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ p_entity: 'tracker', p_record: expect.objectContaining({ id: definition.id }) }))
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', definition.id]).first()).resolves.toMatchObject({ status: 'conflict' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ status: 'pending', payload: { note: 'Child must wait' } })
+  })
+
   it('refuses to send queued work when the authenticated user differs from the workspace', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())
