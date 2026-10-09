@@ -12,7 +12,7 @@ const navigation = [
 ]
 
 export function AppShell() {
-  const { status, passwordRecovery } = useAuth()
+  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace } = useAuth()
   const navigate = useNavigate()
   useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
   const localStatus = status === 'signed-in' ? 'Account ready' : status === 'loading' ? 'Checking account' : 'Local mode'
@@ -54,7 +54,26 @@ export function AppShell() {
           <span className="date-chip">A little progress, every day</span>
           <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
         </header>
-        <div id="main-content" className="page-content" tabIndex={-1}><Outlet /></div>
+        <div id="main-content" className="page-content" tabIndex={-1}>
+          {workspaceStatus && (workspaceStatus === 'loading' || workspaceStatus === 'error' || workspaceUserId !== (status === 'signed-in' ? user?.id ?? null : null)) ? (
+            <section className="workspace-gate" role={workspaceStatus === 'error' ? 'alert' : 'status'}>
+              <h1>{workspaceStatus === 'error' ? 'Workspace unavailable' : 'Opening your workspace'}</h1>
+              <p>{workspaceStatus === 'error' ? workspaceError : 'Your local data is being opened for this session.'}</p>
+              {workspaceStatus === 'error' && <button className="button button-secondary button-medium" onClick={retryWorkspace}>Try again</button>}
+            </section>
+          ) : workspaceStatus === 'needs-guest-choice' ? (
+            <section className="workspace-gate" aria-labelledby="guest-import-title">
+              <h1 id="guest-import-title">You have progress saved as a guest</h1>
+              <p>Your guest workspace has {Object.values(guestSummary?.counts ?? {}).reduce((sum, count) => sum + count, 0)} saved records. Choose whether to copy it into {user?.email ?? 'this account'}.</p>
+              <p>The guest copy stays on this device either way. Importing copies records into this account’s separate local workspace; it does not upload anything.</p>
+              {workspaceError && <p role="alert" className="auth-error">{workspaceError}</p>}
+              <div className="workspace-choice-actions">
+                <button className="button button-primary button-medium" onClick={() => void chooseGuestData?.('imported')}>Copy guest progress into this account</button>
+                <button className="button button-secondary button-medium" onClick={() => void chooseGuestData?.('kept-separate')}>Keep guest progress separate</button>
+              </div>
+            </section>
+          ) : <Outlet />}
+        </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {navigation.slice(0, 5).map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav-link${isActive ? ' active' : ''}`}>

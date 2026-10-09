@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project has generic tracker setup, multi-metric success-rule editing, adaptive planning, local persistence, Supabase magic-link and email/password authentication, daily check-ins, dashboard summaries, and history. Cloud synchronization remains future work. See [the product and architecture roadmap](docs/ROADMAP.md).
+The project has generic tracker setup, multi-metric success-rule editing, adaptive planning, local persistence, account-isolated IndexedDB workspaces, Supabase magic-link and email/password authentication, daily check-ins, dashboard summaries, and history. Cloud synchronization remains disabled and is planned as a later phase. See [the product and architecture roadmap](docs/ROADMAP.md).
 
 ## Tech stack
 
@@ -78,6 +78,14 @@ ProgressTracker supports passwordless email sign-in, email/password sign-up and 
 In **Authentication → URL Configuration**, set the Site URL to `https://sprahasingh.github.io/ProgressTracker/` and add that URL plus `http://localhost:5173/ProgressTracker/` to the allowed Redirect URLs. Keep the Email provider enabled under **Authentication → Sign In / Providers**. Configure confirmation and password-recovery email templates to use Supabase's redirect placeholder so links return to the app URL requested by the client. For a new account, Supabase may require email confirmation before sign-in depending on project settings; the app displays confirmation guidance when no session is returned. Supabase's built-in email sender is limited to project organization members and 2 emails per hour; broader delivery requires custom SMTP, which is not configured by this project.
 
 Password reset responses intentionally use neutral copy so the UI does not reveal whether an email address has an account. A recovery link must be valid and successfully exchanged by the Supabase JS PKCE client before the password form is shown. Password policy enforcement, email delivery, rate limits, confirmation requirements, and redirect allow-list behavior are controlled by Supabase project settings and must be verified in the hosted project. Browser authentication enables account access only; the app still reads and writes productivity data locally.
+
+### Local workspace isolation
+
+The original `ProgressTracker` IndexedDB database remains the guest workspace. Each signed-in Supabase user opens a separate local database keyed to that authenticated user ID. Switching accounts closes the current workspace, temporarily blocks record screens, clears them from the rendered route tree, and opens the new account's database. Offline edits and queued local operations remain in that account's database across sign-out and later sign-in. No synchronization upload is enabled in this phase.
+
+When an account first opens while guest data exists, ProgressTracker asks whether to copy that data into the account workspace or keep it separate. The copy includes existing local records and tombstones, retains stable record IDs, and leaves the guest source untouched. It runs as a local transaction with collision detection, post-copy verification, and a per-account completion marker; retrying after interruption is safe. If a different record already uses the same ID, the transaction stops without overwriting either copy. The user can keep the guest workspace separate and ask for import again only through a future explicit flow. Pending guest sync operations are not copied into an account queue.
+
+Local workspace partitioning is a browser-side isolation boundary, not a defense against someone with access to the browser profile or developer tools. Cloud writes remain disabled until a later phase adds authenticated server-side operation receipts, revision-checked writes, conflict recovery, and tests that prove jobs cannot run under a different session. The existing Supabase RLS policies on generic tracker tables require `user_id = auth.uid()` for every operation and composite foreign keys enforce same-owner parent links; no client code writes those tables yet.
 
 ## Supabase database schema and security
 
@@ -155,4 +163,4 @@ The current visual language uses a muted botanical green accent, warm neutral su
 
 ## Planned architecture
 
-IndexedDB provides the immediate local persistence layer through Dexie repositories. Supabase Authentication and PostgreSQL with Row Level Security will support optional account-based synchronization across devices. The deployed static application will not include a custom backend. No analytics service is configured.
+IndexedDB provides the immediate local persistence layer through Dexie repositories. Guest and authenticated account workspaces are isolated locally; the Supabase PostgreSQL tables remain unused by the app until the separately reviewed synchronization phases are complete. The deployed static application will not include a custom backend. No analytics service is configured.

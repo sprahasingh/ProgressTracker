@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
+import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestWorkspaceSummary } from '../../db/database'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -9,6 +10,12 @@ type AuthState = {
   user: User | null
   passwordRecovery: boolean
   completePasswordRecovery: () => void
+  workspaceStatus: 'loading' | 'ready' | 'needs-guest-choice' | 'error'
+  workspaceUserId: string | null
+  guestSummary: GuestWorkspaceSummary | null
+  workspaceError: string | null
+  chooseGuestData: (decision: 'imported' | 'kept-separate') => Promise<void>
+  retryWorkspace: () => void
   signOut: () => Promise<string | null>
 }
 
@@ -18,6 +25,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<User | null>(null)
   const [passwordRecovery, setPasswordRecovery] = useState(false)
+  const [workspaceStatus, setWorkspaceStatus] = useState<AuthState['workspaceStatus']>('loading')
+  const [workspaceUserId, setWorkspaceUserId] = useState<string | null>(null)
+  const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [workspaceRetry, setWorkspaceRetry] = useState(0)
+  const authUserIdRef = useRef<string | null>(null)
+  authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
 
   useEffect(() => {
     const client = getSupabaseClient()
@@ -36,6 +50,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (status === 'loading') return
+    let current = true
+    const userId = status === 'signed-in' ? user?.id ?? null : null
+    setWorkspaceStatus('loading')
+    setWorkspaceError(null)
+    void (async () => {
+      try {
+        await activateWorkspace(userId)
+        if (!current) return
+        setWorkspaceUserId(userId)
+        if (!userId) { setGuestSummary(null); setWorkspaceStatus('ready'); return }
+        const [decision, summary] = await Promise.all([getGuestDecision(userId), getGuestWorkspaceSummary()])
+        if (!current) return
+        setGuestSummary(summary)
+        if (summary.hasData && !decision) setWorkspaceStatus('needs-guest-choice')
+        else {
+          if (!decision) await decideGuestData(userId, 'kept-separate')
+          setWorkspaceStatus('ready')
+        }
+      } catch (cause) {
+        if (!current) return
+        setWorkspaceError(cause instanceof Error ? cause.message : 'The local workspace could not be opened.')
+        setWorkspaceStatus('error')
+      }
+    })()
+    return () => { current = false }
+  }, [status, user?.id, workspaceRetry])
+
   async function signOut(): Promise<string | null> {
     const client = getSupabaseClient()
     if (!client) return null
@@ -47,7 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPasswordRecovery(false)
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, signOut }}>{children}</AuthContext.Provider>
+  async function chooseGuestData(decision: 'imported' | 'kept-separate') {
+    if (!user?.id || workspaceUserId !== user.id || workspaceStatus !== 'needs-guest-choice') return
+    const ownerId = user.id
+    setWorkspaceStatus('loading')
+    try {
+      await decideGuestData(ownerId, decision)
+      if (authUserIdRef.current === ownerId) setWorkspaceStatus('ready')
+    } catch (cause) {
+      if (authUserIdRef.current !== ownerId) return
+      setWorkspaceError(cause instanceof Error ? cause.message : 'The guest data decision could not be saved.')
+      setWorkspaceStatus('needs-guest-choice')
+    }
+  }
+
+  function retryWorkspace() { setWorkspaceRetry((attempt) => attempt + 1) }
+
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace, signOut }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {
