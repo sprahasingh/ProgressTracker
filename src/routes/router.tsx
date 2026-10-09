@@ -9,6 +9,7 @@ import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
 import { SettingsPage } from '../features/settings/WorkspaceTimeZone'
 import { AchievementsPage } from '../features/dashboard/AchievementsPage'
+import { AnalyticsPage } from '../features/analytics/AnalyticsPage'
 
 export const router = createHashRouter([
   {
@@ -18,6 +19,7 @@ export const router = createHashRouter([
       { index: true, element: <TodayPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'history', element: <HistoryPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
       { path: 'goals', element: <GoalsPage /> },
       { path: 'trackers', element: <TrackerLibraryPage /> },
       { path: 'trackers/new', element: <TrackerSetupPage /> },
