@@ -97,16 +97,23 @@ export type AppSettings = {
   updatedAt: string
 }
 
-export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings'
+export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings' | 'tracker' | 'tracker_entry'
 export type SyncOperation = {
   id: string
+  ownerUserId: string | null
   entity: SyncEntity
   entityId: string
-  operation: 'upsert' | 'delete'
-  updatedAt: string
+  operation: 'upsert'
+  expectedRevision: number | null
+  payload?: StoredTrackerDefinition | StoredTrackerEntry
+  createdAt: string
   attempts: number
+  status: 'pending' | 'conflict'
   lastError: string | null
 }
+
+export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; serverRevision: number }
+export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry; remoteRecord: Record<string, unknown> | null; detectedAt: string }
 
 export type DailyEntryDraft = Pick<DailyEntry, 'categoryId' | 'date' | 'status' | 'note'>
 export type DailyJournalDraft = Pick<DailyJournal, 'date' | 'body'>
