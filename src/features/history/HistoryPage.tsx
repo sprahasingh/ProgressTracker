@@ -10,6 +10,9 @@ import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { assertDateRange } from '../../db/calendarDate'
+import { validateTrackerEntryValues } from '../../domain/trackers/schema'
+import type { TrackerValue } from '../../domain/trackers/types'
+import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
@@ -89,7 +92,7 @@ export function HistoryPage() {
           const tracker = trackerMap.get(entry.trackerId)
           if (!tracker) return null
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} />
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} onSaved={refresh} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> History comes from this device’s saved entries. It is not synced to an account.</p>
@@ -103,9 +106,53 @@ function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTracke
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean }) {
-  const outcome = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Success rule met' : 'Logged'
-  return <Surface className="history-entry-card"><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${entry.outcome === 'skipped' ? 'muted' : qualifies ? 'positive' : ''}`}>{outcome}</span></div>
+function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; onSaved: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
+  const [note, setNote] = useState(entry.note)
+  const [entryOutcome, setEntryOutcome] = useState<StoredTrackerEntry['outcome']>(entry.outcome)
+  const [saving, setSaving] = useState(false)
+  const [issue, setIssue] = useState('')
+  const [saved, setSaved] = useState('')
+  const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
+    const next = { ...current }
+    if (value === undefined) delete next[key]
+    else next[key] = value
+    return next
+  })
+  async function saveChanges() {
+    const validationIssue = entryOutcome === 'recorded' ? validateTrackerEntryValues(tracker, values) : undefined
+    if (validationIssue) {
+      setIssue(validationIssue.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.'))
+      return
+    }
+    setIssue('')
+    setSaved('')
+    setSaving(true)
+    try {
+      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: entry.date, outcome: entryOutcome, values: entryOutcome === 'skipped' ? {} : values, note })
+      await onSaved()
+      setEditing(false)
+      setSaved('Check-in updated.')
+    } catch (cause) {
+      setIssue(cause instanceof Error ? cause.message : 'This check-in could not be updated.')
+    } finally {
+      setSaving(false)
+    }
+  }
+  const outcomeLabel = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Success rule met' : 'Logged'
+  return <Surface className="history-entry-card"><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${entry.outcome === 'skipped' ? 'muted' : qualifies ? 'positive' : ''}`}>{outcomeLabel}</span></div>
+    {saved && <p className="auth-success" role="status">{saved}</p>}
+    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setEditing(true); setSaved('') }}>Edit check-in</button>}
+    {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
+    {editing && <div className="history-edit-form">
+      <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Recorded</option><option value="skipped">Skipped</option></select></label>
+      {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
+      <label className="form-field form-field-wide"><span>Note <em>· optional</em></span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} /></label>
+      {issue && <p className="today-validation" role="alert">{issue}</p>}
+      <div className="today-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void saveChanges()}>{saving ? 'Saving…' : 'Save changes'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => { setEditing(false); setIssue('') }}>Cancel</button></div>
+    </div>}
+    {!editing && <>
     {entry.outcome === 'recorded' && <dl className="history-values">{tracker.metrics.map((metric) => {
       const value = entry.values[metric.id]
       if (value === undefined || value === null) return null
@@ -116,6 +163,7 @@ function HistoryEntry({ tracker, entry, qualifies }: { tracker: StoredTrackerDef
       return <div key={field.id}><dt>{field.name}</dt><dd>{Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>
     })}</dl>}
     {entry.note && <p className="history-entry-note">{entry.note}</p>}
+    </>}
   </Surface>
 }
 
