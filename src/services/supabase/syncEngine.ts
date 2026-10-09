@@ -16,6 +16,8 @@ type SyncClient = Pick<SupabaseClient, 'auth'> & {
 
 export type SyncSummary = { uploaded: number; downloaded: number; conflicts: number; failed: number }
 const pageSize = 200
+const inFlightByUser = new Map<string, Promise<SyncSummary>>()
+let syncQueue: Promise<void> = Promise.resolve()
 
 function keyFor(entity: 'tracker' | 'tracker_entry', id: string) { return `${entity}:${id}` }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Sync could not complete. Your local records are retained.' }
@@ -201,6 +203,10 @@ async function pullTable<T extends ServerTracker | ServerEntry>(database: Progre
     if (!rows.length) break
     for (const row of rows) {
       if (row.user_id !== userId) throw new Error('The cloud returned a record for a different account; this page was not merged.')
+      // A session may change while the page request is in flight. Recheck before
+      // applying each row so a response fetched under an old session is discarded.
+      await accountState(database, userId)
+      await assertUser(client, userId)
       const result = await apply(row)
       downloaded += result.downloaded
       conflicts += result.conflicts
@@ -211,8 +217,7 @@ async function pullTable<T extends ServerTracker | ServerEntry>(database: Progre
   return { downloaded, conflicts }
 }
 
-/** Runs an explicit account-scoped sync. It never chooses an owner from local record data. */
-export async function synchronizeWorkspace(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
+async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
   const client = (injectedClient ?? getSupabaseClient()) as SyncClient | null
   if (!client) throw new Error('Supabase is not configured; local changes remain saved on this device.')
   const database = await openDatabase()
@@ -225,4 +230,23 @@ export async function synchronizeWorkspace(userId: string, injectedClient?: Supa
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
   return { uploaded: trackers.uploaded + entries.uploaded, downloaded: trackerPull.downloaded + entryPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed }
+}
+
+/**
+ * Runs one account-scoped sync at a time. Concurrent requests for the same
+ * account join the active operation; other accounts wait for the current
+ * IndexedDB workspace operation to finish before opening their workspace.
+ */
+export function synchronizeWorkspace(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
+  const active = inFlightByUser.get(userId)
+  if (active) return active
+
+  const operation = syncQueue.then(() => runSynchronization(userId, injectedClient))
+  syncQueue = operation.then(() => undefined, () => undefined)
+  inFlightByUser.set(userId, operation)
+  void operation.then(
+    () => { if (inFlightByUser.get(userId) === operation) inFlightByUser.delete(userId) },
+    () => { if (inFlightByUser.get(userId) === operation) inFlightByUser.delete(userId) },
+  )
+  return operation
 }

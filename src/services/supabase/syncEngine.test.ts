@@ -54,6 +54,36 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncRecords.get('tracker:sync-tracker')).resolves.toMatchObject({ serverRevision: 1, ownerUserId: 'sync-user' })
   })
 
+  it('single-flights concurrent automatic and manual requests for the same account', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker())
+    let finishRequest: ((result: { data: unknown; error: null }) => void) | undefined
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(() => new Promise((resolve) => { finishRequest = resolve }))
+
+    const automatic = synchronizeWorkspace('sync-user', client)
+    const manual = synchronizeWorkspace('sync-user', client)
+    expect(manual).toBe(automatic)
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalledOnce())
+    finishRequest?.({ data: { status: 'applied', record: serverTracker(tracker()) }, error: null })
+    await expect(Promise.all([automatic, manual])).resolves.toEqual([
+      { uploaded: 1, downloaded: 0, conflicts: 0, failed: 0 },
+      { uploaded: 1, downloaded: 0, conflicts: 0, failed: 0 },
+    ])
+    expect(rpc).toHaveBeenCalledOnce()
+  })
+
+  it('repeated download checks update the existing local identity without duplicating records', async () => {
+    await activateWorkspace('sync-user')
+    const remote = tracker('repeated-download')
+    const { client } = fakeClient({ trackerRows: [serverTracker(remote)] })
+
+    await synchronizeWorkspace('sync-user', client)
+    await synchronizeWorkspace('sync-user', client)
+
+    await expect(db.trackers.where('id').equals(remote.id).count()).resolves.toBe(1)
+  })
+
   it('preserves an offline edit made while the earlier version is in flight', async () => {
     await activateWorkspace('sync-user')
     const original = tracker()
@@ -185,6 +215,19 @@ describe('account-scoped sync engine', () => {
     const { client: foreignClient } = fakeClient({ trackerRows: [serverTracker(tracker('foreign-tracker'), 'other-user')] })
     await expect(synchronizeWorkspace('sync-user', foreignClient)).rejects.toThrow('different account')
     await expect(db.trackers.get('foreign-tracker')).resolves.toBeUndefined()
+  })
+
+  it('discards a cloud page when the authenticated account changes before a row is merged', async () => {
+    await activateWorkspace('sync-user')
+    const remote = tracker('session-switched-row')
+    const { client, getUser } = fakeClient({ trackerRows: [serverTracker(remote)] })
+    getUser
+      .mockResolvedValueOnce({ data: { user: { id: 'sync-user' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'sync-user' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'other-user' } }, error: null })
+
+    await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('does not match this account workspace')
+    await expect(db.trackers.get(remote.id)).resolves.toBeUndefined()
   })
 
   it('downloads PostgreSQL-style tracker timestamps as canonical UTC without changing their instants', async () => {

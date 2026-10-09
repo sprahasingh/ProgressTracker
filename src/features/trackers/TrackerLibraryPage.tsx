@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -6,35 +6,62 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
+import { useAuth } from '../auth/AuthProvider'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
 export function TrackerLibraryPage() {
-  const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
+  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline } = useAuth()
+  const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
+  const workspaceReady = !sessionTransitionPending && authStatus !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === expectedOwner
+  const workspaceKey = workspaceReady ? expectedOwner ?? 'guest' : null
+  const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
+  workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
+  const readGenerationRef = useRef(0)
+  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[] } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
+  const trackers = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackers : []
+  const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
+  const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey)
 
   const refresh = useCallback(async () => {
+    const context = workspaceRef.current
+    if (!context.ready || !context.key) return
+    const generation = ++readGenerationRef.current
     setLoading(true)
-    setError('')
+    setErrorState(null)
     try {
-      setTrackers(await localRepository.listTrackers(showArchived))
+      const result = await localRepository.listTrackers(showArchived)
+      if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
+        setTrackerSnapshot({ workspaceKey: context.key, trackers: result })
+      }
     } catch {
-      setError('Your trackers could not be loaded from this device.')
+      if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
+        setErrorState({ workspaceKey: context.key, message: 'Your trackers could not be loaded from this device.' })
+      }
     } finally {
-      setLoading(false)
+      if (readGenerationRef.current === generation) setLoading(false)
     }
   }, [showArchived])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!workspaceReady || !workspaceKey) {
+      setLoading(true)
+      return () => { readGenerationRef.current += 1 }
+    }
+    void refresh()
+    return () => { readGenerationRef.current += 1 }
+  }, [refresh, workspaceKey, workspaceReady])
 
   async function archive(id: string) {
     try {
       await localRepository.archiveTracker(id)
       await refresh()
     } catch {
-      setError('This tracker could not be archived. Your saved data is unchanged.')
+      const context = workspaceRef.current
+      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be archived. Your saved data is unchanged.' })
     }
   }
 
@@ -52,9 +79,15 @@ export function TrackerLibraryPage() {
         <Button variant="quiet" size="small" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button>
       </div>
       {error && <div role="alert" className="form-alert">{error}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
+      {visibleLoading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
         <Surface>
-          <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. Your data stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
+          {authStatus === 'signed-in' && (syncStatus === 'waiting' || syncStatus === 'syncing' || syncStatus === 'offline') ? (
+            <EmptyState title={isOnline === false ? 'Cloud progress has not loaded yet' : 'Checking your cloud progress'} description={isOnline === false ? 'You are offline. Any progress on this device stays available, and the account’s cloud records will be checked after reconnecting.' : 'This account’s saved trackers are being checked. You can keep using this workspace while the check finishes.'} action={<Link className="button button-secondary button-medium" to="/auth">Account and sync status</Link>} />
+          ) : authStatus === 'signed-in' && syncStatus === 'error' ? (
+            <EmptyState title="Cloud sync could not finish" description="No local trackers are saved in this workspace yet. Your local data is safe; open Account to retry the cloud check." action={<Link className="button button-secondary button-medium" to="/auth">Open account and retry</Link>} />
+          ) : (
+            <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. Your data stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
+          )}
         </Surface>
       ) : (
         <div className="tracker-card-grid">
