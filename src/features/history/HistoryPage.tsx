@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -25,6 +25,7 @@ export function HistoryPage() {
   const [trackerFilter, setTrackerFilter] = useState('all')
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
+  const [holidays, setHolidays] = useState<AccountHoliday[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const startDate = (range === 'custom' ? customStart : shiftCalendarDate(today, -(Number(range) - 1))) as CalendarDate
@@ -44,18 +45,21 @@ export function HistoryPage() {
       setLoading(false)
       setError('')
       setEntries([])
+      setHolidays([])
       return
     }
     setLoading(true)
     setError('')
     try {
-      const [allTrackers, recentEntries] = await Promise.all([
+      const [allTrackers, recentEntries, recentHolidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(startDate, endDate),
+        localRepository.listAccountHolidays(startDate, endDate),
       ])
       if (request !== rangeRequest.current) return
       setTrackers(allTrackers)
       setEntries(recentEntries)
+      setHolidays(recentHolidays)
     } catch {
       if (request !== rangeRequest.current) return
       setError('Your check-in history could not be loaded from this device.')
@@ -87,6 +91,7 @@ export function HistoryPage() {
       </div>
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}
       {error && <div role="alert" className="form-alert">{error}</div>}
+      {holidays.length > 0 && <section className="history-holiday-list" aria-label="Holidays in this date range"><h2>Holidays & breaks</h2>{holidays.map((holiday) => <p key={holiday.id}><span className="status-mark holiday" aria-label="Holiday">☀</span> <strong>{calendarDateLabel(holiday.date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>{holiday.reason ? ` · ${holiday.reason}` : ''} · scheduled opportunities paused; any saved check-ins below remain unchanged.</p>)}</section>}
       {rangeIssue ? null : loading ? <p role="status" className="tracker-loading">Loading your history…</p> : error ? <Surface><EmptyState title="Your history is still here" description="This device could not open local storage. Try loading the history again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : grouped.length === 0 ? <Surface><EmptyState title="No check-ins in this range" description="Your saved activity will appear here. Nothing is filled in until you log it." action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} /></Surface> : <div className="history-timeline">
         {grouped.map(([date, dayEntries]) => <section className="history-day" key={date} aria-labelledby={`history-${date}`}><header className="history-day-heading"><h2 id={`history-${date}`}>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h2><span>{dayEntries.length} {dayEntries.length === 1 ? 'check-in' : 'check-ins'}</span></header><div className="history-entry-list">{dayEntries.map((entry) => {
           const tracker = trackerMap.get(entry.trackerId)

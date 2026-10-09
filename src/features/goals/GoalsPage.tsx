@@ -15,7 +15,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
-type Snapshot = { workspaceKey: string; goals: GoalCard[] }
+type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
 
 export function GoalsPage() {
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
@@ -31,6 +31,7 @@ export function GoalsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ workspaceKey: string; message: string } | null>(null)
   const goals = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.goals : []
+  const holidayDates = new Set(workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidays : [])
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
 
@@ -58,13 +59,16 @@ export function GoalsPage() {
         if (start < earliest) earliest = start
         if (trackerToday > latest) latest = trackerToday
       }
-      const entries = goalTrackers.length ? await localRepository.listTrackerEntriesBetween(earliest, latest) : []
+      const [entries, holidays] = await Promise.all([
+        goalTrackers.length ? localRepository.listTrackerEntriesBetween(earliest, latest) : Promise.resolve([]),
+        localRepository.listAccountHolidays(earliest, latest),
+      ])
       const goals = goalTrackers.map((tracker) => ({
         tracker,
         entries: entries.filter((entry) => entry.trackerId === tracker.id),
       }))
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
-        setSnapshot({ workspaceKey: currentWorkspace.key, goals })
+        setSnapshot({ workspaceKey: currentWorkspace.key, goals, holidays: holidays.map((holiday) => holiday.date) })
       }
     } catch {
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
@@ -128,7 +132,7 @@ export function GoalsPage() {
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
                   const metric = tracker.metrics.find((item) => item.id === metricId)
                   if (!metric) return null
-                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate })
+                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate, holidays: holidayDates })
                   const recentDays = plan.days.slice(-14)
                   const missed = plan.days.filter((day) => ['missed', 'skipped', 'below-target'].includes(day.state)).length
                   return <div className="goal-daily-metric" key={metricId}>
@@ -143,7 +147,7 @@ export function GoalsPage() {
                   : <div className="goal-cumulative-plans">{Object.entries(tracker.goalPlanning.cumulativeTargets).map(([metricId, totalTarget]) => {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
-                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental' })
+                  const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates })
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
                     const expectedPercent = totalTarget === 0 ? 100 : Math.min(100, plan.expectedProgress / totalTarget * 100)
@@ -158,7 +162,7 @@ export function GoalsPage() {
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
-                        v3WritesEnabled={isSchemaV3WriteEnabled()}
+                        v3WritesEnabled={isSchemaV3WriteEnabled()} holidays={holidayDates}
                         onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh() }}
                       />}
                     </div>

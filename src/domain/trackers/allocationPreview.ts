@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence } from './planning'
 
-export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null }
+export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; holiday?: boolean }
 export type CumulativeAllocationPreview = {
   metricId: string
   totalTarget: number
@@ -24,10 +24,12 @@ export function createCumulativeAllocationPreview(input: {
   totalTarget: number
   asOfDate: string
   startDate: string
+  holidays?: ReadonlySet<string>
 }): CumulativeAllocationPreview {
   const progress = calculateCumulativeMetricPlan({
     ...input,
     progressSemantics: input.tracker.goalPlanning?.progressSemantics[input.metricId] ?? 'snapshot',
+    holidays: input.holidays,
   })
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Allocation previews require a numeric or checklist metric.')
@@ -37,7 +39,8 @@ export function createCumulativeAllocationPreview(input: {
   if (startDate <= input.tracker.deadline!) {
     for (let time = dateNumber(startDate); time <= dateNumber(input.tracker.deadline!); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date), amount: null })
+      const holiday = input.holidays?.has(date) ?? false
+      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date) && !holiday, amount: null, ...(holiday ? { holiday: true } : {}) })
     }
   }
 

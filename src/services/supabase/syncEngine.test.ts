@@ -22,11 +22,11 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; ledgerRows?: unknown[] } = {}) {
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[] } = {}) {
   const rpc = vi.fn().mockResolvedValue({ data: options.rpcResult ?? null, error: options.rpcError ?? null })
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const from = vi.fn((table: string) => {
-    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : []
+    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : []
     const builder = {
       select: () => builder,
       order: () => builder,
@@ -46,6 +46,38 @@ afterEach(async () => {
 })
 
 describe('account-scoped sync engine', () => {
+  it('uploads and downloads account-wide holiday rows through the revisioned owner-scoped RPC', async () => {
+    await activateWorkspace('sync-user')
+    const [row] = await localRepository.saveAccountHolidays(['2026-10-12'], 'travel')
+    if (!row) throw new Error('Holiday did not persist locally.')
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: { id: row.id, user_id: 'sync-user', holiday_date: row.date, reason: row.reason, created_at: row.createdAt, updated_at: row.updatedAt, deleted_at: null, server_revision: 1 } } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_account_holiday_sync_operation', expect.objectContaining({ p_expected_user_id: 'sync-user', p_expected_revision: null, p_record: expect.objectContaining({ holiday_date: row.date, reason: 'travel' }) }))
+    await expect(db.syncRecords.get(`account_holiday:${row.id}`)).resolves.toMatchObject({ ownerUserId: 'sync-user', serverRevision: 1 })
+
+    await db.accountHolidays.clear()
+    await db.syncRecords.clear()
+    const { client: downloadClient } = fakeClient({ holidayRows: [{ id: row.id, user_id: 'sync-user', holiday_date: row.date, reason: row.reason, created_at: row.createdAt, updated_at: row.updatedAt, deleted_at: null, server_revision: 1 }] })
+    await expect(synchronizeWorkspace('sync-user', downloadClient)).resolves.toMatchObject({ downloaded: 1, failed: 0 })
+    await expect(db.accountHolidays.get(row.id)).resolves.toMatchObject({ date: row.date, reason: 'travel', deletedAt: null })
+
+    await activateWorkspace('different-user')
+    await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
+  })
+
+  it('syncs holiday removal and restoration as revisioned tombstones without changing tracker entries', async () => {
+    await activateWorkspace('sync-user')
+    const [row] = await localRepository.saveAccountHolidays(['2026-10-13'], 'personal')
+    if (!row) throw new Error('Holiday did not persist locally.')
+    await db.syncRecords.put({ key: `account_holiday:${row.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: row.id, serverRevision: 2 })
+    await localRepository.removeAccountHoliday(row.date)
+    const queued = await db.syncOperations.where('ownerUserId').equals('sync-user').first()
+    expect(queued).toMatchObject({ entity: 'account_holiday', expectedRevision: 2, payload: { deletedAt: expect.any(String) } })
+    await localRepository.restoreAccountHoliday(row.date)
+    await expect(db.accountHolidays.get(row.id)).resolves.toMatchObject({ deletedAt: null, reason: 'personal' })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ entity: 'account_holiday', expectedRevision: 2, payload: { deletedAt: null } })
+  })
+
   it('uploads and downloads version 2 planning fields without changing thresholds or revisions', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(plannedGoal)

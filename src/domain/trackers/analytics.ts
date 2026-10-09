@@ -46,6 +46,7 @@ export function calculateTrackerAnalytics(
   entries: readonly TrackerEntry[],
   startDate: string,
   endDate: string,
+  holidays: ReadonlySet<string> = new Set(),
 ): TrackerAnalytics {
   assertDateRange(startDate, endDate)
   const latestByDate = new Map<string, TrackerEntry>()
@@ -56,7 +57,7 @@ export function calculateTrackerAnalytics(
   }
   const trackerEntries = [...latestByDate.values()].filter((entry) => entry.deletedAt === null).sort((a, b) => a.date.localeCompare(b.date))
   const recorded = trackerEntries.filter((entry) => entry.outcome === 'recorded')
-  const qualifiedEntries = recorded.filter((entry) => evaluateTrackerEntry(tracker, entry).qualified)
+  const qualifiedEntries = recorded.filter((entry) => !holidays.has(entry.date) && evaluateTrackerEntry(tracker, entry).qualified)
   const activeSchedule = tracker.status === 'active' && tracker.deletedAt === null
   let scheduledCount = 0
   let scheduledQualifiedCount = 0
@@ -66,7 +67,7 @@ export function calculateTrackerAnalytics(
     const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
     for (let time = dateNumber(firstDate); time <= dateNumber(endDate); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      if (!isTrackerScheduledOccurrence(tracker, date)) continue
+      if (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date)) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.
       if (date === endDate && !entry) continue

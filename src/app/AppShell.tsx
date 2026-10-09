@@ -14,6 +14,7 @@ const primaryNavigation = [
 const groupedNavigation = {
   space: [
     { to: '/goals', label: 'Goals' },
+    { to: '/holidays', label: 'Holidays & Breaks' },
     { to: '/bin', label: 'Bin' },
   ],
   insights: [
@@ -28,6 +29,7 @@ const groupedNavigation = {
 
 const mobileMoreNavigation = [
   { to: '/goals', label: 'Goals' },
+  { to: '/holidays', label: 'Holidays & Breaks' },
   { to: '/bin', label: 'Bin' },
   { to: '/analytics', label: 'Analytics' },
   { to: '/history', label: 'History' },
@@ -69,7 +71,7 @@ export function AppShell() {
         <div className="nav-caption">WORKSPACE</div>
         <nav className="nav-list" aria-label="Primary navigation">
           {primaryNavigation.map(({ to, label, icon, group, end }) => {
-            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin')
+            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin') || location.pathname.startsWith('/holidays')
               : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
                 : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
             return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `nav-link${isActive || activeGroup ? ' active' : ''}`}>
@@ -126,7 +128,7 @@ export function AppShell() {
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {primaryNavigation.map(({ to, label, icon, group, end }) => {
-            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin')
+            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin') || location.pathname.startsWith('/holidays')
               : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
                 : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
             return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `mobile-nav-link${isActive || activeGroup ? ' active' : ''}`}>

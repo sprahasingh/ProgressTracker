@@ -9,15 +9,16 @@ import { localRepository } from '../../db/localRepository'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import { calculateProgressRewards, calculateStreak } from '../../domain/trackers/progression'
+import { getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
-type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[] }
+type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
 export function DashboardPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
-  const [data, setData] = useState<DashboardData>({ trackers: [], entries: [] })
+  const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -30,9 +31,14 @@ export function DashboardPage() {
         const created = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
         return created < date ? created : date
       }, today)
-      const entries = trackers.length ? await localRepository.listTrackerEntriesBetween(earliest, today) : []
+      const monthStart = `${today.slice(0, 7)}-01` as CalendarDate
+      const monthEnd = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).toISOString().slice(0, 10) as CalendarDate
+      const [entries, holidays] = await Promise.all([
+        trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
+        localRepository.listAccountHolidays(monthStart, monthEnd),
+      ])
       const ids = new Set(trackers.map((tracker) => tracker.id))
-      setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)) })
+      setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
     } catch {
       setError('Your overview could not be loaded from this device.')
     } finally {
@@ -44,21 +50,21 @@ export function DashboardPage() {
   const entryById = useMemo(() => new Map(data.trackers.map((tracker) => [tracker.id, tracker])), [data.trackers])
   const streakByTracker = useMemo(() => new Map(data.trackers.map((tracker) => {
     const trackerEntries = data.entries.filter((entry) => entry.trackerId === tracker.id)
-    return [tracker.id, calculateStreak(tracker, trackerEntries, today)] as const
-  })), [data.trackers, data.entries, today])
+    return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays))] as const
+  })), [data.trackers, data.entries, data.holidays, today])
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
   const weekEntries = data.entries.filter((entry) => entry.date >= weekStart && entry.date <= today)
   const qualifiedWeek = weekEntries.filter((entry) => {
     const tracker = entryById.get(entry.trackerId)
-    return entry.outcome === 'recorded' && tracker !== undefined && isScheduledDate(tracker, entry.date) && evaluateTrackerEntry(tracker, entry).qualified
+    return entry.outcome === 'recorded' && tracker !== undefined && !data.holidays.includes(entry.date) && isScheduledDate(tracker, entry.date) && evaluateTrackerEntry(tracker, entry).qualified
   })
   const scheduledWeek = data.trackers.reduce((count, tracker) => {
-    for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) if (isScheduledDate(tracker, day)) count += 1
+    for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) if (!data.holidays.includes(day) && isScheduledDate(tracker, day)) count += 1
     return count
   }, 0)
   const completionPercent = scheduledWeek ? Math.round(qualifiedWeek.length / scheduledWeek * 100) : 0
-  const calendar = buildMonth(today, data.entries, entryById)
+  const calendar = buildMonth(today, data.entries, entryById, data.trackers, new Set(data.holidays))
 
   return (
     <section className="tracker-page dashboard-page" aria-labelledby="dashboard-title">
@@ -73,9 +79,9 @@ export function DashboardPage() {
         </div>
         <div className="dashboard-columns">
           <Surface className="dashboard-calendar-card">
-            <div className="dashboard-section-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> ACTIVITY</span><h2>{calendarDateLabel(today, { month: 'long', year: 'numeric' })}</h2></div><div className="dashboard-heading-actions"><InfoButton title="Activity calendar" summary="Each marked date summarizes saved check-ins for that day." description="Green marks a check-in that met its tracker’s success rule. Amber marks a skipped check-in or one below its rule. Multiple marks on one date are summarized by their counts for screen readers. Blank dates have no recorded activity; they do not automatically mean a missed day." /><Link to="/history">View history <span aria-hidden="true">→</span></Link></div></div>
+            <div className="dashboard-section-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> ACTIVITY</span><h2>{calendarDateLabel(today, { month: 'long', year: 'numeric' })}</h2></div><div className="dashboard-heading-actions"><InfoButton title="Activity calendar" summary="Each date shows account-wide status and any saved activity." description="Green means a daily success rule was met, orange means values were recorded but the rule was not met, red means a scheduled day ended without qualifying completion, and blue means a global holiday. Holidays pause scheduled expectations, and any activity saved that day remains available in History." /><Link to="/history">View history <span aria-hidden="true">→</span></Link></div></div>
             <MonthCalendar month={calendar} today={today} />
-            <div className="calendar-legend"><span><i className="calendar-dot qualified" /> Success</span><span><i className="calendar-dot skipped" /> Skipped or below rule</span></div>
+            <div className="calendar-legend" aria-label="Activity status legend"><span><i className="calendar-dot qualified">✓</i> Completed</span><span><i className="calendar-dot skipped">◐</i> Partial</span><span><i className="calendar-dot missed">!</i> Missed</span><span><i className="calendar-dot holiday">☀</i> Holiday</span></div>
           </Surface>
           <section className="dashboard-tracker-section" aria-labelledby="progress-heading">
             <div className="dashboard-section-heading dashboard-tracker-title"><div><span className="eyebrow"><span className="eyebrow-line" /> KEEP GOING</span><h2 id="progress-heading">Your trackers</h2></div><div className="dashboard-heading-actions"><InfoButton title="Tracker progress cards" summary="Compare current streaks and the latest saved check-in for each active tracker." description="A current streak counts consecutive scheduled dates that qualified; rest days are skipped. Personal best is the longest qualifying streak recorded. The latest status distinguishes a successful rule, a logged value that did not qualify, and a skipped day. Select a tracker or open Today to record more progress." /><Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link></div></div>
@@ -99,21 +105,31 @@ function StatCard({ label, value, detail, help }: { label: string; value: string
   return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
 }
 
-type DaySummary = { date: CalendarDate; entries: number; qualified: number; skippedOrBelow: number }
-function buildMonth(today: CalendarDate, entries: StoredTrackerEntry[], trackers: Map<string, StoredTrackerDefinition>): DaySummary[] {
+type DaySummary = { date: CalendarDate; entries: number; qualified: number; skippedOrBelow: number; missed: number; holiday: boolean }
+function buildMonth(today: CalendarDate, entries: StoredTrackerEntry[], trackers: Map<string, StoredTrackerDefinition>, trackerList: StoredTrackerDefinition[], holidays: ReadonlySet<string>): DaySummary[] {
   const year = Number(today.slice(0, 4))
   const month = Number(today.slice(5, 7))
   const firstDate = `${today.slice(0, 7)}-01` as CalendarDate
   const count = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const summaries: DaySummary[] = Array.from({ length: count }, (_, index) => ({ date: `${today.slice(0, 7)}-${String(index + 1).padStart(2, '0')}` as CalendarDate, entries: 0, qualified: 0, skippedOrBelow: 0 }))
+  const summaries: DaySummary[] = Array.from({ length: count }, (_, index) => ({ date: `${today.slice(0, 7)}-${String(index + 1).padStart(2, '0')}` as CalendarDate, entries: 0, qualified: 0, skippedOrBelow: 0, missed: 0, holiday: false }))
   for (const entry of entries) {
     if (entry.date < firstDate || entry.date > today) continue
     const summary = summaries[Number(entry.date.slice(8, 10)) - 1]
     const tracker = trackers.get(entry.trackerId)
     if (!summary || !tracker) continue
     summary.entries += 1
-    if (entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) summary.qualified += 1
-    else summary.skippedOrBelow += 1
+  }
+  for (const summary of summaries) {
+    summary.holiday = holidays.has(summary.date)
+    if (summary.date > today) continue
+    for (const tracker of trackerList) {
+      if (tracker.status !== 'active' || !isScheduledDate(tracker, summary.date)) continue
+      const entry = entries.find((candidate) => candidate.trackerId === tracker.id && candidate.date === summary.date && candidate.deletedAt === null)
+      const status = getTrackerActivityStatus({ tracker, entry, date: summary.date, today, holidays })
+      if (status === 'completed') summary.qualified += 1
+      else if (status === 'partial') summary.skippedOrBelow += 1
+      else if (status === 'missed') summary.missed += 1
+    }
   }
   return summaries
 }
@@ -125,7 +141,7 @@ function MonthCalendar({ month, today }: { month: DaySummary[]; today: string })
   const weeks = Array.from({ length: cells.length / 7 }, (_, index) => cells.slice(index * 7, index * 7 + 7))
   return <table className="activity-calendar" aria-label="Check-in activity this month">
     <thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <th scope="col" className="calendar-weekday" key={day}>{day}</th>)}</tr></thead>
-    <tbody>{weeks.map((week, weekIndex) => <tr key={`week-${weekIndex}`}>{week.map((day, index) => day ? <td className={`calendar-day${day.entries ? ' has-activity' : ''}${day.date === today ? ' calendar-day-today' : ''}`} key={day.date}><span>{Number(day.date.slice(8, 10))}</span><span className="visually-hidden">{calendarDateLabel(day.date, { month: 'long', day: 'numeric' })}: {day.entries} check-ins, {day.qualified} successes</span>{day.qualified > 0 && <i aria-hidden="true" className="calendar-dot qualified" />}{day.skippedOrBelow > 0 && <i aria-hidden="true" className="calendar-dot skipped" />}</td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody>
+    <tbody>{weeks.map((week, weekIndex) => <tr key={`week-${weekIndex}`}>{week.map((day, index) => day ? <td className={`calendar-day${day.entries ? ' has-activity' : ''}${day.date === today ? ' calendar-day-today' : ''}${day.holiday ? ' calendar-day-holiday' : ''}`} key={day.date}><Link to={`/holidays?date=${day.date}`} aria-label={`${calendarDateLabel(day.date, { month: 'long', day: 'numeric' })}${day.holiday ? ', holiday' : ''}: ${day.entries} check-ins, ${day.qualified} completed, ${day.skippedOrBelow} partial or skipped, ${day.missed} missed. Manage holiday`}><span>{Number(day.date.slice(8, 10))}</span></Link><span className="visually-hidden">{Number(day.date.slice(8, 10))}: {day.entries} check-ins, {day.qualified} successes</span>{day.qualified > 0 && <i aria-label="Completed" className="calendar-dot qualified">✓</i>}{day.skippedOrBelow > 0 && <i aria-label="Partial or skipped" className="calendar-dot skipped">◐</i>}{day.missed > 0 && <i aria-label="Missed" className="calendar-dot missed">!</i>}{day.holiday && <i aria-label="Holiday" className="calendar-dot holiday">☀</i>}</td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody>
   </table>
 }
 

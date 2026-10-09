@@ -11,6 +11,7 @@ import { SettingsPage } from '../features/settings/WorkspaceTimeZone'
 import { AchievementsPage } from '../features/dashboard/AchievementsPage'
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage'
 import { TrackerBinPage } from '../features/trackers/TrackerBinPage'
+import { HolidaysPage } from '../features/holidays/HolidaysPage'
 
 export const router = createHashRouter([
   {
@@ -24,6 +25,7 @@ export const router = createHashRouter([
       { path: 'goals', element: <GoalsPage /> },
       { path: 'trackers', element: <TrackerLibraryPage /> },
       { path: 'bin', element: <TrackerBinPage /> },
+      { path: 'holidays', element: <HolidaysPage /> },
       { path: 'trackers/new', element: <TrackerSetupPage /> },
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
       { path: 'achievements', element: <AchievementsPage /> },

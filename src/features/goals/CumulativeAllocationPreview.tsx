@@ -13,13 +13,14 @@ type Props = {
   timeZone: string
   onSave: (tracker: TrackerDefinition) => Promise<void>
   v3WritesEnabled: boolean
+  holidays?: ReadonlySet<string>
 }
 
-export function CumulativeAllocationPreview({ tracker, entries, metricId, startDate, asOfDate, timeZone, onSave, v3WritesEnabled }: Props) {
+export function CumulativeAllocationPreview({ tracker, entries, metricId, startDate, asOfDate, timeZone, onSave, v3WritesEnabled, holidays }: Props) {
   const metric = tracker.metrics.find((item) => item.id === metricId)
   const preview = useMemo(() => createCumulativeAllocationPreview({
-    tracker, entries, metricId, totalTarget: tracker.goalPlanning?.cumulativeTargets[metricId] ?? 0, startDate, asOfDate,
-  }), [tracker, entries, metricId, startDate, asOfDate])
+    tracker, entries, metricId, totalTarget: tracker.goalPlanning?.cumulativeTargets[metricId] ?? 0, startDate, asOfDate, holidays,
+  }), [tracker, entries, metricId, startDate, asOfDate, holidays])
   if (!metric) return null
 
   const eligibleDays = preview.days.filter((day) => day.eligible)
@@ -108,8 +109,8 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       <tbody>{preview.days.map((day) => {
         const entry = latestEntries.get(day.date)
           const actual = entry?.outcome === 'skipped' ? 'Skipped' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
-        return <tr key={day.date} className={day.eligible ? '' : 'allocation-rest-day'}>
-          <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">Rest day</span>}</th>
+        return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
+          <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : 'Rest day'}</span>}</th>
           <td>{actual === null ? '—' : actual === 'Skipped' ? 'Skipped' : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
           <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : <span className="allocation-rest-value">Not scheduled</span>}</td>
         </tr>

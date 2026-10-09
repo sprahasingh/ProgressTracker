@@ -265,4 +265,33 @@ The production build includes a web app manifest and service worker scoped to `/
 
 ## Planned architecture
 
-IndexedDB provides the immediate local persistence layer through Dexie repositories. Guest and authenticated account workspaces are isolated locally; account-scoped sync uses Supabase after account workspace activation, reconnection, and committed tracker/entry edits in the signed-in workspace, with manual sync available, and requires the write-boundary migration to be applied. The deployed static application will not include a custom backend. No analytics service is configured.
+IndexedDB provides the immediate local persistence layer through Dexie repositories. Guest and authenticated account workspaces are isolated locally; account-scoped sync uses Supabase after account workspace activation, reconnection, and committed tracker, entry, and holiday edits in the signed-in workspace, with manual sync available, and requires the applicable write-boundary migrations to be applied. The deployed static application will not include a custom backend. No analytics service is configured.
+
+## Global holidays and breaks
+
+The **Holidays & Breaks** destination is available from My Space and the mobile More menu. A single date or inclusive date range can be marked with an optional Travel, Exam, Personal, or Other reason. Each date is stored as one account-wide record, so it applies to every tracker and goal without editing tracker schedules. Removing a date creates a sync tombstone; the removed-date list can restore it. Existing tracker entries are retained and visible in History, even when that date is shown as a blue holiday.
+
+Calendar and planner status meanings are consistent and do not rely on color alone: green check means the daily success rule was met; orange half-circle means values were logged but the rule was not met; red exclamation means an elapsed scheduled day was missed; blue sun means a global holiday. Holidays are excluded from streak opportunities, missed-day counts, weekly consistency, daily recurring plan denominators, cumulative expected pace, and allocation suggestions. They do not add to a streak. Recorded incremental progress on a holiday remains actual progress and is still included in its metric total. Streak qualification can use its per-metric configured threshold even when a stricter daily success rule is not met.
+
+Holidays are date-only values in the workspace time zone. Date-range expansion uses calendar-day arithmetic and does not shift dates across daylight-saving transitions. Guest holidays remain in the guest IndexedDB. Account holidays are isolated with the account workspace and synchronize through the authenticated `apply_account_holiday_sync_operation` RPC, an owner-filtered read policy, server revisions, and a private idempotency receipt table. Local changes and their account outbox entries commit in the same IndexedDB transaction. Backups include holidays and queued holiday writes; earlier backup versions remain importable with no holiday rows.
+
+The forward-only migration is `supabase/migrations/20261011000100_global_holidays.sql`. It creates `public.account_holidays`, enables owner-only RLS reads, revokes direct client writes, and grants the account-scoped RPC permission. This workspace has not applied the migration to hosted Supabase. Start the local Supabase stack without resetting it, then inspect local migration history:
+
+```bash
+supabase migration list --local
+```
+
+If `20261010000100` is missing from local history even though the permanent-deletion schema is already present and `tracker_bin_permanent_deletion.test.sql` passes, record that existing migration in **local history only**. This changes migration bookkeeping and does not execute its SQL:
+
+```bash
+supabase migration repair 20261010000100 --status applied --local
+```
+
+Then apply the pending migrations and run the database suite:
+
+```bash
+supabase migration up --local
+supabase test db
+```
+
+After the local suite passes, review and apply that migration in the intended hosted project's SQL Editor before deploying the app changes. Until the migration is applied, account holiday uploads/downloads will fail safely and stay queued locally; guest mode works locally. All signed-in clients need the migration for cross-device holiday sync. Older app clients ignore holidays because the table is additive and tracker definitions are unchanged.

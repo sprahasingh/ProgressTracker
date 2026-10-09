@@ -97,7 +97,18 @@ export type AppSettings = {
   updatedAt: string
 }
 
-export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings' | 'tracker' | 'tracker_entry'
+export type HolidayReason = 'travel' | 'exam' | 'personal' | 'other'
+/** One account-wide holiday per calendar date. Dates are local calendar dates in the workspace time zone. */
+export type AccountHoliday = {
+  id: string
+  date: CalendarDate
+  reason: HolidayReason | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings' | 'tracker' | 'tracker_entry' | 'account_holiday'
 export type SyncOperation = {
   id: string
   ownerUserId: string | null
@@ -105,15 +116,15 @@ export type SyncOperation = {
   entityId: string
   operation: 'upsert'
   expectedRevision: number | null
-  payload?: StoredTrackerDefinition | StoredTrackerEntry
+  payload?: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday
   createdAt: string
   attempts: number
   status: 'pending' | 'conflict'
   lastError: string | null
 }
 
-export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; serverRevision: number }
-export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry; remoteRecord: Record<string, unknown> | null; detectedAt: string }
+export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; serverRevision: number }
+export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday; remoteRecord: Record<string, unknown> | null; detectedAt: string }
 export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null }
 export type PermanentDeletionLedgerEntry = { key: string; ownerUserId: string; trackerId: string; permanentlyDeletedAt: string }
 export type TrackerVerification = { trackerId: string; status: 'pending-server-check' }

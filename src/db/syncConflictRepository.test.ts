@@ -200,4 +200,40 @@ describe('sync conflict recovery', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', local.id]).count()).resolves.toBe(0)
     await expect(db.syncRecords.get('tracker_entry:cloud-entry-id')).resolves.toMatchObject({ serverRevision: 7 })
   })
+
+  it('rebases same-date holidays onto the cloud identity when explicitly keeping local', async () => {
+    await activateWorkspace('conflict-user')
+    const [local] = await localRepository.saveAccountHolidays(['2026-10-10'], 'travel')
+    if (!local) throw new Error('Expected a local holiday')
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'account_holiday', local.id]).first()
+    if (!operation) throw new Error('Expected a queued holiday operation')
+    await db.syncOperations.put({ ...operation, status: 'conflict' })
+    const cloud = { id: 'cloud-holiday-id', user_id: 'conflict-user', holiday_date: local.date, reason: 'exam', created_at: local.createdAt, updated_at: local.updatedAt, deleted_at: null, server_revision: 4 }
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'account_holiday', entityId: local.id, localPayload: local, remoteRecord: cloud, detectedAt: local.updatedAt })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'keep-local')
+
+    await expect(db.accountHolidays.get(local.id)).resolves.toBeUndefined()
+    await expect(db.accountHolidays.get('cloud-holiday-id')).resolves.toMatchObject({ date: local.date, reason: 'travel' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'account_holiday', 'cloud-holiday-id']).first()).resolves.toMatchObject({ status: 'pending', expectedRevision: 4, payload: { reason: 'travel' } })
+    await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
+  })
+
+  it('replaces a same-date local holiday with the cloud holiday when explicitly choosing cloud', async () => {
+    await activateWorkspace('conflict-user')
+    const [local] = await localRepository.saveAccountHolidays(['2026-10-11'], 'travel')
+    if (!local) throw new Error('Expected a local holiday')
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'account_holiday', local.id]).first()
+    if (!operation) throw new Error('Expected a queued holiday operation')
+    await db.syncOperations.put({ ...operation, status: 'conflict' })
+    const cloud = { id: 'cloud-holiday-id', user_id: 'conflict-user', holiday_date: local.date, reason: 'exam', created_at: local.createdAt, updated_at: local.updatedAt, deleted_at: null, server_revision: 4 }
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'account_holiday', entityId: local.id, localPayload: local, remoteRecord: cloud, detectedAt: local.updatedAt })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'use-cloud')
+
+    await expect(db.accountHolidays.get(local.id)).resolves.toBeUndefined()
+    await expect(db.accountHolidays.get('cloud-holiday-id')).resolves.toMatchObject({ date: local.date, reason: 'exam' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'account_holiday', local.id]).count()).resolves.toBe(0)
+    await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
+  })
 })
