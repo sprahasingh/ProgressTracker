@@ -10,7 +10,7 @@ const isolationMocks = vi.hoisted(() => ({
   authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string } } | null) => void),
   activeOwner: null as string | null,
   activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(),
-  listTrackers: vi.fn(), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
+  getAppSettings: vi.fn(), listTrackers: vi.fn(), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
 }))
 
 vi.mock('../db/database', () => ({
@@ -20,7 +20,11 @@ vi.mock('../db/database', () => ({
   getGuestWorkspaceSummary: isolationMocks.getGuestWorkspaceSummary,
 }))
 vi.mock('../db/localRepository', () => ({
-  localRepository: { listTrackers: isolationMocks.listTrackers, archiveTracker: vi.fn() },
+  localRepository: {
+    getAppSettings: isolationMocks.getAppSettings,
+    listTrackers: isolationMocks.listTrackers,
+    archiveTracker: vi.fn(),
+  },
 }))
 vi.mock('../services/supabase/syncEngine', () => ({ synchronizeWorkspace: isolationMocks.synchronizeWorkspace }))
 vi.mock('../services/supabase/client', () => ({
@@ -71,6 +75,10 @@ describe('workspace rendering isolation', () => {
     isolationMocks.decideGuestData.mockReset().mockResolvedValue(undefined)
     isolationMocks.getGuestDecision.mockReset().mockResolvedValue('kept-separate')
     isolationMocks.getGuestWorkspaceSummary.mockReset().mockResolvedValue({ hasData: false, counts: {} })
+    isolationMocks.getAppSettings.mockReset().mockResolvedValue({
+      id: 'general', timezone: 'UTC', appearance: 'system', backupReminderDays: null,
+      updatedAt: '2026-10-09T00:00:00.000Z',
+    })
     isolationMocks.listTrackers.mockReset().mockImplementation(async () => isolationMocks.activeOwner === null ? [savedTracker('Guest tracker')] : [savedTracker(`Test ${isolationMocks.activeOwner}`)])
     isolationMocks.synchronizeWorkspace.mockReset().mockResolvedValue({ uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 })
     isolationMocks.signOut.mockReset().mockResolvedValue({ error: null })

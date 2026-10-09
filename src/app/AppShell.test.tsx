@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../db/database'
+import { localRepository } from '../db/localRepository'
 import { TodayPage } from '../features/today/TodayPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
@@ -46,6 +47,10 @@ describe('app navigation quality', () => {
   })
 
   it('supports keyboard skip-to-content and moves between the real Today, Overview, and History routes', async () => {
+    vi.spyOn(localRepository, 'getAppSettings').mockResolvedValue({
+      id: 'general', timezone: 'UTC', appearance: 'system', backupReminderDays: null,
+      updatedAt: '2026-10-09T00:00:00.000Z',
+    })
     const user = userEvent.setup()
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}>
       <Route index element={<TodayPage />} />
@@ -53,7 +58,7 @@ describe('app navigation quality', () => {
       <Route path="history" element={<HistoryPage />} />
     </Route></Routes></MemoryRouter>)
 
-    expect(screen.getByRole('status')).toHaveTextContent('Loading today’s trackers')
+    expect(await screen.findByText('Loading today’s trackers…')).toBeInTheDocument()
     await user.tab()
     expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveFocus()
     await user.keyboard('{Enter}')
