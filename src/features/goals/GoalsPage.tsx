@@ -10,6 +10,7 @@ import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evalu
 import { useAuth } from '../auth/AuthProvider'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
 type Snapshot = { workspaceKey: string; goals: GoalCard[] }
@@ -93,6 +94,7 @@ export function GoalsPage() {
           const state = overdue ? 'Overdue' : tracker.status === 'completed' ? 'Completed' : tracker.status === 'paused' ? 'Paused' : tracker.status === 'archived' ? 'Archived' : 'In progress'
           const latestQualified = latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
           const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), timeZone)
+          const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           return <Surface className="goal-card" key={tracker.id}>
             <div className="tracker-card-top"><span className="tracker-kind-chip">{state}</span>{tracker.deadline && <span>{overdue ? 'Was due' : 'Due'} {calendarDateLabel(tracker.deadline)}</span>}</div>
             <h2>{tracker.name}</h2>
@@ -139,6 +141,10 @@ export function GoalsPage() {
                       </div>
                       <dl className="goal-plan-facts"><div><dt>Actual progress</dt><dd>{plan.actualProgress}{unit}</dd></div><div><dt>Expected progress</dt><dd>{plan.expectedProgress.toFixed(1)}{unit}</dd></div><div><dt>Remaining</dt><dd>{plan.remainingWork}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${plan.requiredDailyPace.toFixed(2)}${unit} / scheduled day`}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
+                      {tracker.status === 'active' && <CumulativeAllocationPreview
+                        key={`${tracker.id}:${metricId}:${today}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
+                        tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={today} timeZone={timeZone}
+                      />}
                     </div>
                   })}</div>}
             </section>}
