@@ -2,6 +2,7 @@ import { openDatabase, queueSyncMutation } from './database'
 import type { StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
 import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from '../services/supabase/syncTimestamps'
+import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 function parseTracker(value: unknown): StoredTrackerDefinition {
   return trackerDefinitionSchema.parse(normalizeTrackerTimestamps(value)) as StoredTrackerDefinition
@@ -38,6 +39,7 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 /** Explicitly resolves one conflict without discarding the other copy implicitly. */
 export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
+  let queuedLocalChanges = false
   await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
@@ -63,11 +65,13 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         await database.syncRecords.delete(stateKey)
         await database.trackers.put(fork)
         await queueSyncMutation(database, userId, 'tracker', fork)
+        queuedLocalChanges = true
         const linkedEntries = await database.trackerEntries.where('trackerId').equals(conflict.entityId).toArray()
         for (const entry of linkedEntries) {
           const forkedEntry = parseEntry({ ...entry, trackerId: fork.id, updatedAt: new Date().toISOString() })
           await database.trackerEntries.put(forkedEntry)
           await queueSyncMutation(database, userId, 'tracker_entry', forkedEntry)
+          queuedLocalChanges = true
           const entryConflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', entry.id]).first()
           // The child is now a new pending operation against a different parent ID.
           // Drop its stale snapshot; the server will produce a fresh conflict if needed.
@@ -81,6 +85,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         await database.syncRecords.delete(stateKey)
         await database.trackerEntries.put(fork)
         await queueSyncMutation(database, userId, 'tracker_entry', fork)
+        queuedLocalChanges = true
       }
       await database.syncConflicts.delete(conflict.id)
       return
@@ -120,9 +125,11 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       payload = replacement
     }
     await queueSyncMutation(database, userId, conflict.entity, payload)
+    queuedLocalChanges = true
     // Ensure the newly queued operation always targets the revision the user reviewed.
     const replacement = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, conflict.entity, conflict.entityId]).first()
     if (replacement) await database.syncOperations.put({ ...replacement, expectedRevision: revision, status: 'pending', attempts: 0, lastError: null } satisfies SyncOperation)
     await database.syncConflicts.delete(conflict.id)
   })
+  if (queuedLocalChanges) publishWorkspaceMutation(userId)
 }

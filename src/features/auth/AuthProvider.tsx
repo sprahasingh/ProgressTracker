@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestDataDecision, type GuestWorkspaceSummary } from '../../db/database'
 import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
+import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -49,6 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authInitializedRef = useRef(false)
   const workspaceReadyRef = useRef(false)
   const syncPromisesRef = useRef(new Map<string, Promise<void>>())
+  const mutationVersionRef = useRef(new Map<string, number>())
+  const attemptedMutationVersionRef = useRef(new Map<string, number>())
+  const mutationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const requestSyncRef = useRef<(ownerId: string, trigger: 'automatic' | 'manual') => Promise<void>>(async () => {})
   const lastAutomaticAttemptRef = useRef<string | null>(null)
   const onlineEventSequenceRef = useRef(0)
   const [onlineEventSequence, setOnlineEventSequence] = useState(0)
@@ -136,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const promise = Promise.resolve().then(async () => {
       if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current) return
+      attemptedMutationVersionRef.current.set(ownerId, mutationVersionRef.current.get(ownerId) ?? 0)
       setSyncStatus('syncing')
       setSyncTrigger(trigger)
       setSyncError(null)
@@ -156,6 +162,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     syncPromisesRef.current.set(ownerId, promise)
     return promise
   }
+  requestSyncRef.current = requestSync
+
+  useEffect(() => {
+    const unsubscribe = subscribeToWorkspaceMutations((ownerId) => {
+      mutationVersionRef.current.set(ownerId, (mutationVersionRef.current.get(ownerId) ?? 0) + 1)
+      const existingTimer = mutationTimersRef.current.get(ownerId)
+      if (existingTimer) clearTimeout(existingTimer)
+      const timer = setTimeout(() => {
+        mutationTimersRef.current.delete(ownerId)
+        void (async () => {
+          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current) return
+          const active = syncPromisesRef.current.get(ownerId)
+          if (active) await active
+          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current) return
+          const changedVersion = mutationVersionRef.current.get(ownerId) ?? 0
+          const attemptedVersion = attemptedMutationVersionRef.current.get(ownerId) ?? 0
+          if (changedVersion > attemptedVersion) await requestSyncRef.current(ownerId, 'automatic')
+        })()
+      }, 500)
+      mutationTimersRef.current.set(ownerId, timer)
+    })
+    return () => {
+      unsubscribe()
+      for (const timer of mutationTimersRef.current.values()) clearTimeout(timer)
+      mutationTimersRef.current.clear()
+    }
+  }, [])
 
   useEffect(() => {
     if (status !== 'signed-in' || !user?.id) {
