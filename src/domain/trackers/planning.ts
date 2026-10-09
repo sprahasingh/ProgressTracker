@@ -31,10 +31,9 @@ export type WorkPlan = {
   overdueByDays: number
 }
 
-/** Returns whether an active tracker has a planned occurrence on this calendar date. */
-export function isScheduledDate(tracker: TrackerDefinition, date: string): boolean {
+/** Returns whether this tracker definition's recurrence places an occurrence on a date. */
+export function isTrackerScheduledOccurrence(tracker: TrackerDefinition, date: string): boolean {
   const time = parseDate(date)
-  if (tracker.status !== 'active' || tracker.deletedAt !== null) return false
   if (tracker.startDate && date < tracker.startDate) return false
   if (tracker.deadline && date > tracker.deadline) return false
   const weekday = new Date(time).getUTCDay()
@@ -61,6 +60,12 @@ export function isScheduledDate(tracker: TrackerDefinition, date: string): boole
     case 'specific-dates': return schedule.dates.includes(date)
     case 'once': return schedule.date === date
   }
+}
+
+/** Returns whether an active tracker has a planned occurrence on this calendar date. */
+export function isScheduledDate(tracker: TrackerDefinition, date: string): boolean {
+  if (tracker.status !== 'active' || tracker.deletedAt !== null) return false
+  return isTrackerScheduledOccurrence(tracker, date)
 }
 
 const DAY_MS = 86_400_000
