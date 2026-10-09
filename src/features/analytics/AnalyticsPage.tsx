@@ -81,7 +81,7 @@ export function AnalyticsPage() {
   const consistency = scheduledCount ? Math.round(qualifiedScheduled / scheduledCount * 100) : null
 
   return <section className="tracker-page analytics-page" aria-labelledby="analytics-title">
-    <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and each measure’s own logged values. All figures come from this workspace’s saved activity." help={{ title: 'Analytics', summary: 'Explore patterns in your saved tracker activity.', description: 'Consistency uses scheduled opportunities and each tracker’s qualification rule. Metric charts preserve each measure’s unit rather than combining unrelated values. Figures reflect retained check-ins in this workspace and can change when history is edited or removed.' }} />
+    <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and logged values from this workspace." />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
     <div className="analytics-toolbar">
       <label className="history-filter"><span>Period</span><select className="auth-input" value={range} onChange={(event) => setRange(Number(event.target.value) as RangeLength)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>

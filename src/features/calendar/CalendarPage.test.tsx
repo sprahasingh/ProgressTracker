@@ -55,4 +55,14 @@ describe('Calendar page', () => {
     expect(screen.getByText(/Holiday · scheduled expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
     expect(screen.getByText(/Holiday · Done/)).toBeInTheDocument()
   })
+
+  it('marks an unrecorded scheduled date as pending, rather than rest or missed', async () => {
+    mocks.listTrackers.mockResolvedValue([tracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Pending')).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
+  })
 })

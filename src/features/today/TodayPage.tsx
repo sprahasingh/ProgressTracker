@@ -5,19 +5,23 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
-import { getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
+import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
+import { useAuth } from '../auth/AuthProvider'
 
 export function TodayPage() {
+  const { status: authStatus, user } = useAuth()
+  const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [allTrackers, setAllTrackers] = useState<StoredTrackerDefinition[]>([])
@@ -71,12 +75,17 @@ export function TodayPage() {
   }, [today])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => subscribeToWorkspaceDataChanges((changedOwner) => {
+    if (changedOwner === expectedOwner) void refresh()
+  }), [expectedOwner, refresh])
   const trackers = useMemo(() => todayHoliday ? [] : allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today, todayHoliday])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
-  const recordedCount = trackers.reduce((count, tracker) => count + (entryByTracker.get(tracker.id)?.outcome === 'recorded' ? 1 : 0), 0)
   const remainingCount = Math.max(0, trackers.length - loggedCount)
-  const allRecorded = trackers.length > 0 && recordedCount === trackers.length
+  const allComplete = trackers.length > 0 && trackers.every((tracker) => {
+    const entry = entryByTracker.get(tracker.id)
+    return entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
+  })
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = shiftCalendarDate(today, index - 6)
     const scheduled = allTrackers.filter((tracker) => isScheduledDate(tracker, date))
@@ -85,8 +94,9 @@ export function TodayPage() {
     const statuses = scheduled.map((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: new Set(holidayDates) }))
     const done = isHoliday ? 0 : statuses.filter((status) => status === 'completed').length
     const partial = statuses.some((status) => status === 'partial')
-    const state = isHoliday ? 'holiday' : scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 || partial ? 'partial' : isToday ? 'today' : 'missed'
-    return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state }
+    const state = isHoliday ? 'holiday' : scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 || partial ? 'partial' : statuses.includes('skipped') && isToday ? 'skipped' : isToday ? 'today' : 'missed'
+    const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : state === 'skipped' ? 'skipped; neutral' : 'pending'
+    return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state, statusLabel }
   }), [today, allTrackers, weekEntries, holidayDates])
 
   async function save(tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
@@ -111,21 +121,20 @@ export function TodayPage() {
   return (
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." help={{ title: 'Today', summary: 'Record today’s progress with the least friction.', description: 'Each active tracker appears when today is a scheduled opportunity. Enter its metric values, optional details, and notes, then save the check-in. A skipped day is recorded separately from no activity. Your week pattern marks scheduled completion and rest days; the workspace time zone determines today.' }} />
-      <p className="today-storage-note"><span className="sync-dot" /> Saved on this device first. Signed-in workspaces sync when online; guest data stays separate.</p>
       {todayHoliday && <Surface className="today-holiday-banner"><span className="status-mark holiday" aria-hidden="true">☀</span><div><strong>Today is a holiday</strong><p>{todayHoliday.reason ? `${todayHoliday.reason[0]!.toUpperCase()}${todayHoliday.reason.slice(1)} · ` : ''}Your scheduled goals and streaks are paused today. Recorded activity remains saved.</p></div><Link to={`/holidays?date=${today}`}>Manage holidays</Link></Surface>}
-      {!loading && !loadError && allTrackers.length > 0 && <section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
+      {!loading && !loadError && allTrackers.length > 0 && <details className="week-rhythm-disclosure"><summary>Your last 7 days</summary><section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
-          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.isHoliday ? 'holiday' : day.scheduled === 0 ? 'rest day' : `${day.done} of ${day.scheduled} check-ins`}${day.isToday ? ', today' : ''}`}>
+          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} completed` : ''}${day.isToday ? ', today' : ''}`}>
             <span className="week-rhythm-weekday">{calendarDateLabel(day.date, { weekday: 'short' })}</span>
             <span className="week-rhythm-mark" aria-hidden="true">{day.isHoliday ? '☀' : day.state === 'rest' ? '·' : day.done === day.scheduled && day.scheduled > 0 ? '✓' : day.done > 0 ? '•' : day.isToday ? '＋' : '○'}</span>
             <span className="week-rhythm-date">{Number(day.date.slice(-2))}</span>
           </div>)}
         </div>
         <p className="week-rhythm-caption">Rest days are part of your rhythm too.</p>
-      </section>}
-      {!loading && !loadError && trackers.length > 0 && <section className={`today-overview surface${allRecorded ? ' all-handled' : ''}`} aria-label="Today at a glance">
-        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allRecorded ? 'You showed up for yourself today!' : 'Today is wrapped up.' : `${remainingCount} small ${remainingCount === 1 ? 'step' : 'steps'} to go`}</h2><p>{loggedCount} of {trackers.length} scheduled {trackers.length === 1 ? 'activity' : 'activities'} checked in{entries.some((entry) => entry.outcome === 'skipped') ? ' · skipped activities stay neutral' : ''}.</p></div>
+      </section></details>}
+      {!loading && !loadError && trackers.length > 0 && <section className={`today-overview surface${allComplete ? ' all-handled' : ''}`} aria-label="Today at a glance">
+        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All scheduled goals completed today.' : 'Today is wrapped up.' : `${remainingCount} small ${remainingCount === 1 ? 'step' : 'steps'} to go`}</h2><p>{loggedCount} of {trackers.length} scheduled {trackers.length === 1 ? 'activity' : 'activities'} checked in{entries.some((entry) => entry.outcome === 'skipped') ? ' · skipped activities stay neutral' : ''}.</p></div>
         <div className="today-progress" role="img" aria-label={`${loggedCount} of ${trackers.length} scheduled activities logged`}><span>{loggedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? loggedCount / trackers.length * 100 : 0}%` }} /></div><small>logged today</small></div>
       </section>}
       {!loading && !loadError && upcomingGoals.length > 0 && <section className="today-upcoming-goals" aria-labelledby="today-upcoming-title">
@@ -205,6 +214,7 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
   }
 
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
+  const activityStatus = entry?.outcome === 'recorded' ? result?.qualified ? 'completed' : 'partial' : 'pending'
   const targets = tracker.metrics.flatMap((metric) => {
     const target = tracker.goalPlanning?.mode === 'daily-recurring'
       ? tracker.goalPlanning.dailyTargets[metric.id]
@@ -219,8 +229,8 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
   })
 
   return (
-    <Surface className={`today-checkin-card${entry?.outcome === 'recorded' ? ' checked-in' : ''}`}>
-      <div className="today-checkin-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div>{entry && <span className={`today-state ${entry.outcome}`}>{entry.outcome === 'skipped' ? 'Skipped' : result?.qualified ? 'Success rule met' : 'Logged'}</span>}</div>
+    <Surface className={`today-checkin-card status-card status-${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`}>
+      <div className="today-checkin-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div><span className={`today-state ${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`} role="status" aria-label={entry?.outcome === 'skipped' ? 'Skipped; no success or miss counted' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}><span aria-hidden="true">{entry?.outcome === 'skipped' ? '—' : ACTIVITY_STATUS_PRESENTATION[activityStatus].icon}</span> {entry?.outcome === 'skipped' ? 'Skipped' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}</span></div>
       {targets.length > 0 && <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress today`}>{targets.map((target) => <div key={target.id}><span>{target.name}{tracker.goalPlanning?.mode === 'daily-recurring' ? ' · today' : ''}</span><strong>{formatTrackerNumber(target.completed)} / {formatTrackerNumber(target.target)}{target.unit}</strong><small>{formatTrackerNumber(target.remaining)}{target.unit} left</small></div>)}</div>}
       <div>
         {!(canOneTapComplete && !entry) && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}

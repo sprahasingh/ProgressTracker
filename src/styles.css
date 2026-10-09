@@ -9,10 +9,10 @@
 .holiday-status-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 14px 0 30px; padding: 15px 18px; border-radius: var(--radius-control); background: var(--surface-muted); color: var(--ink-muted); font-size: 12px; }
 .holiday-status-legend > span { display: inline-flex; align-items: center; gap: 7px; }
 .status-mark { display: inline-grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; font-size: 12px; font-style: normal; font-weight: 800; }
-.status-mark.completed { background: #dff3e8; color: #16854f; }
-.status-mark.partial { background: #fff0d9; color: #bf6a0e; }
-.status-mark.missed { background: #ffe2e2; color: #c33c49; }
-.status-mark.holiday { background: #dff1ff; color: #1876b7; }
+.status-mark.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.status-mark.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.status-mark.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.status-mark.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .holiday-list-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; }
 .holiday-list-heading a { color: var(--accent-strong); font-size: 13px; font-weight: 650; }
 .holiday-list { display: grid; gap: 10px; }
@@ -22,22 +22,23 @@
 .holiday-removed { margin-top: 20px; color: var(--ink-muted); }
 .holiday-removed > summary { cursor: pointer; margin-bottom: 12px; }
 .holiday-sync-note { margin-top: 24px; color: var(--ink-subtle); font-size: 12px; }
-.today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: #c8e7ff; background: #f2f9ff; }
+.today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: color-mix(in srgb, var(--status-holiday) 45%, var(--line)); background: var(--status-holiday-surface); }
 .today-holiday-banner > div { flex: 1; }
-.today-holiday-banner strong { color: #176fae; }
+.today-holiday-banner strong { color: var(--status-holiday-ink); }
 .today-holiday-banner p { margin: 4px 0 0; color: var(--ink-muted); font-size: 12px; }
 .today-holiday-banner a, .today-holiday-records a { color: var(--accent-strong); font-size: 12px; font-weight: 650; }
-.today-holiday-records { margin: 18px 0; padding: 16px 20px; border-radius: var(--radius-control); background: #f2f9ff; }
+.today-holiday-records { margin: 18px 0; padding: 16px 20px; border: 1px solid color-mix(in srgb, var(--status-holiday) 45%, var(--line)); border-radius: var(--radius-control); background: var(--status-holiday-surface); }
 .today-holiday-records h2 { margin: 0 0 8px; font-size: 16px; }
 .today-holiday-records p { margin: 5px 0; color: var(--ink-muted); font-size: 13px; }
-.week-rhythm-day.holiday { background: #dff1ff; color: #1876b7; }
+.week-rhythm-day.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .calendar-day > a { display: grid; min-height: 34px; place-items: center; border-radius: 9px; }
-.calendar-day > a:hover, .calendar-day-holiday > a { background: #e5f4ff; color: #176fae; }
+.calendar-day > a:hover { background: var(--accent-soft); color: var(--accent-strong); }
+.calendar-day-holiday > a { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .calendar-dot { display: inline-grid; width: 17px; height: 17px; margin: 2px; place-items: center; border-radius: 50%; font-size: 9px; font-style: normal; font-weight: 800; }
-.calendar-dot.qualified { background: #dff3e8; color: #16854f; }
-.calendar-dot.skipped { background: #fff0d9; color: #bf6a0e; }
-.calendar-dot.missed { background: #ffe2e2; color: #c33c49; }
-.calendar-dot.holiday { background: #dff1ff; color: #1876b7; }
+.calendar-dot.qualified, .calendar-dot.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.calendar-dot.skipped { background: var(--surface-muted); color: var(--ink-muted); }
+.calendar-dot.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.calendar-dot.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 @media (max-width: 900px) { .holiday-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .holiday-form > div { grid-column: 1 / -1; } .holiday-form > button { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .holiday-form-surface { padding: 17px; } .holiday-form { grid-template-columns: 1fr; } .holiday-form > div, .holiday-form > button { grid-column: auto; } .holiday-row { grid-template-columns: minmax(0, 1fr) auto auto; } .holiday-row select { grid-column: 1 / -1; grid-row: 2; } .holiday-status-legend { gap: 9px 12px; font-size: 11px; } }
 
@@ -243,10 +244,12 @@ a { color: inherit; text-decoration: none; }
 .goal-plan-metric-heading > span { color: var(--ink-muted); text-align: right; }
 .goal-plan-days { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; }
 .goal-plan-day { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 7px; background: var(--surface-raised); color: var(--ink-subtle); font-size: 9px; }
-.goal-plan-day.met { background: var(--accent-soft); color: var(--accent-strong); }
-.goal-plan-day.missed, .goal-plan-day.skipped, .goal-plan-day.below-target { background: #f5e9e5; color: #994d3f; }
-.goal-plan-day.rest { background: #f2eee5; color: #8b7650; }
-.goal-plan-day.future, .goal-plan-day.pending { border: 1px dashed var(--line); background: transparent; }
+.goal-plan-day.met { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.goal-plan-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.goal-plan-day.skipped { background: var(--surface-muted); color: var(--ink-muted); }
+.goal-plan-day.below-target { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.goal-plan-day.rest { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+.goal-plan-day.future, .goal-plan-day.pending { border: 1px dashed var(--status-pending); background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .goal-plan-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; color: var(--ink-subtle); font-size: 9px; }
 .goal-plan-bars { display: grid; gap: 8px; margin-top: 13px; }
 .goal-plan-bars > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 9px; color: var(--ink-muted); font-size: 9px; }
@@ -302,8 +305,8 @@ a { color: inherit; text-decoration: none; }
 .today-checkin-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .today-checkin-heading h2 { margin: 10px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 25px; font-weight: 400; }
 .today-checkin-heading p { margin: 6px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
-.today-state { flex: 0 0 auto; padding: 6px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
-.today-state.skipped { background: #f2eee5; color: #8b7650; }
+.today-state { flex: 0 0 auto; padding: 6px 10px; border-radius: 99px; background: var(--surface-muted); color: var(--ink-muted); font-size: 10px; font-weight: 700; }
+.today-state.skipped { background: var(--surface-muted); color: var(--ink-muted); }
 .today-entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
 .today-check { min-height: 38px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); }
 .today-check input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -398,9 +401,9 @@ a { color: inherit; text-decoration: none; }
 .history-edit-form .today-entry-fields { margin-top: 12px; }
 .history-entry-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .history-entry-header h3 { margin: 9px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 20px; font-weight: 400; }
-.history-outcome { flex: 0 0 auto; padding: 6px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 9px; font-weight: 650; }
-.history-outcome.positive { background: var(--positive-soft); color: var(--positive); }
-.history-outcome.muted { background: #f2eee5; color: #8b7650; }
+.history-outcome { flex: 0 0 auto; padding: 6px 9px; border-radius: 99px; background: var(--surface-muted); color: var(--ink-muted); font-size: 9px; font-weight: 650; }
+.history-outcome.positive { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.history-outcome.muted { background: var(--surface-muted); color: var(--ink-muted); }
 .history-values { display: flex; flex-wrap: wrap; gap: 7px 18px; margin: 14px 0 0; }
 .history-values div { display: grid; gap: 3px; }
 .history-values dt { color: var(--ink-subtle); font-size: 9px; }
@@ -524,6 +527,22 @@ a { color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.week-rhythm-disclosure { margin: 0 0 18px; }
+.week-rhythm-disclosure > summary { width: fit-content; padding: 7px 0; color: var(--ink-muted); cursor: pointer; font-size: 11px; font-weight: 650; }
+.week-rhythm-disclosure[open] > summary { margin-bottom: 5px; color: var(--accent-strong); }
+.week-rhythm-disclosure .week-rhythm { margin-top: 0; }
+.other-tracker-types { margin-top: 10px; }
+.other-tracker-types > summary, .optional-goal-plan > summary { width: fit-content; color: var(--accent-strong); cursor: pointer; font-size: 12px; font-weight: 650; }
+.optional-goal-plan { margin-top: 17px; padding: 15px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-muted); }
+.optional-goal-plan > summary { display: flex; justify-content: space-between; gap: 20px; width: 100%; color: var(--ink); }
+.optional-goal-plan > summary span { color: var(--ink-subtle); font-size: 10px; font-weight: 500; }
+.optional-goal-plan > p { color: var(--ink-muted); font-size: 11px; line-height: 1.5; }
+.simple-measure-choice { margin: 0 0 17px; padding: 0; border: 0; }
+.simple-measure-choice legend { margin-bottom: 8px; color: var(--ink); font-size: 12px; font-weight: 650; }
+.simple-measure-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.simple-measure-options label { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink); cursor: pointer; font-size: 11px; }
+.simple-measure-options input { accent-color: var(--accent); }
 
 /* Shared redesign layer: semantic color, clearer hierarchy, and touch-friendly controls. */
 :root { accent-color: var(--accent); }
@@ -953,11 +972,11 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
 .calendar-activity-list li > div { display: grid; gap: 3px; min-width: 0; }
 .calendar-activity-list li > div span, .calendar-activity-list li > div small { color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
 .calendar-status-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; font-weight: 800; background: var(--surface-muted); color: var(--ink-muted); }
-.calendar-status-mark.completed { background: var(--positive-soft); color: var(--positive); }
-.calendar-status-mark.partial { background: var(--warning-soft); color: var(--warning); }
-.calendar-status-mark.missed { background: var(--danger-soft); color: var(--danger); }
-.calendar-status-mark.holiday { background: var(--info-soft); color: var(--info); }
-.calendar-status-mark.future { background: var(--surface-muted); color: var(--ink-subtle); }
+.calendar-status-mark.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.calendar-status-mark.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.calendar-status-mark.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.calendar-status-mark.holiday, .calendar-status-mark.unscheduled { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+.calendar-status-mark.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .calendar-day-details .button-small { white-space: nowrap; }
 .dashboard-first-action { color: var(--ink-muted); font-size: 13px; }
 
@@ -980,12 +999,12 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
   transition: filter 120ms ease, transform 120ms ease;
 }
 .activity-calendar .calendar-cell-status:hover { filter: brightness(.97); transform: translateY(-1px); }
-.activity-calendar .calendar-cell-status.completed { background: var(--positive-soft); color: var(--positive); }
-.activity-calendar .calendar-cell-status.partial { background: var(--warning-soft); color: var(--warning); }
-.activity-calendar .calendar-cell-status.missed { background: var(--danger-soft); color: var(--danger); }
-.activity-calendar .calendar-cell-status.holiday { background: var(--info-soft); color: var(--info); }
-.activity-calendar .calendar-cell-status.future { background: var(--surface); color: var(--ink-subtle); }
-.activity-calendar .calendar-cell-status.unscheduled { background: var(--surface-muted); color: var(--ink-subtle); }
+.activity-calendar .calendar-cell-status.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.activity-calendar .calendar-cell-status.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.activity-calendar .calendar-cell-status.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.activity-calendar .calendar-cell-status.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+.activity-calendar .calendar-cell-status.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
+.activity-calendar .calendar-cell-status.unscheduled { background: var(--status-rest-surface); color: var(--status-rest-ink); }
 .activity-calendar .calendar-cell-status .calendar-cell-mark { font-size: 10px; font-style: normal; font-weight: 800; }
 .calendar-day-selected .calendar-cell-status { border-color: currentColor; box-shadow: 0 0 0 1px currentColor; }
 .calendar-day-today .calendar-cell-status { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -1299,7 +1318,9 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 /* Keep the fixed navigation's height stable while Chrome's edge-to-edge
    gesture inset changes as its bottom controls retract. */
 @media (max-width: 760px) {
-  :root { --safe-area-max-inset-bottom: env(safe-area-inset-bottom, 0px); }
+  /* Chrome recommends a 36px fallback for browsers without the maximum inset
+     variable so fixed bottom UI still paints behind the retracted gesture area. */
+  :root { --safe-area-max-inset-bottom: env(safe-area-max-inset-bottom, 36px); }
   .main-area,
   .topbar { background: var(--canvas); }
   [data-theme='dark'] .topbar { background: var(--canvas); }
@@ -1313,11 +1334,6 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   }
   .main-area { padding-bottom: calc(64px + var(--safe-area-max-inset-bottom)); }
 }
-@supports (padding-bottom: env(safe-area-max-inset-bottom)) {
-  @media (max-width: 760px) {
-    :root { --safe-area-max-inset-bottom: env(safe-area-max-inset-bottom); }
-  }
-}
 .info-popover h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 650; }
 .info-dialog-description { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.75; white-space: pre-line; }
 .form-field > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1327,3 +1343,111 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   .dashboard-heading-actions { gap: 8px; }
   .page-title-row { gap: 8px; }
 }
+
+/* Shared semantic status system. Status is communicated by the surface, label,
+   and icon; neutral layout and brand colors remain independent of status. */
+.status-card { border: 1px solid var(--status-stroke, var(--line)); background: var(--status-bg, var(--surface)); color: var(--ink); }
+.status-pending { --status-bg: var(--status-pending-surface); --status-stroke: color-mix(in srgb, var(--status-pending) 62%, var(--line)); --status-fg: var(--status-pending-ink); }
+.status-completed { --status-bg: var(--status-completed-surface); --status-stroke: color-mix(in srgb, var(--status-completed) 58%, var(--line)); --status-fg: var(--status-completed-ink); }
+.status-partial { --status-bg: var(--status-partial-surface); --status-stroke: color-mix(in srgb, var(--status-partial) 58%, var(--line)); --status-fg: var(--status-partial-ink); }
+.status-holiday { --status-bg: var(--status-holiday-surface); --status-stroke: color-mix(in srgb, var(--status-holiday) 58%, var(--line)); --status-fg: var(--status-holiday-ink); }
+.status-missed { --status-bg: var(--status-missed-surface); --status-stroke: color-mix(in srgb, var(--status-missed) 58%, var(--line)); --status-fg: var(--status-missed-ink); }
+.status-unscheduled { --status-bg: var(--status-rest-surface); --status-stroke: color-mix(in srgb, var(--status-rest) 42%, var(--line)); --status-fg: var(--status-rest-ink); }
+.status-neutral { --status-bg: var(--status-neutral-surface); --status-stroke: var(--line); --status-fg: var(--status-neutral-ink); }
+.status-skipped { --status-bg: var(--surface-muted); --status-stroke: var(--line); --status-fg: var(--ink-muted); }
+.today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
+.tracker-archived-chip { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.today-checkin-card.status-card { border-top: 3px solid var(--status-fg); }
+.today-state, .history-outcome.status-completed, .history-outcome.status-partial, .history-outcome.status-pending, .history-outcome.status-missed, .history-outcome.status-holiday, .history-outcome.status-unscheduled {
+  display: inline-flex; align-items: center; gap: 5px; background: var(--status-bg); color: var(--status-fg); font-weight: 750;
+}
+.today-state.skipped, .history-outcome.skipped { background: var(--surface-muted); color: var(--ink-muted); }
+.status-badge { background: var(--status-bg) !important; color: var(--status-fg) !important; }
+.calendar-dot.pending, .calendar-dot.completed, .calendar-dot.partial, .calendar-dot.missed, .calendar-dot.holiday, .calendar-dot.unscheduled {
+  display: inline-grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: var(--status-bg); color: var(--status-fg); font-size: 11px; font-style: normal; font-weight: 800;
+}
+.calendar-dot.pending { --status-bg: var(--status-pending-surface); --status-fg: var(--status-pending-ink); }
+.calendar-dot.completed { --status-bg: var(--status-completed-surface); --status-fg: var(--status-completed-ink); }
+.calendar-dot.partial { --status-bg: var(--status-partial-surface); --status-fg: var(--status-partial-ink); }
+.calendar-dot.missed { --status-bg: var(--status-missed-surface); --status-fg: var(--status-missed-ink); }
+.calendar-dot.holiday, .calendar-dot.unscheduled { --status-bg: var(--status-holiday-surface); --status-fg: var(--status-holiday-ink); }
+.calendar-status-mark.completed, .activity-calendar .calendar-cell-status.completed, .goal-plan-day.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.calendar-status-mark.partial, .activity-calendar .calendar-cell-status.partial, .goal-plan-day.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.calendar-status-mark.missed, .activity-calendar .calendar-cell-status.missed, .goal-plan-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.calendar-status-mark.holiday, .calendar-status-mark.unscheduled, .activity-calendar .calendar-cell-status.holiday, .activity-calendar .calendar-cell-status.unscheduled, .goal-plan-day.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+.calendar-status-mark.pending, .activity-calendar .calendar-cell-status.pending, .goal-plan-day.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
+.calendar-status-mark.skipped, .activity-calendar .calendar-cell-status.skipped, .calendar-dot.skipped, .goal-plan-day.skipped { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.week-rhythm-day.complete { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.week-rhythm-day.complete .week-rhythm-mark { background: var(--status-completed); color: #fff; }
+.week-rhythm-day.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.week-rhythm-day.partial .week-rhythm-mark { background: var(--status-partial); color: #fff; }
+.week-rhythm-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
+.week-rhythm-day.holiday, .week-rhythm-day.rest { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+.week-rhythm-day.today { background: var(--status-pending-surface); color: var(--status-pending-ink); }
+.today-result { color: var(--status-fg, var(--status-completed-ink)); }
+.goal-plan-day.met { background: var(--status-completed-surface); color: var(--status-completed-ink); }
+.goal-plan-day.below-target { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.goal-plan-day.future, .goal-plan-day.pending { border-color: var(--status-pending); }
+.goal-plan-day.rest { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
+
+/* Neutral, nearly black dark mode with restrained brand color. */
+[data-theme='dark'] .main-area { background: var(--canvas); }
+[data-theme='dark'] .today-overview,
+[data-theme='dark'] .today-overview.all-handled,
+[data-theme='dark'] .week-rhythm,
+[data-theme='dark'] .dashboard-stats > *,
+[data-theme='dark'] .tracker-card,
+[data-theme='dark'] .goal-card,
+[data-theme='dark'] .analytics-tracker,
+[data-theme='dark'] .dashboard-tracker-card,
+[data-theme='dark'] .dashboard-calendar-card { background-color: var(--surface); }
+[data-theme='dark'] .today-overview,
+[data-theme='dark'] .today-overview.all-handled { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-card); }
+[data-theme='dark'] .today-overview::after { display: none; }
+[data-theme='dark'] .dashboard-stats > * { background: var(--surface); border-color: var(--line); }
+[data-theme='dark'] .dashboard-stats .dashboard-stat strong { color: var(--ink); }
+[data-theme='dark'] .dashboard-tracker-card:not(.status-card),
+[data-theme='dark'] .tracker-card:not(.status-card),
+[data-theme='dark'] .goal-card:not(.status-card) { border-color: var(--line); }
+[data-theme='dark'] .mobile-nav { background: var(--surface); border-color: var(--line); box-shadow: 0 -8px 24px #0005; }
+[data-theme='dark'] .section-tabs { background: var(--surface-muted); }
+[data-theme='dark'] .section-tab.active { background: var(--surface-raised); box-shadow: none; }
+[data-theme='dark'] .today-checkin-card.status-card,
+[data-theme='dark'] .history-entry-card.status-card,
+[data-theme='dark'] .dashboard-tracker-card.status-card,
+[data-theme='dark'] .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
+[data-theme='dark'] .today-checkin-card.status-card { border-top-color: var(--status-fg); }
+[data-theme='dark'] .calendar-status-mark, [data-theme='dark'] .calendar-cell-status { border-color: color-mix(in srgb, currentColor 26%, var(--line)); }
+[data-theme='dark'] .button-primary { background: var(--accent); }
+[data-theme='dark'] .button-primary:hover { background: #c64e2b; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .status-card { transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+}
+@media (max-width: 760px) {
+  .today-checkin-card.status-card { padding: 15px; }
+  .calendar-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .calendar-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Refine the shared visual hierarchy: status color is reserved for real state. */
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: var(--disabled-opacity); cursor: not-allowed; }
+.main-area { background: var(--canvas); }
+.today-overview, .today-overview.all-handled { border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-card); }
+.today-overview::after { display: none; }
+.today-progress-track i { background: var(--status-completed); }
+.dashboard-stats > * { background: var(--surface); border-color: var(--line); }
+.dashboard-stats .dashboard-stat strong { color: var(--ink); }
+.tracker-card::before, .goal-card::before, .dashboard-tracker-card::before { display: none; }
+.tracker-card-grid > :nth-child(5n + 1), .tracker-card-grid > :nth-child(5n + 2),
+.tracker-card-grid > :nth-child(5n + 3), .tracker-card-grid > :nth-child(5n + 4),
+.tracker-card-grid > :nth-child(5n + 5) { --card-accent: var(--line); }
+.nav-icon, .nav-link.active .nav-icon { color: var(--ink-subtle); }
+.nav-link[aria-current='page'] .nav-icon { color: var(--accent-strong); }
+.mobile-nav { background: var(--surface); border-color: var(--line); box-shadow: 0 -5px 16px #25201a0d; }
+[data-theme='dark'] .mobile-nav { box-shadow: 0 -5px 18px #0005; }
+.today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { box-shadow: var(--shadow-card); }

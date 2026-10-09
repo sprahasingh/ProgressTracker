@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
+import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { TodayPage } from './TodayPage'
+
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null }) }))
 
 afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 const today = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` as `${number}-${number}-${number}`
@@ -26,8 +29,12 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
+    const activityCard = screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')!
+    expect(activityCard).toHaveClass('status-pending')
+    expect(screen.getByRole('status', { name: 'Pending' })).toBeInTheDocument()
     await user.tab()
-    // The page-level help button is the first keyboard stop.
+    // Help and the optional rhythm disclosure precede the first check-in field.
+    await user.tab()
     await user.tab()
     expect(screen.getByLabelText('Pages')).toHaveFocus()
     await user.type(screen.getByLabelText('Pages'), '5')
@@ -37,6 +44,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
 
     expect(await screen.findByText('Your configured success rule is met.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-completed'))
     const savedDate = today()
     const saved = await localRepository.getTrackerEntry('today-tracker', savedDate)
     expect(saved).toMatchObject({ outcome: 'recorded', values: { pages: 5, 'field:mood': 'Focused' } })
@@ -46,6 +54,36 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-partial'))
+  })
+
+  it('keeps the week pattern collapsed until requested', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    const summary = await screen.findByText('Your last 7 days')
+    const disclosure = summary.closest('details')
+    expect(disclosure).not.toHaveAttribute('open')
+    await user.click(summary)
+    expect(disclosure).toHaveAttribute('open')
+    expect(screen.getByRole('list', { name: 'Check-in pattern for the last seven days' })).toBeInTheDocument()
+  })
+
+  it('refreshes visible check-in status when another device syncs an entry', async () => {
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    const card = await screen.findByRole('heading', { name: 'Daily reading' })
+    expect(card.closest('.today-checkin-card')).toHaveClass('status-pending')
+
+    await db.trackerEntries.put({
+      id: 'remote-entry', trackerId: 'today-tracker', date: today(), outcome: 'recorded',
+      values: { pages: 5, 'field:mood': 'Focused' }, note: '', createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(), deletedAt: null,
+    })
+    act(() => publishWorkspaceDataChange(null))
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-completed'))
+    expect(screen.getByRole('status', { name: 'Completed' })).toBeInTheDocument()
   })
 
   it('filters trackers that are not scheduled today and records a skip for scheduled trackers', async () => {

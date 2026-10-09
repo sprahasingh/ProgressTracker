@@ -160,8 +160,9 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
       setSaving(false)
     }
   }
-  const outcomeLabel = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Success rule met' : 'Logged'
-  return <Surface className="history-entry-card"><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${entry.outcome === 'skipped' ? 'muted' : qualifies ? 'positive' : ''}`}>{outcomeLabel}</span></div>
+  const outcomeLabel = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Completed · success rule met' : 'Partial progress logged'
+  const statusClass = entry.outcome === 'skipped' ? 'skipped' : qualifies ? 'completed' : 'partial'
+  return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
     {saved && <p className="auth-success" role="status">{saved}</p>}
     {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setEditing(true); setSaved('') }}>Edit check-in</button>}
     {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}

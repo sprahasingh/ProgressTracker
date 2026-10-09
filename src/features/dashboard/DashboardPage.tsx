@@ -13,6 +13,7 @@ import { calculateProgressRewards, calculateStreak } from '../../domain/trackers
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
@@ -84,7 +85,9 @@ export function DashboardPage() {
                 const streak = streakByTracker.get(tracker.id)!
                 const latest = history[0]
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
-                return <Surface key={tracker.id} className="dashboard-tracker-card"><div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}</span><span>{latest ? calendarDateLabel(latest.date) : 'Ready when you are'}</span></div><h3>{tracker.name}</h3>{streak.current > 0 || streak.longest > 0 ? <div className="dashboard-tracker-stats"><span><strong>{streak.current}</strong><small>current streak</small></span><span><strong>{streak.longest}</strong><small>personal best</small></span></div> : <p className="dashboard-first-action">Your pattern starts with one check-in.</p>}<div className="dashboard-latest-state">{latest ? <><span className={`history-outcome ${latest.outcome === 'skipped' || !latestResult ? 'muted' : 'positive'}`}>{latest.outcome === 'skipped' ? 'Skipped' : latestResult ? 'Success rule met' : 'Logged'}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : 'No values recorded'}</span></> : <Link to="/">Make your first check-in →</Link>}</div></Surface>
+                const status = getTrackerActivityStatus({ tracker, entry: latest, date: latest?.date ?? today, today, holidays: new Set(data.holidays) })
+                const statusClass = latest?.outcome === 'skipped' ? 'skipped' : status
+                return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}><div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}</span><span>{latest ? calendarDateLabel(latest.date) : 'Ready when you are'}</span></div><h3>{tracker.name}</h3>{streak.current > 0 || streak.longest > 0 ? <div className="dashboard-tracker-stats"><span><strong>{streak.current}</strong><small>current streak</small></span><span><strong>{streak.longest}</strong><small>personal best</small></span></div> : <p className="dashboard-first-action">Your pattern starts with one check-in.</p>}<div className="dashboard-latest-state">{latest ? <><span className={`history-outcome ${statusClass}`}>{latest.outcome === 'skipped' ? 'Skipped · neutral' : `${ACTIVITY_STATUS_PRESENTATION[status].label}${latestResult ? ' · success rule met' : ''}`}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : 'No values recorded'}</span></> : <><span className={`history-outcome ${status}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}</span><Link to="/">Make your first check-in →</Link></>}</div></Surface>
               })}
             </div>
           </section>
