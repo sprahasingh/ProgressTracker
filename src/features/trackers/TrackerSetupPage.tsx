@@ -5,10 +5,28 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
-import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
+import type { CustomFieldDefinition, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
+import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 
-type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string; metricName: string; unit: string; target: string }
+type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string }
+
+type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
+
+function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
+  const id = crypto.randomUUID()
+  return kind === 'habit'
+    ? { id, name: 'Completed', valueType: 'boolean' }
+    : { id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' } }
+}
+
+function starterRule(metric: TrackerMetricDefinition): TrackerRule {
+  return metric.valueType === 'boolean'
+    ? { kind: 'comparison', metricId: metric.id, operator: 'equals', value: true }
+    : metric.thresholds?.target !== undefined
+      ? { kind: 'threshold', metricId: metric.id, level: 'target' }
+      : { kind: 'comparison', metricId: metric.id, operator: 'at-least', value: 1 }
+}
 
 function todayLocal(): string {
   const now = new Date()
@@ -16,15 +34,12 @@ function todayLocal(): string {
 }
 
 function defaultValues(tracker?: TrackerDefinition): FormValues {
-  const metric = tracker?.metrics[0]
   const schedule = tracker?.schedule.kind === 'weekdays' ? 'weekdays'
     : tracker?.schedule.kind === 'none' ? 'none'
       : tracker?.schedule.kind === 'times-per-week' && tracker.schedule.count === 3 ? 'three-times-weekly' : 'every-day'
   return {
     name: tracker?.name ?? '', description: tracker?.description ?? '', kind: tracker?.kind ?? 'habit', schedule,
     startDate: tracker?.startDate ?? todayLocal(), deadline: tracker?.deadline ?? '',
-    metricName: metric?.name ?? (tracker?.kind === 'habit' ? 'Completed' : 'Progress'),
-    unit: metric?.unit ?? '', target: String(metric?.thresholds?.target ?? 1),
   }
 }
 
@@ -33,6 +48,10 @@ export function TrackerSetupPage() {
   const navigate = useNavigate()
   const [existing, setExisting] = useState<TrackerDefinition>()
   const [values, setValues] = useState<FormValues>(() => defaultValues())
+  const [configuration, setConfiguration] = useState<Configuration>(() => {
+    const metric = starterMetric('habit')
+    return { metrics: [metric], rule: starterRule(metric), customFields: [], milestones: [] }
+  })
   const [loading, setLoading] = useState(Boolean(trackerId))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -47,6 +66,7 @@ export function TrackerSetupPage() {
       else {
         setExisting(tracker)
         setValues(defaultValues(tracker))
+        setConfiguration({ metrics: tracker.metrics, rule: tracker.qualificationRule, customFields: tracker.customFields, milestones: tracker.milestones })
       }
     }).catch(() => current && setError('Could not open this tracker from local storage.'))
       .finally(() => current && setLoading(false))
@@ -60,12 +80,23 @@ export function TrackerSetupPage() {
 
   function changeKind(value: string) {
     if (existing) return
+    const previousKind = values.kind
     const kind = value as TrackerKind
     setValues((current) => ({
       ...current,
       kind,
-      metricName: current.kind === 'habit' && kind !== 'habit' ? 'Progress' : current.kind !== 'habit' && kind === 'habit' ? 'Completed' : current.metricName,
     }))
+    setConfiguration((current) => {
+      if (current.metrics.length !== 1 || existing) return current
+      const oldMetric = current.metrics[0]!
+      const changed = previousKind === 'habit' && kind !== 'habit'
+        ? { ...oldMetric, name: 'Progress', valueType: 'quantity' as const, unit: '', thresholds: { direction: 'increase' as const, target: 1, streakQualification: 'any-recorded-value' as const } }
+        : previousKind !== 'habit' && kind === 'habit'
+          ? { id: oldMetric.id, name: 'Completed', valueType: 'boolean' as const }
+          : oldMetric
+      const rule = starterRule(changed)
+      return { ...current, metrics: [changed], rule }
+    })
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -81,11 +112,7 @@ export function TrackerSetupPage() {
       const form = parsed.data
       const now = new Date().toISOString()
       const id = existing?.id ?? crypto.randomUUID()
-      const metricId = existing?.metrics[0]?.id ?? crypto.randomUUID()
       const kind = existing?.kind ?? form.kind
-      const metric = kind === 'habit'
-        ? { id: metricId, name: form.metricName, valueType: 'boolean' as const }
-        : { id: metricId, name: form.metricName, valueType: 'quantity' as const, unit: form.unit.trim(), thresholds: { direction: 'increase' as const, target: Number(form.target), streakQualification: 'any-recorded-value' as const } }
       const schedule: TrackerDefinition['schedule'] = form.schedule === 'weekdays' ? { kind: 'weekdays' }
         : form.schedule === 'none' ? { kind: 'none' }
           : form.schedule === 'three-times-weekly' ? { kind: 'times-per-week', count: 3 }
@@ -96,11 +123,10 @@ export function TrackerSetupPage() {
         status: existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,
-        metrics: existing?.metrics.length ? [metric, ...existing.metrics.slice(1)] : [metric],
-        qualificationRule: existing?.qualificationRule ?? (kind === 'habit'
-          ? { kind: 'comparison', metricId, operator: 'equals', value: true }
-          : { kind: 'threshold', metricId, level: 'target' }),
-        customFields: existing?.customFields ?? [], milestones: existing?.milestones ?? [],
+        metrics: configuration.metrics,
+        qualificationRule: configuration.rule,
+        customFields: configuration.customFields,
+        milestones: configuration.milestones,
         createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.archivedAt ?? null, deletedAt: null,
       }
       const checked = trackerDefinitionSchema.safeParse(candidate)
@@ -121,7 +147,7 @@ export function TrackerSetupPage() {
 
   return (
     <section className="tracker-page" aria-labelledby="tracker-setup-title">
-      <PageHeader headingId="tracker-setup-title" eyebrow="BUILD YOUR PRACTICE" title={existing ? 'Edit tracker' : 'New tracker'} description="Start with a clear intention. You can add more measures and success rules later." action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+      <PageHeader headingId="tracker-setup-title" eyebrow="BUILD YOUR PRACTICE" title={existing ? 'Edit tracker' : 'New tracker'} description="Set up your measures, milestones, and the conditions that count as success." action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
       <Surface className="tracker-form-card">
         <form className="tracker-form" onSubmit={submit} noValidate>
           {error && <div role="alert" className="form-alert">{error}</div>}
@@ -154,21 +180,17 @@ export function TrackerSetupPage() {
               <input className="auth-input" type="date" value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />
               {fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}
             </label>
-            <div className="form-field form-field-wide form-section-heading"><strong>First measure</strong><span>A simple starting point; you can expand it later.</span></div>
-            <label className="form-field">
-              <span>{(existing?.kind ?? values.kind) === 'habit' ? 'Completion label' : 'What is the measure?'}</span>
-              <input className="auth-input" maxLength={120} value={values.metricName} onChange={(event) => update('metricName', event.target.value)} aria-invalid={Boolean(fieldErrors.metricName)} aria-describedby={fieldErrors.metricName ? 'tracker-metric-error' : undefined} />
-              {fieldErrors.metricName && <small id="tracker-metric-error" className="auth-error">{fieldErrors.metricName}</small>}
-            </label>
-            {(existing?.kind ?? values.kind) !== 'habit' && <>
-              <label className="form-field"><span>Unit</span><input className="auth-input" maxLength={40} value={values.unit} onChange={(event) => update('unit', event.target.value)} placeholder="pages, hours, sessions…" /></label>
-              <label className="form-field">
-                <span>Target</span>
-                <input className="auth-input" type="number" min="0.01" step="any" value={values.target} onChange={(event) => update('target', event.target.value)} aria-invalid={Boolean(fieldErrors.target)} aria-describedby={fieldErrors.target ? 'tracker-target-error' : undefined} />
-                {fieldErrors.target && <small id="tracker-target-error" className="auth-error">{fieldErrors.target}</small>}
-              </label>
-            </>}
           </div>
+          <TrackerConfigurationEditor
+            metrics={configuration.metrics}
+            onMetricsChange={(metrics) => setConfiguration((current) => ({ ...current, metrics }))}
+            rule={configuration.rule}
+            onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))}
+            customFields={configuration.customFields}
+            onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))}
+            milestones={configuration.milestones}
+            onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))}
+          />
           <footer className="tracker-form-actions">
             <Button type="button" variant="secondary" onClick={() => navigate('/trackers')}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -38,10 +38,10 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.type(screen.getByLabelText('What would you like to track?'), 'Run a 10K')
     await user.selectOptions(screen.getByLabelText('Tracker type'), 'goal')
-    await user.clear(screen.getByLabelText('What is the measure?'))
-    await user.type(screen.getByLabelText('What is the measure?'), 'Distance')
-    await user.clear(screen.getByLabelText('Target'))
-    await user.type(screen.getByLabelText('Target'), '10')
+    await user.clear(screen.getByLabelText('Name'))
+    await user.type(screen.getByLabelText('Name'), 'Distance')
+    await user.clear(screen.getByLabelText(/Target threshold/))
+    await user.type(screen.getByLabelText(/Target threshold/), '10')
     await user.type(screen.getByLabelText('Unit'), 'km')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
@@ -49,6 +49,39 @@ describe('tracker setup flow', () => {
     const saved = await localRepository.listTrackers()
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatchObject({ kind: 'goal', name: 'Run a 10K', metrics: [{ name: 'Distance', unit: 'km', thresholds: { target: 10 } }] })
+  })
+
+  it('saves multiple measures, nested success rules, select fields, and milestones', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByLabelText('What would you like to track?'), 'Build a portfolio')
+    await user.selectOptions(screen.getByLabelText('Tracker type'), 'project')
+    await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
+    const measureNames = screen.getAllByLabelText('Name')
+    await user.clear(measureNames[1]!)
+    await user.type(measureNames[1]!, 'Focus time')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 2 value type' }), 'duration')
+
+    const ruleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
+    await user.selectOptions(ruleKinds[0]!, 'all')
+    const nestedRuleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
+    await user.selectOptions(nestedRuleKinds[1]!, 'any')
+
+    await user.click(screen.getByRole('button', { name: '＋ Add field' }))
+    await user.type(screen.getByLabelText('Field name'), 'Mood')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Field type' }), 'single-select')
+    fireEvent.change(screen.getByLabelText(/Options/), { target: { value: 'Focused\nTired' } })
+    await user.click(screen.getByRole('button', { name: '＋ Add milestone' }))
+    await user.type(screen.getByLabelText('Milestone'), 'Publish first case study')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+
+    await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
+    const saved = await localRepository.listTrackers()
+    expect(saved[0]?.metrics).toHaveLength(2)
+    expect(saved[0]?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'duration' })
+    expect(saved[0]?.qualificationRule).toMatchObject({ kind: 'all', operands: [{ kind: 'any', operands: [expect.any(Object), expect.any(Object)] }, expect.any(Object)] })
+    expect(saved[0]?.customFields).toMatchObject([{ name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'] }])
+    expect(saved[0]?.milestones).toMatchObject([{ title: 'Publish first case study' }])
   })
 
   it('edits setup without replacing existing tracker identity or creation time', async () => {

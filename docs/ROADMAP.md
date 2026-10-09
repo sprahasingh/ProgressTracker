@@ -13,18 +13,18 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 ## Architecture boundaries
 
 - `src/domain/trackers` owns transport- and storage-independent tracker definitions, schedule shapes, metrics, qualification rules, custom fields, milestones, and entry values.
-- Zod schemas validate persisted/imported/API-shaped values at boundaries. Evaluation and planning remain pure domain operations in a later step.
+- Zod schemas validate persisted/imported/API-shaped values at boundaries. Evaluation/planning are pure domain operations; the setup editor validates all configured nested values before persistence.
 - `src/db` remains the IndexedDB adapter. The v3 upgrade uses pure legacy projections and retains original rows/IDs/tombstones in the legacy stores.
 - Future cloud persistence requires additive, forward-only migrations and RLS/pgTAP coverage. Keep sync transport out of components and do not treat client timestamps as trusted concurrency data.
 
 ## Stages
 
-1. **Generic domain foundation** — define versioned generic tracker/entry types, validate schedules, metrics, rules, custom fields and milestones, and add non-destructive projections from legacy categories and daily entries. (Current step.)
+1. **Generic domain foundation** — completed: versioned generic tracker/entry types, validation schemas, and non-destructive projections from legacy categories and daily entries.
 2. **Pure domain behavior** — completed in this phase: deterministic achievement classification, nested AND/OR/at-least rule evaluation, rest-day-aware workload distribution, recalculation, and deadline state results. Timezone-aware schedules and richer recurrence semantics remain limitations to close before shipping UI.
 3. **IndexedDB evolution** — completed in this phase: Dexie v3 generic tracker/entry tables and a transactional projection of legacy categories/entries, verified from v1/v2 fixtures and after reopen. Original legacy rows remain intact.
 4. **Cloud schema evolution** — implemented in this phase as an additive migration and pgTAP coverage for generic tracker ownership, cross-user references, tombstones, and revisions. Hosted application remains a user-run dashboard step; no hosted project was accessed.
 5. **Tracker setup flows** — implemented in this phase: local tracker list/create/edit/archive with schedule and date setup, first metrics, type-aware defaults, and Zod validation.
-6. **Metrics and rules editor** — support numeric/duration/checklist metrics, thresholds, custom fields, milestones, and nested qualification rules with accessible controls.
+6. **Metrics and rules editor** — completed in this phase: editable multi-metric definitions, numeric/duration/checklist measures, directional thresholds, streak qualification, nested AND/OR/at-least rules, typed custom fields, and metric-linked milestones.
 7. **Daily logging and adaptive schedules** — implement quick logging, skips, schedule-aware prompts, and explainable qualification states.
 8. **Challenges and rewards** — add streaks and progression based on tested domain calculations; keep rewards motivational and recoverable after missed days.
 9. **Dashboard and history** — replace the welcome shell with useful today, goal, calendar, and progress views; avoid fabricated sample activity.
@@ -37,10 +37,10 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 ## Known limitations and risks
 
 - Generic definitions and entries are persisted in IndexedDB. Tracker create/edit/list/archive flows use local repository methods; daily logging and cloud writes are not implemented. Legacy records continue to be retained as compatibility copies.
-- The current setup screen supports a compact set of schedules and edits only the initial metric. Additional metric, custom-field, milestone, and qualification-rule editing belongs to Phase 6.
+- The setup screen supports a compact set of schedules. Rule summaries/preview, reorder controls, checklist progress calculation, and richer conditional custom-field behavior are future refinements.
 - The read-only legacy projection maps each old category to a boolean habit with one completion metric. It cannot infer quantitative progress from the free-form note field.
 - Category schedules lack an explicit timezone. Schedule evaluation must define whether it uses the user’s selected timezone before streak or occurrence behavior is shipped.
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
-- Generic cloud tables are now defined, but the new app client does not read or write them. Apply the new migration to the hosted project and verify it before any future client integration.
+- Generic cloud tables are now defined, but the new app client does not read or write them. Apply the new migration to the hosted project and verify it before any future client integration. The pgTAP suite is present but was not run because the local database was unavailable in the prior implementation turn.
 - Authentication remains magic-link only. Password flows and sync are deliberately later stages.
 - Phase 2 planning currently treats dates as UTC calendar dates and has a deliberately simple cadence model; monthly/weekly quotas are approximate distribution rules, not a timezone-aware recurrence engine. Daily recurring and cumulative-deadline are caller-selected modes and both return deadline/status information; product policy for carrying missed work forward must be finalized before UI integration.
