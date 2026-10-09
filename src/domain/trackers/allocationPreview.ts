@@ -61,7 +61,12 @@ export function createCumulativeAllocationPreview(input: {
   }
 }
 
-/** Allocates evenly, rounding down to at least hundredths and keeping the exact remainder on the final date. */
+/**
+ * Distributes whole increments from the earliest eligible dates forward. Any
+ * remainder goes to early dates; when there are more days than needed, later
+ * days receive zero. Re-running with current remaining work and eligible days
+ * naturally recalculates the pace after progress or a missed day.
+ */
 export function distributeTarget(remainingTarget: number, dayCount: number, integerUnits = false, increment?: number): number[] {
   if (!Number.isFinite(remainingTarget) || remainingTarget < 0 || remainingTarget > Number.MAX_SAFE_INTEGER) {
     throw new RangeError('Remaining target must be a finite nonnegative number.')

@@ -38,6 +38,45 @@ describe('cumulative allocation preview', () => {
     expect(summarizeAllocations(1.1, legacyRemainderPlan).overAllocation).toBeCloseTo(0.15)
   })
 
+  it('front-loads whole questions and leaves later days at zero when there are more days than questions', () => {
+    const across110Days = distributeTarget(100, 110, false, 1)
+    expect(across110Days.slice(0, 100)).toEqual(Array(100).fill(1))
+    expect(across110Days.slice(100)).toEqual(Array(10).fill(0))
+
+    const across90Days = distributeTarget(100, 90, false, 1)
+    expect(across90Days.slice(0, 10)).toEqual(Array(10).fill(2))
+    expect(across90Days.slice(10)).toEqual(Array(80).fill(1))
+    expect(across90Days.every(Number.isInteger)).toBe(true)
+  })
+
+  it('recalculates whole-unit pace as dates pass, progress is recorded, or an eligible day is missed', () => {
+    const deadline = '2026-04-25'
+    const wholeQuestionGoal: TrackerDefinition = {
+      ...tracker,
+      schedule: { kind: 'every-day' },
+      startDate: '2026-01-01',
+      deadline,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'questions', precision: { decimalPlaces: 0, increment: 1 } }],
+    }
+    const firstDay = createCumulativeAllocationPreview({ tracker: wholeQuestionGoal, entries: [], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-01' })
+    const initialEligibleDays = firstDay.days.filter((day) => day.eligible).length
+    expect(initialEligibleDays).toBeGreaterThan(100)
+    expect(firstDay.days.filter((day) => day.eligible).map((day) => day.amount)).toEqual([...Array(100).fill(1), ...Array(initialEligibleDays - 100).fill(0)])
+
+    const afterProgress = createCumulativeAllocationPreview({ tracker: wholeQuestionGoal, entries: [entry('2026-01-01', 1)], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-02' })
+    expect(afterProgress.remainingTarget).toBe(99)
+    const progressEligibleDays = afterProgress.days.filter((day) => day.eligible).length
+    expect(progressEligibleDays).toBe(initialEligibleDays - 1)
+    expect(afterProgress.days.filter((day) => day.eligible).map((day) => day.amount)).toEqual([...Array(99).fill(1), ...Array(progressEligibleDays - 99).fill(0)])
+
+    const afterMissedDay = createCumulativeAllocationPreview({ tracker: wholeQuestionGoal, entries: [], metricId: 'pages', totalTarget: 100, startDate: '2026-01-02', asOfDate: '2026-01-02' })
+    expect(afterMissedDay.remainingTarget).toBe(100)
+    const missedDayEligibleDays = afterMissedDay.days.filter((day) => day.eligible).length
+    expect(missedDayEligibleDays).toBe(initialEligibleDays - 1)
+    expect(afterMissedDay.days.filter((day) => day.eligible).map((day) => day.amount)).toEqual([...Array(100).fill(1), ...Array(missedDayEligibleDays - 100).fill(0)])
+    expect(afterMissedDay.days.filter((day) => day.amount !== null).every((amount) => Number.isInteger(amount.amount))).toBe(true)
+  })
+
   it('retains rest days in the calendar without assigning work and subtracts actual incremental progress', () => {
     const longerDeadline = { ...tracker, startDate: '2026-01-01', deadline: '2026-01-09', createdAt: '2026-01-01T00:00:00.000Z' }
     const preview = createCumulativeAllocationPreview({ tracker: longerDeadline, entries: [entry('2026-01-01', 4)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-01', asOfDate: '2026-01-01' })

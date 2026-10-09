@@ -93,7 +93,11 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
   return occurrences
 }
 
-/** Counts qualifying scheduled occurrences. Missed days reset current streak, not the personal best. */
+/**
+ * Counts qualifying scheduled occurrences. Holidays and rest days pause the
+ * run: they neither add to it nor reset it. A missed scheduled occurrence
+ * resets the current run, not the personal best.
+ */
 export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set()): StreakResult {
   parseDate(asOfDate)
   const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays)

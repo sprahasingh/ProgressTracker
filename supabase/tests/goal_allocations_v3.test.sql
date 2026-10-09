@@ -6,9 +6,9 @@ insert into auth.users (id, email) values
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000031';
 
-select ok((select pg_get_constraintdef(oid) like '%1, 2, 3%'
+select ok((select pg_get_constraintdef(oid) like '%1, 2, 3, 4%'
   from pg_constraint where conrelid = 'public.trackers'::regclass and conname = 'trackers_schema_version_check'),
-  'schema version constraint retains v1 and v2 and adds v3');
+  'schema version constraint retains v1-v3 and adds v4');
 select is((select relrowsecurity from pg_class where oid = 'public.trackers'::regclass), true,
   'v3 support retains tracker RLS');
 select is((select count(*) from pg_policies where schemaname = 'public' and tablename = 'trackers'), 4::bigint,
@@ -34,9 +34,8 @@ select is((public.apply_tracker_sync_operation(
 )->>'status'), 'applied', 'authenticated sync RPC accepts v3 tracker allocations');
 select results_eq($$select schema_version, server_revision from public.trackers where id = '00000000-0000-4000-8000-000000000141'$$,
   $$values (3::smallint, 1::bigint)$$, 'RPC v3 insert initializes the existing revision token');
-select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000435','tracker',null,
-  '{"id":"00000000-0000-4000-8000-000000000132","schema_version":4,"kind":"goal","status":"active","name":"Unsupported","definition":{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000132","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
-  '23514', null, 'unsupported schema version 4 remains rejected');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000435','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000132","schema_version":4,"kind":"goal","status":"active","name":"Precise goal","definition":{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000132","kind":"goal","status":"active","metrics":[{"id":"pages","name":"Pages","valueType":"quantity","precision":{"decimalPlaces":0,"increment":1}}],"schedule":{"kind":"weekdays"},"goalPlanning":{"mode":"cumulative-deadline","progressSemantics":{"pages":"incremental"},"dailyTargets":{},"cumulativeTargets":{"pages":20}}}}')::jsonb)->>'status', 'applied', 'schema v4 precision goal uses the existing sync RPC and revision protection');
 select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000436','tracker',null,
   '{"id":"00000000-0000-4000-8000-000000000133","schema_version":3,"kind":"goal","status":"active","name":"Mismatched","definition":{"schemaVersion":2,"id":"00000000-0000-4000-8000-000000000133","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
   '23514', null, 'definition and row schema versions must still match');

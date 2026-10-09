@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -43,6 +43,13 @@ export function TodayPage() {
       ])
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
       const goals = allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline && tracker.deadline >= today)
+      const latestGoalDeadline = goals.reduce<CalendarDate | null>((latest, tracker) => {
+        const deadline = tracker.deadline as CalendarDate
+        return !latest || deadline > latest ? deadline : latest
+      }, null)
+      const planningHolidays = latestGoalDeadline
+        ? await localRepository.listAccountHolidays(shiftCalendarDate(today, -6), latestGoalDeadline)
+        : holidays
       const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
         const start = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
         return start < earliest ? start : earliest
@@ -54,8 +61,8 @@ export function TodayPage() {
       setEntries(todayEntries)
       setWeekEntries(recentEntries)
       setGoalEntries(historicalGoalEntries)
-      setHolidayDates(holidays.map((holiday) => holiday.date))
-      setTodayHoliday(holidays.find((holiday) => holiday.date === today))
+      setHolidayDates(planningHolidays.map((holiday) => holiday.date))
+      setTodayHoliday(planningHolidays.find((holiday) => holiday.date === today))
     } catch {
       setLoadError('Today’s check-ins could not be loaded from this device.')
     } finally {
@@ -129,6 +136,7 @@ export function TodayPage() {
           const metric = goal.metrics.find((item) => goal.goalPlanning?.cumulativeTargets[item.id] !== undefined && item.valueType !== 'boolean')
           let recommendation: number | undefined
           let remaining: number | undefined
+          let savedAllocation: number | undefined
           if (metric && goal.goalPlanning) {
             const entriesForGoal = goalEntries.filter((entry) => entry.trackerId === goal.id)
             const startDate = goal.startDate ?? goal.createdAt.slice(0, 10)
@@ -137,13 +145,12 @@ export function TodayPage() {
             if (goal.goalPlanning.progressSemantics[metric.id] === 'incremental') {
               const calculation = calculateCumulativeMetricPlan({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: today, progressSemantics: 'incremental', holidays: holidaySet })
               remaining = calculation.remainingWork
-              const savedAllocation = goal.goalPlanning.allocations?.[metric.id]?.[today]
-              if (savedAllocation !== undefined) recommendation = savedAllocation
-              else recommendation = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: today, holidays: holidaySet }).days.find((day) => day.date === today)?.amount ?? undefined
+              savedAllocation = goal.goalPlanning.allocations?.[metric.id]?.[today]
+              recommendation = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: today, holidays: holidaySet }).days.find((day) => day.date === today)?.amount ?? undefined
             }
           }
           const unit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''
-          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Today: {formatTrackerNumber(recommendation)}{unit} recommended · {formatTrackerNumber(remaining ?? 0)}{unit} remaining</span>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
+          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Updated pace today: {formatTrackerNumber(recommendation)}{unit} · {formatTrackerNumber(remaining ?? 0)}{unit} remaining</span>}{savedAllocation !== undefined && savedAllocation !== recommendation && <small>Saved plan: {formatTrackerNumber(savedAllocation)}{unit} · planner can rebalance it</small>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
         })}</div>
       </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
@@ -177,7 +184,9 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
   const firstMetric = tracker.metrics[0]
   const quickBooleanMetric = tracker.metrics.length === 1 && firstMetric?.valueType === 'boolean' ? firstMetric : undefined
   const canOneTapComplete = Boolean(quickBooleanMetric) && tracker.customFields.length === 0
-  useEffect(() => { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') }, [entry])
+  // Sync refreshed local records before paint so a just-saved value cannot
+  // briefly overwrite the user's next edit in the controlled check-in fields.
+  useLayoutEffect(() => { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') }, [entry])
 
   const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
     const next = { ...current }

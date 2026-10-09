@@ -40,4 +40,30 @@ describe('cumulative allocation preview UI', () => {
     expect(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' })).toHaveValue(3.33)
     expect(screen.queryByText('UNSAVED CHANGES')).not.toBeInTheDocument()
   })
+
+  it('offers a newly balanced pace after progress while preserving the confirmed plan until chosen', async () => {
+    const savedGoal: TrackerDefinition = {
+      ...tracker,
+      schemaVersion: 4,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }],
+      goalPlanning: { ...tracker.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: { '2026-01-05': 1.5, '2026-01-06': 3, '2026-01-07': 4 } } },
+    }
+    const onSave = vi.fn()
+    render(<CumulativeAllocationPreview tracker={savedGoal} entries={[{
+      id: 'done-today', trackerId: savedGoal.id, date: '2026-01-05', outcome: 'recorded', values: { pages: 4 }, note: '',
+      createdAt: '2026-01-05T09:00:00.000Z', updatedAt: '2026-01-05T09:00:00.000Z', deletedAt: null,
+    }]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-06" timeZone="UTC" onSave={onSave} v3WritesEnabled />)
+
+    expect(screen.getByText('Some saved allocations no longer match this metric’s whole-unit precision. Your saved plan is unchanged.')).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-07' })).toHaveValue(4)
+    fireEvent.click(screen.getByRole('button', { name: 'Use updated suggestion' }))
+    expect(screen.getByRole('spinbutton', { name: 'Unsaved allocation for 2026-01-07' })).toHaveValue(3)
+    expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
+    expect(savedGoal.goalPlanning?.allocations?.pages?.['2026-01-07']).toBe(4)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByText(/This reset replaces the saved allocation schedule/)).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save Plan' })[0]!)
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]?.[0].goalPlanning?.allocations?.pages).toEqual({ '2026-01-06': 3, '2026-01-07': 3 })
+  })
 })
