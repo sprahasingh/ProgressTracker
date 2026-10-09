@@ -49,6 +49,28 @@ describe('sync conflict recovery', () => {
     await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
   })
 
+  it('normalizes PostgreSQL timestamp strings before applying a cloud conflict choice', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const operation = await db.syncOperations.toCollection().first()
+    if (!operation) throw new Error('Expected a queued operation')
+    const postgresRemote = {
+      ...remote,
+      definition: {
+        ...remote.definition,
+        createdAt: '2026-01-01 00:00:00.123456+00',
+        updatedAt: '2026-01-03T04:30:00.123456+04:30',
+      },
+    }
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: tracker, remoteRecord: postgresRemote, detectedAt: '2026-01-03T00:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'use-cloud')
+
+    await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({
+      name: 'Cloud name', createdAt: '2026-01-01T00:00:00.123456Z', updatedAt: '2026-01-03T00:00:00.123456Z',
+    })
+  })
+
   it('does not expose or resolve another account’s local conflicts', async () => {
     await activateWorkspace('conflict-user')
     await db.syncConflicts.put({ id: 'private-conflict', ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: tracker, remoteRecord: remote, detectedAt: '2026-01-03T00:00:00.000Z' })
