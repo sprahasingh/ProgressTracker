@@ -34,7 +34,7 @@ describe('Goals page allocation preview', () => {
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
     const tomorrow = shiftCalendarDate(today, 1)
     fireEvent.change(screen.getByRole('spinbutton', { name: `Allocation for ${tomorrow}` }), { target: { value: '0' } })
-    expect(await screen.findByText(/pages remains unallocated\./)).toBeInTheDocument()
+    expect(await screen.findByText(/remains unallocated\./)).toBeInTheDocument()
 
     await waitFor(async () => {
       await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })

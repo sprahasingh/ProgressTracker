@@ -6,13 +6,13 @@ import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZon
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
-  { to: '/trackers', label: 'Trackers & Goals', mobileLabel: 'Trackers', icon: '✳', matches: ['/trackers', '/goals'] },
+  { to: '/trackers', label: 'Trackers', icon: '✳', matches: ['/trackers', '/goals'] },
   { to: '/calendar', label: 'Calendar', icon: '▦', matches: ['/calendar', '/history'] },
   { to: '/dashboard', label: 'Insights', icon: '↗', matches: ['/dashboard', '/analytics', '/achievements'] },
-  { to: '/holidays', label: 'Holidays & Breaks', mobileLabel: 'Breaks', icon: '☀', matches: ['/holidays'] },
 ]
 
 const mobileMoreNavigation = [
+  { to: '/holidays', label: 'Holidays & breaks' },
   { to: '/bin', label: 'Bin' },
   { to: '/settings', label: 'Settings' },
   { to: '/auth', label: 'Account & sync' },
@@ -65,6 +65,7 @@ export function AppShell() {
           </nav>
           <div className="sidebar-secondary" aria-label="More destinations">
             <span className="nav-caption nav-caption-secondary">MORE</span>
+            <NavLink to="/holidays" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">☀</span>Holidays & breaks</NavLink>
             <NavLink to="/settings" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">⚙</span>Settings</NavLink>
             <NavLink to="/bin" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">▤</span>Bin</NavLink>
             <NavLink to="/auth" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">◉</span>Account & sync</NavLink>
@@ -105,10 +106,10 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {primaryNavigation.map(({ to, label, mobileLabel, icon, matches, end }) => {
+          {primaryNavigation.map(({ to, label, icon, matches, end }) => {
             const active = routeMatches(location.pathname, matches)
             return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`mobile-nav-link${active ? ' active' : ''}`}>
-              <span aria-hidden="true">{icon}</span><small>{mobileLabel ?? label}</small>
+              <span aria-hidden="true">{icon}</span><small>{label}</small>
             </NavLink>
           })}
           <details className="mobile-more">

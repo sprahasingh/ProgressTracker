@@ -104,7 +104,7 @@ export function GoalsPage() {
   const completedCount = goals.filter(({ tracker }) => tracker.status === 'completed').length
 
   return <section className="tracker-page goals-page" aria-labelledby="goals-title">
-    <PageHeader headingId="goals-title" eyebrow="YOUR DIRECTION" title="Goals" description="Keep your longer-term aims and the next useful step in view." help={{ title: 'Goals', summary: 'Follow measurable outcomes, their history, and the next useful step.', description: 'Goal status and progress are calculated from saved tracker definitions and check-ins in this workspace. Daily plans compare each scheduled day independently. Deadline plans compare actual cumulative progress with expected progress and calculate the remaining pace. Each metric stays in its own unit. Rest days are not missed days.' }} action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create a goal</Link>} />
+    <PageHeader headingId="goals-title" eyebrow="YOUR DIRECTION" title="Goals" description="Keep your longer-term aims and the next useful step in view." action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create a goal</Link>} />
     <SectionTabs label="Trackers and goals" items={trackerSectionTabs} />
     {visibleError && <div role="alert" className="form-alert">{visibleError}</div>}
     {visibleLoading ? <p role="status" className="tracker-loading">Loading your goals…</p> : visibleError ? <Surface><EmptyState title="Your goals are still saved" description="This device could not open your goal list. Try loading it again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : goals.length === 0 ? <Surface><EmptyState title="Choose something worth working toward" description="Goals use the same private, offline-first tracker workspace. Add a deadline, measures, and milestones when you create one." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first goal</Link>} /></Surface> : <>
@@ -125,8 +125,9 @@ export function GoalsPage() {
           const latestQualified = latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
           const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
           const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
-          return <Surface className="goal-card" key={tracker.id}>
-            <div className="tracker-card-top"><span className="tracker-kind-chip">{state}</span>{tracker.deadline && <span>{overdue ? 'Was due' : 'Due'} {calendarDateLabel(tracker.deadline)}</span>}</div>
+          const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
+          return <Surface className={`goal-card status-card status-${goalStatusColor}`} key={tracker.id}>
+            <div className="tracker-card-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span>{overdue ? 'Was due' : 'Due'} {calendarDateLabel(tracker.deadline)}</span>}</div>
             <h2>{tracker.name}</h2>
             <p className="tracker-card-description">{tracker.description || 'No description yet.'}</p>
             {tracker.metrics.length > 0 && <ul className="goal-metric-list" aria-label={`${tracker.name} measures`}>
@@ -150,7 +151,7 @@ export function GoalsPage() {
                   return <div className="goal-daily-metric" key={metricId}>
                     <div className="goal-plan-metric-heading"><strong>{metric.name}</strong><span>{formatTrackerNumber(target)}{metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''} per scheduled day</span></div>
                     <p>{plan.consistencyPercent === null ? 'No completed scheduled opportunities yet' : `${plan.metCount} of ${plan.elapsedOpportunities} scheduled days met target · ${plan.consistencyPercent}% consistency`}{missed ? ` · ${missed} missed or below target` : ''} · {plan.scheduledDaysRemaining} scheduled days remaining in this view</p>
-                    <ol className="goal-plan-days">{recentDays.map((day) => <li key={day.date} className={`goal-plan-day ${day.state}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${day.state}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${day.state}`}><span>{Number(day.date.slice(8, 10))}</span></li>)}</ol>
+                    <ol className="goal-plan-days">{recentDays.map((day) => <li key={day.date} className={`goal-plan-day ${day.state === 'met' ? 'completed' : day.state === 'below-target' ? 'partial' : day.state === 'missed' ? 'missed' : day.state === 'holiday' || day.state === 'rest' ? 'holiday' : day.state === 'pending' || day.state === 'future' ? 'pending' : 'skipped'}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${goalDayStatusLabel(day.state)}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${goalDayStatusLabel(day.state)}`}><span>{Number(day.date.slice(8, 10))}</span></li>)}</ol>
                     <div className="goal-plan-legend"><span>Met</span><span>Below / missed</span><span>Rest</span><span>Upcoming</span></div>
                   </div>
                 })}</div>
@@ -228,6 +229,16 @@ function cumulativeStatusLabel(status: string, paceStatus: string): string {
   if (status === 'overdue') return 'Overdue'
   if (status === 'no-scheduled-days') return 'No scheduled work days'
   return paceStatus === 'ahead' ? 'Ahead of expected progress' : paceStatus === 'on-track' ? 'On track' : 'Behind expected progress'
+}
+
+function goalDayStatusLabel(status: string): string {
+  if (status === 'met') return 'completed'
+  if (status === 'below-target') return 'partially completed'
+  if (status === 'missed') return 'missed'
+  if (status === 'holiday') return 'holiday'
+  if (status === 'rest') return 'rest day'
+  if (status === 'pending' || status === 'future') return 'pending'
+  return 'skipped; no miss counted'
 }
 
 function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {

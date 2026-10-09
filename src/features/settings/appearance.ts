@@ -1,7 +1,7 @@
 export type Appearance = 'light' | 'dark' | 'system'
 
 export const LIGHT_THEME_COLOR = '#fff9f2'
-export const DARK_THEME_COLOR = '#0d0b0a'
+export const DARK_THEME_COLOR = '#0b0b0d'
 const APPEARANCE_STORAGE_KEY = 'progress-tracker-appearance'
 
 /** Applies the active palette to browser chrome and installed iOS web apps. */

@@ -7,12 +7,11 @@ describe('mobile system-bar safe areas', () => {
     expect(documentHtml).toContain('viewport-fit=cover')
     expect(documentHtml).toContain('<meta name="color-scheme" content="light dark"')
     expect(documentHtml).toContain('<meta name="theme-color" content="#fff9f2"')
-    expect(documentHtml).toContain("themeColor.content = dark ? '#0d0b0a' : '#fff9f2'")
+    expect(documentHtml).toContain("themeColor.content = dark ? '#0b0b0d' : '#fff9f2'")
   })
 
-  it('keeps a stable bottom navigation height and paints the maximum safe area', () => {
-    expect(styles).toContain('--safe-area-max-inset-bottom: env(safe-area-inset-bottom, 0px)')
-    expect(styles).toContain('--safe-area-max-inset-bottom: env(safe-area-max-inset-bottom)')
+  it('keeps a stable bottom navigation height and paints the maximum safe area, including the documented fallback', () => {
+    expect(styles).toContain('--safe-area-max-inset-bottom: env(safe-area-max-inset-bottom, 36px)')
     expect(styles).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) - var(--safe-area-max-inset-bottom))')
     expect(styles).toContain('height: calc(64px + var(--safe-area-max-inset-bottom))')
     expect(styles).toContain('padding-bottom: var(--safe-area-max-inset-bottom)')

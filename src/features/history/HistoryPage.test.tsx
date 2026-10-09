@@ -33,7 +33,7 @@ describe('local check-in history', () => {
     expect(await screen.findAllByRole('heading', { name: 'Morning run' })).toHaveLength(2)
     expect(screen.getByText('4 km')).toBeInTheDocument()
     expect(screen.getByText('Park loop')).toBeInTheDocument()
-    expect(screen.getAllByText('Success rule met')).toHaveLength(2)
+    expect(screen.getAllByText('Completed · success rule met')).toHaveLength(2)
     expect(screen.getByText('Skipped')).toBeInTheDocument()
     expect(screen.getByText('Rested today')).toBeInTheDocument()
 
