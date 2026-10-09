@@ -7,7 +7,7 @@
   "scope": "./",
   "display": "standalone",
   "background_color": "#fff9f2",
-  "theme_color": "#fff9f2",
+  "theme_color": "#0b0b0d",
   "icons": [
     {
       "src": "./icons/progress-tracker.svg",
