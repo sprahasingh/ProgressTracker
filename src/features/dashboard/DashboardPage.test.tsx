@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
@@ -7,7 +9,7 @@ import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { DashboardPage } from './DashboardPage'
 
-afterEach(async () => { cleanup(); await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 
 function tracker(): StoredTrackerDefinition {
   return {
@@ -31,8 +33,10 @@ describe('local progress dashboard', () => {
     expect(await screen.findByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.getByText('Reward points')).toBeInTheDocument()
     expect(screen.getByText('Weekly consistency')).toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: 'Check-in activity this month' })).toBeInTheDocument()
-    const yesterdayCell = screen.getByRole('gridcell', { name: new RegExp(`${Number(yesterday.slice(8, 10))}: 1 check-ins, 1 successes`) })
+    const calendar = screen.getByRole('table', { name: 'Check-in activity this month' })
+    expect(within(calendar).getAllByRole('row').length).toBeGreaterThanOrEqual(5)
+    expect(within(calendar).getAllByRole('columnheader')).toHaveLength(7)
+    const yesterdayCell = screen.getByRole('cell', { name: new RegExp(`${Number(yesterday.slice(8, 10))}.*1 check-ins, 1 successes`) })
     expect(yesterdayCell).toBeInTheDocument()
     expect(screen.getByText('personal best')).toBeInTheDocument()
   })
@@ -40,6 +44,17 @@ describe('local progress dashboard', () => {
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
-    expect(screen.queryByRole('grid', { name: 'Check-in activity this month' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Check-in activity this month' })).not.toBeInTheDocument()
+  })
+
+  it('shows a retry state instead of an empty account when local reads fail', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(localRepository, 'listTrackers').mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
+    expect(screen.getByText('Your progress is still here')).toBeInTheDocument()
+    expect(screen.queryByText('Your overview starts with a tracker')).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
   })
 })

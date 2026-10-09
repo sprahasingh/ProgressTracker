@@ -61,6 +61,10 @@ The default reward policy grants 10 points for each qualifying retained entry an
 
 The Overview route now summarizes actual local activity: active tracker count, successful scheduled check-ins over the rolling seven-day window, weekly consistency, derived reward points, current-month activity, and per-tracker current/best streaks with each latest recorded value. History lists actual entries with their values, notes, skip/success state, and filters for a tracker and the last 7, 30, or 90 days. The activity calendar covers the current local month. These views use `listTrackerEntriesBetween` and never seed sample activity. They remain device-local and read-only; past entries cannot be edited from History, calendar month navigation and longer custom date ranges are not available, and there is no cloud sync.
 
+## Quality and accessibility checks
+
+The app shell provides a keyboard skip link, named primary/mobile navigation, visible focus, and reduced-motion styling. Forms use associated labels and fieldsets; loading, errors, and qualification feedback use status/alert semantics. The activity calendar is a semantic table, and History filter counts are announced politely. Today, Overview, and History have local-data, empty/error/retry, and navigation coverage in Vitest. Responsive breakpoints at 1100, 760, and 380 pixels were reviewed in CSS. A real browser viewport sweep and assistive-technology session remain manual follow-up: this environment has no installed Playwright/browser runner or screen reader.
+
 IndexedDB schema upgrades run as a database transaction; tests cover upgrades from both v1 and v2 fixtures, preservation of legacy records/tombstones, and reading migrated rows after closing and reopening the database. Generic tracker definitions are validated before local writes.
 
 ## Supabase configuration

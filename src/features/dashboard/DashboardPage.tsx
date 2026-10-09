@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
@@ -60,8 +61,8 @@ export function DashboardPage() {
     <section className="tracker-page dashboard-page" aria-labelledby="dashboard-title">
       <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Overview" description={`A clear view of what you’ve built so far · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
       {error && <div role="alert" className="form-alert">{error}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
-        <div className="dashboard-stats" aria-label="Recent progress summary">
+      {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : error ? <Surface><EmptyState title="Your progress is still here" description="This device could not open local storage. Try loading the overview again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
+        <div className="dashboard-stats" role="group" aria-label="Recent progress summary">
           <StatCard label="Active trackers" value={String(data.trackers.length)} detail="ready for your next check-in" />
           <StatCard label="Successes · 7 days" value={String(qualifiedWeek.length)} detail={`${scheduledWeek} scheduled check-ins`} />
           <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of scheduled opportunities' : 'nothing scheduled this week'} />
@@ -118,10 +119,11 @@ function MonthCalendar({ month, today }: { month: DaySummary[]; today: string })
   const firstWeekday = new Date(`${month[0]?.date}T00:00:00.000Z`).getUTCDay()
   const cells: Array<DaySummary | null> = [...Array.from({ length: firstWeekday }, () => null), ...month]
   while (cells.length % 7) cells.push(null)
-  return <div className="activity-calendar" role="grid" aria-label="Check-in activity this month">
-    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <div role="columnheader" className="calendar-weekday" key={day}>{day}</div>)}
-    {cells.map((day, index) => day ? <div role="gridcell" className={`calendar-day${day.entries ? ' has-activity' : ''}${day.date === today ? ' calendar-day-today' : ''}`} aria-label={`${calendarDateLabel(day.date, { month: 'long', day: 'numeric' })}: ${day.entries} check-ins, ${day.qualified} successes`} key={day.date}><span>{Number(day.date.slice(8, 10))}</span>{day.qualified > 0 && <i className="calendar-dot qualified" />}{day.skippedOrBelow > 0 && <i className="calendar-dot skipped" />}</div> : <div role="gridcell" aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${index}`} />)}
-  </div>
+  const weeks = Array.from({ length: cells.length / 7 }, (_, index) => cells.slice(index * 7, index * 7 + 7))
+  return <table className="activity-calendar" aria-label="Check-in activity this month">
+    <thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <th scope="col" className="calendar-weekday" key={day}>{day}</th>)}</tr></thead>
+    <tbody>{weeks.map((week, weekIndex) => <tr key={`week-${weekIndex}`}>{week.map((day, index) => day ? <td className={`calendar-day${day.entries ? ' has-activity' : ''}${day.date === today ? ' calendar-day-today' : ''}`} key={day.date}><span>{Number(day.date.slice(8, 10))}</span><span className="visually-hidden">{calendarDateLabel(day.date, { month: 'long', day: 'numeric' })}: {day.entries} check-ins, {day.qualified} successes</span>{day.qualified > 0 && <i aria-hidden="true" className="calendar-dot qualified" />}{day.skippedOrBelow > 0 && <i aria-hidden="true" className="calendar-dot skipped" />}</td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody>
+  </table>
 }
 
 function summarizeValues(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry): string {

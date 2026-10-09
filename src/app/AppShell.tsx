@@ -16,6 +16,10 @@ export function AppShell() {
 
   return (
     <div className="app-frame">
+      <a className="skip-link" href="#main-content" onClick={(event) => {
+        event.preventDefault()
+        document.getElementById('main-content')?.focus()
+      }}>Skip to main content</a>
       <aside className="sidebar" aria-label="Main navigation">
         <a className="brand" href="#/" aria-label="ProgressTracker home">
           <span className="brand-mark" aria-hidden="true">p</span>
@@ -23,7 +27,7 @@ export function AppShell() {
         </a>
 
         <div className="nav-caption">YOUR SPACE</div>
-        <nav className="nav-list">
+        <nav className="nav-list" aria-label="Primary navigation">
           {navigation.map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <span className="nav-icon" aria-hidden="true">{icon}</span>
@@ -47,7 +51,7 @@ export function AppShell() {
           <span className="date-chip">A little progress, every day</span>
           <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
         </header>
-        <div className="page-content"><Outlet /></div>
+        <div id="main-content" className="page-content" tabIndex={-1}><Outlet /></div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {navigation.slice(0, 5).map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav-link${isActive ? ' active' : ''}`}>

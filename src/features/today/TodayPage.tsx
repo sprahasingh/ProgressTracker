@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
@@ -18,16 +19,18 @@ export function TodayPage() {
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
+    setLoadError('')
     try {
       const [allTrackers, todayEntries] = await Promise.all([localRepository.listTrackers(), localRepository.listTrackerEntriesForDate(today)])
       setTrackers(allTrackers.filter((tracker) => isScheduledDate(tracker, today)))
       setEntries(todayEntries)
     } catch {
-      setError('Today’s check-ins could not be loaded from this device.')
+      setLoadError('Today’s check-ins could not be loaded from this device.')
     } finally {
       setLoading(false)
     }
@@ -60,7 +63,8 @@ export function TodayPage() {
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY PRACTICE" title="Today" description={dateLabel(today)} />
       <p className="today-storage-note"><span className="sync-dot" /> Check-ins are saved on this device.</p>
       {error && <div role="alert" className="form-alert">{error}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : trackers.length === 0 ? (
+      {loadError && <div role="alert" className="form-alert">{loadError}</div>}
+      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : trackers.length === 0 ? (
         <Surface>
           <EmptyState title="Nothing scheduled today" description="Create an active tracker and choose a schedule to see it here. Your existing progress stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} />
         </Surface>
