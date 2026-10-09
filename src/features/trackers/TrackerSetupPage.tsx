@@ -8,6 +8,8 @@ import { trackerDefinitionSchema } from '../../domain/trackers/schema'
 import type { CustomFieldDefinition, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
 import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { localCalendarDate } from '../shared/localDates'
 
 type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string }
 
@@ -28,26 +30,26 @@ function starterRule(metric: TrackerMetricDefinition): TrackerRule {
       : { kind: 'comparison', metricId: metric.id, operator: 'at-least', value: 1 }
 }
 
-function todayLocal(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+function todayLocal(timeZone: string): string {
+  return localCalendarDate(new Date(), timeZone)
 }
 
-function defaultValues(tracker?: TrackerDefinition): FormValues {
+function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'): FormValues {
   const schedule = tracker?.schedule.kind === 'weekdays' ? 'weekdays'
     : tracker?.schedule.kind === 'none' ? 'none'
       : tracker?.schedule.kind === 'times-per-week' && tracker.schedule.count === 3 ? 'three-times-weekly' : 'every-day'
   return {
     name: tracker?.name ?? '', description: tracker?.description ?? '', kind: tracker?.kind ?? 'habit', schedule,
-    startDate: tracker?.startDate ?? todayLocal(), deadline: tracker?.deadline ?? '',
+    startDate: tracker?.startDate ?? todayLocal(timeZone), deadline: tracker?.deadline ?? '',
   }
 }
 
 export function TrackerSetupPage() {
+  const { timeZone } = useWorkspaceTimeZone()
   const { trackerId } = useParams()
   const navigate = useNavigate()
   const [existing, setExisting] = useState<TrackerDefinition>()
-  const [values, setValues] = useState<FormValues>(() => defaultValues())
+  const [values, setValues] = useState<FormValues>(() => defaultValues(undefined, timeZone))
   const [configuration, setConfiguration] = useState<Configuration>(() => {
     const metric = starterMetric('habit')
     return { metrics: [metric], rule: starterRule(metric), customFields: [], milestones: [] }

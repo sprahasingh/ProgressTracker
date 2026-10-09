@@ -1,6 +1,6 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import type { AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
@@ -9,6 +9,55 @@ function newId(): string {
 }
 
 export const localRepository = {
+  async getAppSettings(expectedOwnerUserId?: string | null): Promise<AppSettings> {
+    const database = await openDatabase()
+    if (expectedOwnerUserId !== undefined) {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      if (workspace?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed while loading settings.')
+    }
+    const saved = await database.settings.get('general')
+    if (saved) {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: saved.timezone })
+        return saved
+      } catch {
+        // A damaged/imported legacy preference must not prevent opening records.
+        // Keep the stored value untouched and use the device zone until corrected.
+        return { ...saved, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }
+      }
+    }
+    return {
+      id: 'general',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      appearance: 'system',
+      backupReminderDays: null,
+      updatedAt: new Date(0).toISOString(),
+    }
+  },
+
+  async setTimeZone(timezone: string, expectedOwnerUserId: string | null = null): Promise<AppSettings> {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone })
+    } catch {
+      throw new Error('Choose a valid IANA time zone.')
+    }
+    const database = await openDatabase()
+    return database.transaction('rw', [database.settings, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      if (workspace?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed. Reopen Settings and try again.')
+      const current = await database.settings.get('general') ?? {
+        id: 'general' as const,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        appearance: 'system' as const,
+        backupReminderDays: null,
+        updatedAt: new Date(0).toISOString(),
+      }
+      const next: AppSettings = { ...current, timezone, updatedAt: new Date().toISOString() }
+      await database.settings.put(next)
+      return next
+    })
+  },
+
   async listTrackers(includeArchived = false): Promise<StoredTrackerDefinition[]> {
     const database = await openDatabase()
     const trackers = await database.trackers.filter((tracker) => tracker.deletedAt === null).toArray()

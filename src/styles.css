@@ -147,6 +147,10 @@ a { color: inherit; text-decoration: none; }
 .sync-conflict .auth-actions { justify-content: flex-start; }
 @media (max-width: 600px) { .sync-conflict-versions { grid-template-columns: 1fr; } }
 .workspace-gate { max-width: 720px; margin: 48px auto; padding: 30px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+.settings-card { max-width: 680px; margin-top: 28px; padding: 26px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+.settings-card .form-field { max-width: 460px; }
+.settings-card > p { max-width: 600px; color: var(--ink-muted); font-size: 13px; line-height: 1.7; }
+.settings-card > .button { margin-top: 16px; }
 .workspace-gate h1 { margin: 0; font-family: var(--font-display); font-size: 29px; font-weight: 400; }
 .workspace-gate p { color: var(--ink-muted); font-size: 14px; line-height: 1.7; }
 .workspace-choice-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
