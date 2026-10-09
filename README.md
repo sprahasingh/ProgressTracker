@@ -57,6 +57,10 @@ Schedule occurrences are deterministic for every supported schedule kind. Weekda
 
 The default reward policy grants 10 points for each qualifying retained entry and a one-time 25-point bonus for personal-best streak milestones of 3, 7, 14, 30, 60, and 100 scheduled occurrences. A missed day resets only the current streak; accumulated entry points and personal-best milestones remain derived from retained history. These are deterministic calculations, not stored rewards or UI: editing/deleting historical entries can recalculate the totals, and no reward ledger, redemption, or sync behavior exists yet. Pass an explicit `asOfDate` and optional reward policy for reproducible evaluations.
 
+## Overview and history
+
+The Overview route now summarizes actual local activity: active tracker count, successful scheduled check-ins over the rolling seven-day window, weekly consistency, derived reward points, current-month activity, and per-tracker current/best streaks with each latest recorded value. History lists actual entries with their values, notes, skip/success state, and filters for a tracker and the last 7, 30, or 90 days. The activity calendar covers the current local month. These views use `listTrackerEntriesBetween` and never seed sample activity. They remain device-local and read-only; past entries cannot be edited from History, calendar month navigation and longer custom date ranges are not available, and there is no cloud sync.
+
 IndexedDB schema upgrades run as a database transaction; tests cover upgrades from both v1 and v2 fixtures, preservation of legacy records/tombstones, and reading migrated rows after closing and reopening the database. Generic tracker definitions are validated before local writes.
 
 ## Supabase configuration

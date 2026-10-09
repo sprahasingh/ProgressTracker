@@ -4,24 +4,16 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import { assertCalendarDate } from '../../db/calendarDate'
-import type { CalendarDate } from '../../db/models'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
+import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 
-function localDate(): CalendarDate {
-  const now = new Date()
-  const value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  assertCalendarDate(value)
-  return value
-}
-
-const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+const dateLabel = (value: string) => calendarDateLabel(value, { weekday: 'long', month: 'long', day: 'numeric' })
 
 export function TodayPage() {
-  const today = useMemo(localDate, [])
+  const today = useMemo(localCalendarDate, [])
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [loading, setLoading] = useState(true)

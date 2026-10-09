@@ -5,6 +5,8 @@ import { PlaceholderPage } from '../features/shared/PlaceholderPage'
 import { AuthPage } from '../features/auth/AuthPage'
 import { TrackerLibraryPage } from '../features/trackers/TrackerLibraryPage'
 import { TrackerSetupPage } from '../features/trackers/TrackerSetupPage'
+import { DashboardPage } from '../features/dashboard/DashboardPage'
+import { HistoryPage } from '../features/history/HistoryPage'
 
 export const router = createHashRouter([
   {
@@ -12,8 +14,8 @@ export const router = createHashRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <TodayPage /> },
-      { path: 'dashboard', element: <PlaceholderPage title="Dashboard" /> },
-      { path: 'history', element: <PlaceholderPage title="History" /> },
+      { path: 'dashboard', element: <DashboardPage /> },
+      { path: 'history', element: <HistoryPage /> },
       { path: 'goals', element: <PlaceholderPage title="Goals" /> },
       { path: 'trackers', element: <TrackerLibraryPage /> },
       { path: 'trackers/new', element: <TrackerSetupPage /> },

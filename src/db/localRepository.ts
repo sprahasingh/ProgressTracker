@@ -46,6 +46,13 @@ export const localRepository = {
     return entries.filter((entry) => entry.deletedAt === null)
   },
 
+  async listTrackerEntriesBetween(startDate: CalendarDate, endDate: CalendarDate): Promise<StoredTrackerEntry[]> {
+    assertDateRange(startDate, endDate)
+    await openDatabase()
+    const entries = await db.trackerEntries.where('date').between(startDate, endDate, true, true).toArray()
+    return entries.filter((entry) => entry.deletedAt === null).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt))
+  },
+
   async getTrackerEntry(trackerId: string, date: CalendarDate): Promise<StoredTrackerEntry | undefined> {
     assertCalendarDate(date)
     await openDatabase()

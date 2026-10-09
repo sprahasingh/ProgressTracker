@@ -1,0 +1,100 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { PageHeader } from '../../components/ui/PageHeader'
+import { Surface } from '../../components/ui/Surface'
+import { localRepository } from '../../db/localRepository'
+import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import { evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+
+type HistoryRange = 7 | 30 | 90
+
+export function HistoryPage() {
+  const today = useMemo(localCalendarDate, [])
+  const [range, setRange] = useState<HistoryRange>(30)
+  const [trackerFilter, setTrackerFilter] = useState('all')
+  const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
+  const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const startDate = shiftCalendarDate(today, -(range - 1))
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [allTrackers, recentEntries] = await Promise.all([
+        localRepository.listTrackers(true),
+        localRepository.listTrackerEntriesBetween(startDate, today),
+      ])
+      setTrackers(allTrackers)
+      setEntries(recentEntries)
+    } catch {
+      setError('Your check-in history could not be loaded from this device.')
+    } finally {
+      setLoading(false)
+    }
+  }, [startDate, today])
+
+  useEffect(() => { void refresh() }, [refresh])
+  const trackerMap = useMemo(() => new Map(trackers.map((tracker) => [tracker.id, tracker])), [trackers])
+  const filtered = entries.filter((entry) => trackerFilter === 'all' || entry.trackerId === trackerFilter)
+  const grouped = groupByDate(filtered)
+  const qualifiedCount = filtered.filter((entry) => {
+    const tracker = trackerMap.get(entry.trackerId)
+    return tracker && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
+  }).length
+
+  return (
+    <section className="tracker-page history-page" aria-labelledby="history-title">
+      <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Every check-in you’ve recorded, kept together on this device." />
+      <div className="history-toolbar">
+        <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(Number(event.target.value) as HistoryRange)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
+        <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
+        {!loading && <p className="history-count">{filtered.length} check-ins · {qualifiedCount} met the success rule</p>}
+      </div>
+      {error && <div role="alert" className="form-alert">{error}</div>}
+      {loading ? <p role="status" className="tracker-loading">Loading your history…</p> : grouped.length === 0 ? <Surface><EmptyState title="No check-ins in this range" description="Your saved activity will appear here. Nothing is filled in until you log it." action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} /></Surface> : <div className="history-timeline">
+        {grouped.map(([date, dayEntries]) => <section className="history-day" key={date} aria-labelledby={`history-${date}`}><header className="history-day-heading"><h2 id={`history-${date}`}>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h2><span>{dayEntries.length} {dayEntries.length === 1 ? 'check-in' : 'check-ins'}</span></header><div className="history-entry-list">{dayEntries.map((entry) => {
+          const tracker = trackerMap.get(entry.trackerId)
+          if (!tracker) return null
+          const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} />
+        })}</div></section>)}
+      </div>}
+      <p className="history-local-note"><span className="sync-dot" /> History comes from this device’s saved entries. It is not synced to an account.</p>
+    </section>
+  )
+}
+
+function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTrackerEntry[]]> {
+  const groups = new Map<string, StoredTrackerEntry[]>()
+  for (const entry of entries) groups.set(entry.date, [...(groups.get(entry.date) ?? []), entry])
+  return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
+}
+
+function HistoryEntry({ tracker, entry, qualifies }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean }) {
+  const outcome = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Success rule met' : 'Logged'
+  return <Surface className="history-entry-card"><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${entry.outcome === 'skipped' ? 'muted' : qualifies ? 'positive' : ''}`}>{outcome}</span></div>
+    {entry.outcome === 'recorded' && <dl className="history-values">{tracker.metrics.map((metric) => {
+      const value = entry.values[metric.id]
+      if (value === undefined || value === null) return null
+      return <div key={metric.id}><dt>{metric.name}</dt><dd>{formatMetric(metric, value)}{metric.unit && typeof value === 'number' ? ` ${metric.unit}` : ''}</dd></div>
+    })}{tracker.customFields.map((field) => {
+      const value = entry.values[`field:${field.id}`]
+      if (value === undefined || value === null || value === '') return null
+      return <div key={field.id}><dt>{field.name}</dt><dd>{Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>
+    })}</dl>}
+    {entry.note && <p className="history-entry-note">{entry.note}</p>}
+  </Surface>
+}
+
+function formatMetric(metric: StoredTrackerDefinition['metrics'][number], value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'Done' : 'Not done'
+  if (typeof value === 'number') return String(value)
+  if (metric.valueType === 'checklist' && Array.isArray(value)) return `${value.filter((item) => item === true).length} items done`
+  if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null) return `${Object.values(value).filter((item) => item === true).length} items done`
+  if (typeof value === 'string') return value
+  return 'Recorded'
+}
