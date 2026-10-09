@@ -2,11 +2,16 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { PageHeader } from '../../components/ui/PageHeader'
 import { localRepository } from '../../db/localRepository'
 
-type WorkspaceTimeZoneState = { timeZone: string; setTimeZone: (timeZone: string) => Promise<void> }
+type WorkspaceTimeZoneState = {
+  timeZone: string
+  appearance: 'light' | 'dark' | 'system'
+  setTimeZone: (timeZone: string) => Promise<void>
+  setAppearance: (appearance: 'light' | 'dark' | 'system') => Promise<void>
+}
 const WorkspaceTimeZoneContext = createContext<WorkspaceTimeZoneState | null>(null)
 
 export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUserId: string | null; children: ReactNode }) {
-  const [loaded, setLoaded] = useState<{ ownerUserId: string | null; timeZone: string } | null>(null)
+  const [loaded, setLoaded] = useState<{ ownerUserId: string | null; timeZone: string; appearance: WorkspaceTimeZoneState['appearance'] } | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -14,7 +19,7 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
     setLoaded(null)
     setError('')
     void localRepository.getAppSettings(ownerUserId).then((settings) => {
-      if (current) setLoaded({ ownerUserId, timeZone: settings.timezone })
+      if (current) setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
     }).catch(() => {
       if (current) setError('Your workspace settings could not be loaded.')
     })
@@ -25,10 +30,31 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
     if (!loaded || loaded.ownerUserId !== ownerUserId) return null
     return {
       timeZone: loaded.timeZone,
+      appearance: loaded.appearance,
       setTimeZone: async (timeZone) => {
         const settings = await localRepository.setTimeZone(timeZone, ownerUserId)
-        setLoaded({ ownerUserId, timeZone: settings.timezone })
+        setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
       },
+      setAppearance: async (appearance) => {
+        const settings = await localRepository.setAppearance(appearance, ownerUserId)
+        setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
+      },
+    }
+  }, [loaded, ownerUserId])
+
+  useEffect(() => {
+    if (!loaded || loaded.ownerUserId !== ownerUserId) return
+    const media = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null
+    const apply = () => {
+      const dark = loaded.appearance === 'dark' || (loaded.appearance === 'system' && Boolean(media?.matches))
+      if (dark) document.documentElement.dataset.theme = 'dark'
+      else delete document.documentElement.dataset.theme
+    }
+    apply()
+    if (loaded.appearance === 'system') media?.addEventListener('change', apply)
+    return () => {
+      media?.removeEventListener('change', apply)
+      delete document.documentElement.dataset.theme
     }
   }, [loaded, ownerUserId])
 
@@ -41,7 +67,9 @@ export function useWorkspaceTimeZone(): WorkspaceTimeZoneState {
   const value = useContext(WorkspaceTimeZoneContext)
   return value ?? {
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    appearance: 'system',
     setTimeZone: async (timeZone) => { await localRepository.setTimeZone(timeZone, null) },
+    setAppearance: async (appearance) => { await localRepository.setAppearance(appearance, null) },
   }
 }
 
@@ -52,7 +80,7 @@ const suggestedZones = [
 ]
 
 export function SettingsPage() {
-  const { timeZone, setTimeZone } = useWorkspaceTimeZone()
+  const { timeZone, appearance, setTimeZone, setAppearance } = useWorkspaceTimeZone()
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -69,8 +97,19 @@ export function SettingsPage() {
     }
   }
 
+  async function changeAppearance(next: 'light' | 'dark' | 'system') {
+    setSaved('')
+    setError('')
+    try {
+      await setAppearance(next)
+      setSaved('Appearance saved for this workspace.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Appearance could not be saved.')
+    }
+  }
+
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">
-    <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Choose the calendar time zone used for daily check-ins and progress dates." />
+    <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." />
     <div className="settings-card">
       <label className="form-field"><span>Calendar time zone</span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
         {!zones.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
@@ -78,6 +117,8 @@ export function SettingsPage() {
       </select></label>
       {deviceZone !== timeZone && <button className="button button-secondary button-medium" onClick={() => void changeTimeZone(deviceZone)}>Use device time zone ({deviceZone.replaceAll('_', ' ')})</button>}
       <p>Saved locally in this workspace and used to decide which calendar day is “today.” Date-only history entries stay on their original dates. This preference is not uploaded or synchronized to other devices yet.</p>
+      <label className="form-field"><span>Appearance</span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <p>System appearance follows the device’s light or dark setting. This preference is local to the workspace and does not sync across devices.</p>
       {saved && <p className="auth-success" role="status">{saved}</p>}
       {error && <p className="auth-error" role="alert">{error}</p>}
     </div>

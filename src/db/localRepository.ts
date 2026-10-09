@@ -8,6 +8,20 @@ function newId(): string {
   return crypto.randomUUID()
 }
 
+function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
+  const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  let timezone = saved?.timezone || deviceZone
+  try { new Intl.DateTimeFormat('en', { timeZone: timezone }) } catch { timezone = deviceZone }
+  const appearance = saved?.appearance === 'light' || saved?.appearance === 'dark' ? saved.appearance : 'system'
+  return {
+    id: 'general',
+    timezone,
+    appearance,
+    backupReminderDays: Number.isInteger(saved?.backupReminderDays) && (saved?.backupReminderDays ?? 0) > 0 ? saved!.backupReminderDays! : null,
+    updatedAt: typeof saved?.updatedAt === 'string' ? saved.updatedAt : new Date(0).toISOString(),
+  }
+}
+
 export const localRepository = {
   async getAppSettings(expectedOwnerUserId?: string | null): Promise<AppSettings> {
     const database = await openDatabase()
@@ -15,24 +29,8 @@ export const localRepository = {
       const workspace = await database.workspaceMetadata.get('workspace')
       if (workspace?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed while loading settings.')
     }
-    const saved = await database.settings.get('general')
-    if (saved) {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: saved.timezone })
-        return saved
-      } catch {
-        // A damaged/imported legacy preference must not prevent opening records.
-        // Keep the stored value untouched and use the device zone until corrected.
-        return { ...saved, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }
-      }
-    }
-    return {
-      id: 'general',
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      appearance: 'system',
-      backupReminderDays: null,
-      updatedAt: new Date(0).toISOString(),
-    }
+    // Normalize old/partial rows in memory so opening settings never rewrites legacy data.
+    return normalizeSettings(await database.settings.get('general'))
   },
 
   async setTimeZone(timezone: string, expectedOwnerUserId: string | null = null): Promise<AppSettings> {
@@ -45,14 +43,20 @@ export const localRepository = {
     return database.transaction('rw', [database.settings, database.workspaceMetadata], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       if (workspace?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed. Reopen Settings and try again.')
-      const current = await database.settings.get('general') ?? {
-        id: 'general' as const,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        appearance: 'system' as const,
-        backupReminderDays: null,
-        updatedAt: new Date(0).toISOString(),
-      }
+      const current = normalizeSettings(await database.settings.get('general'))
       const next: AppSettings = { ...current, timezone, updatedAt: new Date().toISOString() }
+      await database.settings.put(next)
+      return next
+    })
+  },
+
+  async setAppearance(appearance: AppSettings['appearance'], expectedOwnerUserId: string | null = null): Promise<AppSettings> {
+    const database = await openDatabase()
+    return database.transaction('rw', [database.settings, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      if (workspace?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed. Reopen Settings and try again.')
+      const current = normalizeSettings(await database.settings.get('general'))
+      const next: AppSettings = { ...current, appearance, updatedAt: new Date().toISOString() }
       await database.settings.put(next)
       return next
     })
