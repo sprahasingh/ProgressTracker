@@ -14,7 +14,7 @@ The project has generic tracker setup, multi-metric success-rule editing, adapti
 - React Router using hash-based URLs for reliable navigation and refreshes on GitHub Pages
 - React Hook Form and Zod for upcoming form workflows
 - Supabase JavaScript client for optional account-based cloud integration
-- Vitest, jsdom, and React Testing Library for upcoming domain and UI tests
+- Vitest, jsdom, and React Testing Library for automated domain and UI tests
 
 ## Application structure
 
@@ -138,13 +138,21 @@ If you later adopt `supabase db push`, note that running SQL Editor migrations d
 
 The original schema security checks are in `supabase/tests/progress_tracker_schema.test.sql` and use pgTAP. They test schema metadata, two simulated authenticated users, anonymous denial for all four operations, row filtering, attempted ownership reassignment, cross-user category/goal/metric foreign keys, revision conflicts, server timestamp integrity, tombstone uniqueness/restoration, parent-delete restrictions, and full account deletion cascades. All SQL tests use transaction-local fixtures and roll them back; they do not connect to or modify your hosted project. The browser app does not sync the seven legacy tables; its explicit sync action uses only the separate generic tracker tables.
 
-Known limitations: sync is an explicit user action and currently supports only generic trackers and entries. Pull uses a full keyset scan because `server_changed_at` is not a commit-safe cursor. The account screen displays local and cloud conflict snapshots only after the active account workspace is ready, and lets you explicitly keep either version when the cloud row is readable by this account. “Keep this device” queues a retry against the displayed cloud revision; when two same-day entries have different IDs, it adopts the existing cloud ID before retrying. “Use cloud” replaces the local copy and removes its stale queued write. If the server cannot return a readable cloud row (for example, a cross-account ID collision), “Save local copy as new” assigns a fresh ID; for a tracker it also relinks its local entry history and clears stale child conflict snapshots so the updated entries can be checked again on the next sync. These choices preserve the local payload, but resolving a same-day duplicate means selecting which values occupy that date. Edits made while an upload is in flight stay in the local record and a new queued operation, advanced to the just-acknowledged server revision. The client protocol and local pgTAP/RLS/receipt suite pass, but the hosted project migration and live sync flow have not been verified. Client-provided `updated_at` remains untrusted event metadata. Category schedule structure receives only basic object/kind validation. PostgreSQL does not duplicate the full recursive Zod validation of generic tracker definitions. Tombstones reserve record IDs and owner/date uniqueness keys; retain them until all account devices have reconciled deletions.
+Known limitations: sync is an explicit user action and currently supports only generic trackers and entries. Pull uses a full keyset scan because `server_changed_at` is not a commit-safe cursor. The account screen displays local and cloud conflict snapshots only after the active account workspace is ready, and lets you explicitly keep either version when the cloud row is readable by this account. “Keep this device” queues a retry against the displayed cloud revision; when two same-day entries have different IDs, it adopts the existing cloud ID before retrying. “Use cloud” replaces the local copy and removes its stale queued write. If the server cannot return a readable cloud row (for example, a cross-account ID collision), “Save local copy as new” assigns a fresh ID; for a tracker it also relinks its local entry history and clears stale child conflict snapshots so the updated entries can be checked again on the next sync. These choices preserve the local payload, but resolving a same-day duplicate means selecting which values occupy that date. Edits made while an upload is in flight stay in the local record and a new queued operation, advanced to the just-acknowledged server revision. Client-provided `updated_at` remains untrusted event metadata. Category schedule structure receives only basic object/kind validation. PostgreSQL does not duplicate the full recursive Zod validation of generic tracker definitions. Tombstones reserve record IDs and owner/date uniqueness keys; retain them until all account devices have reconciled deletions.
+
+### Hosted sync verification (manual, owner-reported)
+
+The project owner reports successful manual tests against the hosted Supabase project for email authentication; Chrome → Brave and Brave → Safari synchronization; tracker archive synchronization; offline creation followed by sync; concurrent edit conflict detection, resolution, and propagation; repeated sync without duplicates; and account isolation through the UI. These are browser tests reported by the owner, not automated CI tests run by this repository. They do not cover all browsers, devices, network failure modes, or account deletion.
+
+### Deletion and retention limitations
+
+The tracker library supports **Archive**, not physical tracker deletion. Clearing a daily tracker entry creates a synchronized tombstone; it is retained so other devices can learn about the deletion. There is no tombstone purge or user-facing retention control, and no in-app account deletion flow. Do not manually purge tombstones while any device may still be offline. Deleting a Supabase Auth user cascades that user's cloud rows through database foreign keys, but does not erase browser IndexedDB copies on that user's devices. Sign-out and uninstalling the app are not data deletion procedures.
 
 ## Dependency audit note
 
-On 2026-10-07, `npm audit --omit=dev` reported no production dependency vulnerabilities. The full audit reported one moderate and two critical findings in the development-only Vitest 3 toolchain (`@vitest/mocker` and `tinypool`); these do not ship in the GitHub Pages bundle. npm offered Vitest 5.0.3 as an automatic fix, which is a major upgrade with breaking changes, so it was not applied automatically. Re-audit before production CI is added and review a Vitest upgrade separately.
+On 2026-10-09, the development-only Vitest toolchain was upgraded from Vitest 3.2.7 to 4.1.11. This updates `@vitest/mocker` from 3.2.7 to 4.1.11 and removes the vulnerable `tinypool` 1.1.1 dependency from the installed tree. After the update, `npm audit` and `npm audit --omit=dev` both reported zero vulnerabilities. Rerun both audits when dependencies change and periodically during maintenance.
 
-The same install reported npm's script-approval notice for esbuild 0.28.2. Its platform binary runs and the production build succeeds without approving that postinstall script, so no install-script approval or dependency change was needed for this foundation.
+`npm ci` may show npm's script-approval notices for esbuild and fsevents. The install, tests, typecheck, and production build succeed without approving those scripts; no install-script approval was added to the deployment workflow.
 
 ## Local development
 
@@ -163,9 +171,44 @@ npm test
 npm run build
 ```
 
-## Deployment path
+## GitHub Pages deployment
 
-Vite is configured to build assets under `/ProgressTracker/`, matching the GitHub Pages repository URL. Client navigation currently uses hash URLs so direct page loads and refreshes do not depend on server-side route rewrites. Automated GitHub Pages deployment will be added in a later step.
+The production site is [https://sprahasingh.github.io/ProgressTracker/](https://sprahasingh.github.io/ProgressTracker/). Vite's `base` is `/ProgressTracker/`; React Router uses hash URLs such as `/#/trackers`, so GitHub Pages serves the same app shell on a refresh rather than looking for a server-side `/trackers` file. The auth callback returns to the current origin and pathname (`/ProgressTracker/`), then Supabase's PKCE client handles the callback query parameters.
+
+### Required GitHub settings
+
+1. In **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source.
+2. In **Settings → Secrets and variables → Actions → Variables**, add these repository variables:
+
+   | Variable | Value |
+   | --- | --- |
+   | `VITE_SUPABASE_URL` | The Supabase project URL |
+   | `VITE_SUPABASE_PUBLISHABLE_KEY` | The project's `sb_publishable_...` key |
+
+   These are build-time public values and will be included in the browser bundle. Never use a Supabase secret key or legacy `service_role` key here. The workflow validates that both variables are present without printing their values and makes them available only to the production build step.
+
+### How deployment runs
+
+The workflow is `.github/workflows/deploy.yml`. A push to `main` runs `npm ci`, the Vitest suite, TypeScript typechecking, and the Vite production build. It then uploads `dist` as a Pages artifact and deploys it. Deployments are serialized to avoid overlapping updates. Actions are pinned to official releases/commit SHAs; build jobs receive repository read access, while only the deployment job receives Pages write and OIDC token permissions.
+
+To deploy manually, open **Actions → Deploy to GitHub Pages → Run workflow**, select the `main` branch, and run it. A manual run from another branch fails before checkout. A failed install, test, typecheck, missing variable, or production build blocks the deployment job. The workflow has not been run against GitHub Pages from this workspace; do not consider the site deployed until a successful Actions deployment is visible and the production URL has been opened.
+
+### Required Supabase Auth URLs
+
+In the Supabase dashboard under **Authentication → URL Configuration**, set **Site URL** to `https://sprahasingh.github.io/ProgressTracker/` and include these exact values in **Redirect URLs**:
+
+- `https://sprahasingh.github.io/ProgressTracker/`
+- `http://localhost:5173/ProgressTracker/`
+
+Keep the email provider enabled and use the Supabase redirect placeholder in confirmation and password-recovery email templates. The client callback uses the origin plus pathname, not the hash route. These settings are documented requirements; this implementation does not inspect or change the hosted Supabase dashboard.
+
+### Troubleshooting
+
+- **Missing production configuration:** check the two names under repository **Variables** (not Secrets); do not paste or log the values in workflow output.
+- **Pages 404 or blank page:** confirm Pages source is **GitHub Actions**, the artifact contains `dist/index.html`, and the production address includes `/ProgressTracker/`. App routes should use the hash, for example `/#/history`.
+- **Sign-in/recovery redirect rejected:** compare Supabase Site URL and Redirect URLs with the exact values above, including the trailing slash; check the email template redirect placeholder.
+- **Workflow did not deploy:** inspect the failing build step in **Actions**. Deploy runs only for `main`; verify Pages workflow permissions and any `github-pages` environment protection rules.
+- **Supabase client reports missing/invalid config:** verify the project URL is HTTPS and the browser key is the publishable `sb_publishable_...` value. Never substitute a service-role/secret key.
 
 ## Interface foundation
 
