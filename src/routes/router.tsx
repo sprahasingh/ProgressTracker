@@ -12,6 +12,7 @@ import { AchievementsPage } from '../features/dashboard/AchievementsPage'
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage'
 import { TrackerBinPage } from '../features/trackers/TrackerBinPage'
 import { HolidaysPage } from '../features/holidays/HolidaysPage'
+import { CalendarPage } from '../features/calendar/CalendarPage'
 
 export const router = createHashRouter([
   {
@@ -20,6 +21,7 @@ export const router = createHashRouter([
     children: [
       { index: true, element: <TodayPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
+      { path: 'calendar', element: <CalendarPage /> },
       { path: 'history', element: <HistoryPage /> },
       { path: 'analytics', element: <AnalyticsPage /> },
       { path: 'goals', element: <GoalsPage /> },

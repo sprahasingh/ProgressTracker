@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
 import type { TrackerDefinition, TrackerEntry } from '../../domain/trackers/types'
 import { createCumulativeAllocationPreview, summarizeAllocations } from '../../domain/trackers/allocationPreview'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel } from '../shared/localDates'
 
 type Props = {
@@ -16,6 +17,8 @@ type Props = {
   holidays?: ReadonlySet<string>
 }
 
+const EMPTY_ALLOCATIONS: Record<string, number> = {}
+
 export function CumulativeAllocationPreview({ tracker, entries, metricId, startDate, asOfDate, timeZone, onSave, v3WritesEnabled, holidays }: Props) {
   const metric = tracker.metrics.find((item) => item.id === metricId)
   const preview = useMemo(() => createCumulativeAllocationPreview({
@@ -23,25 +26,32 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   }), [tracker, entries, metricId, startDate, asOfDate, holidays])
   if (!metric) return null
 
-  const eligibleDays = preview.days.filter((day) => day.eligible)
-  const saved = tracker.goalPlanning?.allocations?.[metricId] ?? {}
+  const eligibleDays = useMemo(() => preview.days.filter((day) => day.eligible), [preview.days])
+  const saved = tracker.goalPlanning?.allocations?.[metricId] ?? EMPTY_ALLOCATIONS
   const suggested = Object.fromEntries(eligibleDays.map((day) => [day.date, day.amount ?? 0]))
-  const initial = Object.fromEntries(eligibleDays.map((day) => [day.date, saved[day.date] ?? day.amount ?? 0]))
+  const initial = useMemo(() => Object.fromEntries(eligibleDays.map((day) => [day.date, saved[day.date] ?? day.amount ?? 0])), [eligibleDays, saved])
   const [manualValues, setManualValues] = useState<Record<string, number>>(initial)
   const [dirty, setDirty] = useState(false)
+  const [resolveHolidayConflicts, setResolveHolidayConflicts] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const allocations = eligibleDays.map((day) => manualValues[day.date] ?? day.amount ?? 0)
   const totals = summarizeAllocations(preview.remainingTarget, allocations)
   const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
   const isChecklistMetric = metric.valueType === 'checklist'
-  const format = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 15 }).format(value)}${unit}`
+  const format = (value: number) => `${formatTrackerNumber(value)}${unit}`
   const latestEntries = latestEntriesByDate(entries, metricId)
+  const holidayConflicts = preview.days.filter((day) => day.holiday && (saved[day.date] ?? 0) > 0)
+
+  useEffect(() => {
+    if (!dirty) setManualValues(initial)
+  }, [dirty, initial])
 
   function changeAllocation(date: string, raw: string) {
     const value = raw === '' ? 0 : Number(raw)
     if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) return
     if (isChecklistMetric && !Number.isInteger(value)) return
+    if (metric?.precision && Math.abs(value / metric.precision.increment - Math.round(value / metric.precision.increment)) > Math.max(1, value / metric.precision.increment) * Number.EPSILON * 8) return
     setManualValues((current) => ({ ...current, [date]: value }))
     setDirty(true)
     setError('')
@@ -50,12 +60,14 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   function resetSuggested() {
     setManualValues(suggested)
     setDirty(true)
+    setResolveHolidayConflicts(false)
     setError('')
   }
 
   function discardChanges() {
     setManualValues(initial)
     setDirty(false)
+    setResolveHolidayConflicts(false)
     setError('')
   }
 
@@ -65,9 +77,10 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     setError('')
     try {
       const nextMetricAllocations = { ...saved, ...manualValues }
+      if (resolveHolidayConflicts) holidayConflicts.forEach((day) => { delete nextMetricAllocations[day.date] })
       const candidate = {
         ...tracker,
-        schemaVersion: 3 as const,
+        schemaVersion: tracker.schemaVersion === 4 ? 4 as const : 3 as const,
         goalPlanning: {
           ...tracker.goalPlanning,
           planningTimeZone: timeZone,
@@ -78,6 +91,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'This plan contains invalid allocations.')
       await onSave(checked.data as TrackerDefinition)
       setDirty(false)
+      setResolveHolidayConflicts(false)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The plan could not be saved. Your previous plan is unchanged.')
     } finally {
@@ -87,16 +101,17 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
 
   return <section className="allocation-preview" aria-label={`${metric.name} allocation preview`}>
     <header className="allocation-preview-heading">
-      <div><span className="tracker-kind-chip">{dirty ? 'UNSAVED CHANGES' : tracker.schemaVersion === 3 && saved ? 'SAVED PLAN' : 'PREVIEW'}</span><h4>{metric.name} · {preview.days.length} calendar days</h4></div>
+      <div><span className="tracker-kind-chip">{dirty ? 'UNSAVED CHANGES' : tracker.schemaVersion >= 3 && saved ? 'SAVED PLAN' : 'PREVIEW'}</span><h4>{metric.name} · {preview.days.length} calendar days</h4></div>
       <div className="allocation-plan-actions">
         <button className="button button-quiet button-small" type="button" onClick={resetSuggested} disabled={saving}>Reset to Suggested Allocation</button>
         {dirty && <button className="button button-secondary button-small" type="button" onClick={discardChanges} disabled={saving}>Discard Changes</button>}
         <button className="button button-primary button-small" type="button" onClick={() => void savePlan()} disabled={!dirty || saving || !v3WritesEnabled}>{saving ? 'Saving…' : 'Save Plan'}</button>
       </div>
     </header>
-    <p className="allocation-preview-note">{dirty ? 'These changes are not saved yet.' : tracker.schemaVersion === 3 ? `Confirmed allocations are saved for ${tracker.goalPlanning?.planningTimeZone ?? timeZone}.` : 'Preview only. Allocations become persistent only after Save Plan.'} Planned amounts remain separate from actual check-ins. Dates use the {tracker.goalPlanning?.planningTimeZone ?? timeZone} planning calendar.</p>
-    {!v3WritesEnabled && <p className="allocation-preview-warning" role="status">Saving schema v3 plans is disabled in this production build until the hosted migration is applied and verified.</p>}
+    <p className="allocation-preview-note">{dirty ? 'These changes are not saved yet.' : tracker.schemaVersion >= 3 && saved ? `Confirmed allocations are saved for ${tracker.goalPlanning?.planningTimeZone ?? timeZone}.` : 'Preview only. Allocations become persistent only after Save Plan.'} Planned amounts remain separate from actual check-ins. Dates use the {tracker.goalPlanning?.planningTimeZone ?? timeZone} planning calendar.</p>
+    {!v3WritesEnabled && <p className="allocation-preview-warning" role="status">Saving persistent plans is disabled in this production build until the required hosted schema migration is applied and verified.</p>}
     {error && <p className="allocation-preview-warning" role="alert">{error}</p>}
+    {holidayConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{holidayConflicts.length} holiday date{holidayConflicts.length === 1 ? '' : 's'} have saved allocations. They are preserved and excluded from this preview until you choose how to resolve them.</p><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues(suggested); setResolveHolidayConflicts(true); setDirty(true) }}>Move holiday allocations to eligible days</button></div>}
     <div className="allocation-preview-summary" role="group" aria-label={`${metric.name} preview totals`}>
       <span><small>Actual recorded</small><strong>{format(preview.actualProgress)}</strong></span>
       <span><small>Remaining target</small><strong>{format(preview.remainingTarget)}</strong></span>
@@ -112,11 +127,11 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
         return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
           <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : 'Rest day'}</span>}</th>
           <td>{actual === null ? '—' : actual === 'Skipped' ? 'Skipped' : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
-          <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : <span className="allocation-rest-value">Not scheduled</span>}</td>
+          <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : <span className="allocation-rest-value">Not scheduled</span>}</td>
         </tr>
       })}</tbody>
     </table></div>}
-    {eligibleDays.length > 0 && <p className="allocation-rounding-note">The even split rounds numeric daily amounts down to at least hundredths, preserving target precision up to 15 decimal places, and places the exact remainder on the last scheduled day. Checklist allocations use whole items.</p>}
+    {eligibleDays.length > 0 && <p className="allocation-rounding-note">{metric.precision ? `Amounts follow the configured ${metric.precision.increment} increment.` : 'The even split uses the metric’s available decimal precision.'} Remaining fractions caused by older recorded values are preserved and shown as an over-allocation. Checklist allocations use whole items.</p>}
     {(totals.shortfall > 0 || totals.overAllocation > 0) && <p className="allocation-preview-warning" role="status">{totals.shortfall > 0 ? `${format(totals.shortfall)} remains unallocated.` : `${format(totals.overAllocation)} is allocated beyond the remaining target.`}</p>}
   </section>
 }

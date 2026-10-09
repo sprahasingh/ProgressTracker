@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from './schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -18,6 +18,18 @@ describe('schema v3 production write gate', () => {
     expect(isSchemaV3WriteEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', 'true')
     expect(isSchemaV3WriteEnabled()).toBe(true)
+  })
+})
+
+describe('schema v4 production write gate', () => {
+  it('keeps precision writes disabled until the hosted migration is explicitly verified', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V4', '')
+    expect(isSchemaV4WriteEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V4', 'false')
+    expect(isSchemaV4WriteEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V4', 'true')
+    expect(isSchemaV4WriteEnabled()).toBe(true)
   })
 })
 

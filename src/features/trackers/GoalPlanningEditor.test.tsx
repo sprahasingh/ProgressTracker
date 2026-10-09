@@ -18,7 +18,7 @@ describe('goal planning editor', () => {
     }
     const onChange = vi.fn()
     const { rerender } = render(<GoalPlanningEditor metrics={metrics} planning={initial} onChange={onChange} />)
-    fireEvent.change(screen.getByLabelText('Planning mode'), { target: { value: 'cumulative-deadline' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Planning mode' }), { target: { value: 'cumulative-deadline' } })
     expect(onChange).toHaveBeenLastCalledWith({ ...initial, mode: 'cumulative-deadline' })
     rerender(<GoalPlanningEditor metrics={metrics} planning={{ ...initial, mode: 'cumulative-deadline' }} onChange={onChange} />)
     expect(screen.getByLabelText('Pages daily planning target')).toHaveValue(5)
@@ -31,7 +31,7 @@ describe('goal planning editor', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const onChange = vi.fn()
     render(<GoalPlanningEditor metrics={metrics.slice(0, 1)} planning={initial} onChange={onChange} />)
-    fireEvent.change(screen.getAllByLabelText('Entry meaning for cumulative plans')[0]!, { target: { value: 'incremental' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Entry meaning for cumulative plans' }), { target: { value: 'incremental' } })
     expect(confirm).toHaveBeenCalledOnce()
     expect(onChange).not.toHaveBeenCalled()
     confirm.mockRestore()

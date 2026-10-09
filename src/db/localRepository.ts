@@ -3,7 +3,7 @@ import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { AccountHoliday, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 
 function newId(): string {
@@ -161,6 +161,7 @@ export const localRepository = {
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
     if (draft.schemaVersion === 3 && !isSchemaV3WriteEnabled()) throw new Error('Schema v3 plan writes are disabled until the hosted migration is applied and verified.')
+    if (draft.schemaVersion === 4 && !isSchemaV4WriteEnabled()) throw new Error('Schema v4 precision writes are disabled until the hosted migration is applied and verified.')
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
@@ -219,9 +220,9 @@ export const localRepository = {
     const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
       const tracker = await database.trackers.get(draft.trackerId)
       if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
-      const valueIssue = validateTrackerEntryValues(tracker, draft.values)
-      if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
       const existing = await database.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
+      const valueIssue = validateTrackerEntryValues(tracker, draft.values, { existingValues: existing?.values })
+      if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
       const now = new Date().toISOString()
       const entry = trackerEntrySchema.parse({
         ...draft,

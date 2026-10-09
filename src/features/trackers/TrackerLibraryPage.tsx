@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { isScheduledDate } from '../../domain/trackers/planning'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
@@ -25,11 +27,13 @@ export function TrackerLibraryPage() {
   const readGenerationRef = useRef(0)
   const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[] } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
   const trackers = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackers : []
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey)
+  const visibleTrackers = kindFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.kind === kindFilter)
 
   const refresh = useCallback(async () => {
     const context = workspaceRef.current
@@ -86,11 +90,15 @@ export function TrackerLibraryPage() {
       <PageHeader
         headingId="trackers-title"
         eyebrow="YOUR PRACTICE"
-        title="Trackers"
+        title="Trackers & Goals"
         description="Habits, goals, challenges, and projects you choose to make progress on."
         help={{ title: 'Trackers', summary: 'Your active routines, goals, challenges, and projects live here.', description: 'Open a tracker to record a check-in or edit its setup. Archive hides a tracker from active work while retaining it. Delete moves it to the Bin for 30 days, where you can restore the tracker and its history. Permanent deletion is an account-wide operation and requires server confirmation.' }}
         action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create tracker</Link>}
       />
+      <SectionTabs label="Trackers and goals" items={trackerSectionTabs} />
+      <div className="tracker-kind-filters" role="group" aria-label="Filter trackers">
+        {(['all', 'goal', 'habit', 'challenge', 'project'] as const).map((kind) => <button key={kind} type="button" className={`filter-chip${kindFilter === kind ? ' active' : ''}`} aria-pressed={kindFilter === kind} onClick={() => setKindFilter(kind)}>{kind === 'all' ? 'All' : kind === 'goal' ? 'Goals' : kind === 'habit' ? 'Habits' : kind === 'challenge' ? 'Challenges' : 'Projects'}</button>)}
+      </div>
       <div className="tracker-library-toolbar">
         <p>{showArchived ? 'Showing active and archived trackers' : 'Showing active trackers'}</p>
         <Button variant="quiet" size="small" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button>
@@ -106,9 +114,9 @@ export function TrackerLibraryPage() {
             <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. It will be available offline and sync to your account when you’re signed in." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
           )}
         </Surface>
-      ) : (
+      ) : visibleTrackers.length === 0 ? <Surface><p>No trackers match this filter yet.</p></Surface> : (
         <div className="tracker-card-grid">
-          {trackers.map((tracker) => (
+          {visibleTrackers.map((tracker) => (
             <Surface key={tracker.id} className="tracker-card">
               <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
@@ -150,7 +158,7 @@ function TrackerCardTargets({ tracker }: { tracker: StoredTrackerDefinition }) {
   })
   if (targets.length === 0) return null
   return <ul className="tracker-card-targets" aria-label={`${tracker.name} targets`}>
-    {targets.slice(0, 3).map((target) => <li key={target.id}><span>{target.name}</span><strong>{target.amount}{target.unit} <small>{target.label}</small></strong></li>)}
+    {targets.slice(0, 3).map((target) => <li key={target.id}><span>{target.name}</span><strong>{formatTrackerNumber(target.amount)}{target.unit} <small>{target.label}</small></strong></li>)}
     {targets.length > 3 && <li className="tracker-card-more-targets">+{targets.length - 3} more measures</li>}
   </ul>
 }

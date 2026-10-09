@@ -18,7 +18,7 @@ import type {
   TrackerVerification,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -371,6 +371,9 @@ export async function queueSyncMutation(
 ): Promise<void> {
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
     throw new Error('Schema v3 local and cloud writes are disabled until the hosted migration is applied and verified.')
+  }
+  if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
+    throw new Error('Schema v4 precision writes are disabled until the hosted migration is applied and verified.')
   }
   if (!ownerUserId) return
   const entityId = payload.id

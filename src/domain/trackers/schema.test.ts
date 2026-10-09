@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { categoryToTracker, dailyEntryToTrackerEntry } from './legacyAdapters'
-import { trackerDefinitionSchema, trackerEntrySchema } from './schema'
+import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from './schema'
 import type { TrackerDefinition } from './types'
 
 const tracker: TrackerDefinition = {
@@ -71,6 +71,24 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse(checklistGoal).success).toBe(true)
     expect(trackerDefinitionSchema.safeParse({ ...checklistGoal, goalPlanning: { ...checklistGoal.goalPlanning, allocations: { steps: { '2026-01-05': 2.5 } } } }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...checklistGoal, goalPlanning: { ...checklistGoal.goalPlanning, allocations: { steps: { '2026-01-05': 3 } } } }).success).toBe(false)
+  })
+
+  it('validates v4 precision, increments, and v4 planning allocations while retaining v1-v3 definitions', () => {
+    const v4 = {
+      ...tracker, schemaVersion: 4 as const, kind: 'goal' as const,
+      metrics: [{ ...tracker.metrics[0]!, precision: { decimalPlaces: 2 as const, increment: 0.25 } }, tracker.metrics[1]!],
+      goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: { pages: 1.25 }, cumulativeTargets: { pages: 100 }, planningTimeZone: 'UTC', allocations: { pages: { '2026-01-02': 1.25 } } },
+    }
+    expect(trackerDefinitionSchema.safeParse(tracker).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...v4, schemaVersion: 3 }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse(v4).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...v4, goalPlanning: { ...v4.goalPlanning, cumulativeTargets: { pages: 100.1 } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v4, metrics: [{ ...v4.metrics[0]!, precision: { decimalPlaces: 1, increment: 0.25 } }, tracker.metrics[1]!] }).success).toBe(false)
+    expect(validateTrackerEntryValues(v4, { pages: 1.5 })).toBeUndefined()
+    expect(validateTrackerEntryValues(v4, { pages: 1.3 })).toMatch(/increments of 0.25/)
+    expect(validateTrackerEntryValues(v4, { pages: 1.3 }, { enforcePrecision: false })).toBeUndefined()
+    expect(validateTrackerEntryValues(v4, { pages: 1.3 }, { existingValues: { pages: 1.3 } })).toBeUndefined()
+    expect(validateTrackerEntryValues(v4, { pages: 1.4 }, { existingValues: { pages: 1.3 } })).toMatch(/increments of 0.25/)
   })
 
   it('rejects planning on v1 and non-goal v2 definitions', () => {

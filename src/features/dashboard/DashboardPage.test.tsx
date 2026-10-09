@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import { within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -33,33 +32,12 @@ describe('local progress dashboard', () => {
     expect(await screen.findByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.getByText('Reward points')).toBeInTheDocument()
     expect(screen.getByText('Weekly consistency')).toBeInTheDocument()
-    const calendar = screen.getByRole('table', { name: 'Check-in activity this month' })
-    expect(within(calendar).getAllByRole('row').length).toBeGreaterThanOrEqual(5)
-    expect(within(calendar).getAllByRole('columnheader')).toHaveLength(7)
-    const yesterdayCell = screen.getByRole('cell', { name: new RegExp(`${Number(yesterday.slice(8, 10))}.*1 check-ins, 1 successes`) })
-    expect(yesterdayCell).toBeInTheDocument()
     expect(screen.getByText('personal best')).toBeInTheDocument()
-  })
-
-  it('marks a holiday blue while retaining the saved activity count for that date', async () => {
-    const definition = tracker()
-    const today = localCalendarDate()
-    await localRepository.saveTracker(definition)
-    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: today, outcome: 'recorded', values: { pages: 5 }, note: 'Still available in history' })
-    await localRepository.saveAccountHolidays([today], 'personal')
-
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
-
-    const cell = await screen.findByRole('cell', { name: new RegExp(`${Number(today.slice(8, 10))}, holiday: 1 check-ins`) })
-    expect(within(cell).getByLabelText('Holiday')).toBeInTheDocument()
-    expect(within(cell).queryByLabelText('Completed')).not.toBeInTheDocument()
-    expect(cell).toHaveAccessibleName(/1 check-ins/)
   })
 
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
-    expect(screen.queryByRole('table', { name: 'Check-in activity this month' })).not.toBeInTheDocument()
   })
 
   it('shows a retry state instead of an empty account when local reads fail', async () => {

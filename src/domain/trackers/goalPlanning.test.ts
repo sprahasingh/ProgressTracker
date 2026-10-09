@@ -76,6 +76,17 @@ describe('cumulative deadline planning', () => {
     expect(() => calculateCumulativeMetricPlan({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-02', progressSemantics: 'snapshot' })).toThrow(/incremental/)
   })
 
+  it('adds decimal progress without binary floating-point drift', () => {
+    const decimalTracker = { ...tracker, deadline: '2026-10-31' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: decimalTracker, metricId: 'pages', totalTarget: 0.3, startDate: '2026-10-01', asOfDate: '2026-10-02', progressSemantics: 'incremental',
+      entries: [entry('2026-10-01', 0.1), entry('2026-10-02', 0.2)],
+    })
+    expect(plan.actualProgress).toBe(0.3)
+    expect(plan.remainingWork).toBe(0)
+    expect(plan.status).toBe('completed')
+  })
+
   it('handles completion, deadline expiry, future starts, and zero scheduled days without infinity', () => {
     const input = { tracker, entries: [entry('2026-10-01', 100)], metricId: 'pages', totalTarget: 100, startDate: '2026-10-01', progressSemantics: 'incremental' as const }
     expect(calculateCumulativeMetricPlan({ ...input, asOfDate: '2026-10-02' })).toMatchObject({ status: 'completed', remainingWork: 0, requiredDailyPace: 0 })

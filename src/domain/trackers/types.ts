@@ -32,6 +32,8 @@ export type TrackerMetricDefinition = {
   name: string
   valueType: 'boolean' | 'quantity' | 'duration' | 'checklist'
   unit?: string
+  /** v4 constraint for newly recorded numeric values and generated plan amounts. */
+  precision?: { decimalPlaces: 0 | 1 | 2; increment: number }
   thresholds?: ThresholdConfiguration
   checklistItems?: ChecklistItemDefinition[]
 }
@@ -94,7 +96,7 @@ export type GoalPlanningConfiguration = {
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3
+  schemaVersion: 1 | 2 | 3 | 4
   id: string
   name: string
   description: string

@@ -26,6 +26,18 @@ describe('cumulative allocation preview', () => {
     expect(distributeTarget(1.005, 2)).toEqual([0.502, 0.503])
   })
 
+  it('distributes whole-number and decimal increments exactly without impractical fractions', () => {
+    const whole = distributeTarget(100, 30, false, 1)
+    expect(whole).toHaveLength(30)
+    expect(whole.reduce((sum, amount) => sum + amount, 0)).toBe(100)
+    expect(new Set(whole)).toEqual(new Set([3, 4]))
+    expect(distributeTarget(2.5, 4, false, 0.5)).toEqual([1, 0.5, 0.5, 0.5])
+    expect(distributeTarget(1, 3, false, 0.25)).toEqual([0.5, 0.25, 0.25])
+    const legacyRemainderPlan = distributeTarget(1.1, 2, false, 0.25)
+    expect(legacyRemainderPlan).toEqual([0.75, 0.5])
+    expect(summarizeAllocations(1.1, legacyRemainderPlan).overAllocation).toBeCloseTo(0.15)
+  })
+
   it('retains rest days in the calendar without assigning work and subtracts actual incremental progress', () => {
     const longerDeadline = { ...tracker, startDate: '2026-01-01', deadline: '2026-01-09', createdAt: '2026-01-01T00:00:00.000Z' }
     const preview = createCumulativeAllocationPreview({ tracker: longerDeadline, entries: [entry('2026-01-01', 4)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-01', asOfDate: '2026-01-01' })
@@ -43,7 +55,7 @@ describe('cumulative allocation preview', () => {
   })
 
   it('uses whole checklist items and leaves expired targets visibly unallocated', () => {
-    expect(distributeTarget(10, 3, true)).toEqual([3, 3, 4])
+    expect(distributeTarget(10, 3, true)).toEqual([4, 3, 3])
     expect(() => distributeTarget(2.5, 2, true)).toThrow(/whole item/)
     const expired = createCumulativeAllocationPreview({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-08' })
     expect(expired).toMatchObject({ eligibleDayCount: 0, remainingTarget: 10, days: [] })

@@ -41,9 +41,18 @@ const metricSchema = z.object({
   name: z.string().trim().min(1),
   valueType: z.enum(['boolean', 'quantity', 'duration', 'checklist']),
   unit: z.string().optional(),
+  precision: z.object({ decimalPlaces: z.union([z.literal(0), z.literal(1), z.literal(2)]), increment: z.number().finite().positive() }).optional(),
   thresholds: thresholdSchema.optional(),
   checklistItems: z.array(z.object({ id, label: z.string().trim().min(1), position: z.number().int().nonnegative() })).optional(),
 }).superRefine((metric, context) => {
+  if (metric.precision) {
+    if (!['quantity', 'duration'].includes(metric.valueType)) context.addIssue({ code: 'custom', path: ['precision'], message: 'Numeric precision applies only to quantity and duration measures.' })
+    const factor = 10 ** metric.precision.decimalPlaces
+    if (Math.abs(metric.precision.increment * factor - Math.round(metric.precision.increment * factor)) > 1e-8) context.addIssue({ code: 'custom', path: ['precision', 'increment'], message: 'The allowed increment must fit the selected decimal places.' })
+    for (const [level, threshold] of Object.entries(metric.thresholds ?? {})) {
+      if (typeof threshold === 'number' && !isAllowedIncrement(threshold, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['thresholds', level], message: `Threshold must use increments of ${metric.precision.increment}.` })
+    }
+  }
   if (metric.valueType === 'checklist' && !metric.checklistItems?.length) context.addIssue({ code: 'custom', path: ['checklistItems'], message: 'Checklist metrics require at least one item.' })
   if (metric.valueType !== 'checklist' && metric.checklistItems !== undefined) context.addIssue({ code: 'custom', path: ['checklistItems'], message: 'Only checklist metrics may define checklist items.' })
   if (metric.valueType === 'boolean' && metric.thresholds) context.addIssue({ code: 'custom', path: ['thresholds'], message: 'Boolean metrics cannot define numeric thresholds.' })
@@ -110,7 +119,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -136,8 +145,9 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion === 1 && tracker.goalPlanning) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Planning configuration requires tracker schema version 2.' })
   if ((tracker.schemaVersion === 2 || tracker.schemaVersion === 3) && (tracker.kind !== 'goal' || !tracker.goalPlanning)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: `Schema version ${tracker.schemaVersion} is reserved for goals with planning configuration.` })
   if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
+  if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if (tracker.schemaVersion === 3 && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
@@ -164,6 +174,7 @@ export const trackerDefinitionSchema = z.object({
           if (!Number.isInteger(target)) context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Checklist targets must be whole item counts.' })
           if (field === 'dailyTargets' && target > (metric.checklistItems?.length ?? 0)) context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Daily checklist targets cannot exceed the number of items.' })
         }
+        if (metric.precision && !isAllowedIncrement(target, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: `Planning target must use increments of ${metric.precision.increment}.` })
         if (field === 'cumulativeTargets' && plan.progressSemantics[metricId] !== 'incremental') {
           context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Cumulative targets require explicit incremental-progress semantics.' })
         }
@@ -187,6 +198,7 @@ export const trackerDefinitionSchema = z.object({
         }
         for (const [date, amount] of Object.entries(datedAmounts)) {
           if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
+          if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
           const effectiveStartDate = tracker.startDate ?? tracker.createdAt.slice(0, 10)
           const scheduled = tracker.deadline && date >= effectiveStartDate && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date)
@@ -196,7 +208,8 @@ export const trackerDefinitionSchema = z.object({
     }
   }
   if (tracker.qualificationRule) ruleMetricsCheck(tracker.qualificationRule, metrics, context, ['qualificationRule'])
-})
+  if (tracker.schemaVersion === 4 && !tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['schemaVersion'], message: 'Schema version 4 requires at least one numeric precision setting.' })
+  })
 
 export const trackerEntrySchema = z.object({
   id,
@@ -210,11 +223,16 @@ export const trackerEntrySchema = z.object({
   deletedAt: z.iso.datetime().nullable(),
 })
 
+function isAllowedIncrement(value: number, increment: number): boolean {
+  const units = value / increment
+  return Math.abs(units - Math.round(units)) <= Math.max(1, Math.abs(units)) * Number.EPSILON * 8
+}
+
 /** Validate typed values against a tracker's metric and custom-field definitions. */
 export function validateTrackerEntryValues(tracker: {
-  metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }> }>
+  metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }>; precision?: { decimalPlaces: 0 | 1 | 2; increment: number } }>
   customFields: Array<{ id: string; type: string; required: boolean; options?: string[] }>
-}, values: Record<string, unknown>): string | undefined {
+}, values: Record<string, unknown>, options: { enforcePrecision?: boolean; existingValues?: Record<string, unknown> } = {}): string | undefined {
   const allowed = new Set<string>()
   for (const metric of tracker.metrics) {
     allowed.add(metric.id)
@@ -222,6 +240,9 @@ export function validateTrackerEntryValues(tracker: {
     if (value === undefined || value === null) continue
     if (metric.valueType === 'boolean' && typeof value !== 'boolean') return 'Boolean measures need a yes or no value.'
     if ((metric.valueType === 'quantity' || metric.valueType === 'duration') && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return 'Numeric measures must be finite, nonnegative numbers.'
+    const unchangedExistingValue = options.existingValues !== undefined && Object.hasOwn(options.existingValues, metric.id)
+      && options.existingValues[metric.id] === value
+    if (options.enforcePrecision !== false && !unchangedExistingValue && metric.precision && typeof value === 'number' && !isAllowedIncrement(value, metric.precision.increment)) return `Use increments of ${metric.precision.increment} for this measure.`
     if (metric.valueType === 'checklist') {
       if (typeof value !== 'object' || Array.isArray(value)) return 'Checklist progress is invalid.'
       const checks = value as Record<string, unknown>
