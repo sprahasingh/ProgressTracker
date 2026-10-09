@@ -54,6 +54,27 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncRecords.get('tracker:sync-tracker')).resolves.toMatchObject({ serverRevision: 1, ownerUserId: 'sync-user' })
   })
 
+  it('preserves an offline edit made while the earlier version is in flight', async () => {
+    await activateWorkspace('sync-user')
+    const original = tracker()
+    await localRepository.saveTracker(original)
+    let finishRequest: ((result: { data: unknown; error: null }) => void) | undefined
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(() => new Promise((resolve) => { finishRequest = resolve }))
+
+    const syncing = synchronizeWorkspace('sync-user', client)
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalledOnce())
+    await localRepository.saveTracker({ ...original, name: 'Edited during upload' })
+    finishRequest?.({ data: { status: 'applied', record: serverTracker(original, 'sync-user', 1) }, error: null })
+    await syncing
+
+    await expect(db.trackers.get(original.id)).resolves.toMatchObject({ name: 'Edited during upload' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', original.id]).first()).resolves.toMatchObject({
+      status: 'pending', expectedRevision: 1, payload: { name: 'Edited during upload' },
+    })
+    await expect(db.syncRecords.get(`tracker:${original.id}`)).resolves.toMatchObject({ serverRevision: 1 })
+  })
+
   it('uploads tracker parents before entry tombstones and keeps retries ordered', async () => {
     await activateWorkspace('sync-user')
     const definition = tracker()
