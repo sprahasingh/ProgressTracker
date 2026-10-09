@@ -14,13 +14,42 @@ ledger as (
   select to_regprocedure('public.purge_expired_tracker_bin()') as oid
 ), finalize_fn as (
   select to_regprocedure('public.finalize_tracker_deletion(uuid,uuid,uuid)') as oid
-), cleanup_job as (
-  select jobid, schedule, command, active
-  from cron.job where jobname = 'progress-tracker-bin-cleanup'
-), latest_cleanup_run as (
-  select d.status, d.start_time, d.end_time, d.return_message
-  from cron.job_run_details d join cleanup_job j using (jobid)
-  order by d.start_time desc limit 1
+), runtime_catalog as (
+  select to_regclass('cron.job') as cron_job_oid,
+         to_regclass('cron.job_run_details') as cron_runs_oid,
+         to_regclass('public.tracker_deletion_cleanup_control') as control_oid,
+         case when to_regclass('cron.job') is not null then query_to_xml(
+           $query$select count(*) as job_count,
+             coalesce(bool_and(schedule = '17 * * * *' and active
+               and command like '%public.purge_expired_tracker_bin()%'), false) as config_ok
+             from cron.job where jobname = 'progress-tracker-bin-cleanup'$query$,
+           true, false, '') end as cron_job_xml,
+         case when to_regclass('cron.job_run_details') is not null and to_regclass('cron.job') is not null then query_to_xml(
+           $query$select d.status, d.start_time::text as start_time, d.end_time::text as end_time,
+             d.return_message from cron.job_run_details d join cron.job j using (jobid)
+             where j.jobname = 'progress-tracker-bin-cleanup'
+             order by d.start_time desc limit 1$query$,
+           true, false, '') end as cron_run_xml,
+         case when to_regclass('public.tracker_deletion_cleanup_control') is not null then query_to_xml(
+           'select enabled from public.tracker_deletion_cleanup_control where id', true, false, '') end as control_xml
+), runtime_state as (
+  select cron_job_oid is not null as cron_job_table_exists,
+         cron_runs_oid is not null as cron_runs_table_exists,
+         control_oid,
+         coalesce(((xpath('/table/row/job_count/text()', cron_job_xml))[1]::text)::integer, 0) as cleanup_job_count,
+         coalesce(((xpath('/table/row/config_ok/text()', cron_job_xml))[1]::text)::boolean, false) as cleanup_job_config_ok,
+         (xpath('/table/row/status/text()', cron_run_xml))[1]::text as latest_run_status,
+         (xpath('/table/row/start_time/text()', cron_run_xml))[1]::text as latest_run_start,
+         (xpath('/table/row/end_time/text()', cron_run_xml))[1]::text as latest_run_end,
+         (xpath('/table/row/return_message/text()', cron_run_xml))[1]::text as latest_run_message,
+         coalesce(((xpath('/table/row/enabled/text()', control_xml))[1]::text)::boolean, false) as cleanup_enabled,
+         coalesce((select c.relrowsecurity from pg_class c where c.oid = control_oid), false) as control_rls_enabled,
+         coalesce(has_table_privilege('anon', control_oid, 'select'), false) as control_anon_select,
+         coalesce(has_table_privilege('authenticated', control_oid, 'update'), false) as control_authenticated_update,
+         (select pg_get_expr(d.adbin, d.adrelid)
+          from pg_attrdef d join pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum
+          where d.adrelid = control_oid and a.attname = 'enabled') as control_enabled_default
+  from runtime_catalog
 ), checks(category, object_name, expected_configuration, actual_configuration, ok) as (
   values
     ('table', 'tracker_deletion_ledger', 'exists; RLS enabled',
@@ -46,17 +75,11 @@ ledger as (
         and not has_table_privilege('anon',(select oid from ledger),'select'),false)),
     ('table', 'tracker_deletion_cleanup_control', 'exists; RLS enabled; no API privileges; migration default=false',
       coalesce((select format('exists; enabled=%s; RLS=%s; anon-select=%s; authenticated-update=%s; default=%s',
-        ctl.enabled, c.relrowsecurity, has_table_privilege('anon',c.oid,'select'), has_table_privilege('authenticated',c.oid,'update'),
-        pg_get_expr(d.adbin,d.adrelid))
-        from public.tracker_deletion_cleanup_control ctl join pg_class c on c.oid=(select oid from control)
-        left join pg_attrdef d on d.adrelid=c.oid and d.adnum=(select attnum from pg_attribute where attrelid=c.oid and attname='enabled')
-        where ctl.id), 'MISSING'),
-      coalesce((select c.relrowsecurity and not has_table_privilege('anon',c.oid,'select')
-        and not has_table_privilege('authenticated',c.oid,'update')
-        and pg_get_expr(d.adbin,d.adrelid)='false'
-        from pg_class c join pg_attrdef d on d.adrelid=c.oid
-        join pg_attribute a on a.attrelid=c.oid and a.attnum=d.adnum and a.attname='enabled'
-        where c.oid=(select oid from control)),false)),
+        cleanup_enabled, control_rls_enabled, control_anon_select, control_authenticated_update,
+        coalesce(control_enabled_default, 'MISSING')) from runtime_state where control_oid is not null), 'MISSING'),
+      coalesce((select control_rls_enabled and not control_anon_select
+        and not control_authenticated_update and control_enabled_default='false'
+        from runtime_state where control_oid is not null),false)),
     ('constraint', 'trackers_schema_version_check', 'validated constraint continues to allow schema v1, v2, and v3',
       coalesce((select pg_get_constraintdef(oid,true) || '; validated=' || convalidated::text
         from pg_constraint where conrelid=to_regclass('public.trackers') and conname='trackers_schema_version_check'),'MISSING'),
@@ -106,21 +129,25 @@ ledger as (
         from pg_proc p where p.oid=(select oid from cleanup_fn)),false)),
     ('grant', 'trackers and tracker_entries', 'authenticated SELECT only; direct client writes denied',
       format('trackers insert/update/delete=%s/%s/%s; entries insert/update/delete=%s/%s/%s',
-        coalesce(has_table_privilege('authenticated','public.trackers','insert'),false),
-        coalesce(has_table_privilege('authenticated','public.trackers','update'),false),
-        coalesce(has_table_privilege('authenticated','public.trackers','delete'),false),
-        coalesce(has_table_privilege('authenticated','public.tracker_entries','insert'),false),
-        coalesce(has_table_privilege('authenticated','public.tracker_entries','update'),false),
-        coalesce(has_table_privilege('authenticated','public.tracker_entries','delete'),false)),
-      not has_table_privilege('authenticated','public.trackers','insert') and not has_table_privilege('authenticated','public.trackers','update')
-        and not has_table_privilege('authenticated','public.trackers','delete') and not has_table_privilege('authenticated','public.tracker_entries','insert')
-        and not has_table_privilege('authenticated','public.tracker_entries','update') and not has_table_privilege('authenticated','public.tracker_entries','delete')),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.trackers'),'insert'),false),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.trackers'),'update'),false),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.trackers'),'delete'),false),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'insert'),false),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'update'),false),
+        coalesce(has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'delete'),false)),
+      to_regclass('public.trackers') is not null and to_regclass('public.tracker_entries') is not null
+        and not has_table_privilege('authenticated',to_regclass('public.trackers'),'insert') and not has_table_privilege('authenticated',to_regclass('public.trackers'),'update')
+        and not has_table_privilege('authenticated',to_regclass('public.trackers'),'delete') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'insert')
+        and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'update') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'delete')),
     ('cron', 'progress-tracker-bin-cleanup', 'one active hourly job at minute 17 invokes cleanup RPC',
-      coalesce((select format('count=%s; schedule=%s; active=%s; command=%s',(select count(*) from cleanup_job),schedule,active,command) from cleanup_job limit 1),'MISSING'),
-      (select count(*)=1 and bool_and(schedule='17 * * * *' and active and command like '%public.purge_expired_tracker_bin()%') from cleanup_job)),
+      coalesce((select format('cron.job exists=%s; matching job count=%s; correct active schedule and command=%s',
+        cron_job_table_exists, cleanup_job_count, cleanup_job_config_ok) from runtime_state), 'MISSING'),
+      coalesce((select cron_job_table_exists and cleanup_job_count=1 and cleanup_job_config_ok from runtime_state),false)),
     ('cron run', 'progress-tracker-bin-cleanup', 'at least one successful scheduled execution',
-      coalesce((select format('status=%s; start=%s; end=%s; result=%s',status,start_time,end_time,return_message) from latest_cleanup_run),'NO RUN RECORDED'),
-      coalesce((select status='succeeded' from latest_cleanup_run),false)),
+      coalesce((select format('cron.job_run_details exists=%s; status=%s; start=%s; end=%s; result=%s',
+        cron_runs_table_exists, latest_run_status, latest_run_start, latest_run_end, latest_run_message)
+        from runtime_state where latest_run_status is not null), 'NO RUN RECORDED OR CRON TABLE MISSING'),
+      coalesce((select cron_runs_table_exists and latest_run_status='succeeded' from runtime_state),false)),
     ('cleanup', 'expiry threshold', 'server routine uses a 30-day server-time threshold and bounded batches',
       coalesce((select format('30-day=%s; batch-limit-500=%s; ledger-retained=%s',
         position('interval ''30 days''' in p.prosrc)>0, position('limit 500' in lower(p.prosrc))>0,
