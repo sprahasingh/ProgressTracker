@@ -6,10 +6,11 @@ import type { StoredTrackerDefinition } from './models'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'conflicted-tracker', name: 'Local name', description: '', kind: 'habit', status: 'active', categoryId: null,
-  tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [], customFields: [], milestones: [],
+  tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'focus', name: 'Focus', valueType: 'quantity' }], customFields: [], milestones: [],
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 const remote = { id: tracker.id, user_id: 'conflict-user', schema_version: 1, kind: 'habit', status: 'active', name: 'Cloud name', definition: { ...tracker, name: 'Cloud name' }, created_at: tracker.createdAt, updated_at: '2026-01-03T00:00:00.000Z', deleted_at: null, server_revision: 4 }
+const remoteEntry = (id: string, trackerId: string, revision: number) => ({ id, user_id: 'conflict-user', tracker_id: trackerId, entry_date: '2026-01-04', outcome: 'recorded', entry_values: { focus: 3 }, note: 'cloud note', created_at: '2026-01-04T00:00:00.000Z', updated_at: '2026-01-04T01:00:00.000Z', deleted_at: null, server_revision: revision })
 
 afterEach(async () => {
   db.close()
@@ -69,5 +70,60 @@ describe('sync conflict recovery', () => {
     await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ name: 'Local name' })
     await expect(db.syncConflicts.get(operation.id)).resolves.toBeDefined()
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', tracker.id]).count()).resolves.toBe(1)
+  })
+
+  it('forks an unreadable tracker ID and relinks its local entry history transactionally', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const entry = { id: 'local-history', trackerId: tracker.id, date: '2026-01-04', outcome: 'recorded' as const, values: { focus: 3 }, note: 'kept', createdAt: tracker.createdAt, updatedAt: tracker.updatedAt, deletedAt: null }
+    await db.trackerEntries.put(entry)
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', tracker.id]).first()
+    if (!operation) throw new Error('Expected a queued tracker operation')
+    await db.syncOperations.put({ ...operation, status: 'conflict' })
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: tracker, remoteRecord: null, detectedAt: '2026-01-03T00:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'fork-local')
+
+    const fork = await db.trackers.toCollection().first()
+    expect(fork).toBeDefined()
+    expect(fork?.id).not.toBe(tracker.id)
+    await expect(db.trackers.get(tracker.id)).resolves.toBeUndefined()
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ trackerId: fork?.id, note: 'kept' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', fork!.id]).first()).resolves.toMatchObject({ status: 'pending', expectedRevision: null })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ payload: { trackerId: fork?.id } })
+    await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
+  })
+
+  it('adopts the cloud entry ID when keeping local values over a same-day cloud duplicate', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const local = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-01-04', outcome: 'recorded', values: { focus: 1 }, note: 'local note' })
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', local.id]).first()
+    if (!operation) throw new Error('Expected a queued entry operation')
+    await db.syncOperations.put({ ...operation, status: 'conflict' })
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker_entry', entityId: local.id, localPayload: local, remoteRecord: remoteEntry('cloud-entry-id', tracker.id, 7), detectedAt: '2026-01-04T02:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'keep-local')
+
+    await expect(db.trackerEntries.get(local.id)).resolves.toBeUndefined()
+    await expect(db.trackerEntries.get('cloud-entry-id')).resolves.toMatchObject({ trackerId: tracker.id, note: 'local note', values: { focus: 1 } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', 'cloud-entry-id']).first()).resolves.toMatchObject({ status: 'pending', expectedRevision: 7, payload: { id: 'cloud-entry-id', note: 'local note' } })
+    await expect(db.syncRecords.get('tracker_entry:cloud-entry-id')).resolves.toMatchObject({ serverRevision: 7 })
+  })
+
+  it('replaces a same-day local entry with the cloud row and its identity when choosing cloud', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const local = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-01-04', outcome: 'recorded', values: { focus: 1 }, note: 'local note' })
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', local.id]).first()
+    if (!operation) throw new Error('Expected a queued entry operation')
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker_entry', entityId: local.id, localPayload: local, remoteRecord: remoteEntry('cloud-entry-id', tracker.id, 7), detectedAt: '2026-01-04T02:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'use-cloud')
+
+    await expect(db.trackerEntries.get(local.id)).resolves.toBeUndefined()
+    await expect(db.trackerEntries.get('cloud-entry-id')).resolves.toMatchObject({ note: 'cloud note', values: { focus: 3 } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', local.id]).count()).resolves.toBe(0)
+    await expect(db.syncRecords.get('tracker_entry:cloud-entry-id')).resolves.toMatchObject({ serverRevision: 7 })
   })
 })

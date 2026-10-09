@@ -46,7 +46,7 @@ export function AuthPage() {
     return () => { active = false }
   }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary])
 
-  async function handleConflictResolution(conflict: SyncConflict, choice: 'keep-local' | 'use-cloud') {
+  async function handleConflictResolution(conflict: SyncConflict, choice: 'keep-local' | 'use-cloud' | 'fork-local') {
     if (!user?.id || workspaceUserId !== user.id) return
     setResolvingConflict(conflict.id)
     setConflictError(null)
@@ -139,7 +139,7 @@ export function AuthPage() {
               const localPayload = conflict.localPayload as Record<string, unknown>
               const cloudPayload = conflict.entity === 'tracker' ? cloud?.definition as Record<string, unknown> | undefined : cloud ?? undefined
               const describe = (value: Record<string, unknown> | undefined) => value ? JSON.stringify(value, null, 2) : null
-              return <article className="sync-conflict" key={conflict.id}><h4>{conflict.entity === 'tracker' ? 'Tracker' : 'Daily entry'} conflict · {conflict.entityId}</h4><div className="sync-conflict-versions"><details><summary>This device’s version</summary><pre>{describe(localPayload)}</pre></details><details><summary>Cloud version</summary><pre>{describe(cloudPayload) ?? 'Cloud copy unavailable for this account.'}</pre></details></div>{cloudAvailable ? <div className="auth-actions"><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'keep-local')}>Keep this device’s version</Button><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'use-cloud')}>Use cloud version</Button></div> : <p className="auth-hint">The server did not provide a record this account can read. Both local data and the conflict are preserved; automatic replacement is unavailable.</p>}</article>
+              return <article className="sync-conflict" key={conflict.id}><h4>{conflict.entity === 'tracker' ? 'Tracker' : 'Daily entry'} conflict · {conflict.entityId}</h4><div className="sync-conflict-versions"><details><summary>This device’s version</summary><pre>{describe(localPayload)}</pre></details><details><summary>Cloud version</summary><pre>{describe(cloudPayload) ?? 'Cloud copy unavailable for this account.'}</pre></details></div>{cloudAvailable ? <div className="auth-actions"><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'keep-local')}>Keep this device’s version</Button><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'use-cloud')}>Use cloud version</Button></div> : <><p className="auth-hint">The server did not provide a record this account can read. Save your local record under a new ID to keep it available for sync.</p><div className="auth-actions"><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'fork-local')}>Save local copy as new</Button></div></>}</article>
             })}</section>}
             {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
             {notice && <p className="auth-success" role="status">{notice}</p>}
