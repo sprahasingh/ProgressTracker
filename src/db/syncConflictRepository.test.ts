@@ -81,6 +81,7 @@ describe('sync conflict recovery', () => {
     if (!operation) throw new Error('Expected a queued tracker operation')
     await db.syncOperations.put({ ...operation, status: 'conflict' })
     await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: tracker, remoteRecord: null, detectedAt: '2026-01-03T00:00:00.000Z' })
+    await db.syncConflicts.put({ id: 'stale-entry-conflict', ownerUserId: 'conflict-user', entity: 'tracker_entry', entityId: entry.id, localPayload: entry, remoteRecord: remoteEntry(entry.id, tracker.id, 2), detectedAt: '2026-01-03T00:00:00.000Z' })
 
     await resolveSyncConflict('conflict-user', operation.id, 'fork-local')
 
@@ -92,6 +93,7 @@ describe('sync conflict recovery', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', fork!.id]).first()).resolves.toMatchObject({ status: 'pending', expectedRevision: null })
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ payload: { trackerId: fork?.id } })
     await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
+    await expect(db.syncConflicts.get('stale-entry-conflict')).resolves.toBeUndefined()
   })
 
   it('adopts the cloud entry ID when keeping local values over a same-day cloud duplicate', async () => {

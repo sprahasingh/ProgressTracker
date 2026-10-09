@@ -60,7 +60,9 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
           await database.trackerEntries.put(forkedEntry)
           await queueSyncMutation(database, userId, 'tracker_entry', forkedEntry)
           const entryConflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', entry.id]).first()
-          if (entryConflict) await database.syncConflicts.put({ ...entryConflict, localPayload: forkedEntry })
+          // The child is now a new pending operation against a different parent ID.
+          // Drop its stale snapshot; the server will produce a fresh conflict if needed.
+          if (entryConflict) await database.syncConflicts.delete(entryConflict.id)
         }
       } else {
         const local = await database.trackerEntries.get(conflict.entityId) ?? trackerEntrySchema.parse(conflict.localPayload) as StoredTrackerEntry
