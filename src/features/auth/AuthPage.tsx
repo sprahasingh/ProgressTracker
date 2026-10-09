@@ -10,6 +10,7 @@ import { sendPasswordReset, sendSignInLink, signInWithPassword, signUpWithPasswo
 import { useAuth } from './AuthProvider'
 import { listSyncConflicts, resolveSyncConflict } from '../../db/syncConflictRepository'
 import type { SyncConflict } from '../../db/models'
+import { WorkspaceBackup } from './WorkspaceBackup'
 
 type AuthMode = 'magic-link' | 'sign-in' | 'sign-up' | 'forgot-password' | 'set-password'
 const emailSchema = z.string().trim().email('Enter a valid email address.').toLowerCase()
@@ -132,7 +133,7 @@ export function AuthPage() {
         {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">⌂</span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}
 
         {status === 'signed-in' && !isRecovery && requestedMode !== 'set-password' && (
-          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Cloud sync starts after this workspace opens and when this browser reconnects. Local edits remain saved if a sync attempt fails.</p>
+          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Cloud sync starts after this workspace opens, when this browser reconnects, and after you edit its trackers or entries. Local edits remain saved if a sync attempt fails.</p>
             {isOnline === false && <p className="auth-hint">You’re offline. Your local progress remains available; cloud data will be checked after reconnecting.</p>}
             {syncStatus === 'waiting' && <p className="auth-hint">Your account workspace is ready. Preparing its first cloud check…</p>}
             {syncStatus === 'syncing' && <p className="auth-hint" role="status">{syncTrigger === 'automatic' ? 'Checking your cloud progress…' : 'Syncing this account…'}</p>}
@@ -190,6 +191,9 @@ export function AuthPage() {
           <Button type="submit" className="auth-submit" disabled={setPasswordForm.formState.isSubmitting}>{setPasswordForm.formState.isSubmitting ? 'Updating…' : 'Save password'}</Button>
           {!isRecovery && <button className="auth-text-button" type="button" onClick={() => { clearFeedback(); setMode('magic-link') }}>Back to account</button>}
         </form>}
+
+        {status === 'signed-in' && !isRecovery && workspaceStatus === 'ready' && workspaceUserId === user?.id && user?.id && <WorkspaceBackup ownerUserId={user.id} />}
+        {(status === 'signed-out' || status === 'local-only') && workspaceStatus === 'ready' && workspaceUserId === null && <WorkspaceBackup ownerUserId={null} />}
       </Surface>
     </section>
   )
