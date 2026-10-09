@@ -2,6 +2,7 @@ import { StrictMode, useEffect } from 'react'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider, useAuth } from './AuthProvider'
+import { publishWorkspaceMutation } from '../../db/workspaceMutationEvents'
 
 const providerMocks = vi.hoisted(() => ({
   authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string } } | null) => void),
@@ -63,7 +64,7 @@ describe('AuthProvider automatic sync lifecycle', () => {
     delete (window as Window & { latestSync?: () => Promise<void> }).latestSync
   })
 
-  afterEach(() => { cleanup(); vi.restoreAllMocks() })
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
   it('automatically syncs once after login only after the account workspace is ready', async () => {
     const opening = deferred<void>()
@@ -169,5 +170,69 @@ describe('AuthProvider automatic sync lifecycle', () => {
     await waitFor(() => expect(screen.getByTestId('sync-state')).toHaveTextContent('complete'))
     expect(screen.getByTestId('sync-summary')).toHaveTextContent('2')
     expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+  })
+
+  it('automatically syncs committed edits for the active account and coalesces rapid changes', async () => {
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce())
+    vi.useFakeTimers()
+
+    act(() => {
+      publishWorkspaceMutation('account-a')
+      publishWorkspaceMutation('account-a')
+      publishWorkspaceMutation('account-a')
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledTimes(2)
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenLastCalledWith('account-a')
+  })
+
+  it('does not upload guest or another account’s local edits', async () => {
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce())
+    vi.useFakeTimers()
+    act(() => {
+      publishWorkspaceMutation(null)
+      publishWorkspaceMutation('account-b')
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+  })
+
+  it('holds offline edits until reconnection and does not automatically retry a failed attempt', async () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('sync-state')).toHaveTextContent('offline'))
+    vi.useFakeTimers()
+    act(() => publishWorkspaceMutation('account-a'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(providerMocks.synchronizeWorkspace).not.toHaveBeenCalled()
+
+    providerMocks.synchronizeWorkspace.mockResolvedValueOnce({ uploaded: 0, downloaded: 0, conflicts: 0, failed: 1 })
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
+    act(() => window.dispatchEvent(new Event('online')))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); await Promise.resolve(); await Promise.resolve() })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+  })
+
+  it('runs one trailing sync when a committed edit lands during an in-flight sync', async () => {
+    const firstSync = deferred<{ uploaded: number; downloaded: number; conflicts: number; failed: number }>()
+    providerMocks.synchronizeWorkspace.mockReturnValueOnce(firstSync.promise)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce())
+    vi.useFakeTimers()
+    act(() => publishWorkspaceMutation('account-a'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+
+    firstSync.resolve({ uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 })
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledTimes(2)
   })
 })
