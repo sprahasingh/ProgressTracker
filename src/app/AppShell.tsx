@@ -82,7 +82,7 @@ export function AppShell() {
           {groupedNavigation.space.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/trackers'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
           <span className="nav-caption nav-caption-secondary">INSIGHTS</span>
           {groupedNavigation.insights.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/dashboard'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
-          <span className="nav-caption nav-caption-secondary">SETTINGS</span>
+          <span className="nav-caption nav-caption-secondary">ACCOUNT</span>
           {groupedNavigation.settings.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
         </div>
 

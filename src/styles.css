@@ -854,6 +854,89 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
 
+/* One Preferences destination, with account actions grouped separately below. */
+.nav-secondary > .nav-caption-secondary:last-of-type { color: var(--joy-teal); }
+
+/* More tactile actions with distinct hierarchy and keyboard feedback. */
+.button {
+  min-height: 42px;
+  border-radius: 14px;
+  letter-spacing: .005em;
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.button-medium { padding-right: 18px; padding-left: 18px; }
+.button-small { min-height: 36px; border-radius: 11px; }
+.button-primary {
+  border-color: color-mix(in srgb, var(--accent) 74%, #39208b);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent-strong) 84%, #372080));
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--accent-strong) 72%, #29126e), 0 7px 16px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #fff;
+}
+.button-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent-strong));
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--accent-strong) 72%, #29126e), 0 10px 20px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.button-primary:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--accent-strong); }
+.button-secondary {
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: var(--surface);
+  box-shadow: 0 2px 5px #31205e0a;
+}
+.button-secondary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  background: var(--accent-soft);
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.button-quiet { min-height: 38px; padding-right: 12px; padding-left: 12px; }
+.button-quiet:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-soft) 75%, transparent); }
+.button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--joy-coral) 78%, white);
+  outline-offset: 3px;
+}
+.button:disabled { box-shadow: none; filter: grayscale(.2); }
+.button-icon { display: inline-grid; place-items: center; font-size: 1.1em; }
+
+/* Native selects retain platform accessibility, with a clear custom affordance. */
+select.auth-input {
+  min-height: 46px;
+  padding: 0 44px 0 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 13px;
+  appearance: none;
+  background-color: var(--surface-raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%237047e8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+select.auth-input:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background-color: color-mix(in srgb, var(--surface-raised) 90%, var(--accent-soft));
+}
+select.auth-input:focus-visible {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+select.auth-input:disabled { cursor: not-allowed; opacity: .68; }
+select.auth-input option { background: var(--surface-raised); color: var(--ink); }
+[data-theme='dark'] select.auth-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23d4c5ff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+@media (max-width: 760px) {
+  .button-medium { min-height: 45px; }
+  select.auth-input { min-height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .button, select.auth-input { transition-duration: .01ms !important; }
+}
+
 .sync-state { display: flex; width: auto; align-items: center; gap: 4px; color: var(--ink-muted); text-decoration: none; }
 .sync-state:hover { color: var(--accent-strong); }
 .sync-state.error, .topbar-sync-state.error { color: var(--danger); }
