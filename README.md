@@ -238,7 +238,7 @@ Keep the email provider enabled and use the Supabase redirect placeholder in con
 
 ## Interface foundation
 
-The current visual language uses a muted botanical green accent, warm neutral surfaces, editorial serif headings, and restrained borders. Shared `Button`, `Surface`, `PageHeader`, and `EmptyState` components establish reusable patterns. The layout includes a compact mobile navigation and honors reduced-motion preferences. Theme selection is saved per local workspace; accessibility review remains future work.
+The interface uses semantic violet actions, cyan analytics, emerald success, amber attention, and coral error colors, with light/dark theme tokens. Shared `Button`, `Surface`, `PageHeader`, and `EmptyState` components establish reusable patterns. The four primary destinations are Today, Trackers, Goals, and Progress; Overview, History, Achievements, Settings, and Account remain reachable through secondary navigation on desktop and mobile. Tracker setup presents a small measure flow first and keeps the complete multi-measure, rule, custom-field, milestone, and goal-planning editors under Advanced settings. The quick target is per check-in and distinct from cumulative/daily planning targets; changing an existing threshold leaves recorded values intact but can change their historical qualification. Today shows a schedule-aware progress summary derived only from saved check-ins. Theme selection remains workspace-local, and reduced-motion and visible-focus behavior are retained. A pre-implementation findings and solution map is documented in `docs/UX_REDESIGN_AUDIT.md`; real-browser viewport and assistive-technology verification remain manual follow-up.
 
 ### Installable app and offline shell
 

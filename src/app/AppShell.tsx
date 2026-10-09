@@ -4,14 +4,19 @@ import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 
-const navigation = [
+const primaryNavigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
-  { to: '/dashboard', label: 'Overview', icon: '▦' },
-  { to: '/history', label: 'History', icon: '▤' },
-  { to: '/analytics', label: 'Analytics', icon: '▥' },
   { to: '/trackers', label: 'Trackers', icon: '✳' },
   { to: '/goals', label: 'Goals', icon: '◎' },
-  { to: '/achievements', label: 'Wins', icon: '✳' },
+  { to: '/analytics', label: 'Progress', icon: '▥' },
+]
+
+const secondaryNavigation = [
+  { to: '/dashboard', label: 'Overview', icon: '▦' },
+  { to: '/history', label: 'History', icon: '▤' },
+  { to: '/achievements', label: 'Achievements', icon: '✳' },
+  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/auth', label: 'Account', icon: '●' },
 ]
 
 export function AppShell() {
@@ -38,7 +43,7 @@ export function AppShell() {
 
         <div className="nav-caption">YOUR SPACE</div>
         <nav className="nav-list" aria-label="Primary navigation">
-          {navigation.map(({ to, label, icon, end }) => (
+          {primaryNavigation.map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <span className="nav-icon" aria-hidden="true">{icon}</span>
               {label}
@@ -46,10 +51,16 @@ export function AppShell() {
           ))}
         </nav>
 
+        <div className="nav-secondary">
+          <span className="nav-caption nav-caption-secondary">MORE</span>
+          {secondaryNavigation.map(({ to, label, icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+              <span className="nav-icon" aria-hidden="true">{icon}</span>{label}
+            </NavLink>
+          ))}
+        </div>
+
         <div className="sidebar-bottom">
-          <NavLink to="/settings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-            <span className="nav-icon" aria-hidden="true">⚙</span>Settings
-          </NavLink>
           <div className="sync-state"><span className="sync-dot" />{localStatus}<span className="sync-note">· saved here</span></div>
         </div>
       </aside>
@@ -60,7 +71,7 @@ export function AppShell() {
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
-          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
+          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">{user?.email?.trim().charAt(0).toUpperCase() || 'S'}</Link>
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (
@@ -85,11 +96,20 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {navigation.slice(0, 6).map(({ to, label, icon, end }) => (
+          {primaryNavigation.map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav-link${isActive ? ' active' : ''}`}>
               <span aria-hidden="true">{icon}</span><small>{label}</small>
             </NavLink>
           ))}
+          <details className="mobile-more">
+            <summary aria-label="More destinations">•••<small>More</small></summary>
+            <div className="mobile-more-menu">
+              {secondaryNavigation.map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
+                const details = event.currentTarget.closest('details')
+                if (details) details.open = false
+              }}>{label}</NavLink>)}
+            </div>
+          </details>
         </nav>
       </main>
     </div>

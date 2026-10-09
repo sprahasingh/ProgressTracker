@@ -11,42 +11,61 @@
   --color-accent-strong: var(--accent-strong);
   --color-positive: var(--positive);
   --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-danger: var(--danger);
+  --color-analytics: var(--analytics);
   --font-display: Georgia, "Times New Roman", serif;
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --radius-card: 14px;
-  --radius-control: 9px;
+  --radius-card: 18px;
+  --radius-control: 11px;
 }
 
 :root {
   color-scheme: light;
-  --canvas: #f5f6f2;
-  --surface: #fbfcf9;
+  --canvas: #f7f7fb;
+  --surface: #fcfcff;
   --surface-raised: #ffffff;
-  --line: #e7eae4;
-  --ink: #202924;
-  --ink-muted: #758078;
-  --ink-subtle: #99a39a;
-  --accent: #315e46;
-  --accent-soft: #eaf0e9;
-  --accent-strong: #244b36;
-  --positive: #72a37d;
-  --warning: #b38c51;
-  --shadow-card: 0 8px 32px #233a2810;
+  --surface-muted: #f2f2f8;
+  --line: #e5e5ef;
+  --ink: #1e1d2b;
+  --ink-muted: #656579;
+  --ink-subtle: #85859a;
+  --accent: #6246d8;
+  --accent-soft: #efebff;
+  --accent-strong: #4d35b4;
+  --positive: #16875c;
+  --positive-soft: #e3f5ed;
+  --warning: #a86708;
+  --warning-soft: #fff2d8;
+  --danger: #c34b55;
+  --danger-soft: #ffeaeb;
+  --info: #087c9e;
+  --info-soft: #def5fb;
+  --analytics: #087c9e;
+  --shadow-card: 0 10px 34px #29235a0c;
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --canvas: #151a17;
-  --surface: #1d241f;
-  --surface-raised: #252e28;
-  --line: #303a32;
-  --ink: #edf2ed;
-  --ink-muted: #b1bdb3;
-  --ink-subtle: #89958b;
-  --accent: #a6c8ab;
-  --accent-soft: #29392d;
-  --accent-strong: #c1dfc4;
-  --positive: #92c49b;
-  --warning: #d7b67b;
-  --shadow-card: 0 8px 32px #00000024;
+  --canvas: #151421;
+  --surface: #1d1b2c;
+  --surface-raised: #272438;
+  --surface-muted: #242235;
+  --line: #39364d;
+  --ink: #f3f1ff;
+  --ink-muted: #c0bdd2;
+  --ink-subtle: #9995ae;
+  --accent: #b6a6ff;
+  --accent-soft: #342d55;
+  --accent-strong: #d0c6ff;
+  --positive: #66d3a2;
+  --positive-soft: #203d35;
+  --warning: #ffc66d;
+  --warning-soft: #49391f;
+  --danger: #ff8b91;
+  --danger-soft: #48272f;
+  --info: #70d3f0;
+  --info-soft: #1d3a48;
+  --analytics: #70d3f0;
+  --shadow-card: 0 10px 34px #00000030;
 }

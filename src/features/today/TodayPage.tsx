@@ -41,6 +41,8 @@ export function TodayPage() {
 
   useEffect(() => { void refresh() }, [refresh])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
+  const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
+  const remainingCount = Math.max(0, trackers.length - loggedCount)
 
   async function save(tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
     setError('')
@@ -65,6 +67,10 @@ export function TodayPage() {
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY PRACTICE" title="Today" description={dateLabel(today)} />
       <p className="today-storage-note"><span className="sync-dot" /> Check-ins are saved on this device.</p>
+      {!loading && !loadError && trackers.length > 0 && <section className="today-overview surface" aria-label="Today at a glance">
+        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? 'You’ve checked in on everything scheduled.' : `${remainingCount} ${remainingCount === 1 ? 'check-in' : 'check-ins'} left for today`}</h2><p>{loggedCount} of {trackers.length} scheduled {trackers.length === 1 ? 'activity' : 'activities'} logged{entries.some((entry) => entry.outcome === 'skipped') ? ' · skipped activities stay neutral' : ''}.</p></div>
+        <div className="today-progress" role="img" aria-label={`${loggedCount} of ${trackers.length} scheduled activities logged`}><span>{loggedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? loggedCount / trackers.length * 100 : 0}%` }} /></div><small>logged today</small></div>
+      </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : trackers.length === 0 ? (
