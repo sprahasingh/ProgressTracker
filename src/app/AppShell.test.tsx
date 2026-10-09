@@ -70,6 +70,8 @@ describe('app navigation quality', () => {
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
 
     const mobileNav = screen.getByRole('navigation', { name: 'Mobile navigation' })
+    expect(within(mobileNav).getByRole('link', { name: /Analytics/ })).toHaveAttribute('href', '/analytics')
+    expect(within(mobileNav).getByRole('link', { name: /Goals/ })).toHaveAttribute('href', '/goals')
     await user.click(within(mobileNav).getByRole('link', { name: /History/ }))
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
   })

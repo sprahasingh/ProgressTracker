@@ -8,6 +8,7 @@ const navigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
   { to: '/dashboard', label: 'Overview', icon: '▦' },
   { to: '/history', label: 'History', icon: '▤' },
+  { to: '/analytics', label: 'Analytics', icon: '▥' },
   { to: '/trackers', label: 'Trackers', icon: '✳' },
   { to: '/goals', label: 'Goals', icon: '◎' },
   { to: '/achievements', label: 'Wins', icon: '✳' },
@@ -84,7 +85,7 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {navigation.slice(0, 5).map(({ to, label, icon, end }) => (
+          {navigation.slice(0, 6).map(({ to, label, icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav-link${isActive ? ' active' : ''}`}>
               <span aria-hidden="true">{icon}</span><small>{label}</small>
             </NavLink>
