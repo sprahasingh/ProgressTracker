@@ -2,7 +2,7 @@ import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '../app/AppShell'
 import { TodayPage } from '../features/today/TodayPage'
 import { AuthPage } from '../features/auth/AuthPage'
-import { PlaceholderPage } from '../features/shared/PlaceholderPage'
+import { GoalsPage } from '../features/goals/GoalsPage'
 import { TrackerLibraryPage } from '../features/trackers/TrackerLibraryPage'
 import { TrackerSetupPage } from '../features/trackers/TrackerSetupPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
@@ -18,7 +18,7 @@ export const router = createHashRouter([
       { index: true, element: <TodayPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'history', element: <HistoryPage /> },
-      { path: 'goals', element: <PlaceholderPage title="Goals" /> },
+      { path: 'goals', element: <GoalsPage /> },
       { path: 'trackers', element: <TrackerLibraryPage /> },
       { path: 'trackers/new', element: <TrackerSetupPage /> },
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
