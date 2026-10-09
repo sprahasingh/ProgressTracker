@@ -27,7 +27,7 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 }
 
 /** Explicitly resolves one conflict without discarding the other copy implicitly. */
-export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud'): Promise<void> {
+export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
   await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
@@ -43,23 +43,71 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     const supportedEntity = conflict.entity === 'tracker' || conflict.entity === 'tracker_entry'
     if (!supportedEntity) throw new Error('This record type cannot be resolved by the current sync client.')
 
-    if (choice === 'use-cloud') {
-      if (!remote || !remoteIsOwned || revision === null) throw new Error('The cloud copy is unavailable, so the local record was kept unchanged.')
-      if (conflict.entity === 'tracker') await database.trackers.put(trackerFromRemote(remote))
-      else await database.trackerEntries.put(entryFromRemote(remote))
-      await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: conflict.entity, entityId: conflict.entityId, serverRevision: revision } satisfies SyncRecordState)
-      if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+    if (choice === 'fork-local') {
+      if (remoteIsOwned) throw new Error('A readable cloud record exists. Choose which version to keep instead of creating a duplicate.')
+      if (remote !== null) throw new Error('The cloud record cannot be safely inspected. The local copy remains preserved.')
+      if (conflict.entity === 'tracker') {
+        const local = await database.trackers.get(conflict.entityId) ?? trackerDefinitionSchema.parse(conflict.localPayload) as StoredTrackerDefinition
+        const fork = trackerDefinitionSchema.parse({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() }) as StoredTrackerDefinition
+        if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+        await database.trackers.delete(conflict.entityId)
+        await database.syncRecords.delete(stateKey)
+        await database.trackers.put(fork)
+        await queueSyncMutation(database, userId, 'tracker', fork)
+        const linkedEntries = await database.trackerEntries.where('trackerId').equals(conflict.entityId).toArray()
+        for (const entry of linkedEntries) {
+          const forkedEntry = trackerEntrySchema.parse({ ...entry, trackerId: fork.id, updatedAt: new Date().toISOString() }) as StoredTrackerEntry
+          await database.trackerEntries.put(forkedEntry)
+          await queueSyncMutation(database, userId, 'tracker_entry', forkedEntry)
+          const entryConflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', entry.id]).first()
+          if (entryConflict) await database.syncConflicts.put({ ...entryConflict, localPayload: forkedEntry })
+        }
+      } else {
+        const local = await database.trackerEntries.get(conflict.entityId) ?? trackerEntrySchema.parse(conflict.localPayload) as StoredTrackerEntry
+        const fork = trackerEntrySchema.parse({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() }) as StoredTrackerEntry
+        if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+        await database.trackerEntries.delete(conflict.entityId)
+        await database.syncRecords.delete(stateKey)
+        await database.trackerEntries.put(fork)
+        await queueSyncMutation(database, userId, 'tracker_entry', fork)
+      }
       await database.syncConflicts.delete(conflict.id)
       return
     }
 
-    if (!remoteIsOwned || revision === null) throw new Error('The cloud record is unavailable or not readable by this account. Both copies remain preserved and cannot be automatically replaced.')
+    if (choice === 'use-cloud') {
+      if (!remote || !remoteIsOwned || revision === null) throw new Error('The cloud copy is unavailable, so the local record was kept unchanged.')
+      let recordId = conflict.entityId
+      if (conflict.entity === 'tracker') await database.trackers.put(trackerFromRemote(remote))
+      else {
+        const cloudEntry = entryFromRemote(remote)
+        recordId = cloudEntry.id
+        if (recordId !== conflict.entityId) await database.trackerEntries.delete(conflict.entityId)
+        await database.trackerEntries.put(cloudEntry)
+      }
+      await database.syncRecords.put({ key: `${conflict.entity}:${recordId}`, ownerUserId: userId, entity: conflict.entity, entityId: recordId, serverRevision: revision } satisfies SyncRecordState)
+      if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+      if (recordId !== conflict.entityId) await database.syncRecords.delete(stateKey)
+      await database.syncConflicts.delete(conflict.id)
+      return
+    }
+
+    if (!remoteIsOwned || revision === null) throw new Error('The cloud record is unavailable or not readable by this account. Both copies remain preserved; use “Save local copy as new” to resolve the ID collision safely.')
     let payload: StoredTrackerDefinition | StoredTrackerEntry | undefined
     if (existing?.ownerUserId === userId && existing.entityId === conflict.entityId) payload = existing.payload
     if (!payload) payload = conflict.localPayload
     if (conflict.entity === 'tracker') payload = trackerDefinitionSchema.parse(payload) as StoredTrackerDefinition
     else payload = trackerEntrySchema.parse(payload) as StoredTrackerEntry
-    await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: conflict.entity, entityId: conflict.entityId, serverRevision: revision } satisfies SyncRecordState)
+    const targetEntityId = conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId ? String(remote.id) : conflict.entityId
+    await database.syncRecords.put({ key: `${conflict.entity}:${targetEntityId}`, ownerUserId: userId, entity: conflict.entity, entityId: targetEntityId, serverRevision: revision } satisfies SyncRecordState)
+    if (targetEntityId !== conflict.entityId) await database.syncRecords.delete(stateKey)
+    if (conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId) {
+      const replacement = trackerEntrySchema.parse({ ...payload as StoredTrackerEntry, id: String(remote.id) }) as StoredTrackerEntry
+      await database.trackerEntries.delete(conflict.entityId)
+      await database.trackerEntries.put(replacement)
+      if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+      payload = replacement
+    }
     await queueSyncMutation(database, userId, conflict.entity, payload)
     // Ensure the newly queued operation always targets the revision the user reviewed.
     const replacement = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, conflict.entity, conflict.entityId]).first()
