@@ -51,6 +51,12 @@ The Today screen shows active trackers scheduled for the device's current local 
 
 Schedule occurrences are deterministic for every supported schedule kind. Weekday schedules use JavaScript weekday numbering (Sunday 0). Every-N-days anchors to `startDate`, or the tracker's creation date when no start is configured. Quota schedules choose evenly spaced dates when no preferred weekdays are set; this is a simple recurring prompt schedule, not a capacity optimizer. Today uses the device's local date, while planning calculations continue to use explicit UTC calendar-date strings. Account timezones, check-in history/editing for past dates, analytics, and cloud synchronization are future work. Local tombstones are retained; there is no purge/retention process yet.
 
+## Streaks and progression rewards
+
+`src/domain/trackers/progression.ts` provides pure `calculateStreak` and `calculateProgressRewards` functions. Streaks count qualifying scheduled occurrences, not calendar days: rest days do not increment or break a streak, while a missed, skipped, or below-rule scheduled entry resets the current run. An unlogged occurrence on the supplied `asOfDate` remains open; an explicit skip or failed entry on that date counts as a miss. When a tracker has a success rule, that rule determines qualification. Without one, the first metric's configured streak qualification (minimum, target, or any recorded value) is used.
+
+The default reward policy grants 10 points for each qualifying retained entry and a one-time 25-point bonus for personal-best streak milestones of 3, 7, 14, 30, 60, and 100 scheduled occurrences. A missed day resets only the current streak; accumulated entry points and personal-best milestones remain derived from retained history. These are deterministic calculations, not stored rewards or UI: editing/deleting historical entries can recalculate the totals, and no reward ledger, redemption, or sync behavior exists yet. Pass an explicit `asOfDate` and optional reward policy for reproducible evaluations.
+
 IndexedDB schema upgrades run as a database transaction; tests cover upgrades from both v1 and v2 fixtures, preservation of legacy records/tombstones, and reading migrated rows after closing and reopening the database. Generic tracker definitions are validated before local writes.
 
 ## Supabase configuration
