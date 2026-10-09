@@ -474,7 +474,7 @@ a { color: inherit; text-decoration: none; }
   .welcome-note small { max-width: 170px; font-size: 9px; }
   .local-badge { font-size: 0; }
   .local-badge .sync-dot { margin: 0 2px; width: 8px; height: 8px; }
-  .mobile-nav { position: fixed; z-index: 10; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-around; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid #e5e9e2; background: #fbfcf9f5; backdrop-filter: blur(18px); }
+  .mobile-nav { position: fixed; z-index: 10; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-around; padding: 8px; border-top: 1px solid #e5e9e2; background: #fbfcf9f5; backdrop-filter: blur(18px); }
   .mobile-nav-link { min-width: 53px; display: grid; justify-items: center; gap: 3px; color: #929b93; font-size: 17px; }
   .mobile-nav-link small { font-size: 8px; }
   .mobile-nav-link.active { color: #315e46; }
@@ -1294,6 +1294,29 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 
 @media (max-width: 760px) {
   .mobile-nav { background-color: var(--surface); }
+}
+
+/* Keep the fixed navigation's height stable while Chrome's edge-to-edge
+   gesture inset changes as its bottom controls retract. */
+@media (max-width: 760px) {
+  :root { --safe-area-max-inset-bottom: env(safe-area-inset-bottom, 0px); }
+  .main-area,
+  .topbar { background: var(--canvas); }
+  [data-theme='dark'] .topbar { background: var(--canvas); }
+  .topbar { backdrop-filter: none; }
+  .mobile-nav {
+    bottom: calc(env(safe-area-inset-bottom, 0px) - var(--safe-area-max-inset-bottom));
+    height: calc(64px + var(--safe-area-max-inset-bottom));
+    min-height: 0;
+    padding-top: 5px;
+    padding-bottom: var(--safe-area-max-inset-bottom);
+  }
+  .main-area { padding-bottom: calc(64px + var(--safe-area-max-inset-bottom)); }
+}
+@supports (padding-bottom: env(safe-area-max-inset-bottom)) {
+  @media (max-width: 760px) {
+    :root { --safe-area-max-inset-bottom: env(safe-area-max-inset-bottom); }
+  }
 }
 .info-popover h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 650; }
 .info-dialog-description { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.75; white-space: pre-line; }
