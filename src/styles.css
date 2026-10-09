@@ -41,6 +41,10 @@ a { color: inherit; text-decoration: none; }
 .topbar { height: 72px; display: flex; align-items: center; padding: 0 52px; border-bottom: 1px solid var(--line); }
 .topbar-spacer { flex: 1; }
 .date-chip { color: #89928b; font-family: Georgia, serif; font-size: 13px; font-style: italic; }
+.install-app-button { margin-left: 18px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+.install-app-button:hover { background: var(--surface-muted); }
+.install-app-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.install-app-status { margin-left: 16px; color: var(--ink-muted); font-size: 11px; }
 .avatar { width: 33px; height: 33px; margin-left: 22px; border: 1px solid #dce4db; border-radius: 50%; background: #e9eee6; color: #41644d; font-size: 12px; font-weight: 700; cursor: pointer; }
 .mobile-brand, .mobile-nav { display: none; }
 .page-content { width: min(100%, 1120px); padding: 64px 7.2%; margin: 0 auto; }
@@ -290,6 +294,8 @@ a { color: inherit; text-decoration: none; }
   .mobile-brand { display: flex; align-items: center; gap: 9px; color: #34483a; font-size: 13px; font-weight: 680; letter-spacing: -.3px; }
   .mobile-brand .brand-mark { width: 25px; height: 25px; font-size: 18px; }
   .date-chip { font-size: 11px; }
+  .install-app-button { margin-left: 8px; padding: 6px 8px; font-size: 11px; }
+  .install-app-status { display: none; }
   .avatar { margin-left: 12px; width: 30px; height: 30px; }
   .page-content { padding: 27px 17px; }
   .welcome-panel { min-height: min(690px, calc(100svh - 115px)); padding: 31px 28px 0; }

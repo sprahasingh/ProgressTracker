@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
+import { InstallAppPrompt } from '../components/InstallAppPrompt'
 
 const navigation = [
   { to: '/', label: 'Today', icon: '◷', end: true },
@@ -56,6 +57,7 @@ export function AppShell() {
           <div className="mobile-brand"><span className="brand-mark" aria-hidden="true">p</span> ProgressTracker</div>
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
+          <InstallAppPrompt />
           <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
