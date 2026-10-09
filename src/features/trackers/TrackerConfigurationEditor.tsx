@@ -102,6 +102,7 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
 }
 
 type Props = {
+  section?: 'metrics' | 'rules' | 'fields' | 'milestones'
   metrics: TrackerMetricDefinition[]
   onMetricsChange: (metrics: TrackerMetricDefinition[]) => void
   rule?: TrackerRule
@@ -112,7 +113,7 @@ type Props = {
   onMilestonesChange: (milestones: TrackerMilestoneDefinition[]) => void
 }
 
-export function TrackerConfigurationEditor({ metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange }: Props) {
+export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange }: Props) {
   function updateMetric(id: string, changes: Partial<TrackerMetricDefinition>) {
     onMetricsChange(metrics.map((metric) => metric.id === id ? { ...metric, ...changes } : metric))
   }
@@ -145,7 +146,7 @@ export function TrackerConfigurationEditor({ metrics, onMetricsChange, rule, onR
 
   return (
     <div className="tracker-configuration">
-      <section className="configuration-section" aria-labelledby="metrics-heading">
+      {(!section || section === 'metrics') && <section className="configuration-section" aria-labelledby="metrics-heading">
         <header className="configuration-heading"><div><h2 id="metrics-heading">Measures</h2><p>Choose what you record and define minimum, target, and stretch levels.</p></div><Button type="button" variant="secondary" size="small" onClick={() => onMetricsChange([...metrics, freshMetric(metrics.length)])}>＋ Add measure</Button></header>
         {metrics.length === 0 && <p className="configuration-empty">Add at least one measure to record progress.</p>}
         {metrics.map((metric, index) => <article className="configuration-card" key={metric.id}>
@@ -162,15 +163,15 @@ export function TrackerConfigurationEditor({ metrics, onMetricsChange, rule, onR
             {metric.valueType === 'checklist' && <div className="form-field form-field-wide checklist-editor"><span>Checklist items</span>{(metric.checklistItems ?? []).map((item, itemIndex) => <div className="inline-editor-row" key={item.id}><input aria-label={`Checklist item ${itemIndex + 1}`} className="auth-input" value={item.label} onChange={(event) => updateMetric(metric.id, { checklistItems: metric.checklistItems?.map((candidate) => candidate.id === item.id ? { ...candidate, label: event.target.value } : candidate) })} /><Button type="button" variant="quiet" size="small" onClick={() => updateMetric(metric.id, { checklistItems: metric.checklistItems?.filter((candidate) => candidate.id !== item.id).map((candidate, position) => ({ ...candidate, position })) })}>Remove</Button></div>)}<Button type="button" variant="quiet" size="small" onClick={() => updateMetric(metric.id, { checklistItems: [...(metric.checklistItems ?? []), { id: crypto.randomUUID(), label: '', position: metric.checklistItems?.length ?? 0 }] })}>＋ Add checklist item</Button></div>}
           </div>
         </article>)}
-      </section>
+      </section>}
 
-      <section className="configuration-section" aria-labelledby="rule-heading">
+      {(!section || section === 'rules') && <section className="configuration-section" aria-labelledby="rule-heading">
         <header className="configuration-heading"><div><h2 id="rule-heading">Success rule</h2><p>Combine measure conditions with AND, OR, or an “at least” count.</p></div>{rule && <Button type="button" variant="quiet" size="small" onClick={() => onRuleChange(undefined)}>Clear rule</Button>}</header>
         {!rule && metrics.length > 0 && <Button type="button" variant="secondary" size="small" onClick={() => onRuleChange(defaultRule(metrics[0]!))}>＋ Add success rule</Button>}
         {rule && metrics.length > 0 && <RuleNode rule={rule} metrics={metrics} path={[]} onChange={(_, changed) => onRuleChange(changed)} />}
-      </section>
+      </section>}
 
-      <section className="configuration-section" aria-labelledby="custom-fields-heading">
+      {(!section || section === 'fields') && <section className="configuration-section" aria-labelledby="custom-fields-heading">
         <header className="configuration-heading"><div><h2 id="custom-fields-heading">Custom fields</h2><p>Optional details to capture alongside a future check-in.</p></div><Button type="button" variant="secondary" size="small" onClick={() => onCustomFieldsChange([...customFields, { id: crypto.randomUUID(), name: '', type: 'text', required: false, position: customFields.length }])}>＋ Add field</Button></header>
         {customFields.map((field) => <article className="configuration-card" key={field.id}><div className="form-grid configuration-grid">
           <label className="form-field"><span>Field name</span><input className="auth-input" value={field.name} onChange={(event) => onCustomFieldsChange(customFields.map((item) => item.id === field.id ? { ...item, name: event.target.value } : item))} /></label>
@@ -180,9 +181,9 @@ export function TrackerConfigurationEditor({ metrics, onMetricsChange, rule, onR
           <label className="form-check"><input type="checkbox" checked={field.required} onChange={(event) => onCustomFieldsChange(customFields.map((item) => item.id === field.id ? { ...item, required: event.target.checked } : item))} />Required</label>
           <Button type="button" variant="quiet" size="small" onClick={() => onCustomFieldsChange(customFields.filter((item) => item.id !== field.id).map((item, position) => ({ ...item, position })))}>Remove field</Button>
         </div></article>)}
-      </section>
+      </section>}
 
-      <section className="configuration-section" aria-labelledby="milestones-heading">
+      {(!section || section === 'milestones') && <section className="configuration-section" aria-labelledby="milestones-heading">
         <header className="configuration-heading"><div><h2 id="milestones-heading">Milestones</h2><p>Break a larger outcome into meaningful checkpoints.</p></div><Button type="button" variant="secondary" size="small" onClick={() => onMilestonesChange([...milestones, { id: crypto.randomUUID(), title: '', description: '', position: milestones.length }])}>＋ Add milestone</Button></header>
         {milestones.map((milestone) => <article className="configuration-card" key={milestone.id}><div className="form-grid configuration-grid">
           <label className="form-field"><span>Milestone</span><input className="auth-input" value={milestone.title} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, title: event.target.value } : item))} /></label>
@@ -192,7 +193,7 @@ export function TrackerConfigurationEditor({ metrics, onMetricsChange, rule, onR
           <label className="form-field form-field-wide"><span>Description <em>optional</em></span><textarea className="auth-input tracker-textarea" value={milestone.description} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, description: event.target.value } : item))} /></label>
           <Button type="button" variant="quiet" size="small" onClick={() => onMilestonesChange(milestones.filter((item) => item.id !== milestone.id).map((item, position) => ({ ...item, position })))}>Remove milestone</Button>
         </div></article>)}
-      </section>
+      </section>}
     </div>
   )
 }
