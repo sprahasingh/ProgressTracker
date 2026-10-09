@@ -1,4 +1,4 @@
-import { db, openDatabase } from './database'
+import { openDatabase } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
@@ -9,54 +9,54 @@ function newId(): string {
 
 export const localRepository = {
   async listTrackers(includeArchived = false): Promise<StoredTrackerDefinition[]> {
-    await openDatabase()
-    const trackers = await db.trackers.filter((tracker) => tracker.deletedAt === null).toArray()
+    const database = await openDatabase()
+    const trackers = await database.trackers.filter((tracker) => tracker.deletedAt === null).toArray()
     return trackers
       .filter((tracker) => includeArchived || tracker.status !== 'archived')
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name))
   },
 
   async getTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
-    await openDatabase()
-    const tracker = await db.trackers.get(id)
+    const database = await openDatabase()
+    const tracker = await database.trackers.get(id)
     return tracker?.deletedAt === null ? tracker : undefined
   },
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
-    await openDatabase()
-    return db.transaction('rw', db.trackers, async () => {
-      const existing = await db.trackers.get(draft.id)
+    const database = await openDatabase()
+    return database.transaction('rw', database.trackers, async () => {
+      const existing = await database.trackers.get(draft.id)
       const record: StoredTrackerDefinition = {
         ...draft,
         createdAt: existing?.createdAt ?? draft.createdAt,
         updatedAt: new Date().toISOString(),
         deletedAt: null,
       }
-      await db.trackers.put(record)
+      await database.trackers.put(record)
       return record
     })
   },
 
   async listTrackerEntriesForDate(date: CalendarDate): Promise<StoredTrackerEntry[]> {
     assertCalendarDate(date)
-    await openDatabase()
-    const entries = await db.trackerEntries.where('date').equals(date).toArray()
+    const database = await openDatabase()
+    const entries = await database.trackerEntries.where('date').equals(date).toArray()
     return entries.filter((entry) => entry.deletedAt === null)
   },
 
   async listTrackerEntriesBetween(startDate: CalendarDate, endDate: CalendarDate): Promise<StoredTrackerEntry[]> {
     assertDateRange(startDate, endDate)
-    await openDatabase()
-    const entries = await db.trackerEntries.where('date').between(startDate, endDate, true, true).toArray()
+    const database = await openDatabase()
+    const entries = await database.trackerEntries.where('date').between(startDate, endDate, true, true).toArray()
     return entries.filter((entry) => entry.deletedAt === null).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt))
   },
 
   async getTrackerEntry(trackerId: string, date: CalendarDate): Promise<StoredTrackerEntry | undefined> {
     assertCalendarDate(date)
-    await openDatabase()
-    const entry = await db.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
+    const database = await openDatabase()
+    const entry = await database.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
     return entry?.deletedAt === null ? entry : undefined
   },
 
@@ -64,13 +64,13 @@ export const localRepository = {
     assertCalendarDate(draft.date)
     const checked = trackerEntrySchema.safeParse({ ...draft, id: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
-    await openDatabase()
-    return db.transaction('rw', db.trackers, db.trackerEntries, async () => {
-      const tracker = await db.trackers.get(draft.trackerId)
+    const database = await openDatabase()
+    return database.transaction('rw', database.trackers, database.trackerEntries, async () => {
+      const tracker = await database.trackers.get(draft.trackerId)
       if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
       const valueIssue = validateTrackerEntryValues(tracker, draft.values)
       if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
-      const existing = await db.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
+      const existing = await database.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
       const now = new Date().toISOString()
       const entry = trackerEntrySchema.parse({
         ...draft,
@@ -79,37 +79,37 @@ export const localRepository = {
         updatedAt: now,
         deletedAt: null,
       }) as StoredTrackerEntry
-      await db.trackerEntries.put(entry)
+      await database.trackerEntries.put(entry)
       return entry
     })
   },
 
   async deleteTrackerEntry(trackerId: string, date: CalendarDate): Promise<void> {
     assertCalendarDate(date)
-    await openDatabase()
-    await db.transaction('rw', db.trackerEntries, async () => {
-      const entry = await db.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
+    const database = await openDatabase()
+    await database.transaction('rw', database.trackerEntries, async () => {
+      const entry = await database.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
       if (!entry || entry.deletedAt !== null) return
       const now = new Date().toISOString()
-      await db.trackerEntries.put({ ...entry, updatedAt: now, deletedAt: now })
+      await database.trackerEntries.put({ ...entry, updatedAt: now, deletedAt: now })
     })
   },
 
   async archiveTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
-    await openDatabase()
-    return db.transaction('rw', db.trackers, async () => {
-      const existing = await db.trackers.get(id)
+    const database = await openDatabase()
+    return database.transaction('rw', database.trackers, async () => {
+      const existing = await database.trackers.get(id)
       if (!existing || existing.deletedAt !== null) return undefined
       const now = new Date().toISOString()
       const archived: StoredTrackerDefinition = { ...existing, status: 'archived', archivedAt: now, updatedAt: now }
-      await db.trackers.put(archived)
+      await database.trackers.put(archived)
       return archived
     })
   },
 
   async listCategories(includeArchived = false): Promise<Category[]> {
-    await openDatabase()
-    const categories = await db.categories.filter((category) => category.deletedAt === null).toArray()
+    const database = await openDatabase()
+    const categories = await database.categories.filter((category) => category.deletedAt === null).toArray()
     return categories
       .filter((category) => includeArchived || category.archivedAt === null)
       .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
@@ -117,25 +117,25 @@ export const localRepository = {
 
   async getDailyEntry(categoryId: string, date: CalendarDate): Promise<DailyEntry | undefined> {
     assertCalendarDate(date)
-    await openDatabase()
-    const record = await db.dailyEntries.where('[categoryId+date]').equals([categoryId, date]).first()
+    const database = await openDatabase()
+    const record = await database.dailyEntries.where('[categoryId+date]').equals([categoryId, date]).first()
     return record?.deletedAt === null ? record : undefined
   },
 
   async listEntriesBetween(startDate: CalendarDate, endDate: CalendarDate): Promise<DailyEntry[]> {
     assertDateRange(startDate, endDate)
-    await openDatabase()
-    const records = await db.dailyEntries.where('date').between(startDate, endDate, true, true).toArray()
+    const database = await openDatabase()
+    const records = await database.dailyEntries.where('date').between(startDate, endDate, true, true).toArray()
     return records.filter((record) => record.deletedAt === null)
   },
 
   async saveDailyEntry(draft: DailyEntryDraft): Promise<DailyEntry> {
     assertCalendarDate(draft.date)
-    await openDatabase()
+    const database = await openDatabase()
     const now = new Date().toISOString()
 
-    return db.transaction('rw', db.dailyEntries, async () => {
-      const existing = await db.dailyEntries.where('[categoryId+date]').equals([draft.categoryId, draft.date]).first()
+    return database.transaction('rw', database.dailyEntries, async () => {
+      const existing = await database.dailyEntries.where('[categoryId+date]').equals([draft.categoryId, draft.date]).first()
       const record: DailyEntry = {
         ...draft,
         id: existing?.id ?? newId(),
@@ -143,24 +143,24 @@ export const localRepository = {
         updatedAt: now,
         deletedAt: null,
       }
-      await db.dailyEntries.put(record)
+      await database.dailyEntries.put(record)
       return record
     })
   },
 
   async listJournalsBetween(startDate: CalendarDate, endDate: CalendarDate): Promise<DailyJournal[]> {
     assertDateRange(startDate, endDate)
-    await openDatabase()
-    const records = await db.dailyJournals.where('date').between(startDate, endDate, true, true).toArray()
+    const database = await openDatabase()
+    const records = await database.dailyJournals.where('date').between(startDate, endDate, true, true).toArray()
     return records.filter((record) => record.deletedAt === null)
   },
 
   async saveDailyJournal(draft: DailyJournalDraft): Promise<DailyJournal> {
     assertCalendarDate(draft.date)
-    await openDatabase()
+    const database = await openDatabase()
     const now = new Date().toISOString()
-    return db.transaction('rw', db.dailyJournals, async () => {
-      const existing = await db.dailyJournals.where('date').equals(draft.date).first()
+    return database.transaction('rw', database.dailyJournals, async () => {
+      const existing = await database.dailyJournals.where('date').equals(draft.date).first()
       const record: DailyJournal = {
         ...draft,
         id: existing?.id ?? newId(),
@@ -168,14 +168,14 @@ export const localRepository = {
         updatedAt: now,
         deletedAt: null,
       }
-      await db.dailyJournals.put(record)
+      await database.dailyJournals.put(record)
       return record
     })
   },
 
   async listGoals(includeArchived = false): Promise<Goal[]> {
-    await openDatabase()
-    const goals = await db.goals.filter((goal) => goal.deletedAt === null).toArray()
+    const database = await openDatabase()
+    const goals = await database.goals.filter((goal) => goal.deletedAt === null).toArray()
     return goals.filter((goal) => includeArchived || goal.status !== 'archived')
   },
 }

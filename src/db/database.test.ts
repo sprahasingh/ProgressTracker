@@ -1,19 +1,20 @@
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ProgressTrackerDatabase } from './database'
+import { ProgressTrackerDatabase, activateWorkspace, decideGuestData, getGuestWorkspaceSummary } from './database'
+import { db } from './database'
 import type { DailyEntry } from './models'
 
 const openedDatabases: Dexie[] = []
 
 afterEach(async () => {
-  await Promise.all(openedDatabases.splice(0).map(async (database) => {
-    database.close()
-    await database.delete()
-  }))
+  const databases = openedDatabases.splice(0)
+  databases.forEach((database) => database.close())
+  const uniqueByName = new Map(databases.map((database) => [database.name, database]))
+  await Promise.all([...uniqueByName.values()].map((database) => database.delete()))
 })
 
 describe('ProgressTracker database migrations', () => {
-  it('preserves existing records and projects them when upgrading schema v1 through v3', async () => {
+  it('preserves existing records and projects them when upgrading schema v1 through v4', async () => {
     const name = `migration-${crypto.randomUUID()}`
     const legacy = new Dexie(name)
     legacy.version(1).stores({
@@ -37,7 +38,7 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(upgraded)
     await upgraded.open()
 
-    expect(upgraded.verno).toBe(3)
+    expect(upgraded.verno).toBe(4)
     await expect(upgraded.categories.get('cat-1')).resolves.toMatchObject({
       id: 'cat-1', name: 'DSA', createdAt: '2026-01-01T12:00:00.000Z', updatedAt: '2026-01-01T12:00:00.000Z', deletedAt: null,
     })
@@ -65,13 +66,14 @@ describe('ProgressTracker database migrations', () => {
     await legacy.open()
     await legacy.table('categories').put({ id: 'cat-tombstone', name: 'Archived', icon: 'x', accent: '', schedule: { kind: 'every-day' }, position: 0, createdAt: '2026-02-01T00:00:00.000Z', updatedAt: '2026-02-02T00:00:00.000Z', archivedAt: null, deletedAt: '2026-02-03T00:00:00.000Z' })
     await legacy.table('dailyEntries').put({ id: 'entry-tombstone', categoryId: 'cat-tombstone', date: '2026-02-02', status: 'skipped', note: 'rest', createdAt: '2026-02-02T00:00:00.000Z', updatedAt: '2026-02-03T00:00:00.000Z', deletedAt: '2026-02-04T00:00:00.000Z' })
+    await legacy.table('syncOperations').put({ id: 'pending-v2', entity: 'category', entityId: 'cat-tombstone', operation: 'upsert', updatedAt: '2026-02-04T00:00:00.000Z', attempts: 2, lastError: 'offline' })
     legacy.close()
     openedDatabases.splice(openedDatabases.indexOf(legacy), 1)
 
     const upgraded = new ProgressTrackerDatabase(name)
     openedDatabases.push(upgraded)
     await upgraded.open()
-    expect(upgraded.verno).toBe(3)
+    expect(upgraded.verno).toBe(4)
     await expect(upgraded.categories.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z' })
     await expect(upgraded.dailyEntries.get('entry-tombstone')).resolves.toMatchObject({ id: 'entry-tombstone', deletedAt: '2026-02-04T00:00:00.000Z' })
     await expect(upgraded.trackers.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z', status: 'archived' })
@@ -81,6 +83,8 @@ describe('ProgressTracker database migrations', () => {
     await upgraded.open()
     await expect(upgraded.trackers.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z' })
     await expect(upgraded.trackerEntries.get('entry-tombstone')).resolves.toMatchObject({ id: 'entry-tombstone', deletedAt: '2026-02-04T00:00:00.000Z' })
+    await expect(upgraded.syncOperations.get('pending-v2')).resolves.toMatchObject({ attempts: 2, lastError: 'offline' })
+    await expect(upgraded.workspaceMetadata.get('workspace')).resolves.toBeUndefined()
   })
 
   it('enforces one daily entry per category and calendar date', async () => {
@@ -93,5 +97,73 @@ describe('ProgressTracker database migrations', () => {
     }
     await database.dailyEntries.add(first)
     await expect(database.dailyEntries.add({ ...first, id: 'entry-b' })).rejects.toThrow()
+  })
+
+  it('keeps guest and authenticated account workspaces isolated, including operation queues', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'guest-tracker', name: 'Guest record' } as never)
+    await db.syncOperations.put({ id: 'guest-operation', entity: 'category', entityId: 'legacy-1', operation: 'upsert', updatedAt: '2026-01-01T00:00:00.000Z', attempts: 0, lastError: null })
+
+    await activateWorkspace('account-a')
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'account-a-tracker', name: 'A record' } as never)
+    await db.syncOperations.put({ id: 'account-a-operation', entity: 'category', entityId: 'account-a-tracker', operation: 'upsert', updatedAt: '2026-01-02T00:00:00.000Z', attempts: 1, lastError: null })
+    await expect(db.trackers.get('guest-tracker')).resolves.toBeUndefined()
+
+    await activateWorkspace('account-b')
+    openedDatabases.push(db)
+    await expect(db.trackers.count()).resolves.toBe(0)
+    await expect(db.syncOperations.count()).resolves.toBe(0)
+
+    await activateWorkspace('account-a')
+    openedDatabases.push(db)
+    await expect(db.trackers.get('account-a-tracker')).resolves.toMatchObject({ name: 'A record' })
+    await expect(db.syncOperations.get('account-a-operation')).resolves.toMatchObject({ entityId: 'account-a-tracker' })
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await expect(db.trackers.get('guest-tracker')).resolves.toMatchObject({ name: 'Guest record' })
+    await expect(db.syncOperations.get('guest-operation')).resolves.toMatchObject({ entityId: 'legacy-1' })
+  })
+
+  it('offers guest records for import and makes a repeated completed import idempotent', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'guest-copy', name: 'Preserved guest record' } as never)
+    await expect(getGuestWorkspaceSummary()).resolves.toMatchObject({ hasData: true })
+
+    await decideGuestData('import-account', 'imported')
+    await decideGuestData('import-account', 'imported')
+    await activateWorkspace('import-account')
+    openedDatabases.push(db)
+    await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
+  })
+
+  it('rolls back an interrupted guest import on conflicting IDs and can safely retry', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'category-before-conflict', name: 'Guest category' } as never)
+    await db.trackers.put({ id: 'collision', name: 'Guest value' } as never)
+    const guest = db
+    openedDatabases.push(guest)
+    await activateWorkspace('collision-account')
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'collision', name: 'Account value' } as never)
+
+    await expect(decideGuestData('collision-account', 'imported')).rejects.toThrow('Guest import stopped')
+    await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ userId: 'collision-account', guestDecision: undefined })
+    await expect(db.trackers.get('collision')).resolves.toMatchObject({ name: 'Account value' })
+    await expect(db.categories.get('category-before-conflict')).resolves.toBeUndefined()
+    await guest.open()
+    await expect(guest.trackers.get('collision')).resolves.toMatchObject({ name: 'Guest value' })
+
+    await db.trackers.delete('collision')
+    await decideGuestData('collision-account', 'imported')
+    await expect(db.trackers.get('collision')).resolves.toMatchObject({ name: 'Guest value' })
+    await expect(db.categories.get('category-before-conflict')).resolves.toMatchObject({ name: 'Guest category' })
+    await guest.close()
   })
 })
