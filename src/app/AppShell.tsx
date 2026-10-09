@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
 
 const navigation = [
@@ -11,7 +12,9 @@ const navigation = [
 ]
 
 export function AppShell() {
-  const { status } = useAuth()
+  const { status, passwordRecovery } = useAuth()
+  const navigate = useNavigate()
+  useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
   const localStatus = status === 'signed-in' ? 'Account ready' : status === 'loading' ? 'Checking account' : 'Local mode'
 
   return (

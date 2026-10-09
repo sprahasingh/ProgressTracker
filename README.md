@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project has generic tracker setup, multi-metric success-rule editing, local persistence, Supabase magic-link authentication, and tested planning logic. The Today page remains a welcome shell; daily logging, analytics, password authentication, and synchronization remain future work. See [the product and architecture roadmap](docs/ROADMAP.md).
+The project has generic tracker setup, multi-metric success-rule editing, adaptive planning, local persistence, Supabase magic-link and email/password authentication, daily check-ins, dashboard summaries, and history. Cloud synchronization remains future work. See [the product and architecture roadmap](docs/ROADMAP.md).
 
 ## Tech stack
 
@@ -73,9 +73,11 @@ The browser client is optional until configured. Copy `.env.example` to `.env.lo
 
 ## Email authentication
 
-ProgressTracker requests a passwordless email sign-in link through Supabase Auth. The callback uses PKCE and returns to the current app path, which is compatible with the GitHub Pages repository path and hash-based client routing. The Supabase JS client persists the session locally and refreshes it; logging in does not yet synchronize productivity records.
+ProgressTracker supports passwordless email sign-in, email/password sign-up and sign-in, password reset, and password setup/change for signed-in users. A password reset uses Supabase's recovery email; the verified `PASSWORD_RECOVERY` event opens the password form. Users who first joined with a magic link can sign in with that link and set a password from the account screen. The magic-link flow remains available alongside password sign-in. Passwords must contain at least 8 characters in the client; configure any stronger password rules in Supabase Auth. The callback uses PKCE and returns to the current app path, compatible with the GitHub Pages repository path and hash-based client routing. The Supabase JS client persists the session locally and refreshes it; login does not yet synchronize productivity records.
 
-In **Authentication → URL Configuration**, set the Site URL to `https://sprahasingh.github.io/ProgressTracker/` and add that URL plus `http://localhost:5173/ProgressTracker/` to the allowed Redirect URLs. Keep the Email provider enabled under **Authentication → Sign In / Providers**. Supabase's built-in email sender is limited to project organization members and 2 emails per hour; broader delivery requires custom SMTP, which is not configured by this project.
+In **Authentication → URL Configuration**, set the Site URL to `https://sprahasingh.github.io/ProgressTracker/` and add that URL plus `http://localhost:5173/ProgressTracker/` to the allowed Redirect URLs. Keep the Email provider enabled under **Authentication → Sign In / Providers**. Configure confirmation and password-recovery email templates to use Supabase's redirect placeholder so links return to the app URL requested by the client. For a new account, Supabase may require email confirmation before sign-in depending on project settings; the app displays confirmation guidance when no session is returned. Supabase's built-in email sender is limited to project organization members and 2 emails per hour; broader delivery requires custom SMTP, which is not configured by this project.
+
+Password reset responses intentionally use neutral copy so the UI does not reveal whether an email address has an account. A recovery link must be valid and successfully exchanged by the Supabase JS PKCE client before the password form is shown. Password policy enforcement, email delivery, rate limits, confirmation requirements, and redirect allow-list behavior are controlled by Supabase project settings and must be verified in the hosted project. Browser authentication enables account access only; the app still reads and writes productivity data locally.
 
 ## Supabase database schema and security
 
