@@ -40,6 +40,12 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, customFields: [{ id: 'x', name: 'x', type: 'text', required: false, position: 0, options: ['a'] }] }).success).toBe(false)
   })
 
+  it('limits checklist thresholds to the available item count', () => {
+    const metric = { id: 'checklist', name: 'Steps', valueType: 'checklist', checklistItems: [{ id: 'step1', label: 'Step 1', position: 0 }], thresholds: { direction: 'increase', target: 1, streakQualification: 'target' } }
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [metric], qualificationRule: { kind: 'threshold', metricId: 'checklist', level: 'target' }, milestones: [] }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [{ ...metric, thresholds: { ...metric.thresholds, target: 2 } }], qualificationRule: undefined }).success).toBe(false)
+  })
+
   it('validates generic entry values', () => {
     expect(trackerEntrySchema.safeParse({ id: 'e1', trackerId: tracker.id, date: '2026-10-09', outcome: 'recorded', values: { pages: 5 }, note: '', createdAt: tracker.createdAt, updatedAt: tracker.updatedAt, deletedAt: null }).success).toBe(true)
   })

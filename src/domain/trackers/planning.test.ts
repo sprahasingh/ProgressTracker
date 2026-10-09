@@ -23,6 +23,13 @@ describe('achievement thresholds', () => {
     expect(classifyAchievement({ id: 'x', name: 'x', valueType: 'quantity', thresholds: { direction: 'decrease', minimum: 10, target: 5, stretch: 2, streakQualification: 'minimum' } }, 4)).toBe('target')
     expect(classifyAchievement({ id: 'b', name: 'done', valueType: 'boolean' }, true)).toBe('target')
   })
+
+  it('uses the number of checked checklist items for achievement levels', () => {
+    const checklist = { id: 'items', name: 'Practice', valueType: 'checklist' as const, checklistItems: [{ id: 'a', label: 'A', position: 0 }, { id: 'b', label: 'B', position: 1 }, { id: 'c', label: 'C', position: 2 }], thresholds: { direction: 'increase' as const, minimum: 1, target: 2, stretch: 3, streakQualification: 'minimum' as const } }
+    expect(classifyAchievement(checklist, { a: true, b: true, c: false })).toBe('target')
+    expect(classifyAchievement(checklist, [true, true, true])).toBe('stretch')
+    expect(evaluateQualificationRule({ kind: 'threshold', metricId: 'items', level: 'target' }, [checklist], { items: { a: true, b: false, c: false } }).qualified).toBe(false)
+  })
 })
 
 describe('qualification rules', () => {

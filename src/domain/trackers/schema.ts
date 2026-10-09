@@ -46,6 +46,13 @@ const metricSchema = z.object({
   if (metric.valueType === 'checklist' && !metric.checklistItems?.length) context.addIssue({ code: 'custom', path: ['checklistItems'], message: 'Checklist metrics require at least one item.' })
   if (metric.valueType !== 'checklist' && metric.checklistItems !== undefined) context.addIssue({ code: 'custom', path: ['checklistItems'], message: 'Only checklist metrics may define checklist items.' })
   if (metric.valueType === 'boolean' && metric.thresholds) context.addIssue({ code: 'custom', path: ['thresholds'], message: 'Boolean metrics cannot define numeric thresholds.' })
+  if (metric.valueType === 'checklist' && metric.thresholds) {
+    if (metric.thresholds.direction !== 'increase') context.addIssue({ code: 'custom', path: ['thresholds', 'direction'], message: 'Checklist completion thresholds must increase.' })
+    for (const level of ['minimum', 'target', 'stretch'] as const) {
+      const threshold = metric.thresholds[level]
+      if (threshold !== undefined && threshold > (metric.checklistItems?.length ?? 0)) context.addIssue({ code: 'custom', path: ['thresholds', level], message: 'Checklist thresholds cannot exceed the number of checklist items.' })
+    }
+  }
 })
 
 const ruleSchema: z.ZodType<unknown> = z.lazy(() => z.discriminatedUnion('kind', [
@@ -80,7 +87,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
     if (!metric) context.addIssue({ code: 'custom', path, message: 'Rule references an unknown metric.' })
     else if (value.kind === 'threshold') {
       if (!metric.thresholds || metric.thresholds[value.level as 'minimum' | 'target' | 'stretch'] === undefined) context.addIssue({ code: 'custom', path, message: 'Threshold rule references an undefined metric level.' })
-    } else if (typeof value.value === 'boolean' ? metric.valueType !== 'boolean' : metric.valueType === 'boolean' || metric.valueType === 'checklist') {
+    } else if (typeof value.value === 'boolean' ? metric.valueType !== 'boolean' : metric.valueType === 'boolean') {
       context.addIssue({ code: 'custom', path, message: 'Comparison value does not match metric type.' })
     }
   }

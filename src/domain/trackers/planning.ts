@@ -127,13 +127,22 @@ export function createWorkPlan(input: PlanningInput): WorkPlan {
   return { mode: input.mode, status, totalWork: input.totalWork, completedWork: input.completedWork, remainingWork: remaining, dailyWorkload, days, completionDate: calculatedCompletionDate, overdueByDays }
 }
 
-export function classifyAchievement(metric: TrackerMetricDefinition, value: number | boolean | undefined): AchievementLevel {
+function metricNumber(metric: TrackerMetricDefinition, value: TrackerValue | undefined): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (metric.valueType !== 'checklist') return undefined
+  if (Array.isArray(value)) return value.filter((item) => item === true).length
+  if (typeof value === 'object' && value !== null) return Object.values(value).filter((item) => item === true).length
+  return undefined
+}
+
+export function classifyAchievement(metric: TrackerMetricDefinition, value: TrackerValue | undefined): AchievementLevel {
   if (value === undefined || value === null) return 'none'
   if (metric.valueType === 'boolean') return value === true ? 'target' : 'none'
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 'none'
+  const progress = metricNumber(metric, value)
+  if (progress === undefined) return 'none'
   const thresholds = metric.thresholds
-  if (!thresholds) return value > 0 ? 'target' : 'none'
-  const meets = (threshold: number | undefined) => threshold !== undefined && (thresholds.direction === 'increase' ? value >= threshold : value <= threshold)
+  if (!thresholds) return progress > 0 ? 'target' : 'none'
+  const meets = (threshold: number | undefined) => threshold !== undefined && (thresholds.direction === 'increase' ? progress >= threshold : progress <= threshold)
   if (meets(thresholds.stretch)) return 'stretch'
   if (meets(thresholds.target)) return 'target'
   if (meets(thresholds.minimum)) return 'minimum'
@@ -157,10 +166,14 @@ export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly T
     let result = false
     if (metric && node.kind === 'threshold') {
       const target = metric.thresholds?.[node.level]
-      if (typeof value === 'number' && target !== undefined) result = metric.thresholds?.direction === 'decrease' ? value <= target : value >= target
+      const progress = metricNumber(metric, value)
+      if (progress !== undefined && target !== undefined) result = metric.thresholds?.direction === 'decrease' ? progress <= target : progress >= target
     } else if (metric && node.kind === 'comparison') {
       if (node.operator === 'equals') result = value === node.value
-      else if (typeof value === 'number' && typeof node.value === 'number') result = node.operator === 'at-least' ? value >= node.value : value <= node.value
+      else {
+        const progress = metricNumber(metric, value)
+        if (progress !== undefined && typeof node.value === 'number') result = node.operator === 'at-least' ? progress >= node.value : progress <= node.value
+      }
     }
     ;(result ? achieved : failed).add(metricId)
     return result
@@ -174,7 +187,8 @@ export function evaluateTrackerEntry(tracker: TrackerDefinition, entry: TrackerE
   if (entry.outcome === 'skipped') return { qualified: false, achievedMetricIds: [], failedMetricIds: tracker.metrics.map((metric) => metric.id).sort() }
   if (!tracker.qualificationRule) {
     const metric = tracker.metrics[0]
-    return metric ? { qualified: classifyAchievement(metric, entry.values[metric.id] as number | boolean) !== 'none', achievedMetricIds: [metric.id], failedMetricIds: [] } : { qualified: false, achievedMetricIds: [], failedMetricIds: [] }
+    const qualified = metric ? classifyAchievement(metric, entry.values[metric.id]) !== 'none' : false
+    return metric ? { qualified, achievedMetricIds: qualified ? [metric.id] : [], failedMetricIds: qualified ? [] : [metric.id] } : { qualified: false, achievedMetricIds: [], failedMetricIds: [] }
   }
   return evaluateQualificationRule(tracker.qualificationRule, tracker.metrics, entry.values)
 }
