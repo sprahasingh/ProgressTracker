@@ -25,7 +25,7 @@ type SetPasswordValues = z.infer<typeof setPasswordSchema>
 function getCallbackUrl(): string { return `${window.location.origin}${window.location.pathname}` }
 
 export function AuthPage() {
-  const { status, user, workspaceStatus, workspaceUserId, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncSummary, syncError } = useAuth()
+  const { status, user, workspaceStatus, workspaceUserId, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncTrigger, isOnline, syncSummary, syncError } = useAuth()
   const [mode, setMode] = useState<AuthMode>('magic-link')
   const [notice, setNotice] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -132,9 +132,13 @@ export function AuthPage() {
         {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">⌂</span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}
 
         {status === 'signed-in' && !isRecovery && requestedMode !== 'set-password' && (
-          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Sync runs only when you request it; local edits remain saved if a sync attempt fails.</p>
+          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Cloud sync starts after this workspace opens and when this browser reconnects. Local edits remain saved if a sync attempt fails.</p>
+            {isOnline === false && <p className="auth-hint">You’re offline. Your local progress remains available; cloud data will be checked after reconnecting.</p>}
+            {syncStatus === 'waiting' && <p className="auth-hint">Your account workspace is ready. Preparing its first cloud check…</p>}
+            {syncStatus === 'syncing' && <p className="auth-hint" role="status">{syncTrigger === 'automatic' ? 'Checking your cloud progress…' : 'Syncing this account…'}</p>}
+            {syncStatus === 'complete' && syncSummary && <p className="auth-success">Cloud check complete: {syncSummary.uploaded} uploaded, {syncSummary.downloaded} downloaded.</p>}
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
-            {syncSummary && <p className="auth-success" role="status">Sync checked {syncSummary.uploaded} uploads and {syncSummary.downloaded} downloads; {syncSummary.conflicts} conflicts need review.</p>}
+            {syncSummary && syncSummary.conflicts > 0 && <p className="auth-error" role="status">{syncSummary.conflicts} sync conflict{syncSummary.conflicts === 1 ? '' : 's'} need review below.</p>}
             {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
             {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
               const cloud = conflict.remoteRecord

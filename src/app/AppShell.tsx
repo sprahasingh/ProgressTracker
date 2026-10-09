@@ -12,10 +12,14 @@ const navigation = [
 ]
 
 export function AppShell() {
-  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace } = useAuth()
+  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace } = useAuth()
   const navigate = useNavigate()
   useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
   const localStatus = status === 'signed-in' ? 'Account ready' : status === 'loading' ? 'Checking account' : 'Local mode'
+  const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
+  const workspaceOwnerVerified = workspaceUserId === expectedWorkspaceUserId
+  const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceOwnerVerified
+  const guestChoiceReady = !sessionTransitionPending && status === 'signed-in' && workspaceStatus === 'needs-guest-choice' && workspaceOwnerVerified
 
   return (
     <div className="app-frame">
@@ -55,13 +59,13 @@ export function AppShell() {
           <Link className="avatar" to="/auth" aria-label="Open account and sign-in">S</Link>
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
-          {workspaceStatus && (workspaceStatus === 'loading' || workspaceStatus === 'error' || workspaceUserId !== (status === 'signed-in' ? user?.id ?? null : null)) ? (
+          {!workspaceReady && !guestChoiceReady ? (
             <section className="workspace-gate" role={workspaceStatus === 'error' ? 'alert' : 'status'}>
               <h1>{workspaceStatus === 'error' ? 'Workspace unavailable' : 'Opening your workspace'}</h1>
               <p>{workspaceStatus === 'error' ? workspaceError : 'Your local data is being opened for this session.'}</p>
               {workspaceStatus === 'error' && <button className="button button-secondary button-medium" onClick={retryWorkspace}>Try again</button>}
             </section>
-          ) : workspaceStatus === 'needs-guest-choice' ? (
+          ) : guestChoiceReady ? (
             <section className="workspace-gate" aria-labelledby="guest-import-title">
               <h1 id="guest-import-title">You have progress saved as a guest</h1>
               <p>Your guest workspace has {Object.values(guestSummary?.counts ?? {}).reduce((sum, count) => sum + count, 0)} saved records. Choose whether to copy it into {user?.email ?? 'this account'}.</p>

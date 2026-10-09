@@ -8,10 +8,11 @@ import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
 import { AppShell } from './AppShell'
 
-const authState = vi.hoisted(() => ({ value: { status: 'local-only' as string } }))
+const guestReadyState = { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null }
+const authState = vi.hoisted(() => ({ value: { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null } }))
 vi.mock('../features/auth/AuthProvider', () => ({ useAuth: () => authState.value }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); authState.value = { status: 'local-only' }; await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); authState.value = guestReadyState; await db.delete() })
 
 describe('app navigation quality', () => {
   it('does not render route content until the signed-in account workspace is active', () => {
@@ -19,7 +20,7 @@ describe('app navigation quality', () => {
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Account private content</p>} /></Route></Routes></MemoryRouter>)
     expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Account private content')).not.toBeInTheDocument()
-    authState.value = { status: 'local-only' }
+    authState.value = guestReadyState
   })
 
   it('asks before copying guest progress into an authenticated workspace', async () => {
@@ -31,7 +32,7 @@ describe('app navigation quality', () => {
     expect(screen.queryByText('Private records')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Keep guest progress separate' }))
     expect(chooseGuestData).toHaveBeenCalledWith('kept-separate')
-    authState.value = { status: 'local-only' }
+    authState.value = guestReadyState
   })
 
   it('offers a collision-safe guest copy choice', async () => {
@@ -41,7 +42,7 @@ describe('app navigation quality', () => {
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private records</p>} /></Route></Routes></MemoryRouter>)
     await user.click(screen.getByRole('button', { name: 'Copy and keep both if IDs overlap' }))
     expect(chooseGuestData).toHaveBeenCalledWith('imported-as-copies')
-    authState.value = { status: 'local-only' }
+    authState.value = guestReadyState
   })
 
   it('supports keyboard skip-to-content and moves between the real Today, Overview, and History routes', async () => {

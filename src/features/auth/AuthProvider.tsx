@@ -13,11 +13,14 @@ type AuthState = {
   completePasswordRecovery: () => void
   workspaceStatus: 'loading' | 'ready' | 'needs-guest-choice' | 'error'
   workspaceUserId: string | null
+  sessionTransitionPending: boolean
   guestSummary: GuestWorkspaceSummary | null
   workspaceError: string | null
   chooseGuestData: (decision: GuestDataDecision) => Promise<void>
   retryWorkspace: () => void
-  syncStatus: 'idle' | 'syncing' | 'complete' | 'error'
+  syncStatus: 'idle' | 'waiting' | 'offline' | 'syncing' | 'complete' | 'error'
+  syncTrigger: 'automatic' | 'manual' | null
+  isOnline: boolean
   syncSummary: SyncSummary | null
   syncError: string | null
   syncNow: () => Promise<void>
@@ -32,14 +35,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [workspaceStatus, setWorkspaceStatus] = useState<AuthState['workspaceStatus']>('loading')
   const [workspaceUserId, setWorkspaceUserId] = useState<string | null>(null)
+  const [sessionTransitionPending, setSessionTransitionPending] = useState(false)
   const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceRetry, setWorkspaceRetry] = useState(0)
   const [syncStatus, setSyncStatus] = useState<AuthState['syncStatus']>('idle')
+  const [syncTrigger, setSyncTrigger] = useState<AuthState['syncTrigger']>(null)
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
+  const isOnlineRef = useRef(isOnline)
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const authUserIdRef = useRef<string | null>(null)
+  const authInitializedRef = useRef(false)
+  const workspaceReadyRef = useRef(false)
+  const syncPromisesRef = useRef(new Map<string, Promise<void>>())
+  const lastAutomaticAttemptRef = useRef<string | null>(null)
+  const onlineEventSequenceRef = useRef(0)
+  const [onlineEventSequence, setOnlineEventSequence] = useState(0)
   authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
+  workspaceReadyRef.current = status === 'signed-in' && workspaceStatus === 'ready' && workspaceUserId === user?.id
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const updateOnline = () => {
+      const online = navigator.onLine
+      if (isOnlineRef.current === online) return
+      isOnlineRef.current = online
+      setIsOnline(online)
+      if (online) {
+        onlineEventSequenceRef.current += 1
+        setOnlineEventSequence(onlineEventSequenceRef.current)
+      }
+    }
+    window.addEventListener('online', updateOnline)
+    window.addEventListener('offline', updateOnline)
+    return () => {
+      window.removeEventListener('online', updateOnline)
+      window.removeEventListener('offline', updateOnline)
+    }
+  }, [])
 
   useEffect(() => {
     const client = getSupabaseClient()
@@ -49,8 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+      // Keep every route behind the workspace gate until Supabase reports its
+      // persisted session. Other auth events can arrive during initialization;
+      // none of them is sufficient to select a local database on its own.
+      if (event === 'INITIAL_SESSION') authInitializedRef.current = true
+      else if (!authInitializedRef.current) return
       setUser(session?.user ?? null)
       setStatus(session ? 'signed-in' : 'signed-out')
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') setSessionTransitionPending(false)
       if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true)
       if (event === 'SIGNED_OUT' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setPasswordRecovery(false)
     })
@@ -90,11 +130,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { current = false }
   }, [status, user?.id, workspaceRetry])
 
+  function requestSync(ownerId: string, trigger: 'automatic' | 'manual'): Promise<void> {
+    const active = syncPromisesRef.current.get(ownerId)
+    if (active) return active
+
+    const promise = Promise.resolve().then(async () => {
+      if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current) return
+      setSyncStatus('syncing')
+      setSyncTrigger(trigger)
+      setSyncError(null)
+      try {
+        const result = await synchronizeWorkspace(ownerId)
+        if (authUserIdRef.current !== ownerId) return
+        setSyncSummary(result)
+        setSyncStatus(result.failed > 0 ? 'error' : 'complete')
+        if (result.failed > 0) setSyncError('Some changes remain on this device. Check your connection and retry.')
+      } catch (cause) {
+        if (authUserIdRef.current !== ownerId) return
+        setSyncError(cause instanceof Error ? cause.message : 'Sync could not complete. Your local records are retained.')
+        setSyncStatus('error')
+      }
+    }).finally(() => {
+      if (syncPromisesRef.current.get(ownerId) === promise) syncPromisesRef.current.delete(ownerId)
+    })
+    syncPromisesRef.current.set(ownerId, promise)
+    return promise
+  }
+
+  useEffect(() => {
+    if (status !== 'signed-in' || !user?.id) {
+      lastAutomaticAttemptRef.current = null
+      return
+    }
+    if (workspaceStatus !== 'ready' || workspaceUserId !== user.id) return
+    if (!isOnline) {
+      setSyncStatus('offline')
+      setSyncError(null)
+      return
+    }
+
+    const attemptKey = `${user.id}:${onlineEventSequence}`
+    if (lastAutomaticAttemptRef.current === attemptKey) return
+    lastAutomaticAttemptRef.current = attemptKey
+    setSyncStatus('waiting')
+    void requestSync(user.id, 'automatic')
+  }, [status, user?.id, workspaceStatus, workspaceUserId, isOnline, onlineEventSequence])
+
   async function signOut(): Promise<string | null> {
     const client = getSupabaseClient()
     if (!client) return null
-    const { error } = await client.auth.signOut()
-    return error?.message ?? null
+    setSessionTransitionPending(true)
+    try {
+      const { error } = await client.auth.signOut()
+      if (error) {
+        setSessionTransitionPending(false)
+        return error.message
+      }
+      setUser(null)
+      setStatus('signed-out')
+      setPasswordRecovery(false)
+      setSessionTransitionPending(false)
+      return null
+    } catch (cause) {
+      setSessionTransitionPending(false)
+      return cause instanceof Error ? cause.message : 'Sign out could not be completed.'
+    }
   }
 
   function completePasswordRecovery() {
@@ -124,22 +224,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSyncStatus('error')
       return
     }
-    setSyncStatus('syncing')
-    setSyncError(null)
-    try {
-      const result = await synchronizeWorkspace(ownerId)
-      if (authUserIdRef.current !== ownerId) return
-      setSyncSummary(result)
-      setSyncStatus(result.failed > 0 ? 'error' : 'complete')
-      if (result.failed > 0) setSyncError('Some changes remain on this device. Check your connection and retry.')
-    } catch (cause) {
-      if (authUserIdRef.current !== ownerId) return
-      setSyncError(cause instanceof Error ? cause.message : 'Sync could not complete. Your local records are retained.')
-      setSyncStatus('error')
-    }
+    await requestSync(ownerId, 'manual')
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncSummary, syncError, syncNow, signOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {
