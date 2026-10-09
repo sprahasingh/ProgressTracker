@@ -17,11 +17,13 @@ vi.mock('./authService', () => ({
 vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
+vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
 
 describe('AuthPage', () => {
   afterEach(() => cleanup())
   beforeEach(() => {
     Object.values(authMocks).forEach((mock) => mock.mockReset())
+    authMocks.listSyncConflicts.mockResolvedValue([])
     authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
   })
 
@@ -129,6 +131,26 @@ describe('AuthPage', () => {
     expect(syncNow).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Sync this account' }))
     expect(syncNow).toHaveBeenCalledOnce()
+  })
+
+  it('offers guest backup only after the guest workspace is ready', () => {
+    authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, workspaceStatus: 'loading', workspaceUserId: null })
+    const view = render(<AuthPage />)
+    expect(screen.queryByTestId('backup-workspace')).not.toBeInTheDocument()
+
+    authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, workspaceStatus: 'ready', workspaceUserId: null })
+    view.rerender(<AuthPage />)
+    expect(screen.getByTestId('backup-workspace')).toHaveTextContent('guest')
+  })
+
+  it('offers backup only for the workspace matching the signed-in account', () => {
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-b' })
+    const view = render(<AuthPage />)
+    expect(screen.queryByTestId('backup-workspace')).not.toBeInTheDocument()
+
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-a' })
+    view.rerender(<AuthPage />)
+    expect(screen.getByTestId('backup-workspace')).toHaveTextContent('account-a')
   })
 
   it('shows owner-scoped conflict choices and requires an explicit selection', async () => {
