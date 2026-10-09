@@ -170,6 +170,13 @@ a { color: inherit; text-decoration: none; }
 .tracker-card-description { min-height: 40px; margin: 8px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
 .tracker-card-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 18px; color: var(--ink-subtle); font-size: 10px; }
 .tracker-card-actions { display: flex; align-items: center; gap: 5px; margin: 17px -4px -4px; padding-top: 13px; border-top: 1px solid var(--line); }
+.goal-card { min-width: 0; padding: 20px; }
+.goal-card > .tracker-card-top { justify-content: space-between; color: var(--ink-subtle); font-size: 10px; }
+.goal-card h2 { margin: 17px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 25px; font-weight: 400; overflow-wrap: anywhere; }
+.goal-metric-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+.goal-metric-list li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--ink-muted); font-size: 11px; }
+.goal-metric-list strong { color: var(--ink); font-weight: 650; text-align: right; }
+.goal-card-summary { display: grid; gap: 6px; margin-top: 15px; color: var(--ink-subtle); font-size: 10px; }
 .today-page > .surface { margin-top: 25px; }
 .today-storage-note { display: flex; align-items: center; gap: 8px; margin: 25px 0 17px; color: var(--ink-subtle); font-size: 11px; }
 .today-checkin-list { display: grid; gap: 15px; }
