@@ -57,6 +57,17 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await user.click(await screen.findByRole('button', { name: 'Skip today' }))
     await waitFor(() => expect(screen.getByText('Skipped')).toBeInTheDocument())
+    expect(screen.getByText('1 of 1 scheduled activity logged · skipped activities stay neutral.')).toBeInTheDocument()
+  })
+
+  it('shows only scheduled work in the at-a-glance progress summary', async () => {
+    const scheduled = tracker()
+    await localRepository.saveTracker(scheduled)
+    await localRepository.saveTracker({ ...tracker({ kind: 'none' }), id: 'flexible', name: 'Flexible work' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('region', { name: 'Today at a glance' })).toBeInTheDocument()
+    expect(screen.getByText('0 of 1 scheduled activity logged.')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '0 of 1 scheduled activities logged' })).toBeInTheDocument()
   })
 
   it('shows a retry state rather than treating a failed local read as an empty day', async () => {

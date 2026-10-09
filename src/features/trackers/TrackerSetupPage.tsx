@@ -105,6 +105,29 @@ export function TrackerSetupPage() {
     })
   }
 
+  function updatePrimaryMetric(changes: Partial<TrackerMetricDefinition>) {
+    const metric = configuration.metrics[0]
+    if (!metric) return
+    const updated = { ...metric, ...changes }
+    setConfiguration((current) => ({ ...current, metrics: current.metrics.map((item, index) => index === 0 ? updated : item) }))
+  }
+
+  function changePrimaryMetricType(value: TrackerMetricDefinition['valueType']) {
+    if (existing) return
+    const metric = configuration.metrics[0]
+    if (!metric) return
+    const updated: TrackerMetricDefinition = {
+      ...metric,
+      valueType: value,
+      unit: value === 'quantity' || value === 'duration' ? metric.unit ?? '' : undefined,
+      thresholds: value === 'quantity' || value === 'duration' || value === 'checklist'
+        ? metric.thresholds ?? { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' }
+        : undefined,
+      checklistItems: value === 'checklist' ? metric.checklistItems?.length ? metric.checklistItems : [{ id: crypto.randomUUID(), label: 'First item', position: 0 }] : undefined,
+    }
+    setConfiguration((current) => ({ ...current, metrics: [updated, ...current.metrics.slice(1)], rule: starterRule(updated) }))
+  }
+
   function changeMetrics(metrics: TrackerMetricDefinition[]) {
     const nextIds = new Set(metrics.map((metric) => metric.id))
     const invalidatedIds = configuration.metrics.filter((oldMetric) => {
@@ -215,17 +238,31 @@ export function TrackerSetupPage() {
               {fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}
             </label>
           </div>
-          <TrackerConfigurationEditor
-            metrics={configuration.metrics}
-            onMetricsChange={changeMetrics}
-            rule={configuration.rule}
-            onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))}
-            customFields={configuration.customFields}
-            onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))}
-            milestones={configuration.milestones}
-            onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))}
-          />
-          {(existing?.kind ?? values.kind) === 'goal' && <GoalPlanningEditor metrics={configuration.metrics} planning={goalPlanning} onChange={setGoalPlanning} />}
+          <section className="quick-measure" aria-labelledby="quick-measure-title">
+            <div className="quick-measure-heading"><div><h2 id="quick-measure-title">Your measure</h2><p>Pick one simple way to record progress. Add more detail below whenever you need it.</p></div><span className="quick-setup-badge">QUICK SETUP</span></div>
+            {configuration.metrics[0] ? <div className="form-grid configuration-grid">
+              <label className="form-field"><span>Measure name</span><input className="auth-input" maxLength={120} value={configuration.metrics[0].name} onChange={(event) => updatePrimaryMetric({ name: event.target.value })} placeholder="e.g. Pages read" /></label>
+              <label className="form-field"><span>Measure type</span><select className="auth-input" value={configuration.metrics[0].valueType} disabled={Boolean(existing)} onChange={(event) => changePrimaryMetricType(event.target.value as TrackerMetricDefinition['valueType'])}><option value="boolean">Yes / no</option><option value="quantity">Number</option><option value="duration">Time</option><option value="checklist">Checklist</option></select>{existing && <small className="field-hint">Type stays fixed here so saved check-ins keep their meaning. Advanced settings remain available below.</small>}</label>
+              {(configuration.metrics[0].valueType === 'quantity' || configuration.metrics[0].valueType === 'duration') && <label className="form-field"><span>Unit <em>optional</em></span><input className="auth-input" maxLength={40} value={configuration.metrics[0].unit ?? ''} onChange={(event) => updatePrimaryMetric({ unit: event.target.value })} placeholder={configuration.metrics[0].valueType === 'duration' ? 'minutes' : 'pages, sessions'} /></label>}
+              {configuration.metrics[0].thresholds && <label className="form-field"><span>Target per check-in <em>optional</em></span><input aria-label="Target per check-in" className="auth-input" type="number" min="0" step="any" value={configuration.metrics[0].thresholds.target ?? ''} onChange={(event) => updatePrimaryMetric({ thresholds: { ...configuration.metrics[0]!.thresholds!, target: event.target.value === '' ? undefined : Number(event.target.value) } })} /><small className="field-hint">{configuration.metrics[0].unit ? `${configuration.metrics[0].unit} per scheduled check-in. ` : ''}This is a success threshold; a goal’s total planning target is configured separately.{existing ? ' Changing it can reclassify historical check-ins, but does not change their saved values.' : ''}</small></label>}
+            </div> : <p className="configuration-empty">Add a measure in Advanced settings to start recording progress.</p>}
+          </section>
+          <details className="advanced-setup">
+            <summary><span><strong>Advanced settings</strong><small>More measures, success rules, custom fields, milestones, and goal planning</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary>
+            <div className="advanced-setup-content">
+              <TrackerConfigurationEditor
+                metrics={configuration.metrics}
+                onMetricsChange={changeMetrics}
+                rule={configuration.rule}
+                onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))}
+                customFields={configuration.customFields}
+                onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))}
+                milestones={configuration.milestones}
+                onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))}
+              />
+              {(existing?.kind ?? values.kind) === 'goal' && <GoalPlanningEditor metrics={configuration.metrics} planning={goalPlanning} onChange={setGoalPlanning} />}
+            </div>
+          </details>
           <footer className="tracker-form-actions">
             <Button type="button" variant="secondary" onClick={() => navigate('/trackers')}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>

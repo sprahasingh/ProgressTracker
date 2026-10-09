@@ -38,6 +38,7 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.type(screen.getByLabelText('What would you like to track?'), 'Run a 10K')
     await user.selectOptions(screen.getByLabelText('Tracker type'), 'goal')
+    await user.click(screen.getByText('Advanced settings'))
     await user.clear(screen.getByLabelText('Name'))
     await user.type(screen.getByLabelText('Name'), 'Distance')
     await user.clear(screen.getByLabelText(/Target threshold/))
@@ -61,6 +62,7 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.type(screen.getByLabelText('What would you like to track?'), 'Build a portfolio')
     await user.selectOptions(screen.getByLabelText('Tracker type'), 'project')
+    await user.click(screen.getByText('Advanced settings'))
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const measureNames = screen.getAllByLabelText('Name')
     await user.clear(measureNames[1]!)
@@ -103,6 +105,7 @@ describe('tracker setup flow', () => {
     const name = await screen.findByLabelText('What would you like to track?')
     await user.clear(name)
     await user.type(name, 'Updated name')
+    expect(screen.getByText('Advanced settings').closest('details')).not.toHaveAttribute('open')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
@@ -111,6 +114,23 @@ describe('tracker setup flow', () => {
     expect(saved?.createdAt).toBe(existing.createdAt)
     expect(saved?.name).toBe('Updated name')
     expect(saved?.schemaVersion).toBe(1)
+  })
+
+  it('keeps the simple measure flow visible while advanced settings start collapsed', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    const advanced = screen.getByText('Advanced settings').closest('details')
+    expect(advanced).not.toHaveAttribute('open')
+    await user.type(screen.getByLabelText('What would you like to track?'), 'Read every day')
+    await user.clear(screen.getByLabelText('Measure name'))
+    await user.type(screen.getByLabelText('Measure name'), 'Pages')
+    await user.selectOptions(screen.getByLabelText('Measure type'), 'quantity')
+    await user.clear(screen.getByRole('spinbutton', { name: 'Target per check-in' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Target per check-in' }), '10')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
+    const [saved] = await localRepository.listTrackers()
+    expect(saved).toMatchObject({ name: 'Read every day', metrics: [{ name: 'Pages', valueType: 'quantity', thresholds: { target: 10 } }] })
   })
 
   it('archives without deleting and can still list the archived tracker', async () => {
