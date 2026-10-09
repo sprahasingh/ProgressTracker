@@ -27,6 +27,23 @@ describe('global holidays', () => {
     expect(result).toMatchObject({ current: 2, longest: 2, qualifyingCount: 2, scheduledCount: 2, missedCount: 0 })
   })
 
+  it('pauses a streak across consecutive scheduled holidays without counting holiday activity', () => {
+    const holidays = new Set(['2026-03-09', '2026-03-10'])
+    const entries = [entry('2026-03-06', 10), entry('2026-03-09', 30), entry('2026-03-10', 30), entry('2026-03-11', 10)]
+    expect(calculateStreak(daily, entries, '2026-03-11', holidays)).toMatchObject({
+      current: 2, longest: 2, qualifyingCount: 2, scheduledCount: 2, missedCount: 0,
+    })
+    expect(calculateStreak(daily, entries, '2026-03-10', holidays)).toMatchObject({ current: 1, scheduledCount: 1, missedCount: 0 })
+  })
+
+  it('restarts a paused streak only when a scheduled non-holiday day is missed', () => {
+    const holidays = new Set(['2026-03-09', '2026-03-10'])
+    const entries = [entry('2026-03-06', 10), entry('2026-03-12', 10)]
+    expect(calculateStreak(daily, entries, '2026-03-12', holidays)).toMatchObject({
+      current: 1, longest: 1, qualifyingCount: 2, scheduledCount: 3, missedCount: 1,
+    })
+  })
+
   it('lets a partial value meet the configured streak threshold without turning it into daily success', () => {
     const tracker = { ...daily, qualificationRule: { kind: 'threshold' as const, metricId: 'minutes', level: 'target' as const } }
     expect(calculateStreak(tracker, [entry('2026-03-06', 10)], '2026-03-06').qualifyingCount).toBe(1)
@@ -39,6 +56,15 @@ describe('global holidays', () => {
     expect(recurring.elapsedOpportunities).toBe(1)
     const cumulative = calculateCumulativeMetricPlan({ tracker: daily, entries: [entry('2026-03-06', 10)], metricId: 'minutes', totalTarget: 40, asOfDate: '2026-03-10', startDate: '2026-03-06', progressSemantics: 'incremental', holidays })
     expect(cumulative).toMatchObject({ actualProgress: 10, scheduledDaysTotal: 4, scheduledDaysRemaining: 3 })
+  })
+
+  it('recalculates cumulative expected progress and pace over eligible days after holidays are added', () => {
+    const input = { tracker: daily, entries: [entry('2026-03-06', 10)], metricId: 'minutes', totalTarget: 40, asOfDate: '2026-03-10', startDate: '2026-03-06', progressSemantics: 'incremental' as const }
+    const ordinary = calculateCumulativeMetricPlan(input)
+    const withBreak = calculateCumulativeMetricPlan({ ...input, holidays: new Set(['2026-03-09', '2026-03-10']) })
+
+    expect(ordinary).toMatchObject({ scheduledDaysTotal: 5, scheduledDaysRemaining: 3, expectedProgress: 24, requiredDailyPace: 10 })
+    expect(withBreak).toMatchObject({ scheduledDaysTotal: 3, scheduledDaysRemaining: 2, expectedProgress: 40 / 3, requiredDailyPace: 15 })
   })
 
   it('filters removed holidays from calculations', () => {

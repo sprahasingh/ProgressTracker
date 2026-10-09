@@ -39,9 +39,9 @@ select is((public.apply_tracker_sync_operation(
 select results_eq($$select schema_version, definition->'goalPlanning'->>'mode', server_revision from public.trackers where id = '00000000-0000-4000-8000-000000000125'$$,
   $$values (2::smallint, 'daily-recurring'::text, 1::bigint)$$, 'the sync RPC stores planning JSON and initializes the existing revision token');
 
-select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000426','tracker',null,
-  '{"id":"00000000-0000-4000-8000-000000000123","schema_version":4,"kind":"goal","status":"active","name":"Unsupported","definition":{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000123","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
-  '23514', null, 'unsupported schema versions remain rejected');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000426','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000123","schema_version":4,"kind":"project","status":"active","name":"Precise project","definition":{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000123","kind":"project","status":"active","metrics":[{"id":"hours","name":"Hours","valueType":"duration","precision":{"decimalPlaces":2,"increment":0.25}}],"schedule":{"kind":"weekdays"}}}')::jsonb)->>'status', 'applied',
+  'version 4 precision definitions are accepted through the authenticated sync boundary');
 select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000427','tracker',null,
   '{"id":"00000000-0000-4000-8000-000000000124","schema_version":2,"kind":"goal","status":"active","name":"Mismatched","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000124","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
   '23514', null, 'definition and row schema versions must still match');

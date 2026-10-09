@@ -32,14 +32,27 @@ describe('Calendar page', () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
     mocks.listAccountHolidays.mockResolvedValue([])
-    render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
     expect(await screen.findByText('Morning walk')).toBeInTheDocument()
     expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
+    expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))
     expect(await screen.findAllByText('Missed')).toHaveLength(2)
+  })
+
+  it('colors a holiday date tile and keeps its recorded check-in visible', async () => {
+    mocks.listTrackers.mockResolvedValue([tracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
+    mocks.listAccountHolidays.mockResolvedValue([{ id: 'holiday-today', date: today, reason: 'personal', createdAt: '', updatedAt: '', deletedAt: null }])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Morning walk')).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
+    expect(screen.getByText(/Holiday · scheduled expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
+    expect(screen.getByText(/Holiday · Done/)).toBeInTheDocument()
   })
 })
