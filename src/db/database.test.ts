@@ -176,6 +176,140 @@ describe('ProgressTracker database migrations', () => {
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
   })
 
+  it('imports guest records as copies with new IDs and remapped parent links on collisions', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'shared-category', name: 'Guest category' } as never)
+    await db.trackers.put({ id: 'shared-tracker', name: 'Guest tracker', categoryId: 'shared-category', deletedAt: null } as never)
+    await db.trackerEntries.put({ id: 'shared-entry', trackerId: 'shared-tracker', date: '2026-10-09', note: 'Guest history', deletedAt: null } as never)
+    await db.settings.put({ id: 'general', appearance: 'dark' } as never)
+    const guest = db
+    openedDatabases.push(guest)
+
+    await activateWorkspace('copy-account')
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'shared-category', name: 'Account category' } as never)
+    await db.trackers.put({ id: 'shared-tracker', name: 'Account tracker', categoryId: 'shared-category', deletedAt: null } as never)
+    await db.trackerEntries.put({ id: 'shared-entry', trackerId: 'shared-tracker', date: '2026-10-09', note: 'Account history', deletedAt: null } as never)
+    await db.settings.put({ id: 'general', appearance: 'light' } as never)
+
+    await decideGuestData('copy-account', 'imported-as-copies')
+
+    const guestCategory = await db.categories.filter((row) => row.name === 'Guest category').first()
+    const guestTracker = await db.trackers.filter((row) => row.name === 'Guest tracker').first()
+    const guestEntry = await db.trackerEntries.filter((row) => row.note === 'Guest history').first()
+    expect(guestCategory?.id).not.toBe('shared-category')
+    expect(guestTracker?.id).not.toBe('shared-tracker')
+    expect(guestTracker?.categoryId).toBe(guestCategory?.id)
+    expect(guestEntry?.id).not.toBe('shared-entry')
+    expect(guestEntry?.trackerId).toBe(guestTracker?.id)
+    await expect(db.categories.get('shared-category')).resolves.toMatchObject({ name: 'Account category' })
+    await expect(db.trackers.get('shared-tracker')).resolves.toMatchObject({ name: 'Account tracker' })
+    await expect(db.trackerEntries.get('shared-entry')).resolves.toMatchObject({ note: 'Account history' })
+    await expect(db.settings.get('general')).resolves.toMatchObject({ appearance: 'light' })
+    await expect(db.syncOperations.where('ownerUserId').equals('copy-account').count()).resolves.toBe(2)
+    await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ guestDecision: 'imported-as-copies' })
+
+    await guest.open()
+    await expect(guest.categories.get('shared-category')).resolves.toMatchObject({ name: 'Guest category' })
+    await expect(guest.trackers.get('shared-tracker')).resolves.toMatchObject({ name: 'Guest tracker' })
+    await expect(guest.trackerEntries.get('shared-entry')).resolves.toMatchObject({ note: 'Guest history' })
+    await guest.close()
+  })
+
+  it('forks identical parents when different daily rows would collide on unique date indexes', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    const category = { id: 'same-category', name: 'Shared category', icon: '', accent: '', schedule: { kind: 'every-day' }, position: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null }
+    const definition = { id: 'same-tracker', name: 'Shared tracker', categoryId: null, deletedAt: null }
+    await db.categories.put(category as never)
+    await db.dailyEntries.put({ id: 'guest-daily', categoryId: category.id, date: '2026-10-09', status: 'completed', note: 'Guest', createdAt: category.createdAt, updatedAt: category.updatedAt, deletedAt: null })
+    await db.trackers.put(definition as never)
+    await db.trackerEntries.put({ id: 'guest-generic', trackerId: definition.id, date: '2026-10-09', note: 'Guest generic', deletedAt: null } as never)
+
+    await activateWorkspace('date-collision-account')
+    openedDatabases.push(db)
+    await db.categories.put(category as never)
+    await db.dailyEntries.put({ id: 'account-daily', categoryId: category.id, date: '2026-10-09', status: 'skipped', note: 'Account', createdAt: category.createdAt, updatedAt: category.updatedAt, deletedAt: null })
+    await db.trackers.put(definition as never)
+    await db.trackerEntries.put({ id: 'account-generic', trackerId: definition.id, date: '2026-10-09', note: 'Account generic', deletedAt: null } as never)
+
+    await decideGuestData('date-collision-account', 'imported-as-copies')
+
+    const copiedCategory = await db.categories.filter((row) => row.name === category.name).toArray()
+    const copiedLegacyEntry = await db.dailyEntries.get('guest-daily')
+    const copiedTracker = await db.trackers.filter((row) => row.name === definition.name).first()
+    const copiedGenericEntry = await db.trackerEntries.get('guest-generic')
+    expect(copiedCategory).toHaveLength(2)
+    expect(copiedLegacyEntry?.categoryId).not.toBe(category.id)
+    expect(copiedTracker?.id).not.toBe(definition.id)
+    expect(copiedGenericEntry?.trackerId).toBe(copiedTracker?.id)
+    await expect(db.dailyEntries.get('account-daily')).resolves.toMatchObject({ note: 'Account' })
+    await expect(db.trackerEntries.get('account-generic')).resolves.toMatchObject({ note: 'Account generic' })
+  })
+
+  it('rolls back collision-safe import when two different journals use the same date', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'guest-category', name: 'Guest category' } as never)
+    await db.dailyJournals.put({ id: 'guest-journal', date: '2026-10-09', body: 'Guest notes' } as never)
+    const guest = db
+    openedDatabases.push(guest)
+    await activateWorkspace('journal-collision-account')
+    openedDatabases.push(db)
+    await db.dailyJournals.put({ id: 'account-journal', date: '2026-10-09', body: 'Account notes' } as never)
+
+    await expect(decideGuestData('journal-collision-account', 'imported-as-copies')).rejects.toThrow('Both copies are unchanged; keep the workspaces separate.')
+    await expect(db.categories.get('guest-category')).resolves.toBeUndefined()
+    await expect(db.dailyJournals.get('account-journal')).resolves.toMatchObject({ body: 'Account notes' })
+    await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ guestDecision: undefined })
+    await guest.open()
+    await expect(guest.categories.get('guest-category')).resolves.toMatchObject({ name: 'Guest category' })
+    await expect(guest.dailyJournals.get('guest-journal')).resolves.toMatchObject({ body: 'Guest notes' })
+    await guest.close()
+  })
+
+  it('imports guest records as copies with new IDs and remapped parent links on collisions', async () => {
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'shared-category', name: 'Guest category' } as never)
+    await db.trackers.put({ id: 'shared-tracker', name: 'Guest tracker', categoryId: 'shared-category', deletedAt: null } as never)
+    await db.trackerEntries.put({ id: 'shared-entry', trackerId: 'shared-tracker', date: '2026-10-09', note: 'Guest history', deletedAt: null } as never)
+    await db.settings.put({ id: 'general', appearance: 'dark' } as never)
+    const guest = db
+    openedDatabases.push(guest)
+
+    await activateWorkspace('copy-account')
+    openedDatabases.push(db)
+    await db.categories.put({ id: 'shared-category', name: 'Account category' } as never)
+    await db.trackers.put({ id: 'shared-tracker', name: 'Account tracker', categoryId: 'shared-category', deletedAt: null } as never)
+    await db.trackerEntries.put({ id: 'shared-entry', trackerId: 'shared-tracker', date: '2026-10-09', note: 'Account history', deletedAt: null } as never)
+    await db.settings.put({ id: 'general', appearance: 'light' } as never)
+
+    await decideGuestData('copy-account', 'imported-as-copies')
+
+    const guestCategory = await db.categories.filter((row) => row.name === 'Guest category').first()
+    const guestTracker = await db.trackers.filter((row) => row.name === 'Guest tracker').first()
+    const guestEntry = await db.trackerEntries.filter((row) => row.note === 'Guest history').first()
+    expect(guestCategory?.id).not.toBe('shared-category')
+    expect(guestTracker?.id).not.toBe('shared-tracker')
+    expect(guestTracker?.categoryId).toBe(guestCategory?.id)
+    expect(guestEntry?.id).not.toBe('shared-entry')
+    expect(guestEntry?.trackerId).toBe(guestTracker?.id)
+    await expect(db.categories.get('shared-category')).resolves.toMatchObject({ name: 'Account category' })
+    await expect(db.trackers.get('shared-tracker')).resolves.toMatchObject({ name: 'Account tracker' })
+    await expect(db.trackerEntries.get('shared-entry')).resolves.toMatchObject({ note: 'Account history' })
+    await expect(db.settings.get('general')).resolves.toMatchObject({ appearance: 'light' })
+    await expect(db.syncOperations.where('ownerUserId').equals('copy-account').count()).resolves.toBe(2)
+    await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ guestDecision: 'imported-as-copies' })
+
+    await guest.open()
+    await expect(guest.categories.get('shared-category')).resolves.toMatchObject({ name: 'Guest category' })
+    await expect(guest.trackers.get('shared-tracker')).resolves.toMatchObject({ name: 'Guest tracker' })
+    await expect(guest.trackerEntries.get('shared-entry')).resolves.toMatchObject({ note: 'Guest history' })
+    await guest.close()
+  })
+
   it('rolls back an interrupted guest import on conflicting IDs and can safely retry', async () => {
     await activateWorkspace(null)
     openedDatabases.push(db)

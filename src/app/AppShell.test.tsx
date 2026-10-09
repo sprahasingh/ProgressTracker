@@ -34,6 +34,16 @@ describe('app navigation quality', () => {
     authState.value = { status: 'local-only' }
   })
 
+  it('offers a collision-safe guest copy choice', async () => {
+    const chooseGuestData = vi.fn()
+    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'needs-guest-choice', workspaceUserId: 'user-a', guestSummary: { hasData: true, counts: { trackers: 1 } }, chooseGuestData } as never
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private records</p>} /></Route></Routes></MemoryRouter>)
+    await user.click(screen.getByRole('button', { name: 'Copy and keep both if IDs overlap' }))
+    expect(chooseGuestData).toHaveBeenCalledWith('imported-as-copies')
+    authState.value = { status: 'local-only' }
+  })
+
   it('supports keyboard skip-to-content and moves between the real Today, Overview, and History routes', async () => {
     const user = userEvent.setup()
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}>
