@@ -218,6 +218,10 @@ Keep the email provider enabled and use the Supabase redirect placeholder in con
 
 The current visual language uses a muted botanical green accent, warm neutral surfaces, editorial serif headings, and restrained borders. Shared `Button`, `Surface`, `PageHeader`, and `EmptyState` components establish reusable patterns. The layout includes a compact mobile navigation and honors reduced-motion preferences. Theme switching and the final accessibility review remain future steps.
 
+### Installable app and offline shell
+
+The production build includes a web app manifest and service worker scoped to `/ProgressTracker/`. When the browser supports installation, the header offers an **Install app** action; Safari users can use the browser's **Add to Home Screen** option. The service worker caches the app shell and same-origin static build assets so the interface can reopen offline. It does not cache Supabase/API requests, authentication responses, or productivity records; IndexedDB remains the only local record store. Service worker registration is production-only. Verify installation and offline startup on target browsers/devices before relying on them; this workspace build has not been deployed or browser-tested.
+
 ## Planned architecture
 
 IndexedDB provides the immediate local persistence layer through Dexie repositories. Guest and authenticated account workspaces are isolated locally; account-scoped sync uses Supabase after account workspace activation, reconnection, and committed tracker/entry edits in the signed-in workspace, with manual sync available, and requires the write-boundary migration to be applied. The deployed static application will not include a custom backend. No analytics service is configured.
