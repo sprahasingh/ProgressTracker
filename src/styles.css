@@ -126,6 +126,11 @@ a { color: inherit; text-decoration: none; }
 .workspace-backup h3 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 20px; font-weight: 400; }
 .workspace-backup p { color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
 .workspace-backup .button { margin-top: 4px; }
+.workspace-restore { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.workspace-restore label { display: block; color: var(--ink); font-size: 14px; font-weight: 600; }
+.workspace-restore input { display: block; max-width: 100%; margin-top: 10px; color: var(--ink-muted); font: inherit; font-size: 13px; }
+.workspace-restore > p, .restore-preview > p { color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.restore-preview { margin-top: 12px; }
 .sync-conflicts { width: 100%; margin-top: 24px; text-align: left; }
 .sync-conflicts h3 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 400; }
 .sync-conflicts > p { color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
