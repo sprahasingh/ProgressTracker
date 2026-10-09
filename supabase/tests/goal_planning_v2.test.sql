@@ -14,24 +14,23 @@ select is((select count(*) from pg_trigger where tgrelid = 'public.trackers'::re
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000021';
 
-select lives_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000121', 1, 'goal', 'active', 'Legacy goal',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000121","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}')$$,
-  'existing version 1 tracker definitions remain insertable');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000421','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000121","schema_version":1,"kind":"goal","status":"active","name":"Legacy goal","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000121","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')::jsonb)->>'status', 'applied',
+  'existing version 1 tracker definitions remain insertable through the sync boundary');
 
-select lives_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000122', 2, 'goal', 'active', 'Planned goal',
-   '{"schemaVersion":2,"id":"00000000-0000-4000-8000-000000000122","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"},"goalPlanning":{"mode":"daily-recurring","progressSemantics":{},"dailyTargets":{},"cumulativeTargets":{}}}')$$,
-  'version 2 planned goal is accepted under the same authenticated owner policy');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000422','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000122","schema_version":2,"kind":"goal","status":"active","name":"Planned goal","definition":{"schemaVersion":2,"id":"00000000-0000-4000-8000-000000000122","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"},"goalPlanning":{"mode":"daily-recurring","progressSemantics":{},"dailyTargets":{},"cumulativeTargets":{}}}}')::jsonb)->>'status', 'applied',
+  'version 2 planned goal is accepted through the authenticated sync boundary');
 select results_eq($$select schema_version, server_revision from public.trackers where id = '00000000-0000-4000-8000-000000000122'$$,
   $$values (2::smallint, 1::bigint)$$, 'new version 2 row starts at revision one');
 
-select lives_ok($$update public.trackers set definition = definition || '{"description":"updated"}', server_revision = 1 where id = '00000000-0000-4000-8000-000000000122'$$,
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000423','tracker',1,
+  '{"id":"00000000-0000-4000-8000-000000000122","schema_version":2,"kind":"goal","status":"active","name":"Planned goal","definition":{"schemaVersion":2,"id":"00000000-0000-4000-8000-000000000122","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"},"goalPlanning":{"mode":"daily-recurring","progressSemantics":{},"dailyTargets":{},"cumulativeTargets":{}},"description":"updated"}}')::jsonb)->>'status', 'applied',
   'version 2 definition updates use the existing revision boundary');
 select results_eq($$select server_revision from public.trackers where id = '00000000-0000-4000-8000-000000000122'$$,
   $$values (2::bigint)$$, 'version 2 update advances server revision');
-select throws_ok($$update public.trackers set name = 'stale', server_revision = 1 where id = '00000000-0000-4000-8000-000000000122'$$,
-  '40001', null, 'stale version 2 update is rejected');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000424','tracker',1,
+  '{"id":"00000000-0000-4000-8000-000000000122","schema_version":2,"kind":"goal","status":"active","name":"stale","definition":{"schemaVersion":2,"id":"00000000-0000-4000-8000-000000000122","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"},"goalPlanning":{"mode":"daily-recurring","progressSemantics":{},"dailyTargets":{},"cumulativeTargets":{}}}}')::jsonb)->>'status', 'conflict', 'stale version 2 update is rejected');
 
 select is((public.apply_tracker_sync_operation(
   '00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000425', 'tracker', null,
@@ -40,13 +39,11 @@ select is((public.apply_tracker_sync_operation(
 select results_eq($$select schema_version, definition->'goalPlanning'->>'mode', server_revision from public.trackers where id = '00000000-0000-4000-8000-000000000125'$$,
   $$values (2::smallint, 'daily-recurring'::text, 1::bigint)$$, 'the sync RPC stores planning JSON and initializes the existing revision token');
 
-select throws_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000123', 4, 'goal', 'active', 'Unsupported',
-   '{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000123","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000426','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000123","schema_version":4,"kind":"goal","status":"active","name":"Unsupported","definition":{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000123","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
   '23514', null, 'unsupported schema versions remain rejected');
-select throws_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000124', 2, 'goal', 'active', 'Mismatched',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000124","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
+select throws_ok($$select public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000427','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000124","schema_version":2,"kind":"goal","status":"active","name":"Mismatched","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000124","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}}')$$,
   '23514', null, 'definition and row schema versions must still match');
 
 reset role;

@@ -11,8 +11,8 @@ const restoreTracker = {
 }
 
 async function emptyActiveAccountExceptMetadata() {
-  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.syncOperations, db.syncRecords, db.syncConflicts], async () => {
-    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear()])
+  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.syncOperations, db.syncRecords, db.syncConflicts, db.permanentDeletionRequests, db.permanentDeletionLedger, db.trackerVerification], async () => {
+    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear(), db.permanentDeletionRequests.clear(), db.permanentDeletionLedger.clear(), db.trackerVerification.clear()])
   })
 }
 
@@ -134,7 +134,7 @@ describe('workspace backups', () => {
     const backup = {
       format: WORKSPACE_BACKUP_FORMAT, version: WORKSPACE_BACKUP_VERSION,
       exportedAt: '2026-10-09T00:00:00.000Z', workspace: { kind: 'guest', ownerUserId: null },
-      stores: Object.fromEntries(['categories','dailyEntries','dailyJournals','goals','goalMetrics','goalProgressLogs','settings','trackers','trackerEntries','workspaceMetadata','syncOperations','syncRecords','syncConflicts'].map((name) => [name, []])),
+      stores: Object.fromEntries(['categories','dailyEntries','dailyJournals','goals','goalMetrics','goalProgressLogs','settings','trackers','trackerEntries','workspaceMetadata','syncOperations','syncRecords','syncConflicts','permanentDeletionRequests','permanentDeletionLedger','trackerVerification'].map((name) => [name, []])),
     } as unknown as WorkspaceBackup
     try {
       downloadWorkspaceBackup(backup)

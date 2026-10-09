@@ -33,6 +33,12 @@ export function GoalsPage() {
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
 
+  async function moveGoalToBin(tracker: StoredTrackerDefinition) {
+    if (!window.confirm(`Move “${tracker.name}” to the Bin? You can restore it for 30 days with its progress and plan.`)) return
+    try { await localRepository.deleteTracker(tracker.id); await refresh() }
+    catch { if (workspaceKey) setError({ workspaceKey, message: 'This goal could not be moved to the Bin. Your saved data is unchanged.' }) }
+  }
+
   const refresh = useCallback(async () => {
     const currentWorkspace = workspaceRef.current
     if (!currentWorkspace.ready || !currentWorkspace.key) return
@@ -189,6 +195,7 @@ export function GoalsPage() {
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
+              <Button variant="quiet" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete</Button>
             </div>
           </Surface>
         })}

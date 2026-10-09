@@ -12,9 +12,12 @@ import type {
   SyncOperation,
   SyncConflict,
   SyncRecordState,
+  PermanentDeletionRequest,
+  PermanentDeletionLedgerEntry,
+  TrackerVerification,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -45,6 +48,9 @@ export class ProgressTrackerDatabase extends Dexie {
   workspaceMetadata!: Table<{ key: string; userId: string | null; guestDecision?: 'imported' | 'imported-as-copies' | 'kept-separate'; importedAt?: string }, string>
   syncRecords!: Table<SyncRecordState, string>
   syncConflicts!: Table<SyncConflict, string>
+  permanentDeletionRequests!: Table<PermanentDeletionRequest, string>
+  permanentDeletionLedger!: Table<PermanentDeletionLedgerEntry, string>
+  trackerVerification!: Table<TrackerVerification, string>
 
   constructor(name = 'ProgressTracker') {
     super(name)
@@ -125,6 +131,20 @@ export class ProgressTrackerDatabase extends Dexie {
         ...entries.map((payload) => ({ id: crypto.randomUUID(), ownerUserId: metadata.userId!, entity: 'tracker_entry' as const, entityId: payload.id, operation: 'upsert' as const, expectedRevision: null, payload, createdAt: now, attempts: 0, status: 'pending' as const, lastError: null })),
       ])
     })
+
+    this.version(6).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      trackerVerification: '&trackerId, status',
+    })
   }
 }
 
@@ -132,7 +152,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 5
+export const DATABASE_SCHEMA_VERSION = 6
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 
@@ -153,9 +173,20 @@ export async function activateWorkspace(userId: string | null): Promise<number> 
   }
   await openDatabase()
   if (epoch !== workspaceEpoch) throw new Error('Workspace changed while it was opening.')
-  const metadata = await db.workspaceMetadata.get('workspace')
+  const workspaceDb = db
+  const metadata = await workspaceDb.workspaceMetadata.get('workspace')
   if (metadata?.userId !== userId) {
-    await db.workspaceMetadata.put({ key: 'workspace', userId, guestDecision: metadata?.guestDecision })
+    await workspaceDb.workspaceMetadata.put({ key: 'workspace', userId, guestDecision: metadata?.guestDecision })
+  }
+  if (userId === null && isPermanentDeletionEnabled()) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    await workspaceDb.transaction('rw', [workspaceDb.trackers, workspaceDb.trackerEntries], async () => {
+      const expired = (await workspaceDb.trackers.toArray()).filter((tracker) => tracker.deletedAt !== null && Date.parse(tracker.deletedAt) <= cutoff)
+      for (const tracker of expired) {
+        await workspaceDb.trackerEntries.where('trackerId').equals(tracker.id).delete()
+        await workspaceDb.trackers.delete(tracker.id)
+      }
+    })
   }
   return epoch
 }
@@ -190,7 +221,7 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
     const guestRows = await guest.transaction('r', workspaceTables.map((table) => guest.table(table)), async () =>
       new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]]))),
     )
-    await target.transaction('rw', [target.workspaceMetadata, target.syncOperations, target.syncRecords, ...workspaceTables.map((table) => target.table(table))], async () => {
+    await target.transaction('rw', [target.workspaceMetadata, target.syncOperations, target.syncRecords, target.trackerVerification, ...workspaceTables.map((table) => target.table(table))], async () => {
       const metadata = await target.workspaceMetadata.get('workspace')
       if (metadata?.guestDecision) return
       if (decision === 'imported' || decision === 'imported-as-copies') {
@@ -295,6 +326,7 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
           }
         }
         for (const payload of copiedTrackers) {
+          await target.trackerVerification.put({ trackerId: payload.id, status: 'pending-server-check' })
           await queueSyncMutation(target, userId, 'tracker', payload)
         }
         for (const payload of copiedEntries) {

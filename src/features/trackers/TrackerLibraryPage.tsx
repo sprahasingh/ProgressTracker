@@ -70,6 +70,17 @@ export function TrackerLibraryPage() {
     }
   }
 
+  async function moveToBin(tracker: StoredTrackerDefinition) {
+    if (!window.confirm(`Move “${tracker.name}” to the Bin? You can restore it for 30 days, including its history and plan.`)) return
+    try {
+      await localRepository.deleteTracker(tracker.id)
+      await refresh()
+    } catch {
+      const context = workspaceRef.current
+      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be moved to the Bin. Your saved data is unchanged.' })
+    }
+  }
+
   return (
     <section className="tracker-page" aria-labelledby="trackers-title">
       <PageHeader
@@ -110,6 +121,7 @@ export function TrackerLibraryPage() {
                 {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">Check in today</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
                 {tracker.status !== 'archived' && <Button variant="quiet" size="small" onClick={() => void archive(tracker.id)}>Archive</Button>}
+                <Button variant="quiet" size="small" onClick={() => void moveToBin(tracker)}>Delete</Button>
               </div>
             </Surface>
           ))}

@@ -53,6 +53,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_ENABLE_TRACKER_SCHEMA_V3: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V3 }}
+          VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
         run: |
           if [ -z "$VITE_SUPABASE_URL" ]; then
             echo "::error::Missing repository variable VITE_SUPABASE_URL."

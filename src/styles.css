@@ -1082,3 +1082,15 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   .topbar-sync-state { margin-left: 0; padding: 8px; }
   .topbar-sync-state > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
+
+.bin-page .page-header { margin-bottom: 22px; }
+.bin-system-note { margin: 0 0 18px; padding: 13px 16px; border: 1px solid color-mix(in srgb, var(--joy-sun) 40%, var(--line)); border-radius: 15px; background: color-mix(in srgb, var(--joy-sun-soft) 72%, var(--surface)); color: var(--ink); font-size: 13px; }
+.bin-card { border-top: 4px solid var(--joy-coral); }
+.bin-card h2 { margin: 15px 0 7px; }
+.bin-card > p { color: var(--ink-muted); font-size: 12px; }
+.bin-countdown { display: inline-flex; padding: 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--joy-teal-soft) 75%, var(--surface)); color: var(--joy-teal-strong); font-size: 10px; font-weight: 800; }
+.bin-countdown.expired { background: color-mix(in srgb, var(--joy-sun-soft) 75%, var(--surface)); color: var(--warning); }
+.bin-pending { padding: 10px 12px; border-radius: 12px; background: var(--info-soft); color: var(--ink); }
+.bin-delete-button { border-color: color-mix(in srgb, var(--joy-coral) 45%, var(--line)); color: var(--danger); }
+.bin-delete-button:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: white; }
+.bin-card .tracker-card-actions { flex-wrap: wrap; }

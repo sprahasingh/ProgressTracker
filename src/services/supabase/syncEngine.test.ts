@@ -22,11 +22,11 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[] } = {}) {
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; ledgerRows?: unknown[] } = {}) {
   const rpc = vi.fn().mockResolvedValue({ data: options.rpcResult ?? null, error: options.rpcError ?? null })
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const from = vi.fn((table: string) => {
-    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : []
+    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : []
     const builder = {
       select: () => builder,
       order: () => builder,
@@ -145,6 +145,84 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.where('id').equals(remote.id).count()).resolves.toBe(1)
   })
 
+  it('compares server tombstones by instant when PostgreSQL returns an offset timestamp', async () => {
+    await activateWorkspace('sync-user')
+    const remote = { ...tracker('offset-tombstone'), deletedAt: '2026-10-09T11:00:00.000Z' }
+    const row = { ...serverTracker(remote), deleted_at: '2026-10-09 11:00:00+00' }
+    const { client } = fakeClient({ trackerRows: [row] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 1, failed: 0 })
+    await expect(db.trackers.get(remote.id)).resolves.toMatchObject({ deletedAt: '2026-10-09T11:00:00.000Z' })
+  })
+
+  it('reconciles the durable account ledger before uploads and discards stale tracker and entry outbox work', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('permanently-gone'))
+    await localRepository.saveTrackerEntry({ trackerId: 'permanently-gone', date: '2026-10-01', outcome: 'recorded', values: {}, note: 'stale client copy' })
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient({ ledgerRows: [{ user_id: 'sync-user', tracker_id: 'permanently-gone', permanently_deleted_at: '2026-10-10T00:00:00.000Z' }] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 0 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.trackers.get('permanently-gone')).resolves.toBeUndefined()
+    await expect(db.trackerEntries.where('trackerId').equals('permanently-gone').count()).resolves.toBe(0)
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').count()).resolves.toBe(0)
+    await expect(db.permanentDeletionLedger.get('sync-user:permanently-gone')).resolves.toMatchObject({ trackerId: 'permanently-gone' })
+  })
+
+  it('stops before any upload if the deletion ledger returns a different owner', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('must-not-upload'))
+    const { client, rpc } = fakeClient({ ledgerRows: [{ user_id: 'another-user', tracker_id: 'other-deletion', permanently_deleted_at: '2026-10-10T00:00:00.000Z' }] })
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+
+    await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('another account')
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.trackers.get('must-not-upload')).resolves.toMatchObject({ id: 'must-not-upload' })
+  })
+
+  it('waits for the server confirmation before clearing an offline permanent-delete request', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('delete-request'))
+    await localRepository.deleteTracker('delete-request')
+    await localRepository.requestPermanentDeletion('delete-request')
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient({ rpcError: { message: 'network unavailable' } })
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      if (args.p_entity === 'tracker') {
+        const local = db.trackers.get('delete-request')
+        const current = await local
+        return { data: { status: 'applied', record: serverTracker(current!, 'sync-user', 2) }, error: null }
+      }
+      return { data: null, error: { message: 'network unavailable' } }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
+    await expect(db.trackers.get('delete-request')).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('network unavailable') })
+    expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({ p_expected_user_id: 'sync-user', p_tracker_id: 'delete-request', p_expected_revision: 2 }))
+  })
+
+  it('purges local content only after the server confirms permanent deletion', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('confirmed-delete'))
+    await localRepository.saveTrackerEntry({ trackerId: 'confirmed-delete', date: '2026-10-09', outcome: 'recorded', values: {}, note: 'remove after confirmation' })
+    await localRepository.deleteTracker('confirmed-delete')
+    await localRepository.requestPermanentDeletion('confirmed-delete')
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'permanently_delete_tracker') return { data: { status: 'deleted', tracker_id: 'confirmed-delete', permanently_deleted_at: '2026-10-10 00:00:00+00' }, error: null }
+      const payload = args.p_record as StoredTrackerDefinition
+      return { data: { status: 'applied', record: serverTracker(payload, 'sync-user', 1) }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    await expect(db.trackers.get('confirmed-delete')).resolves.toBeUndefined()
+    await expect(db.trackerEntries.where('trackerId').equals('confirmed-delete').count()).resolves.toBe(0)
+    await expect(db.permanentDeletionLedger.get('sync-user:confirmed-delete')).resolves.toMatchObject({ permanentlyDeletedAt: '2026-10-10T00:00:00Z' })
+  })
+
   it('preserves an offline edit made while the earlier version is in flight', async () => {
     await activateWorkspace('sync-user')
     const original = tracker()
@@ -188,7 +266,30 @@ describe('account-scoped sync engine', () => {
     }))
   })
 
-  it('does not upload child entries when their parent tracker has a revision conflict', async () => {
+  it('keeps entry uploads queued while the parent is in the Bin so they can retry after restore', async () => {
+    await activateWorkspace('sync-user')
+    const parent = tracker('bin-parent')
+    await localRepository.saveTracker(parent)
+    await localRepository.saveTrackerEntry({ trackerId: parent.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'keep this progress' })
+    await localRepository.deleteTracker(parent.id)
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      if (args.p_entity === 'tracker') {
+        const payload = args.p_record as Record<string, unknown>
+        const definition = payload.definition as StoredTrackerDefinition
+        const record = { ...serverTracker(definition, 'sync-user', 2), deleted_at: definition.deletedAt }
+        return { data: { status: 'applied', record }, error: null }
+      }
+      return { data: { status: 'parent_in_bin', tracker_id: parent.id }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, conflicts: 0 })
+    const entryOperation = await db.syncOperations.where('ownerUserId').equals('sync-user').filter((item) => item.entity === 'tracker_entry').first()
+    expect(entryOperation).toMatchObject({ status: 'pending', lastError: expect.stringContaining('tracker is in the Bin') })
+    expect(await db.syncConflicts.where('ownerUserId').equals('sync-user').count()).toBe(0)
+  })
+
+  it('does not upload child entries when their parent has a revision conflict', async () => {
     await activateWorkspace('sync-user')
     const definition = tracker()
     await localRepository.saveTracker(definition)

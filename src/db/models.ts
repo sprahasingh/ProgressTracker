@@ -114,6 +114,9 @@ export type SyncOperation = {
 
 export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; serverRevision: number }
 export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry; remoteRecord: Record<string, unknown> | null; detectedAt: string }
+export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null }
+export type PermanentDeletionLedgerEntry = { key: string; ownerUserId: string; trackerId: string; permanentlyDeletedAt: string }
+export type TrackerVerification = { trackerId: string; status: 'pending-server-check' }
 
 export type DailyEntryDraft = Pick<DailyEntry, 'categoryId' | 'date' | 'status' | 'note'>
 export type DailyJournalDraft = Pick<DailyJournal, 'date' | 'body'>

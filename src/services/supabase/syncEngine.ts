@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
+import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
-import { isSchemaV3WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
-import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
+import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -37,8 +38,16 @@ function toServerPayload(operation: SyncOperation): Record<string, unknown> {
 
 function trackerFromServer(row: ServerTracker): StoredTrackerDefinition {
   const parsed = trackerDefinitionSchema.parse(normalizeTrackerTimestamps(row.definition))
-  if (parsed.id !== row.id || parsed.kind !== row.kind || parsed.status !== row.status || parsed.schemaVersion !== row.schema_version) throw new Error('Cloud tracker fields do not match its stored definition.')
+  const serverDeletedAt = row.deleted_at === null ? null : normalizeSyncTimestamp(row.deleted_at, 'deleted_at') as string
+  const sameTombstoneInstant = parsed.deletedAt === null || serverDeletedAt === null
+    ? parsed.deletedAt === serverDeletedAt
+    : canonicalTimestamp(parsed.deletedAt) === canonicalTimestamp(serverDeletedAt)
+  if (parsed.id !== row.id || parsed.kind !== row.kind || parsed.status !== row.status || parsed.schemaVersion !== row.schema_version || !sameTombstoneInstant) throw new Error('Cloud tracker fields do not match its stored definition.')
   return parsed as StoredTrackerDefinition
+}
+
+function canonicalTimestamp(value: string): string {
+  return value.replace(/(\.\d*?[1-9])0+Z$/, '$1Z').replace(/\.0+Z$/, 'Z')
 }
 
 function entryFromServer(row: ServerEntry): StoredTrackerEntry {
@@ -71,12 +80,82 @@ async function markConflict(database: ProgressTrackerDatabase, operation: SyncOp
 async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry) {
   if (!operation.ownerUserId) throw new Error('This queued operation has no authenticated owner.')
   const revision: SyncRecordState = { key: keyFor(operation.entity as 'tracker' | 'tracker_entry', operation.entityId), ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry', entityId: operation.entityId, serverRevision: record.server_revision }
-  await database.transaction('rw', [database.syncOperations, database.syncRecords], async () => {
+  await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification], async () => {
     await database.syncRecords.put(revision)
+    if (operation.entity === 'tracker') await database.trackerVerification.delete(operation.entityId)
     const latest = await database.syncOperations.filter((candidate) => candidate.ownerUserId === operation.ownerUserId && candidate.entity === operation.entity && candidate.entityId === operation.entityId).first()
     if (latest?.id === operation.id) await database.syncOperations.delete(latest.id)
     else if (latest) await database.syncOperations.put({ ...latest, expectedRevision: record.server_revision })
   })
+}
+
+async function reconcileServerDeletionLedger(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
+  await accountState(database, userId)
+  await assertUser(client, userId)
+  const rows: Array<{ user_id: string; tracker_id: string; permanently_deleted_at: string }> = []
+  let cursor = ''
+  for (;;) {
+    let query = client.from('tracker_deletion_ledger').select('user_id,tracker_id,permanently_deleted_at')
+      .order('tracker_id', { ascending: true }).limit(pageSize)
+    if (cursor) query = query.gt('tracker_id', cursor)
+    const { data, error } = await query
+    if (error) throw new Error(`Permanent-deletion ledger could not be checked; uploads are paused: ${error.message}`)
+    const page = (data ?? []) as Array<{ user_id: string; tracker_id: string; permanently_deleted_at: string }>
+    if (page.some((row) => row.user_id !== userId)) throw new Error('Deletion ledger returned another account’s record; sync was stopped.')
+    rows.push(...page)
+    if (page.length < pageSize) break
+    cursor = page[page.length - 1]!.tracker_id
+    await accountState(database, userId)
+    await assertUser(client, userId)
+  }
+  await localRepository.reconcilePermanentDeletionLedger(userId, rows.map((row) => ({
+    tracker_id: row.tracker_id,
+    permanently_deleted_at: normalizeSyncTimestamp(row.permanently_deleted_at, 'permanently_deleted_at') as string,
+  })))
+}
+
+async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
+  if (!isPermanentDeletionEnabled()) return { deleted: 0, failed: 0, conflicts: 0 }
+  const requests = await database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
+  let deleted = 0
+  let failed = 0
+  let conflicts = 0
+  for (const request of requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
+    try {
+      await accountState(database, userId)
+      await assertUser(client, userId)
+      const [tracker, revision] = await Promise.all([
+        database.trackers.get(request.trackerId), database.syncRecords.get(keyFor('tracker', request.trackerId)),
+      ])
+      if (!tracker?.deletedAt || !revision) throw new Error('The Bin deletion must sync successfully before permanent deletion can proceed.')
+      const { data, error } = await client.rpc('permanently_delete_tracker', {
+        p_expected_user_id: userId, p_operation_id: request.id, p_tracker_id: request.trackerId,
+        p_expected_revision: revision.serverRevision,
+      })
+      if (error) throw new Error(error.message)
+      const result = data as { status?: string; tracker_id?: string; permanently_deleted_at?: string; record?: ServerTracker | null }
+      if (result?.status === 'conflict') {
+        await database.transaction('rw', [database.permanentDeletionRequests, database.syncConflicts], async () => {
+          const current = await database.permanentDeletionRequests.get(request.id)
+          if (current) await database.permanentDeletionRequests.put({ ...current, status: 'conflict', lastError: 'The cloud tracker changed. Resolve its sync conflict before deleting it permanently.' })
+          await database.syncConflicts.put({ id: request.id, ownerUserId: userId, entity: 'tracker', entityId: request.trackerId, localPayload: tracker, remoteRecord: result.record as unknown as Record<string, unknown> | null, detectedAt: new Date().toISOString() })
+        })
+        conflicts += 1
+        continue
+      }
+      if (!['deleted', 'already_deleted'].includes(result?.status ?? '') || result.tracker_id !== request.trackerId) throw new Error('The server did not confirm permanent deletion.')
+      await localRepository.recordPermanentDeletionConfirmation(userId, {
+        tracker_id: request.trackerId,
+        permanently_deleted_at: normalizeSyncTimestamp(result.permanently_deleted_at ?? new Date().toISOString(), 'permanently_deleted_at') as string,
+      })
+      deleted += 1
+    } catch (cause) {
+      const current = await database.permanentDeletionRequests.get(request.id)
+      if (current) await database.permanentDeletionRequests.put({ ...current, status: 'pending', lastError: errorMessage(cause) })
+      failed += 1
+    }
+  }
+  return { deleted, failed, conflicts }
 }
 
 async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
@@ -117,6 +196,24 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       if (error) throw new Error(error.message)
       const result = data as OperationResult
+      if ((result as { status?: string })?.status === 'permanently_deleted') {
+        const trackerId = operation.entity === 'tracker'
+          ? operation.entityId
+          : (operation.payload as StoredTrackerEntry).trackerId
+        const deletionResult = result as OperationResult & { permanently_deleted_at?: string; tracker_id?: string }
+        if (deletionResult.tracker_id !== trackerId) throw new Error('Permanent-deletion response did not match the queued tracker.')
+        await localRepository.recordPermanentDeletionConfirmation(userId, {
+          tracker_id: trackerId,
+          permanently_deleted_at: normalizeSyncTimestamp(deletionResult.permanently_deleted_at ?? new Date().toISOString(), 'permanently_deleted_at') as string,
+        })
+        uploaded += 1
+        continue
+      }
+      if ((result as { status?: string })?.status === 'parent_in_bin') {
+        await markFailure(database, operation, 'This tracker is in the Bin. Its entry changes remain queued until the tracker is restored.')
+        failed += 1
+        break
+      }
       if (result?.status === 'conflict') {
         if (result.record && result.record.user_id !== userId) throw new Error('The server returned a row for a different account; it was not saved locally.')
         await markConflict(database, operation, result.record as unknown as Record<string, unknown> | null)
@@ -230,12 +327,15 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   await accountState(database, userId)
   await assertUser(client, userId)
 
+  if (isPermanentDeletionEnabled()) await reconcileServerDeletionLedger(database, client, userId)
+
   const trackers = await uploadQueue(database, client, userId, 'tracker')
-  const entries = trackers.failed || trackers.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
+  const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId)
+  const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
   const trackerPull = await pullTable<ServerTracker>(database, client, userId, 'trackers', (row) => applyRemoteTracker(database, userId, row))
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
-  return { uploaded: trackers.uploaded + entries.uploaded, downloaded: trackerPull.downloaded + entryPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed }
+  return { uploaded: trackers.uploaded + entries.uploaded + deletionRequests.deleted, downloaded: trackerPull.downloaded + entryPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + deletionRequests.failed }
 }
 
 /**
