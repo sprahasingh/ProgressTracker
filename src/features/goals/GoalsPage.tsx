@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { InfoButton } from '../../components/ui/InfoButton'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -88,14 +89,14 @@ export function GoalsPage() {
   const completedCount = goals.filter(({ tracker }) => tracker.status === 'completed').length
 
   return <section className="tracker-page goals-page" aria-labelledby="goals-title">
-    <PageHeader headingId="goals-title" eyebrow="YOUR DIRECTION" title="Goals" description="Keep your longer-term aims and the next useful step in view." action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create a goal</Link>} />
+    <PageHeader headingId="goals-title" eyebrow="YOUR DIRECTION" title="Goals" description="Keep your longer-term aims and the next useful step in view." help={{ title: 'Goals', summary: 'Follow measurable outcomes, their history, and the next useful step.', description: 'Goal status and progress are calculated from saved tracker definitions and check-ins in this workspace. Daily plans compare each scheduled day independently. Deadline plans compare actual cumulative progress with expected progress and calculate the remaining pace. Each metric stays in its own unit. Rest days are not missed days.' }} action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create a goal</Link>} />
     {visibleError && <div role="alert" className="form-alert">{visibleError}</div>}
     {visibleLoading ? <p role="status" className="tracker-loading">Loading your goals…</p> : visibleError ? <Surface><EmptyState title="Your goals are still saved" description="This device could not open your goal list. Try loading it again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : goals.length === 0 ? <Surface><EmptyState title="Choose something worth working toward" description="Goals use the same private, offline-first tracker workspace. Add a deadline, measures, and milestones when you create one." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first goal</Link>} /></Surface> : <>
       <div className="dashboard-stats" role="group" aria-label="Goal summary">
-        <GoalStat label="In progress" value={activeCount} detail="active and within deadline" />
-        <GoalStat label="Overdue" value={overdueCount} detail="active goals past their deadline" />
-        <GoalStat label="Completed" value={completedCount} detail="goals you have finished" />
-        <GoalStat label="All goals" value={goals.length} detail="including paused and archived goals" />
+        <GoalStat label="In progress" value={activeCount} detail="active and within deadline" help="Counts active goals whose deadline is today or later, plus active goals without a deadline." />
+        <GoalStat label="Overdue" value={overdueCount} detail="active goals past their deadline" help="Counts active goals whose deadline is before today in the goal’s planning time zone." />
+        <GoalStat label="Completed" value={completedCount} detail="goals you have finished" help="Counts goals whose status is completed. Their history remains available." />
+        <GoalStat label="All goals" value={goals.length} detail="including paused and archived goals" help="Counts every goal in this workspace, including paused and archived goals, but not Bin items." />
       </div>
       <div className="tracker-card-grid">
         {goals.map(({ tracker, entries: goalEntries }) => {
@@ -121,7 +122,7 @@ export function GoalsPage() {
               })}
             </ul>}
             {(tracker.schemaVersion === 2 || tracker.schemaVersion === 3) && tracker.goalPlanning && <section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
-              <h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3>
+              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, skipped, missed, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
@@ -212,6 +213,6 @@ function cumulativeStatusLabel(status: string, paceStatus: string): string {
   return paceStatus === 'ahead' ? 'Ahead of expected progress' : paceStatus === 'on-track' ? 'On track' : 'Behind expected progress'
 }
 
-function GoalStat({ label, value, detail }: { label: string; value: number; detail: string }) {
-  return <Surface className="dashboard-stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></Surface>
+function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {
+  return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
 }

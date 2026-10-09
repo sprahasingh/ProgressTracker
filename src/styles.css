@@ -1094,3 +1094,26 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .bin-delete-button { border-color: color-mix(in srgb, var(--joy-coral) 45%, var(--line)); color: var(--danger); }
 .bin-delete-button:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: white; }
 .bin-card .tracker-card-actions { flex-wrap: wrap; }
+.page-title-row { display: flex; align-items: center; gap: 12px; }
+.dashboard-heading-actions { display: inline-flex; align-items: center; gap: 13px; }
+.dashboard-stat-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.goal-plan-heading { display: flex; align-items: center; gap: 9px; }
+.goal-plan-heading h3 { margin: 0; }
+.info-button { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius: 50%; background: var(--surface); color: var(--accent-strong); font: 700 12px/1 var(--font-sans); cursor: pointer; vertical-align: middle; z-index: 30; }
+.info-button:hover { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-1px); }
+.info-button::before { content: "i"; }
+.info-button:focus-visible, .info-dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.info-dialog { width: min(460px, calc(100vw - 32px)); max-width: none; max-height: min(80vh, 640px); padding: 0; overflow: visible; border: 0; border-radius: 22px; background: transparent; color: var(--ink); }
+.info-dialog::backdrop { background: rgb(20 34 30 / .48); backdrop-filter: blur(3px); }
+.info-dialog-card { position: relative; padding: 29px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); box-shadow: 0 24px 90px rgb(20 34 30 / .22); }
+.info-dialog-close { position: absolute; top: 12px; right: 13px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-raised); color: var(--ink); font-size: 23px; cursor: pointer; }
+.info-dialog-summary { margin: 0 38px 18px 0; padding: 13px 15px; border-left: 4px solid var(--joy-teal); border-radius: 0 12px 12px 0; background: var(--joy-teal-soft); color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.55; }
+.info-dialog-card h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 25px; font-weight: 650; }
+.info-dialog-description { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.75; white-space: pre-line; }
+.form-field > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tracker-kind-picker legend { display: flex; align-items: center; gap: 7px; }
+@media (max-width: 600px) {
+  .info-dialog-card { padding: 24px 20px; }
+  .dashboard-heading-actions { gap: 8px; }
+  .page-title-row { gap: 8px; }
+}

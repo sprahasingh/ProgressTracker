@@ -75,7 +75,7 @@ export function HistoryPage() {
 
   return (
     <section className="tracker-page history-page" aria-labelledby="history-title">
-      <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update past check-ins without losing the original timeline." />
+      <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update past check-ins without losing the original timeline." help={{ title: 'History', summary: 'Find, review, and correct saved check-ins.', description: 'Use the date range and tracker filters to narrow the timeline. Editing an entry changes that saved entry and may change calculated streaks or goal progress. Deleting a check-in removes that local entry and queues the change for account sync when available.' }} />
       <div className="history-toolbar">
         <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select></label>
         {range === 'custom' && <>

@@ -27,6 +27,8 @@ describe('Today check-ins', () => {
 
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
     await user.tab()
+    // The page-level help button is the first keyboard stop.
+    await user.tab()
     expect(screen.getByLabelText('Pages')).toHaveFocus()
     await user.type(screen.getByLabelText('Pages'), '5')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))

@@ -88,6 +88,7 @@ export function TrackerLibraryPage() {
         eyebrow="YOUR PRACTICE"
         title="Trackers"
         description="Habits, goals, challenges, and projects you choose to make progress on."
+        help={{ title: 'Trackers', summary: 'Your active routines, goals, challenges, and projects live here.', description: 'Open a tracker to record a check-in or edit its setup. Archive hides a tracker from active work while retaining it. Delete moves it to the Bin for 30 days, where you can restore the tracker and its history. Permanent deletion is an account-wide operation and requires server confirmation.' }}
         action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create tracker</Link>}
       />
       <div className="tracker-library-toolbar">
