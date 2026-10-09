@@ -11,8 +11,8 @@ const restoreTracker = {
 }
 
 async function emptyActiveAccountExceptMetadata() {
-  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.syncOperations, db.syncRecords, db.syncConflicts, db.permanentDeletionRequests, db.permanentDeletionLedger, db.trackerVerification], async () => {
-    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear(), db.permanentDeletionRequests.clear(), db.permanentDeletionLedger.clear(), db.trackerVerification.clear()])
+  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.accountHolidays, db.syncOperations, db.syncRecords, db.syncConflicts, db.permanentDeletionRequests, db.permanentDeletionLedger, db.trackerVerification], async () => {
+    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.accountHolidays.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear(), db.permanentDeletionRequests.clear(), db.permanentDeletionLedger.clear(), db.trackerVerification.clear()])
   })
 }
 
@@ -27,6 +27,22 @@ afterEach(async () => {
 })
 
 describe('workspace backups', () => {
+  it('exports and restores account holiday dates, reasons, tombstones, and pending sync operations', async () => {
+    const accountId = `holiday-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    await activateWorkspace(accountId)
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-12-24'], 'travel')
+    if (!holiday) throw new Error('Holiday did not persist locally.')
+    const backup = await createWorkspaceBackup(accountId)
+    expect(backup.version).toBe(WORKSPACE_BACKUP_VERSION)
+    expect(backup.stores.accountHolidays).toContainEqual(expect.objectContaining({ id: holiday.id, date: '2026-12-24', reason: 'travel' }))
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ date: '2026-12-24', reason: 'travel', deletedAt: null })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ payload: { date: '2026-12-24', reason: 'travel' } })
+  })
+
   it('validates and restores v2 planning data with its pending sync payload intact', async () => {
     const accountId = `planning-backup-${crypto.randomUUID()}`
     accountIds.push(accountId)

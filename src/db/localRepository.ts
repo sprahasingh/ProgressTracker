@@ -1,9 +1,10 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import type { AccountHoliday, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -24,6 +25,76 @@ function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
 }
 
 export const localRepository = {
+  async listAccountHolidays(startDate?: CalendarDate, endDate?: CalendarDate, includeDeleted = false): Promise<AccountHoliday[]> {
+    const database = await openDatabase()
+    let rows = startDate && endDate
+      ? await database.accountHolidays.where('date').between(startDate, endDate, true, true).toArray()
+      : await database.accountHolidays.toArray()
+    if (!includeDeleted) rows = rows.filter((row) => row.deletedAt === null)
+    return rows.sort((a, b) => a.date.localeCompare(b.date))
+  },
+
+  async saveAccountHolidays(dates: readonly CalendarDate[], reason: HolidayReason | null): Promise<AccountHoliday[]> {
+    const uniqueDates = [...new Set(dates)].sort()
+    for (const date of uniqueDates) assertHolidayDate(date)
+    if (reason !== null && !isHolidayReason(reason)) throw new Error('Choose a supported holiday reason.')
+    if (uniqueDates.length === 0) return []
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    const saved = await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      const output: AccountHoliday[] = []
+      for (const date of uniqueDates) {
+        const existing = await database.accountHolidays.where('date').equals(date).first()
+        if (ownerUserId) {
+          const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing?.id ?? date]).first()
+          if (conflict) throw new Error('Resolve this holiday’s cloud conflict before editing it. Both versions are preserved.')
+        }
+        const now = new Date().toISOString()
+        const row: AccountHoliday = { id: existing?.id ?? newId(), date, reason, createdAt: existing?.createdAt ?? now, updatedAt: now, deletedAt: null }
+        await database.accountHolidays.put(row)
+        await queueSyncMutation(database, ownerUserId, 'account_holiday', row)
+        output.push(row)
+      }
+      return output
+    })
+    publishWorkspaceMutation(ownerUserId)
+    return saved
+  },
+
+  async removeAccountHoliday(date: CalendarDate): Promise<void> {
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      const existing = await database.accountHolidays.where('date').equals(date).first()
+      if (!existing || existing.deletedAt !== null) return
+      if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing.id]).first()) throw new Error('Resolve this holiday’s cloud conflict before removing it. Both versions are preserved.')
+      const row = { ...existing, updatedAt: new Date().toISOString(), deletedAt: new Date().toISOString() }
+      await database.accountHolidays.put(row)
+      await queueSyncMutation(database, ownerUserId, 'account_holiday', row)
+    })
+    publishWorkspaceMutation(ownerUserId)
+  },
+
+  async restoreAccountHoliday(date: CalendarDate): Promise<void> {
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      const existing = await database.accountHolidays.where('date').equals(date).first()
+      if (!existing || existing.deletedAt === null) return
+      if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing.id]).first()) throw new Error('Resolve this holiday’s cloud conflict before restoring it. Both versions are preserved.')
+      const row = { ...existing, updatedAt: new Date().toISOString(), deletedAt: null }
+      await database.accountHolidays.put(row)
+      await queueSyncMutation(database, ownerUserId, 'account_holiday', row)
+    })
+    publishWorkspaceMutation(ownerUserId)
+  },
+
   async getAppSettings(expectedOwnerUserId?: string | null): Promise<AppSettings> {
     const database = await openDatabase()
     if (expectedOwnerUserId !== undefined) {

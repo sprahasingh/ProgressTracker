@@ -11,7 +11,7 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
-type AnalyticsSnapshot = { workspaceKey: string; summaries: TrackerAnalytics[] }
+type AnalyticsSnapshot = { workspaceKey: string; summaries: TrackerAnalytics[]; holidayCount: number }
 type RangeLength = 7 | 30 | 90
 
 export function AnalyticsPage() {
@@ -30,6 +30,7 @@ export function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ workspaceKey: string; message: string } | null>(null)
   const summaries = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.summaries : []
+  const holidayCount = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidayCount : 0
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
 
@@ -40,15 +41,17 @@ export function AnalyticsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [trackers, entries] = await Promise.all([
+      const [trackers, entries, holidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(startDate, today),
+        localRepository.listAccountHolidays(startDate, today),
       ])
+      const holidayDates = new Set(holidays.map((holiday) => holiday.date))
       const summaries = trackers.filter((tracker) => tracker.deletedAt === null).map((tracker) =>
-        calculateTrackerAnalytics(tracker, entries, startDate, today),
+        calculateTrackerAnalytics(tracker, entries, startDate, today, holidayDates),
       )
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
-        setSnapshot({ workspaceKey: currentWorkspace.key, summaries })
+        setSnapshot({ workspaceKey: currentWorkspace.key, summaries, holidayCount: holidays.length })
       }
     } catch {
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
@@ -87,6 +90,7 @@ export function AnalyticsPage() {
         <AnalyticsStat label="Check-ins" value={entriesCount} detail={`${range} day period`} />
         <AnalyticsStat label="Success rules met" value={qualifiedCount} detail="among recorded check-ins" />
         <AnalyticsStat label="Scheduled opportunities" value={scheduledCount} detail="active trackers only" />
+        <AnalyticsStat label="Holidays" value={holidayCount} detail="days paused across this account" />
         <AnalyticsStat label="Consistency" value={consistency === null ? '—' : `${consistency}%`} detail={consistency === null ? 'no active scheduled days' : `${qualifiedScheduled} of ${scheduledCount} scheduled days met`} />
       </div>
       <div className="analytics-trackers">

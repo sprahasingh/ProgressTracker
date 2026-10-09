@@ -5,10 +5,11 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
+import { getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
@@ -20,6 +21,8 @@ export function TodayPage() {
   const [upcomingGoals, setUpcomingGoals] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [weekEntries, setWeekEntries] = useState<StoredTrackerEntry[]>([])
+  const [todayHoliday, setTodayHoliday] = useState<AccountHoliday | undefined>()
+  const [holidayDates, setHolidayDates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
@@ -29,9 +32,10 @@ export function TodayPage() {
     setError('')
     setLoadError('')
     try {
-      const [allTrackers, recentEntries] = await Promise.all([
+      const [allTrackers, recentEntries, holidays] = await Promise.all([
         localRepository.listTrackers(),
         localRepository.listTrackerEntriesBetween(shiftCalendarDate(today, -6), today),
+        localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
       ])
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
       setAllTrackers(allTrackers)
@@ -39,6 +43,8 @@ export function TodayPage() {
         .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
       setEntries(todayEntries)
       setWeekEntries(recentEntries)
+      setHolidayDates(holidays.map((holiday) => holiday.date))
+      setTodayHoliday(holidays.find((holiday) => holiday.date === today))
     } catch {
       setLoadError('Today’s check-ins could not be loaded from this device.')
     } finally {
@@ -47,7 +53,7 @@ export function TodayPage() {
   }, [today])
 
   useEffect(() => { void refresh() }, [refresh])
-  const trackers = useMemo(() => allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today])
+  const trackers = useMemo(() => todayHoliday ? [] : allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today, todayHoliday])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
   const recordedCount = trackers.reduce((count, tracker) => count + (entryByTracker.get(tracker.id)?.outcome === 'recorded' ? 1 : 0), 0)
@@ -56,12 +62,14 @@ export function TodayPage() {
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = shiftCalendarDate(today, index - 6)
     const scheduled = allTrackers.filter((tracker) => isScheduledDate(tracker, date))
-    const checkedInIds = new Set(weekEntries.filter((entry) => entry.date === date && entry.outcome === 'recorded').map((entry) => entry.trackerId))
-    const done = scheduled.filter((tracker) => checkedInIds.has(tracker.id)).length
     const isToday = date === today
-    const state = scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 ? 'partial' : isToday ? 'today' : 'open'
-    return { date, scheduled: scheduled.length, done, isToday, state }
-  }), [today, allTrackers, weekEntries])
+    const isHoliday = holidayDates.includes(date)
+    const statuses = scheduled.map((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: new Set(holidayDates) }))
+    const done = isHoliday ? 0 : statuses.filter((status) => status === 'completed').length
+    const partial = statuses.some((status) => status === 'partial')
+    const state = isHoliday ? 'holiday' : scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 || partial ? 'partial' : isToday ? 'today' : 'missed'
+    return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state }
+  }), [today, allTrackers, weekEntries, holidayDates])
 
   async function save(tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
     setError('')
@@ -86,12 +94,13 @@ export function TodayPage() {
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." help={{ title: 'Today', summary: 'Record today’s progress with the least friction.', description: 'Each active tracker appears when today is a scheduled opportunity. Enter its metric values, optional details, and notes, then save the check-in. A skipped day is recorded separately from no activity. Your week pattern marks scheduled completion and rest days; the workspace time zone determines today.' }} />
       <p className="today-storage-note"><span className="sync-dot" /> Saved on this device first. Signed-in workspaces sync when online; guest data stays separate.</p>
+      {todayHoliday && <Surface className="today-holiday-banner"><span className="status-mark holiday" aria-hidden="true">☀</span><div><strong>Today is a holiday</strong><p>{todayHoliday.reason ? `${todayHoliday.reason[0]!.toUpperCase()}${todayHoliday.reason.slice(1)} · ` : ''}Your scheduled goals and streaks are paused today. Recorded activity remains saved.</p></div><Link to={`/holidays?date=${today}`}>Manage holidays</Link></Surface>}
       {!loading && !loadError && allTrackers.length > 0 && <section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
-          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.scheduled === 0 ? 'rest day' : `${day.done} of ${day.scheduled} check-ins`}${day.isToday ? ', today' : ''}`}>
+          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.isHoliday ? 'holiday' : day.scheduled === 0 ? 'rest day' : `${day.done} of ${day.scheduled} check-ins`}${day.isToday ? ', today' : ''}`}>
             <span className="week-rhythm-weekday">{calendarDateLabel(day.date, { weekday: 'short' })}</span>
-            <span className="week-rhythm-mark" aria-hidden="true">{day.state === 'rest' ? '·' : day.done === day.scheduled && day.scheduled > 0 ? '✓' : day.done > 0 ? '•' : day.isToday ? '＋' : '○'}</span>
+            <span className="week-rhythm-mark" aria-hidden="true">{day.isHoliday ? '☀' : day.state === 'rest' ? '·' : day.done === day.scheduled && day.scheduled > 0 ? '✓' : day.done > 0 ? '•' : day.isToday ? '＋' : '○'}</span>
             <span className="week-rhythm-date">{Number(day.date.slice(-2))}</span>
           </div>)}
         </div>
@@ -120,6 +129,7 @@ export function TodayPage() {
           {trackers.map((tracker) => <CheckinCard key={tracker.id} tracker={tracker} entry={entryByTracker.get(tracker.id)} onSave={save} onClear={clear} />)}
         </div>
       )}
+      {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Skipped' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}
     </section>
   )
 }

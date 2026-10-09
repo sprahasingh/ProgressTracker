@@ -1,5 +1,5 @@
 import { openDatabase, queueSyncMutation } from './database'
-import type { StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState } from './models'
+import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
 import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from '../services/supabase/syncTimestamps'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
@@ -40,7 +40,7 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
   let queuedLocalChanges = false
-  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
     const conflict = await database.syncConflicts.get(conflictId)
@@ -51,10 +51,11 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     const remoteIsOwned = remote?.user_id === userId
     const revision = remoteIsOwned && typeof remote.server_revision === 'number' ? remote.server_revision : null
     const stateKey = `${conflict.entity}:${conflict.entityId}`
-    const supportedEntity = conflict.entity === 'tracker' || conflict.entity === 'tracker_entry'
+    const supportedEntity = conflict.entity === 'tracker' || conflict.entity === 'tracker_entry' || conflict.entity === 'account_holiday'
     if (!supportedEntity) throw new Error('This record type cannot be resolved by the current sync client.')
 
     if (choice === 'fork-local') {
+      if (conflict.entity === 'account_holiday') throw new Error('A holiday is unique per date and cannot be forked. Choose the local or cloud holiday.')
       if (remoteIsOwned) throw new Error('A readable cloud record exists. Choose which version to keep instead of creating a duplicate.')
       if (remote !== null) throw new Error('The cloud record cannot be safely inspected. The local copy remains preserved.')
       if (conflict.entity === 'tracker') {
@@ -95,11 +96,23 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       if (!remote || !remoteIsOwned || revision === null) throw new Error('The cloud copy is unavailable, so the local record was kept unchanged.')
       let recordId = conflict.entityId
       if (conflict.entity === 'tracker') await database.trackers.put(trackerFromRemote(remote))
-      else {
+      else if (conflict.entity === 'tracker_entry') {
         const cloudEntry = entryFromRemote(remote)
         recordId = cloudEntry.id
         if (recordId !== conflict.entityId) await database.trackerEntries.delete(conflict.entityId)
         await database.trackerEntries.put(cloudEntry)
+      } else {
+        if (typeof remote.holiday_date !== 'string' || !(remote.reason === null || ['travel', 'exam', 'personal', 'other'].includes(String(remote.reason)))) throw new Error('The cloud holiday is invalid; the local copy remains unchanged.')
+        recordId = String(remote.id)
+        const cloudDate = remote.holiday_date as AccountHoliday['date']
+        const duplicateDate = await database.accountHolidays.where('date').equals(cloudDate).first()
+        if (duplicateDate && duplicateDate.id !== String(remote.id)) {
+          await database.accountHolidays.delete(duplicateDate.id)
+          const localOperation = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'account_holiday', duplicateDate.id]).first()
+          if (localOperation) await database.syncOperations.delete(localOperation.id)
+          await database.syncRecords.delete(`account_holiday:${duplicateDate.id}`)
+        }
+        await database.accountHolidays.put({ id: String(remote.id), date: remote.holiday_date as AccountHoliday['date'], reason: remote.reason as AccountHoliday['reason'], createdAt: String(remote.created_at), updatedAt: String(remote.updated_at), deletedAt: remote.deleted_at === null ? null : String(remote.deleted_at) })
       }
       await database.syncRecords.put({ key: `${conflict.entity}:${recordId}`, ownerUserId: userId, entity: conflict.entity, entityId: recordId, serverRevision: revision } satisfies SyncRecordState)
       if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
@@ -109,12 +122,27 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     }
 
     if (!remoteIsOwned || revision === null) throw new Error('The cloud record is unavailable or not readable by this account. Both copies remain preserved; use “Save local copy as new” to resolve the ID collision safely.')
-    let payload: StoredTrackerDefinition | StoredTrackerEntry | undefined
+    let payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | undefined
     if (existing?.ownerUserId === userId && existing.entityId === conflict.entityId) payload = existing.payload
     if (!payload) payload = conflict.localPayload
     if (conflict.entity === 'tracker') payload = parseTracker(payload)
-    else payload = parseEntry(payload)
-    const targetEntityId = conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId ? String(remote.id) : conflict.entityId
+    else if (conflict.entity === 'tracker_entry') payload = parseEntry(payload)
+    else {
+      const holiday = payload as AccountHoliday
+      if (!holiday || holiday.id !== conflict.entityId || !/^\d{4}-\d{2}-\d{2}$/.test(holiday.date)) throw new Error('The local holiday is invalid; both copies remain preserved.')
+    }
+    let targetEntityId = conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId ? String(remote.id) : conflict.entityId
+    if (conflict.entity === 'account_holiday' && remote.id !== conflict.entityId && remote.holiday_date === (payload as AccountHoliday).date) {
+      // Two devices may create the same account/date with different local IDs.
+      // Keep-local explicitly adopts the cloud identity and reviewed revision.
+      const holiday = payload as AccountHoliday
+      targetEntityId = String(remote.id)
+      const duplicateDate = await database.accountHolidays.where('date').equals(holiday.date).first()
+      if (duplicateDate && duplicateDate.id !== targetEntityId) await database.accountHolidays.delete(duplicateDate.id)
+      const rebased: AccountHoliday = { ...holiday, id: targetEntityId }
+      await database.accountHolidays.put(rebased)
+      payload = rebased
+    }
     await database.syncRecords.put({ key: `${conflict.entity}:${targetEntityId}`, ownerUserId: userId, entity: conflict.entity, entityId: targetEntityId, serverRevision: revision } satisfies SyncRecordState)
     if (targetEntityId !== conflict.entityId) await database.syncRecords.delete(stateKey)
     if (conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId) {

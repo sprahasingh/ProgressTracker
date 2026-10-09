@@ -23,6 +23,21 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('keeps account holidays isolated and atomically queues upsert, removal, and restoration', async () => {
+    await activateWorkspace('holiday-account-a')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-10', '2026-10-11'], 'travel')
+    expect(holiday).toMatchObject({ date: '2026-10-10', reason: 'travel', deletedAt: null })
+    expect(await db.accountHolidays.count()).toBe(2)
+    expect(await db.syncOperations.where('ownerUserId').equals('holiday-account-a').count()).toBe(2)
+    await localRepository.removeAccountHoliday('2026-10-10')
+    await expect(db.accountHolidays.get(holiday!.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['holiday-account-a', 'account_holiday', holiday!.id]).first()).resolves.toMatchObject({ payload: { deletedAt: expect.any(String) } })
+    await localRepository.restoreAccountHoliday('2026-10-10')
+    await expect(db.accountHolidays.get(holiday!.id)).resolves.toMatchObject({ deletedAt: null, reason: 'travel' })
+    await activateWorkspace('holiday-account-b')
+    await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
+  })
+
   it('persists version 2 planning configuration unchanged in IndexedDB and its account outbox', async () => {
     await activateWorkspace('planning-account')
     await localRepository.saveTracker(plannedGoal)

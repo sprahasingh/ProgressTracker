@@ -1,6 +1,46 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
 
+.holiday-form-surface { margin: 28px 0 18px; padding: 24px; }
+.holiday-form { display: grid; grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(125px, 1fr)) auto; align-items: end; gap: 14px; }
+.holiday-form h2, .holiday-list-heading h2 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 24px; font-weight: 500; }
+.holiday-form p { margin: 7px 0 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
+.holiday-form .form-field { margin: 0; }
+.holiday-status-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 14px 0 30px; padding: 15px 18px; border-radius: var(--radius-control); background: var(--surface-muted); color: var(--ink-muted); font-size: 12px; }
+.holiday-status-legend > span { display: inline-flex; align-items: center; gap: 7px; }
+.status-mark { display: inline-grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; font-size: 12px; font-style: normal; font-weight: 800; }
+.status-mark.completed { background: #dff3e8; color: #16854f; }
+.status-mark.partial { background: #fff0d9; color: #bf6a0e; }
+.status-mark.missed { background: #ffe2e2; color: #c33c49; }
+.status-mark.holiday { background: #dff1ff; color: #1876b7; }
+.holiday-list-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; }
+.holiday-list-heading a { color: var(--accent-strong); font-size: 13px; font-weight: 650; }
+.holiday-list { display: grid; gap: 10px; }
+.holiday-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(130px, 200px) auto auto; align-items: center; gap: 10px; padding: 14px 16px; }
+.holiday-row > div strong, .holiday-row > div small { display: block; }
+.holiday-row > div small { margin: 5px 0 0 29px; color: var(--ink-subtle); font-size: 11px; }
+.holiday-removed { margin-top: 20px; color: var(--ink-muted); }
+.holiday-removed > summary { cursor: pointer; margin-bottom: 12px; }
+.holiday-sync-note { margin-top: 24px; color: var(--ink-subtle); font-size: 12px; }
+.today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: #c8e7ff; background: #f2f9ff; }
+.today-holiday-banner > div { flex: 1; }
+.today-holiday-banner strong { color: #176fae; }
+.today-holiday-banner p { margin: 4px 0 0; color: var(--ink-muted); font-size: 12px; }
+.today-holiday-banner a, .today-holiday-records a { color: var(--accent-strong); font-size: 12px; font-weight: 650; }
+.today-holiday-records { margin: 18px 0; padding: 16px 20px; border-radius: var(--radius-control); background: #f2f9ff; }
+.today-holiday-records h2 { margin: 0 0 8px; font-size: 16px; }
+.today-holiday-records p { margin: 5px 0; color: var(--ink-muted); font-size: 13px; }
+.week-rhythm-day.holiday { background: #dff1ff; color: #1876b7; }
+.calendar-day > a { display: grid; min-height: 34px; place-items: center; border-radius: 9px; }
+.calendar-day > a:hover, .calendar-day-holiday > a { background: #e5f4ff; color: #176fae; }
+.calendar-dot { display: inline-grid; width: 17px; height: 17px; margin: 2px; place-items: center; border-radius: 50%; font-size: 9px; font-style: normal; font-weight: 800; }
+.calendar-dot.qualified { background: #dff3e8; color: #16854f; }
+.calendar-dot.skipped { background: #fff0d9; color: #bf6a0e; }
+.calendar-dot.missed { background: #ffe2e2; color: #c33c49; }
+.calendar-dot.holiday { background: #dff1ff; color: #1876b7; }
+@media (max-width: 900px) { .holiday-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .holiday-form > div { grid-column: 1 / -1; } .holiday-form > button { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .holiday-form-surface { padding: 17px; } .holiday-form { grid-template-columns: 1fr; } .holiday-form > div, .holiday-form > button { grid-column: auto; } .holiday-row { grid-template-columns: minmax(0, 1fr) auto auto; } .holiday-row select { grid-column: 1 / -1; grid-row: 2; } .holiday-status-legend { gap: 9px 12px; font-size: 11px; } }
+
 :root {
   font-family: var(--font-sans);
   color: var(--ink);

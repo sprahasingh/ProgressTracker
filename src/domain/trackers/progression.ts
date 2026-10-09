@@ -1,4 +1,4 @@
-import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerValue } from './types'
+import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
 import { classifyAchievement, evaluateTrackerEntry, isTrackerScheduledOccurrence } from './planning'
 
 export type StreakResult = {
@@ -48,18 +48,29 @@ function metricHasQualifyingValue(metric: TrackerMetricDefinition, value: Tracke
 
 function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
   if (entry.outcome !== 'recorded') return false
-  if (tracker.qualificationRule) return evaluateTrackerEntry(tracker, entry).qualified
-  const metric = tracker.metrics[0]
-  if (!metric) return false
-  const value = entry.values[metric.id]
+  const metricQualifies = (metric: TrackerMetricDefinition): boolean => {
+    const value = entry.values[metric.id]
+    if (metric.valueType === 'boolean') return value === true
   const qualification = metric.thresholds?.streakQualification ?? 'any-recorded-value'
-  if (qualification === 'any-recorded-value') return metricHasQualifyingValue(metric, value)
+    if (qualification === 'any-recorded-value') return metricHasQualifyingValue(metric, value)
   const achieved = classifyAchievement(metric, value)
   const ranks = { none: 0, minimum: 1, target: 2, stretch: 3 }
-  return ranks[achieved] >= (qualification === 'target' ? ranks.target : ranks.minimum)
+    return ranks[achieved] >= (qualification === 'target' ? ranks.target : ranks.minimum)
+  }
+  if (!tracker.qualificationRule) return tracker.metrics[0] ? metricQualifies(tracker.metrics[0]) : false
+  const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
+  const evaluate = (rule: TrackerRule): boolean => {
+    if (rule.kind === 'all') return rule.operands.every(evaluate)
+    if (rule.kind === 'any') return rule.operands.some(evaluate)
+    if (rule.kind === 'at-least') return rule.operands.filter(evaluate).length >= rule.required
+    if (rule.kind === 'threshold') return metrics.has(rule.metricId) ? metricQualifies(metrics.get(rule.metricId)!) : false
+    if (rule.kind === 'comparison') return evaluateTrackerEntry(tracker, entry).achievedMetricIds.includes(rule.metricId)
+    return false
+  }
+  return evaluate(tracker.qualificationRule)
 }
 
-function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string): Occurrence[] {
+function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>): Occurrence[] {
   const end = parseDate(asOfDate)
   const byDate = new Map<string, TrackerEntry>()
   for (const entry of entries) {
@@ -75,7 +86,7 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
   const occurrences: Occurrence[] = []
   for (let time = start; time <= end; time += DAY_MS) {
     const date = dateText(time)
-    if (!isTrackerScheduledOccurrence(tracker, date)) continue
+    if (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date)) continue
     const entry = byDate.get(date)
     occurrences.push({ date, qualified: entry ? qualifiesForStreak(tracker, entry) : false, open: date === asOfDate && !entry })
   }
@@ -83,9 +94,9 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
 }
 
 /** Counts qualifying scheduled occurrences. Missed days reset current streak, not the personal best. */
-export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string): StreakResult {
+export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set()): StreakResult {
   parseDate(asOfDate)
-  const occurrences = buildOccurrences(tracker, entries, asOfDate)
+  const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays)
   let longest = 0
   let run = 0
   let qualifyingCount = 0

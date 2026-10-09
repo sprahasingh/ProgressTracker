@@ -41,6 +41,21 @@ describe('local progress dashboard', () => {
     expect(screen.getByText('personal best')).toBeInTheDocument()
   })
 
+  it('marks a holiday blue while retaining the saved activity count for that date', async () => {
+    const definition = tracker()
+    const today = localCalendarDate()
+    await localRepository.saveTracker(definition)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: today, outcome: 'recorded', values: { pages: 5 }, note: 'Still available in history' })
+    await localRepository.saveAccountHolidays([today], 'personal')
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    const cell = await screen.findByRole('cell', { name: new RegExp(`${Number(today.slice(8, 10))}, holiday: 1 check-ins`) })
+    expect(within(cell).getByLabelText('Holiday')).toBeInTheDocument()
+    expect(within(cell).queryByLabelText('Completed')).not.toBeInTheDocument()
+    expect(cell).toHaveAccessibleName(/1 check-ins/)
+  })
+
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()

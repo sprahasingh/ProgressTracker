@@ -31,7 +31,7 @@ export type WorkPlan = {
   overdueByDays: number
 }
 
-export type GoalPlanDayState = 'rest' | 'future' | 'pending' | 'met' | 'below-target' | 'missed' | 'skipped'
+export type GoalPlanDayState = 'rest' | 'holiday' | 'future' | 'pending' | 'met' | 'below-target' | 'missed' | 'skipped'
 export type GoalPlanDay = { date: string; state: GoalPlanDayState; value: number | null }
 export type DailyRecurringMetricPlan = {
   metricId: string
@@ -88,6 +88,7 @@ export function calculateDailyRecurringMetricPlan(input: {
   target: number
   asOfDate: string
   startDate: string
+  holidays?: ReadonlySet<string>
 }): DailyRecurringMetricPlan {
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Daily planning requires a numeric or checklist metric.')
@@ -103,6 +104,7 @@ export function calculateDailyRecurringMetricPlan(input: {
   if (endDate < input.startDate) return { metricId: metric.id, target: input.target, direction, days: [], metCount: 0, elapsedOpportunities: 0, scheduledDaysRemaining: 0, consistencyPercent: null }
   const latest = latestEntriesByDate(tracker, input.entries)
   const days = dateRange(input.startDate, endDate).map((date): GoalPlanDay => {
+    if (input.holidays?.has(date)) return { date, state: 'holiday', value: null }
     if (!isTrackerScheduledOccurrence(tracker, date)) return { date, state: 'rest', value: null }
     const dateTime = parseDate(date)
     const entry = latest.get(date)
@@ -114,7 +116,7 @@ export function calculateDailyRecurringMetricPlan(input: {
     const met = direction === 'increase' ? value >= input.target : value <= input.target
     return { date, state: met ? 'met' : 'below-target', value }
   })
-  const elapsedOpportunities = days.filter((day) => day.state !== 'rest' && day.state !== 'future' && day.state !== 'pending').length
+  const elapsedOpportunities = days.filter((day) => day.state !== 'rest' && day.state !== 'holiday' && day.state !== 'future' && day.state !== 'pending').length
   const scheduledDaysRemaining = days.filter((day) => day.state === 'future' || day.state === 'pending').length
   const metCount = days.filter((day) => day.state === 'met').length
   return {
@@ -132,6 +134,7 @@ export function calculateCumulativeMetricPlan(input: {
   asOfDate: string
   startDate: string
   progressSemantics: 'incremental' | 'snapshot'
+  holidays?: ReadonlySet<string>
 }): CumulativeMetricPlan {
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Cumulative planning requires a numeric or checklist metric.')
@@ -144,7 +147,7 @@ export function calculateCumulativeMetricPlan(input: {
   const asOf = parseDate(input.asOfDate)
   if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
   const tracker = { ...input.tracker, startDate: input.startDate }
-  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date))
+  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date) && !input.holidays?.has(date))
   const latest = latestEntriesByDate(tracker, input.entries)
   let actualProgress = 0
   for (const [date, entry] of latest) {

@@ -10,12 +10,12 @@ import { calculateProgressRewards, calculateStreak, DEFAULT_REWARD_POLICY } from
 import { localCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
-type AchievementData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[] }
+type AchievementData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
 export function AchievementsPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
-  const [data, setData] = useState<AchievementData>({ trackers: [], entries: [] })
+  const [data, setData] = useState<AchievementData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const refresh = useCallback(async () => {
@@ -27,9 +27,12 @@ export function AchievementsPage() {
         const anchor = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
         return anchor < date ? anchor : date
       }, today)
-      const entries = trackers.length ? await localRepository.listTrackerEntriesBetween(earliest, today) : []
+      const [entries, holidays] = await Promise.all([
+        trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
+        localRepository.listAccountHolidays(earliest, today),
+      ])
       const trackerIds = new Set(trackers.map((tracker) => tracker.id))
-      setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)) })
+      setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
     } catch {
       setError('Your achievements could not be loaded from this device.')
     } finally {
@@ -40,7 +43,7 @@ export function AchievementsPage() {
 
   const achievements = useMemo(() => data.trackers.map((tracker) => {
     const history = data.entries.filter((entry) => entry.trackerId === tracker.id)
-    const streak = calculateStreak(tracker, history, today)
+    const streak = calculateStreak(tracker, history, today, new Set(data.holidays))
     const rewards = calculateProgressRewards(streak)
     const nextMilestone = DEFAULT_REWARD_POLICY.streakMilestones.find((milestone) => milestone > streak.longest)
     return { tracker, streak, rewards, nextMilestone }

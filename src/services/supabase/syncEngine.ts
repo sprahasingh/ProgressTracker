@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
-import type { StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
+import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
@@ -10,7 +10,8 @@ import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrack
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
-type OperationResult = { status: 'applied' | 'conflict'; record: ServerTracker | ServerEntry | null }
+type ServerHoliday = { id: string; user_id: string; holiday_date: string; reason: AccountHoliday['reason']; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
+type OperationResult = { status: 'applied' | 'conflict'; record: ServerTracker | ServerEntry | ServerHoliday | null }
 type SyncClient = Pick<SupabaseClient, 'auth'> & {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>
   from: (table: string) => any
@@ -21,7 +22,7 @@ const pageSize = 200
 const inFlightByUser = new Map<string, Promise<SyncSummary>>()
 let syncQueue: Promise<void> = Promise.resolve()
 
-function keyFor(entity: 'tracker' | 'tracker_entry', id: string) { return `${entity}:${id}` }
+function keyFor(entity: 'tracker' | 'tracker_entry' | 'account_holiday', id: string) { return `${entity}:${id}` }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Sync could not complete. Your local records are retained.' }
 
 function toServerPayload(operation: SyncOperation): Record<string, unknown> {
@@ -31,6 +32,10 @@ function toServerPayload(operation: SyncOperation): Record<string, unknown> {
     // Canonicalize the outgoing copy; leave the persisted local record untouched.
     const tracker = trackerDefinitionSchema.parse(normalizeTrackerTimestamps(operation.payload))
     return { id: tracker.id, schema_version: tracker.schemaVersion, kind: tracker.kind, status: tracker.status, name: tracker.name, definition: tracker, created_at: tracker.createdAt, updated_at: tracker.updatedAt, deleted_at: tracker.deletedAt }
+  }
+  if (operation.entity === 'account_holiday') {
+    const holiday = operation.payload as AccountHoliday
+    return { id: holiday.id, holiday_date: holiday.date, reason: holiday.reason, created_at: holiday.createdAt, updated_at: holiday.updatedAt, deleted_at: holiday.deletedAt }
   }
   const entry = trackerEntrySchema.parse(normalizeTrackerEntryTimestamps(operation.payload))
   return { id: entry.id, tracker_id: entry.trackerId, entry_date: entry.date, outcome: entry.outcome, entry_values: entry.values, note: entry.note, created_at: entry.createdAt, updated_at: entry.updatedAt, deleted_at: entry.deletedAt }
@@ -73,13 +78,13 @@ async function markConflict(database: ProgressTrackerDatabase, operation: SyncOp
   await database.transaction('rw', [database.syncOperations, database.syncConflicts], async () => {
     const latest = await database.syncOperations.get(operation.id)
     if (latest) await database.syncOperations.put({ ...latest, status: 'conflict', attempts: latest.attempts + 1, lastError: 'The cloud record changed since this device last read it.' })
-    await database.syncConflicts.put({ id: operation.id, ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry', entityId: operation.entityId, localPayload: operation.payload!, remoteRecord, detectedAt: new Date().toISOString() })
+    await database.syncConflicts.put({ id: operation.id, ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, localPayload: operation.payload!, remoteRecord, detectedAt: new Date().toISOString() })
   })
 }
 
-async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry) {
+async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
   if (!operation.ownerUserId) throw new Error('This queued operation has no authenticated owner.')
-  const revision: SyncRecordState = { key: keyFor(operation.entity as 'tracker' | 'tracker_entry', operation.entityId), ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry', entityId: operation.entityId, serverRevision: record.server_revision }
+  const revision: SyncRecordState = { key: keyFor(operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', operation.entityId), ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, serverRevision: record.server_revision }
   await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification], async () => {
     await database.syncRecords.put(revision)
     if (operation.entity === 'tracker') await database.trackerVerification.delete(operation.entityId)
@@ -158,7 +163,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
   return { deleted, failed, conflicts }
 }
 
-async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
+async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
   const operations = (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
     .filter((operation) => operation.entity === entity && operation.status === 'pending')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
@@ -175,13 +180,15 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       await accountState(database, userId)
       await assertUser(client, userId)
       const payload = toServerPayload(operation)
-      const { data, error } = await client.rpc('apply_tracker_sync_operation', {
-        p_expected_user_id: userId,
-        p_operation_id: operation.id,
-        p_entity: operation.entity,
-        p_expected_revision: operation.expectedRevision,
-        p_record: payload,
-      })
+      const { data, error } = operation.entity === 'account_holiday'
+        ? await client.rpc('apply_account_holiday_sync_operation', {
+          p_expected_user_id: userId, p_operation_id: operation.id,
+          p_expected_revision: operation.expectedRevision, p_record: payload,
+        })
+        : await client.rpc('apply_tracker_sync_operation', {
+          p_expected_user_id: userId, p_operation_id: operation.id, p_entity: operation.entity,
+          p_expected_revision: operation.expectedRevision, p_record: payload,
+        })
       if (error?.code === '23505' && operation.entity === 'tracker_entry') {
         const payload = operation.payload as StoredTrackerEntry
         await assertUser(client, userId)
@@ -291,7 +298,37 @@ async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: strin
   })
 }
 
-async function pullTable<T extends ServerTracker | ServerEntry>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries', apply: (row: T) => Promise<{ downloaded: number; conflicts: number }>) {
+async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: string, row: ServerHoliday): Promise<{ downloaded: number; conflicts: number }> {
+  if (row.user_id !== userId) throw new Error('Cloud response contained a holiday owned by another account.')
+  const remote: AccountHoliday = { id: row.id, date: row.holiday_date as AccountHoliday['date'], reason: row.reason, createdAt: normalizeSyncTimestamp(row.created_at, 'created_at') as string, updatedAt: normalizeSyncTimestamp(row.updated_at, 'updated_at') as string, deletedAt: row.deleted_at === null ? null : normalizeSyncTimestamp(row.deleted_at, 'deleted_at') as string }
+  if (remote.reason !== null && !['travel', 'exam', 'personal', 'other'].includes(remote.reason)) throw new Error('Cloud holiday has an unsupported reason.')
+  const stateKey = keyFor('account_holiday', row.id)
+  return database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+    const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'account_holiday', row.id]).first()
+    const state = await database.syncRecords.get(stateKey)
+    const local = await database.accountHolidays.get(row.id)
+    if (queued) {
+      if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
+        await database.syncOperations.put({ ...queued, status: 'conflict', attempts: queued.attempts + 1, lastError: 'The cloud holiday changed since this device last read it.' })
+        await database.syncConflicts.put({ id: queued.id, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, localPayload: queued.payload as AccountHoliday, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+        return { downloaded: 0, conflicts: 1 }
+      }
+      return { downloaded: 0, conflicts: 0 }
+    }
+    if (local && !state) {
+      await database.syncConflicts.put({ id: `pull:account_holiday:${row.id}`, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, localPayload: local, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+      return { downloaded: 0, conflicts: 1 }
+    }
+    if (!state || row.server_revision >= state.serverRevision) {
+      await database.accountHolidays.put(remote)
+      await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, serverRevision: row.server_revision })
+      return { downloaded: local ? 0 : 1, conflicts: 0 }
+    }
+    return { downloaded: 0, conflicts: 0 }
+  })
+}
+
+async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries' | 'account_holidays', apply: (row: T) => Promise<{ downloaded: number; conflicts: number }>) {
   let cursor = ''
   let downloaded = 0
   let conflicts = 0
@@ -332,10 +369,12 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const trackers = await uploadQueue(database, client, userId, 'tracker')
   const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId)
   const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
+  const holidays = await uploadQueue(database, client, userId, 'account_holiday')
   const trackerPull = await pullTable<ServerTracker>(database, client, userId, 'trackers', (row) => applyRemoteTracker(database, userId, row))
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
+  const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
-  return { uploaded: trackers.uploaded + entries.uploaded + deletionRequests.deleted, downloaded: trackerPull.downloaded + entryPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + deletionRequests.failed }
+  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted, downloaded: trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed }
 }
 
 /**
