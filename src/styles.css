@@ -895,6 +895,95 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
 [data-theme='dark'] .today-progress > span { color: var(--ink); }
 [data-theme='dark'] .tracker-card::before, [data-theme='dark'] .goal-card::before,
 [data-theme='dark'] .dashboard-tracker-card::before { filter: saturate(.8) brightness(1.2); }
+
+/* Navigation and route-level UX refresh. The logo stays fixed; the whole
+   navigation/action column gets one independent, viewport-bounded scroller. */
+.sidebar {
+  inset: 0 auto 0 0;
+  block-size: 100vh;
+  block-size: 100dvh;
+  min-block-size: 0;
+  overflow: hidden;
+  padding-block: max(14px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-bottom));
+}
+.brand { flex: 0 0 auto; min-block-size: 40px; }
+.sidebar-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  margin-top: 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.nav-list { display: flex; flex-direction: column; gap: 5px; }
+.nav-link { flex: 0 0 auto; min-block-size: 44px; }
+.nav-link.active { box-shadow: inset 3px 0 0 var(--accent); }
+.sidebar-secondary { display: grid; gap: 3px; margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--line); }
+.nav-secondary { display: none; }
+.nav-caption-secondary { margin: 7px 12px 4px; }
+.secondary-link { min-block-size: 40px; font-size: 12px; }
+.sync-state { flex: 0 0 auto; min-block-size: 43px; margin-top: 14px; padding: 12px 7px 6px; }
+.nav-link[aria-current='page'] { color: var(--accent-strong); background: var(--accent-soft); }
+.section-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 5px 0 19px; padding: 4px; border-radius: 15px; background: color-mix(in srgb, var(--surface) 83%, var(--canvas)); width: fit-content; max-width: 100%; }
+.section-tab { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; border-radius: 11px; color: var(--ink-muted); font-size: 12px; font-weight: 650; }
+.section-tab:hover { background: var(--surface); color: var(--accent-strong); }
+.section-tab.active { background: var(--surface); color: var(--accent-strong); box-shadow: 0 1px 5px #283a3012; }
+.tracker-kind-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.filter-chip { min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-muted); cursor: pointer; }
+.filter-chip.active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
+.calendar-toolbar { display: flex; align-items: end; gap: 12px; margin: 4px 0 14px; }
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 9px 16px; margin: 0 0 15px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink-muted); font-size: 12px; }
+.calendar-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.calendar-layout { display: grid; grid-template-columns: minmax(300px, .92fr) minmax(320px, 1.08fr); align-items: start; gap: 15px; }
+.calendar-month-card, .calendar-day-details { min-width: 0; padding: 18px; }
+.calendar-month-card > h2 { margin: 0 0 14px; font-size: 18px; }
+.calendar-day-selected { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
+.calendar-day > button { display: flex; width: 100%; min-height: 55px; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; }
+.calendar-day > button:hover { background: var(--accent-soft); }
+.calendar-day > button .calendar-dot { position: static; display: inline-grid; place-items: center; }
+.calendar-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.calendar-day-heading h2 { margin: 7px 0 0; font-size: clamp(18px, 2vw, 23px); }
+.calendar-day-summary, .calendar-holiday-note, .calendar-no-activity { color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
+.calendar-activity-list { display: grid; gap: 7px; margin: 14px 0 0; padding: 0; list-style: none; }
+.calendar-activity-list li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); }
+.calendar-activity-list li > div { display: grid; gap: 3px; min-width: 0; }
+.calendar-activity-list li > div span, .calendar-activity-list li > div small { color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
+.calendar-status-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; font-weight: 800; background: var(--surface-muted); color: var(--ink-muted); }
+.calendar-status-mark.completed { background: var(--positive-soft); color: var(--positive); }
+.calendar-status-mark.partial { background: var(--warning-soft); color: var(--warning); }
+.calendar-status-mark.missed { background: var(--danger-soft); color: var(--danger); }
+.calendar-status-mark.holiday { background: var(--info-soft); color: var(--info); }
+.calendar-status-mark.future { background: var(--surface-muted); color: var(--ink-subtle); }
+.calendar-day-details .button-small { white-space: nowrap; }
+.dashboard-first-action { color: var(--ink-muted); font-size: 13px; }
+
+@media (max-height: 700px) and (min-width: 761px) {
+  .sidebar { padding-block: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-bottom)); }
+  .sidebar-scroll { margin-top: 10px; }
+  .nav-link { min-block-size: 40px; }
+  .nav-caption-secondary { margin-block: 4px; }
+  .sync-state { min-block-size: 38px; margin-top: 8px; padding-block: 8px 4px; }
+  .topbar { height: 58px; }
+  .page-content { padding-top: 28px; }
+}
+@media (max-width: 760px) {
+  .calendar-layout { grid-template-columns: 1fr; }
+  .calendar-month-card, .calendar-day-details { padding: 14px; }
+  .calendar-day > button { min-height: 44px; }
+  .calendar-activity-list li { grid-template-columns: 31px minmax(0, 1fr); }
+  .calendar-activity-list li > .button-small { grid-column: 2; justify-self: start; }
+  .section-tabs { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); }
+  .section-tab { padding-inline: 8px; }
+  .mobile-nav { min-height: 64px; padding-top: 5px; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
+  .mobile-nav-link, .mobile-more > summary { min-width: 0; min-height: 46px; flex: 1 1 0; gap: 2px; font-size: 16px; }
+  .mobile-nav-link small, .mobile-more > summary small { max-width: 100%; font-size: 8px; line-height: 1.1; white-space: nowrap; }
+  .main-area { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .calendar-toolbar { align-items: end; }
+  .calendar-legend { gap: 8px 11px; font-size: 11px; }
+}
 [data-theme='dark'] {
   --joy-sun-soft: #4b3021;
   --joy-coral-soft: #4a2830;
@@ -1139,21 +1228,19 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .dashboard-stat-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .goal-plan-heading { display: flex; align-items: center; gap: 9px; }
 .goal-plan-heading h3 { margin: 0; }
-.info-button { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius: 50%; background: var(--surface); color: var(--accent-strong); font: 700 12px/1 var(--font-sans); cursor: pointer; vertical-align: middle; z-index: 30; }
+.info-button { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius: 50%; background: var(--surface); color: var(--accent-strong); font: 700 12px/1 var(--font-sans); cursor: pointer; vertical-align: middle; }
 .info-button:hover { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-1px); }
 .info-button::before { content: "i"; }
 .info-button:focus-visible, .info-dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.info-dialog { width: min(460px, calc(100vw - 32px)); max-width: none; max-height: min(80vh, 640px); padding: 0; overflow: visible; border: 0; border-radius: 22px; background: transparent; color: var(--ink); }
-.info-dialog::backdrop { background: rgb(20 34 30 / .48); backdrop-filter: blur(3px); }
-.info-dialog-card { position: relative; padding: 29px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); box-shadow: 0 24px 90px rgb(20 34 30 / .22); }
+.info-popover { z-index: 1200; width: min(360px, calc(100vw - 24px)); max-height: min(70vh, 520px); overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
 .info-dialog-close { position: absolute; top: 12px; right: 13px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-raised); color: var(--ink); font-size: 23px; cursor: pointer; }
 .info-dialog-summary { margin: 0 38px 18px 0; padding: 13px 15px; border-left: 4px solid var(--joy-teal); border-radius: 0 12px 12px 0; background: var(--joy-teal-soft); color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.55; }
-.info-dialog-card h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 25px; font-weight: 650; }
+.info-popover h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 650; }
 .info-dialog-description { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.75; white-space: pre-line; }
 .form-field > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tracker-kind-picker legend { display: flex; align-items: center; gap: 7px; }
 @media (max-width: 600px) {
-  .info-dialog-card { padding: 24px 20px; }
+  .info-popover { padding: 20px 17px; }
   .dashboard-heading-actions { gap: 8px; }
   .page-title-row { gap: 8px; }
 }

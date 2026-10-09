@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -11,6 +12,7 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { assertDateRange } from '../../db/calendarDate'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 
@@ -19,9 +21,11 @@ type HistoryRange = '7' | '30' | '90' | 'custom'
 export function HistoryPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
-  const [range, setRange] = useState<HistoryRange>('30')
-  const [customStart, setCustomStart] = useState<string>(() => shiftCalendarDate(today, -29))
-  const [customEnd, setCustomEnd] = useState<string>(today)
+  const [searchParams] = useSearchParams()
+  const initialDate = searchParams.get('date')
+  const [range, setRange] = useState<HistoryRange>(initialDate ? 'custom' : '30')
+  const [customStart, setCustomStart] = useState<string>(() => initialDate ?? shiftCalendarDate(today, -29))
+  const [customEnd, setCustomEnd] = useState<string>(() => initialDate ?? today)
   const [trackerFilter, setTrackerFilter] = useState('all')
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
@@ -38,6 +42,15 @@ export function HistoryPage() {
     rangeIssue = 'Choose valid dates, with the start date on or before the end date.'
   }
   const rangeRequest = useRef(0)
+
+  useEffect(() => {
+    const date = searchParams.get('date')
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setRange('custom')
+      setCustomStart(date)
+      setCustomEnd(date)
+    }
+  }, [searchParams])
 
   const refresh = useCallback(async () => {
     const request = ++rangeRequest.current
@@ -80,6 +93,7 @@ export function HistoryPage() {
   return (
     <section className="tracker-page history-page" aria-labelledby="history-title">
       <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update past check-ins without losing the original timeline." help={{ title: 'History', summary: 'Find, review, and correct saved check-ins.', description: 'Use the date range and tracker filters to narrow the timeline. Editing an entry changes that saved entry and may change calculated streaks or goal progress. Deleting a check-in removes that local entry and queues the change for account sync when available.' }} />
+      <SectionTabs label="Insights sections" items={insightsSectionTabs} />
       <div className="history-toolbar">
         <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select></label>
         {range === 'custom' && <>
@@ -126,7 +140,8 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
     return next
   })
   async function saveChanges() {
-    const validationIssue = entryOutcome === 'recorded' ? validateTrackerEntryValues(tracker, values) : undefined
+    // Historical values may predate a newly selected precision; allow edits without rewriting their meaning.
+    const validationIssue = entryOutcome === 'recorded' ? validateTrackerEntryValues(tracker, values, { enforcePrecision: false }) : undefined
     if (validationIssue) {
       setIssue(validationIssue.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.'))
       return
@@ -174,7 +189,7 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
 
 function formatMetric(metric: StoredTrackerDefinition['metrics'][number], value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Done' : 'Not done'
-  if (typeof value === 'number') return String(value)
+  if (typeof value === 'number') return formatTrackerNumber(value)
   if (metric.valueType === 'checklist' && Array.isArray(value)) return `${value.filter((item) => item === true).length} items done`
   if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null) return `${Object.values(value).filter((item) => item === true).length} items done`
   if (typeof value === 'string') return value

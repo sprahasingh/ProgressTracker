@@ -5,37 +5,22 @@ import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 
 const primaryNavigation = [
-  { to: '/', label: 'Today', icon: '◷', group: 'today', end: true },
-  { to: '/trackers', label: 'My Space', icon: '✳', group: 'space' },
-  { to: '/dashboard', label: 'Insights', icon: '▥', group: 'insights' },
-  { to: '/settings', label: 'Settings', icon: '⚙', group: 'settings' },
+  { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
+  { to: '/trackers', label: 'Trackers & Goals', mobileLabel: 'Trackers', icon: '✳', matches: ['/trackers', '/goals'] },
+  { to: '/calendar', label: 'Calendar', icon: '▦', matches: ['/calendar', '/history'] },
+  { to: '/dashboard', label: 'Insights', icon: '↗', matches: ['/dashboard', '/analytics', '/achievements'] },
+  { to: '/holidays', label: 'Holidays & Breaks', mobileLabel: 'Breaks', icon: '☀', matches: ['/holidays'] },
 ]
-
-const groupedNavigation = {
-  space: [
-    { to: '/goals', label: 'Goals' },
-    { to: '/holidays', label: 'Holidays & Breaks' },
-    { to: '/bin', label: 'Bin' },
-  ],
-  insights: [
-    { to: '/analytics', label: 'Analytics' },
-    { to: '/history', label: 'History' },
-    { to: '/achievements', label: 'Wins' },
-  ],
-  settings: [
-    { to: '/auth', label: 'Account & sync' },
-  ],
-}
 
 const mobileMoreNavigation = [
-  { to: '/goals', label: 'Goals' },
-  { to: '/holidays', label: 'Holidays & Breaks' },
   { to: '/bin', label: 'Bin' },
-  { to: '/analytics', label: 'Analytics' },
-  { to: '/history', label: 'History' },
-  { to: '/achievements', label: 'Wins & achievements' },
+  { to: '/settings', label: 'Settings' },
   { to: '/auth', label: 'Account & sync' },
 ]
+
+function routeMatches(pathname: string, destinations: readonly string[]) {
+  return destinations.some((path) => path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`))
+}
 
 export function AppShell() {
   const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
@@ -68,29 +53,22 @@ export function AppShell() {
           <span>progress<span className="brand-light">tracker</span></span>
         </a>
 
-        <div className="nav-caption">WORKSPACE</div>
-        <nav className="nav-list" aria-label="Primary navigation">
-          {primaryNavigation.map(({ to, label, icon, group, end }) => {
-            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin') || location.pathname.startsWith('/holidays')
-              : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
-                : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
-            return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `nav-link${isActive || activeGroup ? ' active' : ''}`}>
+        <div className="sidebar-scroll">
+          <nav className="nav-list" aria-label="Primary navigation">
+          {primaryNavigation.map(({ to, label, icon, matches, end }) => {
+            const active = routeMatches(location.pathname, matches)
+            return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`nav-link${active ? ' active' : ''}`}>
               <span className="nav-icon" aria-hidden="true">{icon}</span>
               {label}
             </NavLink>
           })}
-        </nav>
-
-        <div className="nav-secondary">
-          <span className="nav-caption nav-caption-secondary">MY SPACE</span>
-          {groupedNavigation.space.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/trackers'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
-          <span className="nav-caption nav-caption-secondary">INSIGHTS</span>
-          {groupedNavigation.insights.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/dashboard'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
-          <span className="nav-caption nav-caption-secondary">ACCOUNT</span>
-          {groupedNavigation.settings.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
-        </div>
-
-        <div className="sidebar-bottom">
+          </nav>
+          <div className="sidebar-secondary" aria-label="More destinations">
+            <span className="nav-caption nav-caption-secondary">MORE</span>
+            <NavLink to="/settings" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">⚙</span>Settings</NavLink>
+            <NavLink to="/bin" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">▤</span>Bin</NavLink>
+            <NavLink to="/auth" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">◉</span>Account & sync</NavLink>
+          </div>
           <Link className={`sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
         </div>
       </aside>
@@ -127,12 +105,10 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {primaryNavigation.map(({ to, label, icon, group, end }) => {
-            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals') || location.pathname.startsWith('/bin') || location.pathname.startsWith('/holidays')
-              : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
-                : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
-            return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `mobile-nav-link${isActive || activeGroup ? ' active' : ''}`}>
-              <span aria-hidden="true">{icon}</span><small>{label}</small>
+          {primaryNavigation.map(({ to, label, mobileLabel, icon, matches, end }) => {
+            const active = routeMatches(location.pathname, matches)
+            return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`mobile-nav-link${active ? ' active' : ''}`}>
+              <span aria-hidden="true">{icon}</span><small>{mobileLabel ?? label}</small>
             </NavLink>
           })}
           <details className="mobile-more">

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 type Props = {
@@ -8,69 +8,106 @@ type Props = {
   label?: string
 }
 
-export function InfoButton({ title, summary, description, label = `More about ${title}` }: Props) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const [buttonContainer, setButtonContainer] = useState<HTMLElement | null>(null)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
-  const [open, setOpen] = useState(false)
+const OPEN_INFO_EVENT = 'progress-tracker:open-info'
 
-  useLayoutEffect(() => {
-    const button = buttonRef.current
-    if (!button) return
-    const containingLabel = button.closest('label')
-    if (!containingLabel?.parentElement) return
-    setButtonContainer(containingLabel.parentElement)
-    const updatePosition = () => {
-      const rect = button.getBoundingClientRect()
-      // jsdom has no layout engine and reports every element at 0,0. Keep its
-      // portaled controls out of simulated pointer targets; browsers use the
-      // measured position normally.
-      setPosition(rect.width === 0 && rect.height === 0
-        ? { top: -1000, left: -1000 }
-        : { top: rect.top, left: rect.left })
-    }
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [])
+/** One accessible, viewport-aware popover shared by every information control. */
+export function InfoButton({ title, summary, description, label = `More about ${title}` }: Props) {
+  const id = useId()
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: -1000, left: -1000 })
 
   useEffect(() => {
-    if (!open || !dialogRef.current) return
-    if (dialogRef.current.showModal) dialogRef.current.showModal()
-    else dialogRef.current.setAttribute('open', '')
+    const onOpen = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== id) setOpen(false)
+    }
+    document.addEventListener(OPEN_INFO_EVENT, onOpen)
+    return () => document.removeEventListener(OPEN_INFO_EVENT, onOpen)
+  }, [id])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const trigger = buttonRef.current
+      const popover = popoverRef.current
+      if (!trigger || !popover) return
+      const anchor = trigger.getBoundingClientRect()
+      const panel = popover.getBoundingClientRect()
+      if (anchor.width === 0 && anchor.height === 0) {
+        setPosition({ top: -1000, left: -1000 })
+        return
+      }
+      const gap = 8
+      const margin = 12
+      const below = anchor.bottom + gap + panel.height <= window.innerHeight - margin
+      const top = below ? anchor.bottom + gap : Math.max(margin, anchor.top - panel.height - gap)
+      const centeredLeft = anchor.left + anchor.width / 2 - panel.width / 2
+      const left = Math.min(Math.max(margin, centeredLeft), Math.max(margin, window.innerWidth - panel.width - margin))
+      setPosition({ top, left })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
+    if (buttonRef.current) observer?.observe(buttonRef.current)
+    if (popoverRef.current) observer?.observe(popoverRef.current)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      observer?.disconnect()
+    }
   }, [open])
 
-  const trigger = <button
-    ref={buttonRef}
-    type="button"
-    className="info-button"
-    aria-label={label}
-      title={label}
-    style={buttonContainer ? { position: 'fixed', top: position.top, left: position.left } : undefined}
-    onClick={(event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      setOpen(true)
-    }}
-  />
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && !buttonRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  function toggle() {
+    if (!open) document.dispatchEvent(new CustomEvent(OPEN_INFO_EVENT, { detail: id }))
+    setOpen((current) => !current)
+  }
 
   return <>
-    {buttonContainer ? createPortal(trigger, buttonContainer) : trigger}
-    {open && createPortal(<dialog ref={dialogRef} className="info-dialog" aria-label={`${title} information`} onClose={() => setOpen(false)}>
-      <article className="info-dialog-card">
-        <button className="info-dialog-close" type="button" onClick={() => {
-          if (dialogRef.current?.close) dialogRef.current.close()
-          else setOpen(false)
-        }} aria-label="Close explanation">×</button>
-        <p className="info-dialog-summary">{summary}</p>
-        <h2>{title}</h2>
-        <p className="info-dialog-description">{description}</p>
-      </article>
-    </dialog>, document.body)}
+    <button
+      ref={buttonRef}
+      type="button"
+      className="info-button"
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls={open ? `info-popover-${id}` : undefined}
+      title={label}
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggle() }}
+    />
+    {open && createPortal(<div
+      ref={popoverRef}
+      id={`info-popover-${id}`}
+      className="info-popover"
+      role="dialog"
+      aria-labelledby={`info-title-${id}`}
+      style={{ position: 'fixed', top: position.top, left: position.left }}
+    >
+      <button className="info-dialog-close" type="button" onClick={() => { setOpen(false); buttonRef.current?.focus() }} aria-label="Close explanation">×</button>
+      <p className="info-dialog-summary">{summary}</p>
+      <h2 id={`info-title-${id}`}>{title}</h2>
+      <p className="info-dialog-description">{description}</p>
+    </div>, document.body)}
   </>
 }

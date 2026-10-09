@@ -149,14 +149,15 @@ export function calculateCumulativeMetricPlan(input: {
   const tracker = { ...input.tracker, startDate: input.startDate }
   const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date) && !input.holidays?.has(date))
   const latest = latestEntriesByDate(tracker, input.entries)
-  let actualProgress = 0
+  const progressValues: number[] = []
   for (const [date, entry] of latest) {
     const timestamp = parseDate(date)
     if (timestamp < start || timestamp > asOf || entry.outcome !== 'recorded') continue
     const value = numericMetricValue(metric, entry.values[metric.id])
     // Incremental progress on a rest date remains real progress; the schedule controls pace only.
-    if (value !== null) actualProgress += value
+    if (value !== null) progressValues.push(value)
   }
+  const actualProgress = sumDecimalValues(progressValues)
   const scheduledDaysTotal = scheduledDates.length
   const elapsedScheduledDays = scheduledDates.filter((date) => parseDate(date) <= asOf).length
   const scheduledDaysRemaining = scheduledDates.filter((date) => parseDate(date) >= asOf).length
@@ -178,6 +179,25 @@ export function calculateCumulativeMetricPlan(input: {
     requiredDailyPace: remainingWork === 0 ? 0 : scheduledDaysRemaining > 0 ? remainingWork / scheduledDaysRemaining : null,
     scheduledDaysRemaining, scheduledDaysTotal, status, paceStatus,
   }
+}
+
+/** Add the shortest decimal forms of stored numeric values before converting once to Number.
+ * This avoids a 0.1 + 0.2 display/calculation artifact without rounding saved history. */
+function sumDecimalValues(values: readonly number[]): number {
+  if (values.length === 0) return 0
+  const parsed = values.map((value) => {
+    const [coefficient = '0', exponentText] = value.toString().toLowerCase().split('e')
+    const exponent = Number(exponentText ?? 0)
+    const negative = coefficient.startsWith('-')
+    const unsigned = negative ? coefficient.slice(1) : coefficient
+    const [whole = '0', fraction = ''] = unsigned.split('.')
+    const digits = BigInt(`${whole}${fraction}` || '0') * (negative ? -1n : 1n)
+    const scale = fraction.length - exponent
+    return scale < 0 ? { integer: digits * 10n ** BigInt(-scale), scale: 0 } : { integer: digits, scale }
+  })
+  const scale = Math.max(...parsed.map((part) => part.scale))
+  const total = parsed.reduce((sum, part) => sum + part.integer * 10n ** BigInt(scale - part.scale), 0n)
+  return Number(total) / 10 ** scale
 }
 
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */

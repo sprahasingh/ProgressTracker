@@ -5,11 +5,14 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
+import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
+import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
@@ -21,6 +24,7 @@ export function TodayPage() {
   const [upcomingGoals, setUpcomingGoals] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [weekEntries, setWeekEntries] = useState<StoredTrackerEntry[]>([])
+  const [goalEntries, setGoalEntries] = useState<StoredTrackerEntry[]>([])
   const [todayHoliday, setTodayHoliday] = useState<AccountHoliday | undefined>()
   const [holidayDates, setHolidayDates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,11 +42,18 @@ export function TodayPage() {
         localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
       ])
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
+      const goals = allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline && tracker.deadline >= today)
+      const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
+        const start = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
+        return start < earliest ? start : earliest
+      }, today)
+      const historicalGoalEntries = goals.length ? await localRepository.listTrackerEntriesBetween(earliestGoalDate, today) : []
       setAllTrackers(allTrackers)
       setUpcomingGoals(allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.status === 'active' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
         .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
       setEntries(todayEntries)
       setWeekEntries(recentEntries)
+      setGoalEntries(historicalGoalEntries)
       setHolidayDates(holidays.map((holiday) => holiday.date))
       setTodayHoliday(holidays.find((holiday) => holiday.date === today))
     } catch {
@@ -115,7 +126,24 @@ export function TodayPage() {
         <div className="today-upcoming-list">{upcomingGoals.map((goal) => {
           const days = Math.round((Date.parse(`${goal.deadline}T00:00:00.000Z`) - Date.parse(`${today}T00:00:00.000Z`)) / 86_400_000)
           const deadlineText = days === 0 ? 'Due today' : days === 1 ? '1 day left' : `${days} days left`
-          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong><span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
+          const metric = goal.metrics.find((item) => goal.goalPlanning?.cumulativeTargets[item.id] !== undefined && item.valueType !== 'boolean')
+          let recommendation: number | undefined
+          let remaining: number | undefined
+          if (metric && goal.goalPlanning) {
+            const entriesForGoal = goalEntries.filter((entry) => entry.trackerId === goal.id)
+            const startDate = goal.startDate ?? goal.createdAt.slice(0, 10)
+            const total = goal.goalPlanning.cumulativeTargets[metric.id]!
+            const holidaySet = new Set(holidayDates)
+            if (goal.goalPlanning.progressSemantics[metric.id] === 'incremental') {
+              const calculation = calculateCumulativeMetricPlan({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: today, progressSemantics: 'incremental', holidays: holidaySet })
+              remaining = calculation.remainingWork
+              const savedAllocation = goal.goalPlanning.allocations?.[metric.id]?.[today]
+              if (savedAllocation !== undefined) recommendation = savedAllocation
+              else recommendation = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: today, holidays: holidaySet }).days.find((day) => day.date === today)?.amount ?? undefined
+            }
+          }
+          const unit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''
+          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Today: {formatTrackerNumber(recommendation)}{unit} recommended · {formatTrackerNumber(remaining ?? 0)}{unit} remaining</span>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
         })}</div>
       </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
@@ -159,7 +187,7 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
   })
 
   async function submit(outcome: 'recorded' | 'skipped', valuesToSave = values) {
-    const valueIssue = outcome === 'recorded' ? validateTrackerEntryValues(tracker, valuesToSave) : undefined
+    const valueIssue = outcome === 'recorded' ? validateTrackerEntryValues(tracker, valuesToSave, { existingValues: entry?.values }) : undefined
     if (valueIssue) { setIssue(valueIssue.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
     setIssue('')
     setSaving(true)
@@ -168,10 +196,23 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
   }
 
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
+  const targets = tracker.metrics.flatMap((metric) => {
+    const target = tracker.goalPlanning?.mode === 'daily-recurring'
+      ? tracker.goalPlanning.dailyTargets[metric.id]
+      : metric.thresholds?.target
+    if (target === undefined || metric.valueType === 'boolean') return []
+    const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
+    const completed = typeof value === 'number' ? value
+      : metric.valueType === 'checklist' && value && typeof value === 'object' ? Object.values(value).filter((item) => item === true).length
+        : 0
+    const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
+    return [{ id: metric.id, name: metric.name, target, completed, remaining: Math.max(0, target - completed), unit }]
+  })
 
   return (
     <Surface className={`today-checkin-card${entry?.outcome === 'recorded' ? ' checked-in' : ''}`}>
       <div className="today-checkin-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div>{entry && <span className={`today-state ${entry.outcome}`}>{entry.outcome === 'skipped' ? 'Skipped' : result?.qualified ? 'Success rule met' : 'Logged'}</span>}</div>
+      {targets.length > 0 && <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress today`}>{targets.map((target) => <div key={target.id}><span>{target.name}{tracker.goalPlanning?.mode === 'daily-recurring' ? ' · today' : ''}</span><strong>{formatTrackerNumber(target.completed)} / {formatTrackerNumber(target.target)}{target.unit}</strong><small>{formatTrackerNumber(target.remaining)}{target.unit} left</small></div>)}</div>}
       <div>
         {!(canOneTapComplete && !entry) && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
         <details className="today-note-details">

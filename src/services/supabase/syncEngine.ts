@@ -4,7 +4,7 @@ import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
 
@@ -174,6 +174,11 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
     try {
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
         await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }

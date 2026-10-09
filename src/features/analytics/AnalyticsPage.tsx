@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { CalendarDate } from '../../db/models'
 import { calculateTrackerAnalytics, type TrackerAnalytics } from '../../domain/trackers/analytics'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -80,6 +82,7 @@ export function AnalyticsPage() {
 
   return <section className="tracker-page analytics-page" aria-labelledby="analytics-title">
     <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and each measure’s own logged values. All figures come from this workspace’s saved activity." help={{ title: 'Analytics', summary: 'Explore patterns in your saved tracker activity.', description: 'Consistency uses scheduled opportunities and each tracker’s qualification rule. Metric charts preserve each measure’s unit rather than combining unrelated values. Figures reflect retained check-ins in this workspace and can change when history is edited or removed.' }} />
+    <SectionTabs label="Insights sections" items={insightsSectionTabs} />
     <div className="analytics-toolbar">
       <label className="history-filter"><span>Period</span><select className="auth-input" value={range} onChange={(event) => setRange(Number(event.target.value) as RangeLength)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
       <span className="analytics-range">{calendarDateLabel(startDate, { month: 'short', day: 'numeric' })} – {calendarDateLabel(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
@@ -105,11 +108,11 @@ export function AnalyticsPage() {
               const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
               const latest = metricSummary.latestValue
               return <section className="analytics-metric" key={metric.id} aria-label={`${metric.name} analysis`}>
-                <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values{metricSummary.averageValue === null ? '' : ` · average ${metricSummary.averageValue.toFixed(1)}${unit}`}</span></div>
+                <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values{metricSummary.averageValue === null ? '' : ` · average ${formatTrackerNumber(metricSummary.averageValue)}${unit}`}</span></div>
                 {visibleObservations.length === 0 ? <p className="analytics-empty-metric">No values recorded in this period.</p> : <>
-                  <p className="analytics-latest">Latest: {latest}{unit}{metric.valueType === 'boolean' ? latest === 1 ? ' · yes' : ' · no' : ''}</p>
+                  <p className="analytics-latest">Latest: {latest === null ? '—' : metric.valueType === 'boolean' ? latest : formatTrackerNumber(latest)}{latest === null ? '' : unit}{metric.valueType === 'boolean' && latest !== null ? latest === 1 ? ' · yes' : ' · no' : ''}</p>
                   <div className="analytics-value-chart" role="img" aria-label={`${metric.name} daily logged values, shown separately in ${metric.unit || (metric.valueType === 'checklist' ? 'items' : 'values')}`}>
-                    {visibleObservations.map((item) => <span key={item.date} title={`${calendarDateLabel(item.date)}: ${item.value}${unit}`} aria-label={`${item.date}: ${item.value}${unit}`} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
+                    {visibleObservations.map((item) => <span key={item.date} title={`${calendarDateLabel(item.date)}: ${formatTrackerNumber(item.value)}${unit}`} aria-label={`${item.date}: ${formatTrackerNumber(item.value)}${unit}`} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
                   </div>
                   <p className="analytics-chart-caption">Each bar is one day’s value; this chart does not add values across dates.</p>
                 </>}

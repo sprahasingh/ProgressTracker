@@ -45,7 +45,7 @@ export function createCumulativeAllocationPreview(input: {
   }
 
   const eligible = days.filter((day) => day.eligible)
-  const allocations = distributeTarget(progress.remainingWork, eligible.length, metric.valueType === 'checklist')
+  const allocations = distributeTarget(progress.remainingWork, eligible.length, metric.valueType === 'checklist', metric.precision?.increment)
   let allocationIndex = 0
   for (const day of days) {
     if (day.eligible) day.amount = allocations[allocationIndex++] ?? 0
@@ -62,13 +62,27 @@ export function createCumulativeAllocationPreview(input: {
 }
 
 /** Allocates evenly, rounding down to at least hundredths and keeping the exact remainder on the final date. */
-export function distributeTarget(remainingTarget: number, dayCount: number, integerUnits = false): number[] {
+export function distributeTarget(remainingTarget: number, dayCount: number, integerUnits = false, increment?: number): number[] {
   if (!Number.isFinite(remainingTarget) || remainingTarget < 0 || remainingTarget > Number.MAX_SAFE_INTEGER) {
     throw new RangeError('Remaining target must be a finite nonnegative number.')
   }
   if (!Number.isInteger(dayCount) || dayCount < 0) throw new RangeError('Eligible day count must be a nonnegative integer.')
   if (dayCount === 0 || remainingTarget === 0) return Array.from({ length: dayCount }, () => 0)
-  if (integerUnits && !Number.isInteger(remainingTarget)) throw new RangeError('Checklist allocations must use whole item counts.')
+  const unit = integerUnits ? 1 : increment
+  if (unit !== undefined) {
+    if (!Number.isFinite(unit) || unit <= 0) throw new RangeError('Allocation increment must be finite and positive.')
+    const scaled = remainingTarget / unit
+    const nearest = Math.round(scaled)
+    const tolerance = Math.max(1, Math.abs(scaled)) * Number.EPSILON * 8
+    if (integerUnits && Math.abs(scaled - nearest) > tolerance) throw new RangeError('Remaining target must use a whole item count.')
+    // Recorded progress may predate the current precision setting. Preserve it as-is;
+    // suggest the next permitted plan increment and report the visible over-allocation.
+    const units = Math.abs(scaled - nearest) <= tolerance ? nearest : Math.ceil(scaled)
+    if (!Number.isSafeInteger(units)) throw new RangeError('Target is too large for precise allocation.')
+    const base = Math.floor(units / dayCount)
+    const remainder = units % dayCount
+    return Array.from({ length: dayCount }, (_, index) => (base + (index < remainder ? 1 : 0)) * unit)
+  }
   let divisor = integerUnits ? 1 : 10 ** Math.min(15, Math.max(2, decimalPlaces(remainingTarget)))
   if (remainingTarget > Number.MAX_SAFE_INTEGER / divisor) divisor = 1
   const roundedBase = Math.floor((remainingTarget / dayCount) * divisor) / divisor

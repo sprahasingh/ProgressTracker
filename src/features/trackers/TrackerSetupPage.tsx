@@ -13,6 +13,7 @@ import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { isTrackerScheduledOccurrence } from '../../domain/trackers/planning'
+import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import type { CalendarDate } from '../../db/models'
 
 type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string }
@@ -233,9 +234,15 @@ export function TrackerSetupPage() {
         existing?.schemaVersion === 1 && JSON.stringify(goalPlanning) !== JSON.stringify(emptyGoalPlanning())
       )
       const persistGoalPlanning = kind === 'goal' && planWasConfigured
+      const hasPrecisionConfiguration = submittedMetrics.some((metric) => metric.precision !== undefined)
+      const hasV3Planning = Boolean(submittedPlanning.planningTimeZone || submittedPlanning.allocations)
+      const schemaVersion: TrackerDefinition['schemaVersion'] = hasPrecisionConfiguration ? 4
+        : hasV3Planning ? 3
+          : persistGoalPlanning ? 2
+            : existing && existing.schemaVersion < 4 ? existing.schemaVersion : 1
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
-        schemaVersion: existing?.schemaVersion === 3 ? 3 : persistGoalPlanning ? 2 : existing?.schemaVersion ?? 1, id, name: form.name, description: form.description.trim(), kind,
+        schemaVersion, id, name: form.name, description: form.description.trim(), kind,
         status: existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,
@@ -248,7 +255,7 @@ export function TrackerSetupPage() {
       }
       const checked = trackerDefinitionSchema.safeParse(candidate)
       if (!checked.success) {
-        setError(checked.error.issues[0]?.message ?? 'Check the tracker details and try again.')
+        setError(checked.error.issues.map((issue) => `${issue.path.length ? `${issue.path.join('.')}: ` : ''}${issue.message}`).filter((message, index, messages) => messages.indexOf(message) === index).join(' ') || 'Check the tracker details and try again.')
         return
       }
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
@@ -270,7 +277,7 @@ export function TrackerSetupPage() {
       <Surface className="tracker-created-card">
         <span className="tracker-created-mark" aria-hidden="true">✓</span>
         <div><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === savedTracker.kind)?.title}</span><h2>{savedTracker.name}</h2>
-          {goal && savedTracker.goalPlanning && savedTracker.metrics[0] && <p>{savedTracker.goalPlanning.cumulativeTargets[savedTracker.metrics[0].id]} {savedTracker.metrics[0].unit} by {calendarDateLabel(savedTracker.deadline ?? '')}</p>}
+          {goal && savedTracker.goalPlanning && savedTracker.metrics[0] && <p>{formatTrackerNumber(savedTracker.goalPlanning.cumulativeTargets[savedTracker.metrics[0].id] ?? 0)} {savedTracker.metrics[0].unit} by {calendarDateLabel(savedTracker.deadline ?? '')}</p>}
         </div>
         <div className="tracker-created-actions">
           <Link className="button button-primary button-medium" to="/">{goal ? 'Record my first progress' : 'Record my first check-in'}</Link>
@@ -302,7 +309,7 @@ export function TrackerSetupPage() {
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}
           {!existing && selectedKind === 'goal' && <section className="quick-measure goal-quick-fields" aria-labelledby="goal-target-heading">
             <div className="quick-measure-heading"><div><h2 id="goal-target-heading">What does reaching it look like?</h2><p>We’ll spread this total across your scheduled days and suggest a daily pace.</p></div><span className="quick-setup-badge">GOAL</span></div>
-            <div className="goal-target-row"><label className="form-field"><span>Total amount <InfoButton title="Total amount" summary="Set the full amount you want to reach by your deadline." description="For cumulative goals, only incremental progress entries add together toward this total. The app suggests a pace across scheduled days. This planning target is not the same as the minimum, target, or stretch threshold for one check-in." /></span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => { setGoalAmount(event.target.value); setFieldErrors((current) => ({ ...current, goalAmount: '' })) }} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : 'goal-amount-help'} /></label><label className="form-field"><span>What are you counting? <InfoButton title="Unit" summary="Name the unit so progress has a clear meaning." description="Use one unit for this measure, such as problems, pages, kilometers, or minutes. Units are kept separate across measures; the app never adds unlike quantities together." /></span><input aria-label="What are you counting?" className="auth-input" maxLength={40} value={goalUnit} onChange={(event) => { setGoalUnit(event.target.value); setFieldErrors((current) => ({ ...current, goalUnit: '' })) }} placeholder="problems" aria-invalid={Boolean(fieldErrors.goalUnit)} aria-describedby={fieldErrors.goalUnit ? 'goal-unit-error' : 'goal-unit-help'} /></label></div>
+            <div className="goal-target-row"><label className="form-field"><span>Total amount <InfoButton title="Total amount" summary="Set the full amount you want to reach by your deadline." description="For example, solve 100 problems by October 31. Only incremental progress entries add together toward this total. The app suggests a pace across scheduled days. This planning target is separate from the thresholds for one check-in." /></span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => { setGoalAmount(event.target.value); setFieldErrors((current) => ({ ...current, goalAmount: '' })) }} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : 'goal-amount-help'} /></label><label className="form-field"><span>What are you counting? <InfoButton title="Unit" summary="Name the unit so progress has a clear meaning." description="Use one unit for this measure, such as problems, pages, kilometers, or minutes. Units are kept separate across measures; the app never adds unlike quantities together." /></span><input aria-label="What are you counting?" className="auth-input" maxLength={40} value={goalUnit} onChange={(event) => { setGoalUnit(event.target.value); setFieldErrors((current) => ({ ...current, goalUnit: '' })) }} placeholder="problems" aria-invalid={Boolean(fieldErrors.goalUnit)} aria-describedby={fieldErrors.goalUnit ? 'goal-unit-error' : 'goal-unit-help'} /></label><label className="form-field"><span>Deadline <InfoButton title="Goal deadline" summary="Choose when you want to reach the total." description="For example, October 31 for a 100-problem goal. The planner counts only scheduled, non-holiday dates through this date. Changing the deadline recalculates the recommendation and never edits saved check-ins." /></span><input aria-label="Goal deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => { update('deadline', event.target.value); setFieldErrors((current) => ({ ...current, deadline: '' })) }} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label></div>
             <small id="goal-amount-help" className="field-hint">Use a number above zero. Your saved check-ins add to this total.</small>
             {fieldErrors.goalAmount && <small id="goal-amount-error" className="auth-error">{fieldErrors.goalAmount}</small>}{fieldErrors.goalUnit && <small id="goal-unit-error" className="auth-error">{fieldErrors.goalUnit}</small>}
             {pace ? <p className="goal-pace-suggestion"><span aria-hidden="true">✦</span> Suggested pace: about <strong>{pace}</strong> through your scheduled dates. Start small; you can adjust the plan any time.</p> : <p className="goal-pace-suggestion" role="status">Choose a target and deadline to see a suggested pace.</p>}
@@ -315,7 +322,7 @@ export function TrackerSetupPage() {
             </>}
             {!existing && selectedKind === 'challenge' && <label className="form-field"><span>Finish by <em>optional</em> <InfoButton title="Challenge finish date" summary="Set the date this focused challenge should end." description="This is a calendar date in your workspace time zone. It provides an end point for your challenge but does not change saved check-in values." /></span><input className="auth-input" type="date" value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
           </div>}
-          {existing && <label className="form-field tracker-deadline-field"><span>Deadline <em>optional</em> <InfoButton title="Deadline" summary="Choose the date you want this goal or challenge to be completed." description="Deadline status and cumulative pace use this calendar date in the planner’s time zone. Editing the date recalculates expected and remaining scheduled days; it does not erase historical progress." /></span><input className="auth-input" type="date" value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
+          {existing && (existing.kind !== 'habit' || Boolean(existing.deadline)) && <label className="form-field tracker-deadline-field"><span>Deadline <em>optional</em> <InfoButton title="Deadline" summary="Choose the date you want this goal or challenge to be completed." description="For example, a goal to solve 100 problems by October 31. Deadline status and cumulative pace use this calendar date in the planner’s time zone. Editing the date recalculates expected and remaining scheduled days; it does not erase historical progress." /></span><input className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
           <details className="advanced-setup">
             <summary><span><strong>Advanced options</strong><small>More measures, reminders, milestones, and planning</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary>
             <div className="advanced-setup-content">

@@ -116,6 +116,23 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get(v3.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: v3.goalPlanning })
   })
 
+  it('uploads and downloads v4 precision definitions through the existing revisioned sync RPC', async () => {
+    await activateWorkspace('sync-user')
+    const v4: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 4,
+      metrics: [{ ...plannedGoal.metrics[0]!, precision: { decimalPlaces: 0, increment: 1 } }],
+    }
+    await localRepository.saveTracker(v4)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(v4, 'sync-user', 1) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 4, definition: { schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 0, increment: 1 } }] } })
+    await db.trackers.clear()
+    await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v4)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(v4.id)).resolves.toMatchObject({ schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 0, increment: 1 } }] })
+  })
+
   it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {
     await activateWorkspace('sync-user')
     const v3: StoredTrackerDefinition = {

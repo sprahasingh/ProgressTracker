@@ -10,10 +10,43 @@ describe('InfoButton', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'More about Daily target' }))
 
-    const dialog = screen.getByRole('dialog', { name: 'Daily target information' })
+    const dialog = screen.getByRole('dialog', { name: 'Daily target' })
     expect(dialog).toHaveTextContent('A short summary.')
     expect(dialog).toHaveTextContent('A detailed explanation at the bottom.')
     expect(dialog.querySelector('.info-dialog-summary')?.textContent).toBe('A short summary.')
     expect(dialog.querySelector('.info-dialog-description')?.textContent).toBe('A detailed explanation at the bottom.')
+    expect(dialog).toHaveClass('info-popover')
+  })
+
+  it('closes when the user presses Escape or clicks outside', () => {
+    render(<InfoButton title="Schedule" summary="A summary." description="More details." />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Schedule' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More about Schedule' }))
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps only one information popover open at a time', () => {
+    render(<><InfoButton title="First" summary="One." description="Details one." /><InfoButton title="Second" summary="Two." description="Details two." /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'More about First' }))
+    expect(screen.getByRole('dialog', { name: 'First' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More about Second' }))
+    expect(screen.queryByRole('dialog', { name: 'First' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Second' })).toBeInTheDocument()
+  })
+
+  it('anchors the popover beside its icon and moves it above when there is no room below', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('info-button')) return new DOMRect(380, 750, 20, 20)
+      if (this.classList.contains('info-popover')) return new DOMRect(0, 0, 360, 180)
+      return new DOMRect(0, 0, 0, 0)
+    })
+    render(<InfoButton title="Deadline" summary="Summary." description="Details." />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Deadline' }))
+    const popover = screen.getByRole('dialog', { name: 'Deadline' })
+    expect(popover).toHaveStyle({ top: '562px', left: '210px' })
   })
 })
