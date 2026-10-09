@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
-import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence } from './planning'
+import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence, latestEntriesByDate } from './planning'
 
-export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; holiday?: boolean }
+export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; holiday?: boolean; closed?: boolean }
 export type CumulativeAllocationPreview = {
   metricId: string
   totalTarget: number
@@ -35,12 +35,15 @@ export function createCumulativeAllocationPreview(input: {
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Allocation previews require a numeric or checklist metric.')
 
   const startDate = input.startDate > input.asOfDate ? input.startDate : input.asOfDate
+  const latestEntries = latestEntriesByDate(input.tracker, input.entries)
+  const todayClosed = latestEntries.has(input.asOfDate)
   const days: AllocationPreviewDay[] = []
   if (startDate <= input.tracker.deadline!) {
     for (let time = dateNumber(startDate); time <= dateNumber(input.tracker.deadline!); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
       const holiday = input.holidays?.has(date) ?? false
-      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date) && !holiday, amount: null, ...(holiday ? { holiday: true } : {}) })
+      const closed = date === input.asOfDate && todayClosed
+      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date) && !holiday && !closed, amount: null, ...(holiday ? { holiday: true } : {}), ...(closed ? { closed: true } : {}) })
     }
   }
 
@@ -61,12 +64,7 @@ export function createCumulativeAllocationPreview(input: {
   }
 }
 
-/**
- * Distributes whole increments from the earliest eligible dates forward. Any
- * remainder goes to early dates; when there are more days than needed, later
- * days receive zero. Re-running with current remaining work and eligible days
- * naturally recalculates the pace after progress or a missed day.
- */
+/** Distributes the smallest allowed increments from the earliest eligible dates. */
 export function distributeTarget(remainingTarget: number, dayCount: number, integerUnits = false, increment?: number): number[] {
   if (!Number.isFinite(remainingTarget) || remainingTarget < 0 || remainingTarget > Number.MAX_SAFE_INTEGER) {
     throw new RangeError('Remaining target must be a finite nonnegative number.')
@@ -74,27 +72,37 @@ export function distributeTarget(remainingTarget: number, dayCount: number, inte
   if (!Number.isInteger(dayCount) || dayCount < 0) throw new RangeError('Eligible day count must be a nonnegative integer.')
   if (dayCount === 0 || remainingTarget === 0) return Array.from({ length: dayCount }, () => 0)
   const unit = integerUnits ? 1 : increment
-  if (unit !== undefined) {
-    if (!Number.isFinite(unit) || unit <= 0) throw new RangeError('Allocation increment must be finite and positive.')
-    const scaled = remainingTarget / unit
-    const nearest = Math.round(scaled)
-    const tolerance = Math.max(1, Math.abs(scaled)) * Number.EPSILON * 8
-    if (integerUnits && Math.abs(scaled - nearest) > tolerance) throw new RangeError('Remaining target must use a whole item count.')
-    // Recorded progress may predate the current precision setting. Preserve it as-is;
-    // suggest the next permitted plan increment and report the visible over-allocation.
-    const units = Math.abs(scaled - nearest) <= tolerance ? nearest : Math.ceil(scaled)
-    if (!Number.isSafeInteger(units)) throw new RangeError('Target is too large for precise allocation.')
-    const base = Math.floor(units / dayCount)
-    const remainder = units % dayCount
-    return Array.from({ length: dayCount }, (_, index) => (base + (index < remainder ? 1 : 0)) * unit)
-  }
-  let divisor = integerUnits ? 1 : 10 ** Math.min(15, Math.max(2, decimalPlaces(remainingTarget)))
-  if (remainingTarget > Number.MAX_SAFE_INTEGER / divisor) divisor = 1
-  const roundedBase = Math.floor((remainingTarget / dayCount) * divisor) / divisor
-  const allocations = Array.from({ length: dayCount }, (_, index) => index === dayCount - 1
-    ? Math.round((remainingTarget - roundedBase * (dayCount - 1)) * divisor) / divisor
-    : roundedBase)
-  return allocations
+  if (unit !== undefined && (!Number.isFinite(unit) || unit <= 0)) throw new RangeError('Allocation increment must be finite and positive.')
+  const scale = Math.min(15, Math.max(unit === undefined ? 2 : 0, decimalPlaces(remainingTarget), unit === undefined ? 0 : decimalPlaces(unit)))
+  const factor = 10 ** scale
+  const targetUnits = decimalToScaledInteger(remainingTarget, scale)
+  const incrementUnits = unit === undefined ? 1n : decimalToScaledInteger(unit, scale)
+  if (integerUnits && targetUnits % incrementUnits !== 0n) throw new RangeError('Remaining target must use a whole item count.')
+  // Legacy progress can be finer than the current precision. Keep that progress
+  // intact and allocate the next allowed increment; the preview reports the small
+  // over-allocation instead of rounding recorded work.
+  const incrementCount = (targetUnits + incrementUnits - 1n) / incrementUnits
+  const quotient = incrementCount / BigInt(dayCount)
+  const remainder = incrementCount % BigInt(dayCount)
+  return Array.from({ length: dayCount }, (_, index) => {
+    const count = quotient + (BigInt(index) < remainder ? 1n : 0n)
+    return Number(count * incrementUnits) / factor
+  })
+}
+
+function decimalToScaledInteger(value: number, scale: number): bigint {
+  const [coefficient = '0', exponentText] = value.toString().toLowerCase().split('e')
+  const exponent = Number(exponentText ?? 0)
+  const negative = coefficient.startsWith('-')
+  const unsigned = negative ? coefficient.slice(1) : coefficient
+  const [whole = '0', fraction = ''] = unsigned.split('.')
+  const digits = BigInt(`${whole}${fraction}` || '0') * (negative ? -1n : 1n)
+  const valueScale = fraction.length - exponent
+  if (valueScale <= scale) return digits * 10n ** BigInt(scale - valueScale)
+  const divisor = 10n ** BigInt(valueScale - scale)
+  const quotient = digits / divisor
+  const remainder = digits % divisor
+  return quotient + (remainder * 2n >= divisor ? 1n : 0n)
 }
 
 export function summarizeAllocations(remainingTarget: number, allocations: readonly number[]): AllocationPreviewTotals {

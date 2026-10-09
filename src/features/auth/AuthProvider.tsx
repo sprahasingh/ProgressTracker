@@ -166,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = subscribeToWorkspaceMutations((ownerId) => {
+      if (!ownerId) return
       mutationVersionRef.current.set(ownerId, (mutationVersionRef.current.get(ownerId) ?? 0) + 1)
       const existingTimer = mutationTimersRef.current.get(ownerId)
       if (existingTimer) clearTimeout(existingTimer)

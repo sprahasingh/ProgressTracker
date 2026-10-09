@@ -255,7 +255,22 @@ export function TrackerSetupPage() {
       }
       const checked = trackerDefinitionSchema.safeParse(candidate)
       if (!checked.success) {
-        setError(checked.error.issues.map((issue) => `${issue.path.length ? `${issue.path.join('.')}: ` : ''}${issue.message}`).filter((message, index, messages) => messages.indexOf(message) === index).join(' ') || 'Check the tracker details and try again.')
+        const allocationIncrementIssues = checked.error.issues.filter((issue) =>
+          issue.path[0] === 'goalPlanning' && issue.path[1] === 'allocations'
+          && issue.message.startsWith('Allocation must use increments of '),
+        )
+        const otherIssues = checked.error.issues.filter((issue) => !allocationIncrementIssues.includes(issue))
+        const messages: string[] = []
+        if (allocationIncrementIssues.length) {
+          const metricIds = new Set(allocationIncrementIssues.map((issue) => String(issue.path[2] ?? '')))
+          const conflicts = [...metricIds].map((metricId) => {
+            const metric = submittedMetrics.find((item) => item.id === metricId)
+            return metric ? `${metric.name} (increments of ${metric.precision?.increment})` : 'a measure'
+          })
+          messages.push(`Saved daily allocations for ${conflicts.join(', ')} do not match the selected precision. Update those allocation values or restore the previous precision before saving. Your goal total, allocations, and recorded progress have not changed.`)
+        }
+        messages.push(...otherIssues.map((issue) => issue.message).filter((message, index, all) => all.indexOf(message) === index))
+        setError(messages.join(' ') || 'Check the tracker details and try again.')
         return
       }
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)

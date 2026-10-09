@@ -1,5 +1,5 @@
 begin;
-select plan(59);
+select plan(61);
 
 select ok(to_regclass('public.tracker_deletion_ledger') is not null, 'durable deletion ledger exists');
 select ok(to_regclass('public.tracker_deletion_cleanup_control') is not null, 'cleanup control exists');
@@ -17,7 +17,13 @@ select ok(not has_table_privilege('authenticated', 'public.trackers', 'update'),
 select ok(has_table_privilege('authenticated', 'public.tracker_entries', 'select'), 'authenticated retains tracker-entry reads');
 select ok(not has_table_privilege('authenticated', 'public.tracker_entries', 'insert'), 'entry inserts cannot bypass the serialized RPC');
 select ok((select convalidated and pg_get_constraintdef(oid) like '%1, 2, 3%' from pg_constraint where conrelid='public.trackers'::regclass and conname='trackers_schema_version_check'), 'permanent deletion preserves tracker schema versions 1 through 3');
-select ok(exists(select 1 from cron.job where jobname = 'progress-tracker-bin-cleanup' and active), 'hourly cleanup cron job is installed and active');
+select ok(case when to_regclass('cron.job') is null then true else
+  (xpath('/table/row/safe/text()', query_to_xml(
+    $query$select count(*) = 1 and bool_and(schedule = '17 * * * *' and active
+      and command like '%public.purge_expired_tracker_bin()%') as safe
+      from cron.job where jobname = 'progress-tracker-bin-cleanup'$query$,
+    true, false, '')))[1]::text = 'true'
+  end, 'cleanup scheduler is either absent or has exactly the expected inert job');
 select is((select enabled from public.tracker_deletion_cleanup_control where id), false, 'cleanup stays inert until operational verification');
 
 insert into auth.users (id, email) values
@@ -62,7 +68,10 @@ select is((select count(*) from public.sync_operation_receipts where user_id = '
 -- remains private; only the security-definer sync RPC may inspect or replay it.
 insert into public.sync_operation_receipts(user_id, operation_id, entity, expected_revision, record_payload, result) values
   ('00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000862', 'tracker_entry', 1,
-   '{"id":"00000000-0000-4000-8000-000000000761","tracker_id":"00000000-0000-4000-8000-000000000661","entry_values":{"pages":4}}', '{"status":"applied","record":{"id":"00000000-0000-4000-8000-000000000761"}}');
+   '{"id":"00000000-0000-4000-8000-000000000761","tracker_id":"00000000-0000-4000-8000-000000000661","entry_values":{"pages":4}}', '{"status":"applied","record":{"id":"00000000-0000-4000-8000-000000000761"}}'),
+  ('00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000861', 'tracker', null,
+   '{"id":"00000000-0000-4000-8000-000000000661","schema_version":1,"kind":"goal","status":"active","name":"stale tracker","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000661","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}',
+   '{"status":"applied","record":{"id":"00000000-0000-4000-8000-000000000661","name":"stale tracker"}}');
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000061';
 select throws_ok($$insert into public.trackers (id, user_id, schema_version, kind, status, name, definition) values
@@ -82,6 +91,9 @@ select throws_ok($$delete from public.tracker_entries where id = '00000000-0000-
 select is((public.permanently_delete_tracker('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000961','00000000-0000-4000-8000-000000000661',1)->>'status'), 'already_deleted'::text, 'repeated deletion request is idempotent');
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000862','tracker_entry',1,
   '{"id":"00000000-0000-4000-8000-000000000761","tracker_id":"00000000-0000-4000-8000-000000000661","entry_date":"2026-10-09","outcome":"recorded","entry_values":{"pages":4}}')->>'status'), 'permanently_deleted'::text, 'old matching receipt cannot replay deleted entry data');
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000861','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000661","schema_version":1,"kind":"goal","status":"active","name":"stale tracker","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000661","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')->>'status'), 'permanently_deleted'::text, 'old matching tracker receipt cannot replay deleted tracker data');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000661'), 0::bigint, 'replaying a stale tracker receipt does not resurrect deleted content');
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000962','tracker',null,
   '{"id":"00000000-0000-4000-8000-000000000661","schema_version":1,"kind":"goal","status":"active","name":"stale tracker","definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000661","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')->>'status'), 'permanently_deleted'::text, 'stale tracker upload is rejected by the ledger');
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000963','tracker_entry',null,
