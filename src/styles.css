@@ -225,6 +225,8 @@ a { color: inherit; text-decoration: none; }
 .allocation-preview { margin-top: 15px; padding: 14px; border: 1px dashed var(--accent); border-radius: var(--radius-control); background: color-mix(in srgb, var(--accent-soft) 35%, var(--surface)); }
 .allocation-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .allocation-preview-heading > div { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.allocation-plan-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.allocation-input-label.allocation-unsaved input { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); box-shadow: 0 0 0 1px var(--accent-soft); }
 .allocation-preview-heading h4 { margin: 0; color: var(--ink); font-size: 12px; }
 .allocation-preview-note, .allocation-rounding-note { margin: 8px 0 12px; color: var(--ink-muted); font-size: 10px; line-height: 1.55; }
 .allocation-preview-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
@@ -441,6 +443,7 @@ a { color: inherit; text-decoration: none; }
   .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .allocation-preview { padding: 10px; }
   .allocation-preview-heading { align-items: flex-start; flex-direction: column; }
+  .allocation-plan-actions { justify-content: flex-start; }
   .allocation-preview-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-stat { padding: 14px; }
   .dashboard-columns { grid-template-columns: 1fr; gap: 24px; }

@@ -40,6 +40,7 @@ function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: 
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   db.close()
   await db.delete()
 })
@@ -64,6 +65,40 @@ describe('account-scoped sync engine', () => {
     const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(plannedGoal)] })
     await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
     await expect(db.trackers.get(plannedGoal.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: plannedGoal.goalPlanning })
+  })
+
+  it('uploads, downloads, and retains v3 allocations through the existing sync revision path', async () => {
+    await activateWorkspace('sync-user')
+    const v3: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 3,
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await localRepository.saveTracker(v3)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(v3, 'sync-user', 1) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 3, definition: { schemaVersion: 3, goalPlanning: v3.goalPlanning } })
+    await db.trackers.clear()
+    await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v3)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(v3.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: v3.goalPlanning })
+  })
+
+  it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {
+    await activateWorkspace('sync-user')
+    const v3: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 3, startDate: '2026-01-01',
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await db.trackers.put(v3)
+    await queueSyncMutation(db, 'sync-user', 'tracker', v3)
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', '')
+    const { client, rpc } = fakeClient()
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.trackers.get(v3.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: v3.goalPlanning })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('disabled until the hosted migration') })
   })
 
   it('uploads only the active owner’s queued tracker and records the server revision', async () => {

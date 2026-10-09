@@ -3,6 +3,7 @@ import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
+import { isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -77,12 +78,19 @@ export const localRepository = {
   },
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
+    if (draft.schemaVersion === 3 && !isSchemaV3WriteEnabled()) throw new Error('Schema v3 plan writes are disabled until the hosted migration is applied and verified.')
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
       const existing = await database.trackers.get(draft.id)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      const activeOwner = workspace?.userId ?? null
+      if (activeOwner) {
+        const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([activeOwner, 'tracker', draft.id]).first()
+        if (conflict) throw new Error('Resolve this tracker’s cloud conflict before saving a plan. Both versions are preserved.')
+      }
       const record: StoredTrackerDefinition = {
         ...draft,
         createdAt: existing?.createdAt ?? draft.createdAt,
@@ -90,8 +98,7 @@ export const localRepository = {
         deletedAt: null,
       }
       await database.trackers.put(record)
-      const workspace = await database.workspaceMetadata.get('workspace')
-      ownerUserId = workspace?.userId ?? null
+      ownerUserId = activeOwner
       await queueSyncMutation(database, ownerUserId, 'tracker', record)
       return record
     })

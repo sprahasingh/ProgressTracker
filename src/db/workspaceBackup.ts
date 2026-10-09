@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { openDatabase } from './database'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
+import { isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
@@ -180,6 +181,9 @@ export async function previewWorkspaceRestore(value: unknown, expectedOwnerUserI
 /** Add only missing records. Existing identical rows are skipped; all other collisions abort atomically. */
 export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId: string | null): Promise<WorkspaceRestorePreview> {
   const backup = parseAndCheckBackup(value, expectedOwnerUserId)
+  if (!isSchemaV3WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 3)) {
+    throw new Error('This production build cannot restore schema v3 trackers until the hosted migration is applied and verified.')
+  }
   const database = await openDatabase()
   const result = await database.transaction('rw', [...backupStores.map((name) => database.table(name))], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')

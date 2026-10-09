@@ -41,8 +41,8 @@ select results_eq($$select schema_version, definition->'goalPlanning'->>'mode', 
   $$values (2::smallint, 'daily-recurring'::text, 1::bigint)$$, 'the sync RPC stores planning JSON and initializes the existing revision token');
 
 select throws_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000000123', 3, 'goal', 'active', 'Unsupported',
-   '{"schemaVersion":3,"id":"00000000-0000-4000-8000-000000000123","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
+  ('00000000-0000-4000-8000-000000000123', 4, 'goal', 'active', 'Unsupported',
+   '{"schemaVersion":4,"id":"00000000-0000-4000-8000-000000000123","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}')$$,
   '23514', null, 'unsupported schema versions remain rejected');
 select throws_ok($$insert into public.trackers (id, schema_version, kind, status, name, definition) values
   ('00000000-0000-4000-8000-000000000124', 2, 'goal', 'active', 'Mismatched',

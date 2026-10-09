@@ -35,6 +35,26 @@ describe('sync conflict recovery', () => {
     await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: planned.goalPlanning })
   })
 
+  it('retains v3 allocations when explicitly keeping the local side of a revision conflict', async () => {
+    await activateWorkspace('conflict-user')
+    const planned: StoredTrackerDefinition = {
+      ...tracker, id: 'planned-v3-conflict', kind: 'goal', schemaVersion: 3, deadline: '2026-12-31', startDate: '2026-01-01',
+      schedule: { kind: 'every-day' },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { focus: 'incremental' }, dailyTargets: {}, cumulativeTargets: { focus: 30 }, planningTimeZone: 'Asia/Kolkata', allocations: { focus: { '2026-10-09': 4 } } },
+    }
+    await localRepository.saveTracker(planned)
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', planned.id]).first()
+    if (!operation) throw new Error('Expected a queued v3 tracker operation')
+    const cloud = { ...remote, id: planned.id, schema_version: 3, kind: 'goal', definition: { ...planned, goalPlanning: { ...planned.goalPlanning!, allocations: { focus: { '2026-10-09': 8 } } } }, server_revision: 5 }
+    await db.syncOperations.put({ ...operation, status: 'conflict' })
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: planned.id, localPayload: planned, remoteRecord: cloud, detectedAt: '2026-10-09T00:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'keep-local')
+
+    await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: { planningTimeZone: 'Asia/Kolkata', allocations: { focus: { '2026-10-09': 4 } } } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', planned.id]).first()).resolves.toMatchObject({ status: 'pending', expectedRevision: 5, payload: { schemaVersion: 3, goalPlanning: { allocations: { focus: { '2026-10-09': 4 } } } } })
+  })
+
   it('rejects conflict definitions whose row schema version does not match', async () => {
     await activateWorkspace('conflict-user')
     await localRepository.saveTracker(tracker)
@@ -112,6 +132,7 @@ describe('sync conflict recovery', () => {
 
   it('retains both copies when the server cannot provide an account-readable cloud record', async () => {
     await activateWorkspace('conflict-user')
+    await db.syncConflicts.clear()
     await localRepository.saveTracker(tracker)
     const operation = await db.syncOperations.toCollection().first()
     if (!operation) throw new Error('Expected a queued operation')

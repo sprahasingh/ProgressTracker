@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db } from './database'
 import { localRepository } from './localRepository'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
@@ -17,6 +17,7 @@ const plannedGoal: StoredTrackerDefinition = {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   db.close()
   await db.delete()
 })
@@ -34,6 +35,41 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-account', 'tracker', plannedGoal.id]).first()).resolves.toMatchObject({
       payload: { schemaVersion: 2, goalPlanning: { cumulativeTargets: { pages: 100 } } },
     })
+  })
+
+  it('atomically persists v3 allocations, timezone, and the matching sync outbox payload', async () => {
+    await activateWorkspace('planning-v3-account')
+    const v3: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 3,
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await localRepository.saveTracker(v3)
+    await expect(db.trackers.get(v3.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: v3.goalPlanning })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-v3-account', 'tracker', v3.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 3, goalPlanning: v3.goalPlanning } })
+  })
+
+  it('blocks local v3 persistence in production when migration readiness is not enabled', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', '')
+    await activateWorkspace(null)
+    const v3: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 3,
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: { '2026-10-09': 4 } } },
+    }
+    await expect(localRepository.saveTracker(v3)).rejects.toThrow(/disabled until the hosted migration/)
+    await expect(db.trackers.get(v3.id)).resolves.toBeUndefined()
+    await expect(db.syncOperations.count()).resolves.toBe(0)
+  })
+
+  it('preserves a tracker conflict instead of silently replacing its pending operation with a plan edit', async () => {
+    await activateWorkspace('planning-conflict-account')
+    await localRepository.saveTracker(plannedGoal)
+    const operation = await db.syncOperations.where('ownerUserId').equals('planning-conflict-account').first()
+    await db.syncConflicts.put({ id: operation!.id, ownerUserId: 'planning-conflict-account', entity: 'tracker', entityId: plannedGoal.id, localPayload: plannedGoal, remoteRecord: null, detectedAt: new Date().toISOString() })
+    const v3 = { ...plannedGoal, schemaVersion: 3 as const, goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: { '2026-10-09': 2 } } } }
+    await expect(localRepository.saveTracker(v3)).rejects.toThrow(/Resolve this tracker’s cloud conflict/)
+    await expect(db.trackers.get(plannedGoal.id)).resolves.toMatchObject({ schemaVersion: 2 })
+    await expect(db.syncConflicts.get(operation!.id)).resolves.toBeDefined()
   })
 
   it('publishes an account owner only after its local record and outbox transaction commits', async () => {

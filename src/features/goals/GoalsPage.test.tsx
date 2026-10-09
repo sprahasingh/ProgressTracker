@@ -30,7 +30,7 @@ describe('Goals page allocation preview', () => {
 
     expect(await screen.findByRole('region', { name: 'Pages allocation preview' })).toBeInTheDocument()
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
-    fireEvent.change(screen.getByRole('spinbutton', { name: `Preview allocation for ${today}` }), { target: { value: '0' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: `Allocation for ${today}` }), { target: { value: '0' } })
     expect(await screen.findByText('2.66 pages remains unallocated.')).toBeInTheDocument()
 
     await waitFor(async () => {

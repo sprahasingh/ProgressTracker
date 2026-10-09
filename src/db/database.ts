@@ -14,6 +14,7 @@ import type {
   SyncRecordState,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
+import { isSchemaV3WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -314,6 +315,9 @@ export async function queueSyncMutation(
   entity: 'tracker' | 'tracker_entry',
   payload: StoredTrackerDefinition | StoredTrackerEntry,
 ): Promise<void> {
+  if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
+    throw new Error('Schema v3 local and cloud writes are disabled until the hosted migration is applied and verified.')
+  }
   if (!ownerUserId) return
   const entityId = payload.id
   const existing = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, entityId]).toArray()
