@@ -176,6 +176,15 @@ a { color: inherit; text-decoration: none; }
 .goal-metric-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
 .goal-metric-list li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--ink-muted); font-size: 11px; }
 .goal-metric-list strong { color: var(--ink); font-weight: 650; text-align: right; }
+.goal-milestones { margin-top: 20px; }
+.goal-milestones h3 { margin: 0 0 9px; color: var(--ink-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.goal-milestones ul { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.goal-milestones li { display: flex; align-items: flex-start; gap: 9px; }
+.goal-milestone-marker { display: grid; width: 20px; height: 20px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--ink-subtle); font-size: 11px; }
+.goal-milestone-marker.reached { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.goal-milestones li > div { display: grid; gap: 3px; min-width: 0; }
+.goal-milestones li strong { color: var(--ink); font-size: 11px; font-weight: 650; }
+.goal-milestones li small { color: var(--ink-subtle); font-size: 10px; line-height: 1.45; }
 .goal-card-summary { display: grid; gap: 6px; margin-top: 15px; color: var(--ink-subtle); font-size: 10px; }
 .today-page > .surface { margin-top: 25px; }
 .today-storage-note { display: flex; align-items: center; gap: 8px; margin: 25px 0 17px; color: var(--ink-subtle); font-size: 11px; }
