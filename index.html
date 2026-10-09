@@ -4,13 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#fff9f2" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script>
       try {
         const appearance = localStorage.getItem('progress-tracker-appearance') || 'system';
         const dark = appearance === 'dark' || (appearance === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        const themeColor = document.querySelector('meta[name="theme-color"]');
+        const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
         if (dark) document.documentElement.dataset.theme = 'dark';
+        if (themeColor) themeColor.content = dark ? '#0d0b0a' : '#fff9f2';
+        if (statusBarStyle) statusBarStyle.content = dark ? 'black-translucent' : 'default';
       } catch {}
     </script>
     <meta name="description" content="A calm, local-first space to build consistency and make progress on what matters." />
