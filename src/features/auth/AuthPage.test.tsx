@@ -6,6 +6,7 @@ import { AuthPage } from './AuthPage'
 const authMocks = vi.hoisted(() => ({
   sendSignInLink: vi.fn(), signInWithPassword: vi.fn(), signUpWithPassword: vi.fn(),
   sendPasswordReset: vi.fn(), updateAccountPassword: vi.fn(), useAuth: vi.fn(),
+  listSyncConflicts: vi.fn(), resolveSyncConflict: vi.fn(),
 }))
 
 vi.mock('./authService', () => ({
@@ -15,6 +16,7 @@ vi.mock('./authService', () => ({
 }))
 vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
+vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
 
 describe('AuthPage', () => {
   afterEach(() => cleanup())
@@ -127,5 +129,20 @@ describe('AuthPage', () => {
     expect(syncNow).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Sync this account' }))
     expect(syncNow).toHaveBeenCalledOnce()
+  })
+
+  it('shows owner-scoped conflict choices and requires an explicit selection', async () => {
+    const user = userEvent.setup()
+    const conflict = { id: 'conflict-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', localPayload: { id: 'tracker-1', name: 'Local version' }, remoteRecord: { user_id: 'account-1', server_revision: 2, definition: { id: 'tracker-1', name: 'Cloud version' } }, detectedAt: '2026-01-01T00:00:00.000Z' }
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle' })
+    authMocks.listSyncConflicts.mockResolvedValue([conflict])
+    authMocks.resolveSyncConflict.mockResolvedValue(undefined)
+    render(<AuthPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Sync conflicts' })).toBeInTheDocument()
+    expect(screen.getByText(/Local version/)).toBeInTheDocument()
+    expect(screen.getByText('Cloud version', { selector: 'summary' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Use cloud version' }))
+    expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'conflict-1', 'use-cloud')
   })
 })

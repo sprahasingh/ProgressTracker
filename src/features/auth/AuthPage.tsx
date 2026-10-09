@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
@@ -8,6 +8,8 @@ import { Surface } from '../../components/ui/Surface'
 import { supabaseConfiguration } from '../../services/supabase/client'
 import { sendPasswordReset, sendSignInLink, signInWithPassword, signUpWithPassword, updateAccountPassword } from './authService'
 import { useAuth } from './AuthProvider'
+import { listSyncConflicts, resolveSyncConflict } from '../../db/syncConflictRepository'
+import type { SyncConflict } from '../../db/models'
 
 type AuthMode = 'magic-link' | 'sign-in' | 'sign-up' | 'forgot-password' | 'set-password'
 const emailSchema = z.string().trim().email('Enter a valid email address.').toLowerCase()
@@ -23,12 +25,38 @@ type SetPasswordValues = z.infer<typeof setPasswordSchema>
 function getCallbackUrl(): string { return `${window.location.origin}${window.location.pathname}` }
 
 export function AuthPage() {
-  const { status, user, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncSummary, syncError } = useAuth()
+  const { status, user, workspaceStatus, workspaceUserId, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncSummary, syncError } = useAuth()
   const [mode, setMode] = useState<AuthMode>('magic-link')
   const [notice, setNotice] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([])
+  const [conflictError, setConflictError] = useState<string | null>(null)
+  const [resolvingConflict, setResolvingConflict] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setSyncConflicts([])
+    setConflictError(null)
+    if (status !== 'signed-in' || !user?.id || workspaceStatus !== 'ready' || workspaceUserId !== user.id) return () => { active = false }
+    void listSyncConflicts(user.id).then((conflicts) => { if (active) setSyncConflicts(conflicts) }).catch(() => {
+      if (active) setConflictError('Saved sync conflicts could not be loaded for this account.')
+    })
+    return () => { active = false }
+  }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary])
+
+  async function handleConflictResolution(conflict: SyncConflict, choice: 'keep-local' | 'use-cloud') {
+    if (!user?.id || workspaceUserId !== user.id) return
+    setResolvingConflict(conflict.id)
+    setConflictError(null)
+    try {
+      await resolveSyncConflict(user.id, conflict.id, choice)
+      setSyncConflicts(await listSyncConflicts(user.id))
+    } catch (cause) {
+      setConflictError(cause instanceof Error ? cause.message : 'The conflict could not be resolved. Both copies remain saved.')
+    } finally { setResolvingConflict(null) }
+  }
 
   const emailForm = useForm<EmailValues>({ resolver: zodResolver(emailFormSchema), defaultValues: { email: '' } })
   const passwordForm = useForm<PasswordValues>({ resolver: zodResolver(passwordFormSchema), defaultValues: { email: '', password: '' } })
@@ -104,6 +132,15 @@ export function AuthPage() {
           <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Sync runs only when you request it; local edits remain saved if a sync attempt fails.</p>
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
             {syncSummary && <p className="auth-success" role="status">Sync checked {syncSummary.uploaded} uploads and {syncSummary.downloaded} downloads; {syncSummary.conflicts} conflicts need review.</p>}
+            {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
+            {syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
+              const cloud = conflict.remoteRecord
+              const cloudAvailable = Boolean(cloud && cloud.user_id === user?.id && typeof cloud.server_revision === 'number')
+              const localPayload = conflict.localPayload as Record<string, unknown>
+              const cloudPayload = conflict.entity === 'tracker' ? cloud?.definition as Record<string, unknown> | undefined : cloud ?? undefined
+              const describe = (value: Record<string, unknown> | undefined) => value ? JSON.stringify(value, null, 2) : null
+              return <article className="sync-conflict" key={conflict.id}><h4>{conflict.entity === 'tracker' ? 'Tracker' : 'Daily entry'} conflict · {conflict.entityId}</h4><div className="sync-conflict-versions"><details><summary>This device’s version</summary><pre>{describe(localPayload)}</pre></details><details><summary>Cloud version</summary><pre>{describe(cloudPayload) ?? 'Cloud copy unavailable for this account.'}</pre></details></div>{cloudAvailable ? <div className="auth-actions"><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'keep-local')}>Keep this device’s version</Button><Button variant="secondary" disabled={resolvingConflict === conflict.id} onClick={() => void handleConflictResolution(conflict, 'use-cloud')}>Use cloud version</Button></div> : <p className="auth-hint">The server did not provide a record this account can read. Both local data and the conflict are preserved; automatic replacement is unavailable.</p>}</article>
+            })}</section>}
             {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
             {notice && <p className="auth-success" role="status">{notice}</p>}
             <div className="auth-actions"><Button onClick={() => void syncNow?.()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
