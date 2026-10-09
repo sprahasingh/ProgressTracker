@@ -25,7 +25,7 @@ The project has generic tracker setup, multi-metric success-rule editing, adapti
 - `src/styles/tokens.css` defines color, type, and radius tokens used by the interface.
 - `src/test` contains shared test setup.
 
-Shared UI components should remain presentation-focused. Product rules belong in domain modules as those features are introduced. The design tokens include a dark palette hook (`data-theme="dark"`); appearance controls are not implemented yet.
+Shared UI components should remain presentation-focused. Product rules belong in domain modules as those features are introduced. Workspace settings now include a light, dark, or device-following appearance choice, applied using the existing design token palette.
 
 ## Generic tracker domain foundation
 
@@ -53,7 +53,7 @@ To restore, open Account in the matching guest workspace or signed-in account, c
 
 The Today screen shows active trackers scheduled for the calendar date in the active workspace's selected time zone. It supports boolean, quantity, duration, checklist, and configured custom-field inputs; required fields are checked before saving. Each tracker has at most one generic entry per date: edits preserve that entry's ID, and clearing creates a local tombstone that a subsequent save restores. Skips are recorded as an outcome. Recorded values are evaluated against the tracker's configured success rule and the screen explains whether it qualified. Check-ins save to IndexedDB and enqueue account-scoped work; authenticated tracker and entry edits trigger a debounced sync attempt after the IndexedDB transaction commits. Offline edits stay queued for reconnection, and manual sync remains available from Account.
 
-Schedule occurrences are deterministic for every supported schedule kind. Weekday schedules use JavaScript weekday numbering (Sunday 0). Every-N-days anchors to `startDate`, or the tracker's creation date when no start is configured. Quota schedules choose evenly spaced dates when no preferred weekdays are set; this is a simple recurring prompt schedule, not a capacity optimizer. The Settings screen stores an IANA calendar time zone in the active local workspace; Today, Overview, History ranges, and new tracker start-date defaults use that zone. Existing date-only records are not rewritten when the setting changes. The preference does not sync across devices, and planning recurrence is still date-based rather than timezone-aware. Check-in history editing for past dates, analytics, and cloud synchronization for legacy records/settings are future work. Local tombstones are retained; there is no purge/retention process yet.
+Schedule occurrences are deterministic for every supported schedule kind. Weekday schedules use JavaScript weekday numbering (Sunday 0). Every-N-days anchors to `startDate`, or the tracker's creation date when no start is configured. Quota schedules choose evenly spaced dates when no preferred weekdays are set; this is a simple recurring prompt schedule, not a capacity optimizer. The Settings screen stores an IANA calendar time zone and light, dark, or device-following appearance in the active local workspace. Today, Overview, History ranges, and new tracker start-date defaults use the selected time zone. Existing date-only records are not rewritten when the setting changes. Preferences do not sync across devices, and planning recurrence is still date-based rather than timezone-aware. Check-in history editing for past dates, analytics, and cloud synchronization for legacy records/settings are future work. Local tombstones are retained; there is no purge/retention process yet.
 
 ## Streaks and progression rewards
 
@@ -216,7 +216,7 @@ Keep the email provider enabled and use the Supabase redirect placeholder in con
 
 ## Interface foundation
 
-The current visual language uses a muted botanical green accent, warm neutral surfaces, editorial serif headings, and restrained borders. Shared `Button`, `Surface`, `PageHeader`, and `EmptyState` components establish reusable patterns. The layout includes a compact mobile navigation and honors reduced-motion preferences. Theme switching and the final accessibility review remain future steps.
+The current visual language uses a muted botanical green accent, warm neutral surfaces, editorial serif headings, and restrained borders. Shared `Button`, `Surface`, `PageHeader`, and `EmptyState` components establish reusable patterns. The layout includes a compact mobile navigation and honors reduced-motion preferences. Theme selection is saved per local workspace; accessibility review remains future work.
 
 ### Installable app and offline shell
 
