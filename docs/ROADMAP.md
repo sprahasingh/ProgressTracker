@@ -25,7 +25,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 4. **Cloud schema evolution** — implemented in this phase as an additive migration and pgTAP coverage for generic tracker ownership, cross-user references, tombstones, and revisions. Hosted application remains a user-run dashboard step; no hosted project was accessed.
 5. **Tracker setup flows** — implemented in this phase: local tracker list/create/edit/archive with schedule and date setup, first metrics, type-aware defaults, and Zod validation.
 6. **Metrics and rules editor** — completed in this phase: editable multi-metric definitions, numeric/duration/checklist measures, directional thresholds, streak qualification, nested AND/OR/at-least rules, typed custom fields, and metric-linked milestones.
-7. **Daily logging and adaptive schedules** — implement quick logging, skips, schedule-aware prompts, and explainable qualification states.
+7. **Daily logging and adaptive schedules** — completed: Today filters by deterministic schedule occurrences, captures configured metric/custom-field values, supports skip/update/clear, persists local tombstones, and explains configured rule qualification. IndexedDB only; no sync.
 8. **Challenges and rewards** — add streaks and progression based on tested domain calculations; keep rewards motivational and recoverable after missed days.
 9. **Dashboard and history** — replace the welcome shell with useful today, goal, calendar, and progress views; avoid fabricated sample activity.
 10. **Quality pass** — verify responsive layouts, keyboard/screen-reader behavior, empty/error/loading states, and end-to-end flows.
@@ -36,11 +36,12 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 
 ## Known limitations and risks
 
-- Generic definitions and entries are persisted in IndexedDB. Tracker create/edit/list/archive flows use local repository methods; daily logging and cloud writes are not implemented. Legacy records continue to be retained as compatibility copies.
+- Generic definitions and entries are persisted in IndexedDB. Tracker create/edit/list/archive and current-day check-in flows use local repository methods; cloud writes are not implemented. Legacy records continue to be retained as compatibility copies.
 - The setup screen supports a compact set of schedules. Rule summaries/preview, reorder controls, checklist progress calculation, and richer conditional custom-field behavior are future refinements.
 - The read-only legacy projection maps each old category to a boolean habit with one completion metric. It cannot infer quantitative progress from the free-form note field.
-- Category schedules lack an explicit timezone. Schedule evaluation must define whether it uses the user’s selected timezone before streak or occurrence behavior is shipped.
+- Category schedules lack an explicit timezone. The current Today screen uses the device's local calendar date; changing travel/account timezone behavior and timezone-aware history/streak semantics remain future work.
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
 - Generic cloud tables are now defined, but the new app client does not read or write them. Apply the new migration to the hosted project and verify it before any future client integration. The pgTAP suite is present but was not run because the local database was unavailable in the prior implementation turn.
 - Authentication remains magic-link only. Password flows and sync are deliberately later stages.
+- Daily logging currently covers today's scheduled trackers only. Past-date history, analytics, goal/reward summaries, and tombstone cleanup are not implemented. Weekly/monthly quota prompts use deterministic evenly spaced calendar dates and do not rebalance around missed check-ins.
 - Phase 2 planning currently treats dates as UTC calendar dates and has a deliberately simple cadence model; monthly/weekly quotas are approximate distribution rules, not a timezone-aware recurrence engine. Daily recurring and cumulative-deadline are caller-selected modes and both return deadline/status information; product policy for carrying missed work forward must be finalized before UI integration.

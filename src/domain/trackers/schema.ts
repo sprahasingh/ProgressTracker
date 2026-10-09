@@ -140,5 +140,38 @@ export const trackerEntrySchema = z.object({
   deletedAt: z.iso.datetime().nullable(),
 })
 
+/** Validate typed values against a tracker's metric and custom-field definitions. */
+export function validateTrackerEntryValues(tracker: {
+  metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }> }>
+  customFields: Array<{ id: string; type: string; required: boolean; options?: string[] }>
+}, values: Record<string, unknown>): string | undefined {
+  const allowed = new Set<string>()
+  for (const metric of tracker.metrics) {
+    allowed.add(metric.id)
+    const value = values[metric.id]
+    if (value === undefined || value === null) continue
+    if (metric.valueType === 'boolean' && typeof value !== 'boolean') return 'Boolean measures need a yes or no value.'
+    if ((metric.valueType === 'quantity' || metric.valueType === 'duration') && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return 'Numeric measures must be finite, nonnegative numbers.'
+    if (metric.valueType === 'checklist') {
+      if (typeof value !== 'object' || Array.isArray(value)) return 'Checklist progress is invalid.'
+      const checks = value as Record<string, unknown>
+      if (Object.keys(checks).some((key) => !metric.checklistItems?.some((item) => item.id === key)) || Object.values(checks).some((checked) => typeof checked !== 'boolean')) return 'Checklist progress is invalid.'
+    }
+  }
+  for (const field of tracker.customFields) {
+    const key = `field:${field.id}`
+    allowed.add(key)
+    const value = values[key]
+    if ((value === undefined || value === null || value === '') && field.required) return `${field.id} is required.`
+    if (value === undefined || value === null || value === '') continue
+    const numeric = field.type === 'integer' || field.type === 'decimal' || field.type === 'duration' || field.type === 'rating' || field.type === 'quantity'
+    if (numeric && (typeof value !== 'number' || !Number.isFinite(value))) return `${field.id} must be a valid number.`
+    if (field.type === 'integer' && !Number.isInteger(value)) return `${field.id} must be a whole number.`
+    if ((field.type === 'boolean' && typeof value !== 'boolean') || (['text', 'long-text', 'date', 'time', 'single-select', 'url'].includes(field.type) && typeof value !== 'string') || (field.type === 'multi-select' && (!Array.isArray(value) || value.some((option) => typeof option !== 'string')))) return `${field.id} has an invalid value.`
+    if (field.options && (typeof value === 'string' && !field.options.includes(value) || Array.isArray(value) && value.some((option) => !field.options?.includes(String(option))))) return `${field.id} has an invalid option.`
+  }
+  if (Object.keys(values).some((key) => !allowed.has(key))) return 'This entry contains a value that is not configured for the tracker.'
+}
+
 export type TrackerDefinitionInput = z.input<typeof trackerDefinitionSchema>
 export type TrackerEntryInput = z.input<typeof trackerEntrySchema>

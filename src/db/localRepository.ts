@@ -1,7 +1,7 @@
 import { db, openDatabase } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition } from './models'
-import { trackerDefinitionSchema } from '../domain/trackers/schema'
+import type { CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -36,6 +36,55 @@ export const localRepository = {
       }
       await db.trackers.put(record)
       return record
+    })
+  },
+
+  async listTrackerEntriesForDate(date: CalendarDate): Promise<StoredTrackerEntry[]> {
+    assertCalendarDate(date)
+    await openDatabase()
+    const entries = await db.trackerEntries.where('date').equals(date).toArray()
+    return entries.filter((entry) => entry.deletedAt === null)
+  },
+
+  async getTrackerEntry(trackerId: string, date: CalendarDate): Promise<StoredTrackerEntry | undefined> {
+    assertCalendarDate(date)
+    await openDatabase()
+    const entry = await db.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
+    return entry?.deletedAt === null ? entry : undefined
+  },
+
+  async saveTrackerEntry(draft: Omit<StoredTrackerEntry, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>): Promise<StoredTrackerEntry> {
+    assertCalendarDate(draft.date)
+    const checked = trackerEntrySchema.safeParse({ ...draft, id: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
+    if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
+    await openDatabase()
+    return db.transaction('rw', db.trackers, db.trackerEntries, async () => {
+      const tracker = await db.trackers.get(draft.trackerId)
+      if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
+      const valueIssue = validateTrackerEntryValues(tracker, draft.values)
+      if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
+      const existing = await db.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
+      const now = new Date().toISOString()
+      const entry = trackerEntrySchema.parse({
+        ...draft,
+        id: existing?.id ?? newId(),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        deletedAt: null,
+      }) as StoredTrackerEntry
+      await db.trackerEntries.put(entry)
+      return entry
+    })
+  },
+
+  async deleteTrackerEntry(trackerId: string, date: CalendarDate): Promise<void> {
+    assertCalendarDate(date)
+    await openDatabase()
+    await db.transaction('rw', db.trackerEntries, async () => {
+      const entry = await db.trackerEntries.where('[trackerId+date]').equals([trackerId, date]).first()
+      if (!entry || entry.deletedAt !== null) return
+      const now = new Date().toISOString()
+      await db.trackerEntries.put({ ...entry, updatedAt: now, deletedAt: now })
     })
   },
 

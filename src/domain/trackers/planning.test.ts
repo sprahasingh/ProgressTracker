@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry } from './planning'
+import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, isScheduledDate } from './planning'
 import type { TrackerDefinition } from './types'
 
 const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): TrackerDefinition => ({
@@ -12,6 +12,21 @@ const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): 
 })
 
 const plan = (overrides: Partial<Parameters<typeof createWorkPlan>[0]> = {}) => createWorkPlan({ tracker: base(), metricId: 'pages', mode: 'cumulative-deadline', startDate: '2026-01-01', deadline: '2026-01-05', asOfDate: '2026-01-01', totalWork: 10, completedWork: 0, ...overrides })
+
+describe('schedule occurrence calculation', () => {
+  it('selects supported recurrence dates deterministically and respects tracker bounds', () => {
+    expect(isScheduledDate(base({ kind: 'weekdays' }), '2026-10-09')).toBe(true)
+    expect(isScheduledDate(base({ kind: 'weekdays' }), '2026-10-10')).toBe(false)
+    expect(isScheduledDate(base({ kind: 'selected-weekdays', weekdays: [1] }), '2026-10-12')).toBe(true)
+    expect(isScheduledDate({ ...base({ kind: 'every-n-days', interval: 2 }), startDate: '2026-10-08' }, '2026-10-10')).toBe(true)
+    expect(isScheduledDate(base({ kind: 'times-per-week', count: 3 }), '2026-10-06')).toBe(true)
+    expect(isScheduledDate(base({ kind: 'times-per-month', count: 3 }), '2026-10-11')).toBe(true)
+    expect(isScheduledDate(base({ kind: 'specific-dates', dates: ['2026-10-09'] }), '2026-10-09')).toBe(true)
+    expect(isScheduledDate(base({ kind: 'once', date: '2026-10-09' }), '2026-10-09')).toBe(true)
+    expect(isScheduledDate({ ...base(), deadline: '2026-10-08' }, '2026-10-09')).toBe(false)
+    expect(isScheduledDate({ ...base(), status: 'paused' }, '2026-10-09')).toBe(false)
+  })
+})
 
 describe('achievement thresholds', () => {
   it('classifies minimum, target, stretch, and below-minimum achievement', () => {
