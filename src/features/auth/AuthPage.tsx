@@ -127,7 +127,7 @@ export function AuthPage() {
 
   return (
     <section className="auth-page" aria-labelledby="auth-page-title">
-      <PageHeader headingId="auth-page-title" eyebrow="YOUR ACCOUNT" title="Keep your progress close" description="Sign in on each device to prepare your account for secure cross-device sync. Your local data remains available either way." />
+      <PageHeader headingId="auth-page-title" eyebrow="YOUR ACCOUNT" title="Keep your progress close" description="Sign in on each device to prepare your account for secure cross-device sync. Your local data remains available either way." help={{ title: 'Account and sync', summary: 'Sign in to access the private workspace associated with your account.', description: 'Each account has an isolated local workspace. Sync sends queued changes through the authenticated server boundary and preserves local progress if a request fails. Guest progress stays separate unless you explicitly choose to import it. Sign-out keeps that account’s local changes for its next sign-in.' }} />
       <Surface className="auth-card">
         {status === 'loading' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">◌</span><h2>Checking your account</h2><p>Your local progress stays available while we check your sign-in.</p></div>}
         {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">⌂</span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}

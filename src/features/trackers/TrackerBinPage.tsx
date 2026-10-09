@@ -83,7 +83,7 @@ export function TrackerBinPage() {
   }
 
   return <section className="tracker-page bin-page" aria-labelledby="bin-title">
-    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description="Deleted trackers stay here for 30 days. Restore one to bring back its complete progress and plan." action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description="Deleted trackers stay here for 30 days. Restore one to bring back its complete progress and plan." help={{ title: 'The Bin', summary: 'Restore a deleted tracker during its 30-day recovery period.', description: 'A tracker in the Bin retains its saved progress and planning data until restored or permanently deleted. The countdown starts from the server-confirmed deletion time for signed-in accounts. Permanent deletion removes the tracker and its history from all synchronized devices; an offline request remains pending until the server confirms it.' }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
     {owner && !isPermanentDeletionEnabled() && <p className="bin-system-note" role="status">Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.</p>}
     {owner && isPermanentDeletionEnabled() && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}

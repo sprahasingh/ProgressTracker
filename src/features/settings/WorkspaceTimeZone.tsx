@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { InfoButton } from '../../components/ui/InfoButton'
 import { localRepository } from '../../db/localRepository'
 
 type WorkspaceTimeZoneState = {
@@ -109,15 +110,15 @@ export function SettingsPage() {
   }
 
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">
-    <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." />
+    <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     <div className="settings-card">
-      <label className="form-field"><span>Calendar time zone</span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
+      <label className="form-field"><span>Calendar time zone <InfoButton title="Calendar time zone" summary="Controls which local calendar date ProgressTracker treats as today." description="Schedules, streak days, deadlines, and date labels use this time zone. Changing it does not shift date-only historical entries. This preference is stored locally and is not yet synchronized across devices." /></span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
         {!zones.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
         {zones.map((zone) => <option value={zone} key={zone}>{zone.replaceAll('_', ' ')}</option>)}
       </select></label>
       {deviceZone !== timeZone && <button className="button button-secondary button-medium" onClick={() => void changeTimeZone(deviceZone)}>Use device time zone ({deviceZone.replaceAll('_', ' ')})</button>}
       <p>Saved locally in this workspace and used to decide which calendar day is “today.” Date-only history entries stay on their original dates. This preference is not uploaded or synchronized to other devices yet.</p>
-      <label className="form-field"><span>Appearance</span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <label className="form-field"><span>Appearance <InfoButton title="Appearance" summary="Choose light or dark colors, or follow your device preference." description="System appearance follows your operating system. Light and dark set this workspace’s display mode. This setting is local and currently does not sync across devices." /></span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
       <p>System appearance follows the device’s light or dark setting. This preference is local to the workspace and does not sync across devices.</p>
       {saved && <p className="auth-success" role="status">{saved}</p>}
       {error && <p className="auth-error" role="alert">{error}</p>}

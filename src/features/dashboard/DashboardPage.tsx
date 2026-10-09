@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { InfoButton } from '../../components/ui/InfoButton'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -61,23 +62,23 @@ export function DashboardPage() {
 
   return (
     <section className="tracker-page dashboard-page" aria-labelledby="dashboard-title">
-      <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Overview" description={`A clear view of what you’ve built so far · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
+      <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Overview" description={`A clear view of what you’ve built so far · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} help={{ title: 'Dashboard overview', summary: 'See recent activity and consistency across your active trackers.', description: 'This overview is calculated from saved check-ins in the current workspace and uses its time zone. Archived and deleted trackers are excluded. Reward points and streaks summarize qualifying scheduled activity; they are not separate records or a measure of your personal worth.' }} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : error ? <Surface><EmptyState title="Your progress is still here" description="This device could not open local storage. Try loading the overview again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
         <div className="dashboard-stats" role="group" aria-label="Recent progress summary">
-          <StatCard label="Active trackers" value={String(data.trackers.length)} detail="ready for your next check-in" />
-          <StatCard label="Successes · 7 days" value={String(qualifiedWeek.length)} detail={`${scheduledWeek} scheduled check-ins`} />
-          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of scheduled opportunities' : 'nothing scheduled this week'} />
-          <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" />
+          <StatCard label="Active trackers" value={String(data.trackers.length)} detail="ready for your next check-in" help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
+          <StatCard label="Successes · 7 days" value={String(qualifiedWeek.length)} detail={`${scheduledWeek} scheduled check-ins`} help="Counts recorded check-ins that met their success rule on scheduled days during the last seven calendar days, including today." />
+          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of scheduled opportunities' : 'nothing scheduled this week'} help="Qualified scheduled check-ins divided by scheduled opportunities over the last seven days. Rest days are excluded. A dash means no opportunities were scheduled." />
+          <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" help="A playful summary of points earned from active tracker streaks and qualifying check-ins. It does not change your records or goals." />
         </div>
         <div className="dashboard-columns">
           <Surface className="dashboard-calendar-card">
-            <div className="dashboard-section-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> ACTIVITY</span><h2>{calendarDateLabel(today, { month: 'long', year: 'numeric' })}</h2></div><Link to="/history">View history <span aria-hidden="true">→</span></Link></div>
+            <div className="dashboard-section-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> ACTIVITY</span><h2>{calendarDateLabel(today, { month: 'long', year: 'numeric' })}</h2></div><div className="dashboard-heading-actions"><InfoButton title="Activity calendar" summary="Each marked date summarizes saved check-ins for that day." description="Green marks a check-in that met its tracker’s success rule. Amber marks a skipped check-in or one below its rule. Multiple marks on one date are summarized by their counts for screen readers. Blank dates have no recorded activity; they do not automatically mean a missed day." /><Link to="/history">View history <span aria-hidden="true">→</span></Link></div></div>
             <MonthCalendar month={calendar} today={today} />
             <div className="calendar-legend"><span><i className="calendar-dot qualified" /> Success</span><span><i className="calendar-dot skipped" /> Skipped or below rule</span></div>
           </Surface>
           <section className="dashboard-tracker-section" aria-labelledby="progress-heading">
-            <div className="dashboard-section-heading dashboard-tracker-title"><div><span className="eyebrow"><span className="eyebrow-line" /> KEEP GOING</span><h2 id="progress-heading">Your trackers</h2></div><Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link></div>
+            <div className="dashboard-section-heading dashboard-tracker-title"><div><span className="eyebrow"><span className="eyebrow-line" /> KEEP GOING</span><h2 id="progress-heading">Your trackers</h2></div><div className="dashboard-heading-actions"><InfoButton title="Tracker progress cards" summary="Compare current streaks and the latest saved check-in for each active tracker." description="A current streak counts consecutive scheduled dates that qualified; rest days are skipped. Personal best is the longest qualifying streak recorded. The latest status distinguishes a successful rule, a logged value that did not qualify, and a skipped day. Select a tracker or open Today to record more progress." /><Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link></div></div>
             <div className="dashboard-tracker-list">
               {data.trackers.map((tracker) => {
                 const history = data.entries.filter((entry) => entry.trackerId === tracker.id)
@@ -94,8 +95,8 @@ export function DashboardPage() {
   )
 }
 
-function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <Surface className="dashboard-stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></Surface>
+function StatCard({ label, value, detail, help }: { label: string; value: string; detail: string; help: string }) {
+  return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
 }
 
 type DaySummary = { date: CalendarDate; entries: number; qualified: number; skippedOrBelow: number }

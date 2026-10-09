@@ -84,7 +84,7 @@ export function TodayPage() {
 
   return (
     <section className="tracker-page today-page" aria-labelledby="today-title">
-      <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." />
+      <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." help={{ title: 'Today', summary: 'Record today’s progress with the least friction.', description: 'Each active tracker appears when today is a scheduled opportunity. Enter its metric values, optional details, and notes, then save the check-in. A skipped day is recorded separately from no activity. Your week pattern marks scheduled completion and rest days; the workspace time zone determines today.' }} />
       <p className="today-storage-note"><span className="sync-dot" /> Saved on this device first. Signed-in workspaces sync when online; guest data stays separate.</p>
       {!loading && !loadError && allTrackers.length > 0 && <section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
