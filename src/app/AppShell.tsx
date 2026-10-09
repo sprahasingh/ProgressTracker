@@ -1,29 +1,52 @@
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 
 const primaryNavigation = [
-  { to: '/', label: 'Today', icon: '◷', end: true },
-  { to: '/trackers', label: 'Trackers', icon: '✳' },
-  { to: '/goals', label: 'Goals', icon: '◎' },
-  { to: '/analytics', label: 'Progress', icon: '▥' },
+  { to: '/', label: 'Today', icon: '◷', group: 'today', end: true },
+  { to: '/trackers', label: 'My Space', icon: '✳', group: 'space' },
+  { to: '/dashboard', label: 'Insights', icon: '▥', group: 'insights' },
+  { to: '/settings', label: 'Settings', icon: '⚙', group: 'settings' },
 ]
 
-const secondaryNavigation = [
-  { to: '/dashboard', label: 'Overview', icon: '▦' },
-  { to: '/history', label: 'History', icon: '▤' },
-  { to: '/achievements', label: 'Achievements', icon: '✳' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-  { to: '/auth', label: 'Account', icon: '●' },
+const groupedNavigation = {
+  space: [
+    { to: '/goals', label: 'Goals' },
+  ],
+  insights: [
+    { to: '/analytics', label: 'Analytics' },
+    { to: '/history', label: 'History' },
+    { to: '/achievements', label: 'Wins' },
+  ],
+  settings: [
+    { to: '/auth', label: 'Account & sync' },
+  ],
+}
+
+const mobileMoreNavigation = [
+  { to: '/goals', label: 'Goals' },
+  { to: '/analytics', label: 'Analytics' },
+  { to: '/history', label: 'History' },
+  { to: '/achievements', label: 'Wins & achievements' },
+  { to: '/auth', label: 'Account & sync' },
 ]
 
 export function AppShell() {
-  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace } = useAuth()
+  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
-  const localStatus = status === 'signed-in' ? 'Account ready' : status === 'loading' ? 'Checking account' : 'Local mode'
+  const syncLabel = status === 'loading' ? 'Checking account'
+    : status !== 'signed-in' ? 'Local mode'
+      : isOnline === false || syncStatus === 'offline' ? 'Offline · changes saved'
+        : syncStatus === 'syncing' ? 'Syncing account'
+          : syncStatus === 'waiting' ? 'Sync pending'
+            : syncStatus === 'error' ? 'Sync needs attention'
+              : syncStatus === 'complete' ? 'Synced'
+                : 'Account ready'
+  const syncTone = syncStatus === 'error' ? 'error' : syncStatus === 'offline' || isOnline === false ? 'offline' : syncStatus === 'syncing' ? 'syncing' : syncStatus === 'complete' ? 'complete' : 'local'
   const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
   const workspaceOwnerVerified = workspaceUserId === expectedWorkspaceUserId
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceOwnerVerified
@@ -41,27 +64,30 @@ export function AppShell() {
           <span>progress<span className="brand-light">tracker</span></span>
         </a>
 
-        <div className="nav-caption">YOUR SPACE</div>
+        <div className="nav-caption">WORKSPACE</div>
         <nav className="nav-list" aria-label="Primary navigation">
-          {primaryNavigation.map(({ to, label, icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+          {primaryNavigation.map(({ to, label, icon, group, end }) => {
+            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals')
+              : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
+                : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
+            return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `nav-link${isActive || activeGroup ? ' active' : ''}`}>
               <span className="nav-icon" aria-hidden="true">{icon}</span>
               {label}
             </NavLink>
-          ))}
+          })}
         </nav>
 
         <div className="nav-secondary">
-          <span className="nav-caption nav-caption-secondary">MORE</span>
-          {secondaryNavigation.map(({ to, label, icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-              <span className="nav-icon" aria-hidden="true">{icon}</span>{label}
-            </NavLink>
-          ))}
+          <span className="nav-caption nav-caption-secondary">MY SPACE</span>
+          {groupedNavigation.space.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/trackers'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
+          <span className="nav-caption nav-caption-secondary">INSIGHTS</span>
+          {groupedNavigation.insights.map(({ to, label }) => <NavLink key={to} to={to} end={to === '/dashboard'} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
+          <span className="nav-caption nav-caption-secondary">SETTINGS</span>
+          {groupedNavigation.settings.map(({ to, label }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-sub-link${isActive ? ' active' : ''}`}>{label}</NavLink>)}
         </div>
 
         <div className="sidebar-bottom">
-          <div className="sync-state"><span className="sync-dot" />{localStatus}<span className="sync-note">· saved here</span></div>
+          <Link className={`sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
         </div>
       </aside>
 
@@ -71,6 +97,7 @@ export function AppShell() {
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
+          <Link className={`topbar-sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span></Link>
           <Link className="avatar" to="/auth" aria-label="Open account and sign-in">{user?.email?.trim().charAt(0).toUpperCase() || 'S'}</Link>
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
@@ -96,15 +123,18 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {primaryNavigation.map(({ to, label, icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav-link${isActive ? ' active' : ''}`}>
+          {primaryNavigation.map(({ to, label, icon, group, end }) => {
+            const activeGroup = group === 'space' ? location.pathname.startsWith('/trackers') || location.pathname.startsWith('/goals')
+              : group === 'insights' ? ['/dashboard', '/analytics', '/history', '/achievements'].includes(location.pathname)
+                : group === 'settings' ? ['/settings', '/auth'].includes(location.pathname) : false
+            return <NavLink key={to} to={to} end={end} aria-current={activeGroup ? 'page' : undefined} className={({ isActive }) => `mobile-nav-link${isActive || activeGroup ? ' active' : ''}`}>
               <span aria-hidden="true">{icon}</span><small>{label}</small>
             </NavLink>
-          ))}
+          })}
           <details className="mobile-more">
             <summary aria-label="More destinations">•••<small>More</small></summary>
             <div className="mobile-more-menu">
-              {secondaryNavigation.map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
+              {mobileMoreNavigation.map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
                 const details = event.currentTarget.closest('details')
                 if (details) details.open = false
               }}>{label}</NavLink>)}

@@ -9,7 +9,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
-import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 
@@ -19,6 +19,7 @@ export function TodayPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
+  const [upcomingGoals, setUpcomingGoals] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,6 +32,8 @@ export function TodayPage() {
     try {
       const [allTrackers, todayEntries] = await Promise.all([localRepository.listTrackers(), localRepository.listTrackerEntriesForDate(today)])
       setTrackers(allTrackers.filter((tracker) => isScheduledDate(tracker, today)))
+      setUpcomingGoals(allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.status === 'active' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
+        .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
       setEntries(todayEntries)
     } catch {
       setLoadError('Today’s check-ins could not be loaded from this device.')
@@ -66,10 +69,18 @@ export function TodayPage() {
   return (
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY PRACTICE" title="Today" description={dateLabel(today)} />
-      <p className="today-storage-note"><span className="sync-dot" /> Check-ins are saved on this device.</p>
+      <p className="today-storage-note"><span className="sync-dot" /> Saved on this device first. Signed-in workspaces sync when online; guest data stays separate.</p>
       {!loading && !loadError && trackers.length > 0 && <section className="today-overview surface" aria-label="Today at a glance">
         <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? 'You’ve checked in on everything scheduled.' : `${remainingCount} ${remainingCount === 1 ? 'check-in' : 'check-ins'} left for today`}</h2><p>{loggedCount} of {trackers.length} scheduled {trackers.length === 1 ? 'activity' : 'activities'} logged{entries.some((entry) => entry.outcome === 'skipped') ? ' · skipped activities stay neutral' : ''}.</p></div>
         <div className="today-progress" role="img" aria-label={`${loggedCount} of ${trackers.length} scheduled activities logged`}><span>{loggedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? loggedCount / trackers.length * 100 : 0}%` }} /></div><small>logged today</small></div>
+      </section>}
+      {!loading && !loadError && upcomingGoals.length > 0 && <section className="today-upcoming-goals" aria-labelledby="today-upcoming-title">
+        <header><div><span className="eyebrow"><span className="eyebrow-line" /> NEXT UP</span><h2 id="today-upcoming-title">Coming up soon</h2></div><Link to="/goals">All goals <span aria-hidden="true">→</span></Link></header>
+        <div className="today-upcoming-list">{upcomingGoals.map((goal) => {
+          const days = Math.round((Date.parse(`${goal.deadline}T00:00:00.000Z`) - Date.parse(`${today}T00:00:00.000Z`)) / 86_400_000)
+          const deadlineText = days === 0 ? 'Due today' : days === 1 ? '1 day left' : `${days} days left`
+          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong><span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
+        })}</div>
       </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}

@@ -75,7 +75,7 @@ export function HistoryPage() {
 
   return (
     <section className="tracker-page history-page" aria-labelledby="history-title">
-      <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Every check-in you’ve recorded, kept together on this device." />
+      <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update past check-ins without losing the original timeline." />
       <div className="history-toolbar">
         <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select></label>
         {range === 'custom' && <>
@@ -95,7 +95,7 @@ export function HistoryPage() {
           return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} onSaved={refresh} />
         })}</div></section>)}
       </div>}
-      <p className="history-local-note"><span className="sync-dot" /> History comes from this device’s saved entries. It is not synced to an account.</p>
+      <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
     </section>
   )
 }

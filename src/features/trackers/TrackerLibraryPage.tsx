@@ -7,11 +7,16 @@ import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { isScheduledDate } from '../../domain/trackers/planning'
+import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
 export function TrackerLibraryPage() {
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline } = useAuth()
+  const { timeZone } = useWorkspaceTimeZone()
+  const today = localCalendarDate(new Date(), timeZone)
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && authStatus !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === expectedOwner
   const workspaceKey = workspaceReady ? expectedOwner ?? 'guest' : null
@@ -86,7 +91,7 @@ export function TrackerLibraryPage() {
           ) : authStatus === 'signed-in' && syncStatus === 'error' ? (
             <EmptyState title="Cloud sync could not finish" description="No local trackers are saved in this workspace yet. Your local data is safe; open Account to retry the cloud check." action={<Link className="button button-secondary button-medium" to="/auth">Open account and retry</Link>} />
           ) : (
-            <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. Your data stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
+            <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. It will be available offline and sync to your account when you’re signed in." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
           )}
         </Surface>
       ) : (
@@ -95,12 +100,14 @@ export function TrackerLibraryPage() {
             <Surface key={tracker.id} className="tracker-card">
               <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
-              <p className="tracker-card-description">{tracker.description || 'No description yet.'}</p>
+              {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
+              <TrackerCardTargets tracker={tracker} />
               <div className="tracker-card-meta">
                 <span>{tracker.schedule.kind === 'every-day' ? 'Every day' : tracker.schedule.kind === 'weekdays' ? 'Weekdays' : tracker.schedule.kind === 'times-per-week' ? `${tracker.schedule.count} times a week` : 'Flexible schedule'}</span>
-                {tracker.deadline && <span>Due {tracker.deadline}</span>}
+                {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}
               </div>
               <div className="tracker-card-actions">
+                {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">Check in today</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
                 {tracker.status !== 'archived' && <Button variant="quiet" size="small" onClick={() => void archive(tracker.id)}>Archive</Button>}
               </div>
@@ -110,4 +117,27 @@ export function TrackerLibraryPage() {
       )}
     </section>
   )
+}
+
+function TrackerCardTargets({ tracker }: { tracker: StoredTrackerDefinition }) {
+  const targets = tracker.metrics.flatMap((metric) => {
+    if (metric.valueType === 'boolean') return []
+    const planning = tracker.goalPlanning
+    const planned = planning?.mode === 'daily-recurring' ? planning.dailyTargets[metric.id]
+      : planning?.mode === 'cumulative-deadline' ? planning.cumulativeTargets[metric.id]
+        : undefined
+    const mode = planning?.mode === 'daily-recurring' ? 'per scheduled day'
+      : planning?.mode === 'cumulative-deadline' ? 'total by deadline' : 'per check-in'
+    const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
+    if (planned === undefined && metric.thresholds?.target === undefined) return []
+    const rows = planned === undefined ? [] : [{ id: `${metric.id}:plan`, name: metric.name, amount: planned, unit, label: mode }]
+    const threshold = metric.thresholds?.target
+    if (threshold !== undefined) rows.push({ id: `${metric.id}:check-in`, name: planned === undefined ? metric.name : `${metric.name} · check-in`, amount: threshold, unit, label: 'per check-in' })
+    return rows
+  })
+  if (targets.length === 0) return null
+  return <ul className="tracker-card-targets" aria-label={`${tracker.name} targets`}>
+    {targets.slice(0, 3).map((target) => <li key={target.id}><span>{target.name}</span><strong>{target.amount}{target.unit} <small>{target.label}</small></strong></li>)}
+    {targets.length > 3 && <li className="tracker-card-more-targets">+{targets.length - 3} more measures</li>}
+  </ul>
 }

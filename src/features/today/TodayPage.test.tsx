@@ -70,6 +70,15 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('img', { name: '0 of 1 scheduled activities logged' })).toBeInTheDocument()
   })
 
+  it('surfaces active goal deadlines without mixing goals into today’s scheduled check-in count', async () => {
+    const dueSoon = { ...tracker({ kind: 'none' }), id: 'deadline-goal', name: 'Finish the portfolio', kind: 'goal' as const, deadline: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate() + 2).padStart(2, '0')}` as `${number}-${number}-${number}` }
+    await localRepository.saveTracker(dueSoon)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Coming up soon' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Finish the portfolio.*2 days left/ })).toHaveAttribute('href', '/goals')
+    expect(screen.getByText('Nothing scheduled today')).toBeInTheDocument()
+  })
+
   it('shows a retry state rather than treating a failed local read as an empty day', async () => {
     const user = userEvent.setup()
     vi.spyOn(localRepository, 'listTrackers').mockRejectedValueOnce(new Error('IndexedDB unavailable'))

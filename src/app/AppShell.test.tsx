@@ -36,6 +36,16 @@ describe('app navigation quality', () => {
     authState.value = guestReadyState
   })
 
+  it('makes account sync health visible and links it to account recovery controls', () => {
+    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'ready', workspaceUserId: 'user-a', syncStatus: 'error', isOnline: true } as never
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today workspace</p>} /></Route></Routes></MemoryRouter>)
+
+    const syncLinks = screen.getAllByRole('link', { name: /Sync needs attention/ })
+    expect(syncLinks).toHaveLength(2)
+    for (const link of syncLinks) expect(link).toHaveAttribute('href', '/auth')
+    authState.value = guestReadyState
+  })
+
   it('offers a collision-safe guest copy choice', async () => {
     const chooseGuestData = vi.fn()
     authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'needs-guest-choice', workspaceUserId: 'user-a', guestSummary: { hasData: true, counts: { trackers: 1 } }, chooseGuestData } as never
@@ -68,14 +78,14 @@ describe('app navigation quality', () => {
     const desktopNav = screen.getByRole('navigation', { name: 'Primary navigation' })
     expect(within(desktopNav).getAllByRole('link')).toHaveLength(4)
     const moreNav = screen.getByLabelText('Main navigation')
-    await user.click(within(moreNav).getByRole('link', { name: 'Overview' }))
+    await user.click(within(moreNav).getByRole('link', { name: 'Insights' }))
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
 
     const mobileNav = screen.getByRole('navigation', { name: 'Mobile navigation' })
-    expect(within(mobileNav).getByRole('link', { name: /Progress/ })).toHaveAttribute('href', '/analytics')
-    expect(within(mobileNav).getByRole('link', { name: /Goals/ })).toHaveAttribute('href', '/goals')
+    expect(within(mobileNav).getByRole('link', { name: /Insights/ })).toHaveAttribute('href', '/dashboard')
+    expect(within(mobileNav).getByRole('link', { name: /My Space/ })).toHaveAttribute('href', '/trackers')
     await user.click(within(mobileNav).getByLabelText('More destinations'))
-    expect(within(mobileNav).getByRole('link', { name: 'Achievements' })).toHaveAttribute('href', '/achievements')
+    expect(within(mobileNav).getByRole('link', { name: 'Wins & achievements' })).toHaveAttribute('href', '/achievements')
     await user.click(within(mobileNav).getByRole('link', { name: 'History' }))
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
   })
