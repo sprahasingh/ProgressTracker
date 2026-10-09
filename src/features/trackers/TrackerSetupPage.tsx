@@ -5,8 +5,9 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
-import type { CustomFieldDefinition, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
+import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
 import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
+import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { localCalendarDate } from '../shared/localDates'
@@ -14,6 +15,7 @@ import { localCalendarDate } from '../shared/localDates'
 type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string }
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
+const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
 
 function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
   const id = crypto.randomUUID()
@@ -54,6 +56,7 @@ export function TrackerSetupPage() {
     const metric = starterMetric('habit')
     return { metrics: [metric], rule: starterRule(metric), customFields: [], milestones: [] }
   })
+  const [goalPlanning, setGoalPlanning] = useState<GoalPlanningConfiguration>(emptyGoalPlanning)
   const [loading, setLoading] = useState(Boolean(trackerId))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -69,6 +72,7 @@ export function TrackerSetupPage() {
         setExisting(tracker)
         setValues(defaultValues(tracker))
         setConfiguration({ metrics: tracker.metrics, rule: tracker.qualificationRule, customFields: tracker.customFields, milestones: tracker.milestones })
+        setGoalPlanning(tracker.goalPlanning ?? emptyGoalPlanning())
       }
     }).catch(() => current && setError('Could not open this tracker from local storage.'))
       .finally(() => current && setLoading(false))
@@ -101,6 +105,27 @@ export function TrackerSetupPage() {
     })
   }
 
+  function changeMetrics(metrics: TrackerMetricDefinition[]) {
+    const nextIds = new Set(metrics.map((metric) => metric.id))
+    const invalidatedIds = configuration.metrics.filter((oldMetric) => {
+      const replacement = metrics.find((metric) => metric.id === oldMetric.id)
+      const hasPlanData = goalPlanning.progressSemantics[oldMetric.id] !== undefined ||
+        goalPlanning.dailyTargets[oldMetric.id] !== undefined || goalPlanning.cumulativeTargets[oldMetric.id] !== undefined
+      return hasPlanData && (!nextIds.has(oldMetric.id) || replacement?.valueType === 'boolean')
+    }).map((metric) => metric.id)
+    if (invalidatedIds.length && !window.confirm('Removing or changing this measure to yes/no will also remove its planning semantics and targets. Its saved check-in history remains unchanged. Continue?')) return
+    if (invalidatedIds.length) {
+      const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets } }
+      for (const id of invalidatedIds) {
+        delete nextPlanning.progressSemantics[id]
+        delete nextPlanning.dailyTargets[id]
+        delete nextPlanning.cumulativeTargets[id]
+      }
+      setGoalPlanning(nextPlanning)
+    }
+    setConfiguration((current) => ({ ...current, metrics }))
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -117,11 +142,15 @@ export function TrackerSetupPage() {
       const kind = existing?.kind ?? form.kind
       const schedule: TrackerDefinition['schedule'] = form.schedule === 'weekdays' ? { kind: 'weekdays' }
         : form.schedule === 'none' ? { kind: 'none' }
-          : form.schedule === 'three-times-weekly' ? { kind: 'times-per-week', count: 3 }
+            : form.schedule === 'three-times-weekly' ? { kind: 'times-per-week', count: 3 }
             : { kind: 'every-day' }
+      const planWasConfigured = existing?.goalPlanning !== undefined || (!existing && kind === 'goal') || (
+        existing?.schemaVersion === 1 && JSON.stringify(goalPlanning) !== JSON.stringify(emptyGoalPlanning())
+      )
+      const persistGoalPlanning = kind === 'goal' && planWasConfigured
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
-        schemaVersion: 1, id, name: form.name, description: form.description.trim(), kind,
+        schemaVersion: persistGoalPlanning ? 2 : existing?.schemaVersion ?? 1, id, name: form.name, description: form.description.trim(), kind,
         status: existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,
@@ -129,6 +158,7 @@ export function TrackerSetupPage() {
         qualificationRule: configuration.rule,
         customFields: configuration.customFields,
         milestones: configuration.milestones,
+        ...(persistGoalPlanning ? { goalPlanning } : {}),
         createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.archivedAt ?? null, deletedAt: null,
       }
       const checked = trackerDefinitionSchema.safeParse(candidate)
@@ -149,7 +179,7 @@ export function TrackerSetupPage() {
 
   return (
     <section className="tracker-page" aria-labelledby="tracker-setup-title">
-      <PageHeader headingId="tracker-setup-title" eyebrow="BUILD YOUR PRACTICE" title={existing ? 'Edit tracker' : 'New tracker'} description="Set up your measures, milestones, and the conditions that count as success." action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+      <PageHeader headingId="tracker-setup-title" eyebrow="BUILD YOUR PRACTICE" title={existing ? 'Edit tracker' : 'New tracker'} description="Set up your measures, milestones, planning targets, and the conditions that count as success." action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
       <Surface className="tracker-form-card">
         <form className="tracker-form" onSubmit={submit} noValidate>
           {error && <div role="alert" className="form-alert">{error}</div>}
@@ -185,7 +215,7 @@ export function TrackerSetupPage() {
           </div>
           <TrackerConfigurationEditor
             metrics={configuration.metrics}
-            onMetricsChange={(metrics) => setConfiguration((current) => ({ ...current, metrics }))}
+            onMetricsChange={changeMetrics}
             rule={configuration.rule}
             onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))}
             customFields={configuration.customFields}
@@ -193,6 +223,7 @@ export function TrackerSetupPage() {
             milestones={configuration.milestones}
             onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))}
           />
+          {(existing?.kind ?? values.kind) === 'goal' && <GoalPlanningEditor metrics={configuration.metrics} planning={goalPlanning} onChange={setGoalPlanning} />}
           <footer className="tracker-form-actions">
             <Button type="button" variant="secondary" onClick={() => navigate('/trackers')}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>

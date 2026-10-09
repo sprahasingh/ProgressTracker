@@ -18,6 +18,35 @@ afterEach(async () => {
 })
 
 describe('sync conflict recovery', () => {
+  it('preserves version 2 planning fields when choosing the cloud conflict copy', async () => {
+    await activateWorkspace('conflict-user')
+    const planned: StoredTrackerDefinition = {
+      ...tracker, id: 'planned-conflict', kind: 'goal', schemaVersion: 2, deadline: '2026-12-31',
+      goalPlanning: { mode: 'daily-recurring', progressSemantics: { focus: 'incremental' }, dailyTargets: { focus: 4 }, cumulativeTargets: { focus: 30 } },
+    }
+    await localRepository.saveTracker(planned)
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', planned.id]).first()
+    if (!operation) throw new Error('Expected a queued operation')
+    const cloud = { ...remote, id: planned.id, schema_version: 2, kind: 'goal', definition: { ...planned, name: 'Cloud planned' }, name: 'Cloud planned' }
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: planned.id, localPayload: planned, remoteRecord: cloud, detectedAt: '2026-01-03T00:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'use-cloud')
+
+    await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: planned.goalPlanning })
+  })
+
+  it('rejects conflict definitions whose row schema version does not match', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const operation = await db.syncOperations.toCollection().first()
+    if (!operation) throw new Error('Expected a queued operation')
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: tracker, remoteRecord: { ...remote, schema_version: 2 }, detectedAt: '2026-01-03T00:00:00.000Z' })
+
+    await expect(resolveSyncConflict('conflict-user', operation.id, 'use-cloud')).rejects.toThrow('does not match its stored definition')
+    await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ name: 'Local name' })
+    await expect(db.syncConflicts.get(operation.id)).resolves.toBeDefined()
+  })
+
   it('keeps the local version and queues it against the cloud revision the user reviewed', async () => {
     await activateWorkspace('conflict-user')
     await localRepository.saveTracker(tracker)

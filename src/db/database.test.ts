@@ -179,6 +179,26 @@ describe('ProgressTracker database migrations', () => {
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
   })
 
+  it('imports v2 planning configuration and queues the same versioned definition for sync', async () => {
+    const plannedGuest = {
+      schemaVersion: 2, id: 'guest-planned-goal', name: 'Planned guest goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' }, startDate: '2026-10-01', deadline: '2026-12-31',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', minimum: 2, target: 5, stretch: 8, streakQualification: 'minimum' } }],
+      customFields: [], milestones: [],
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 3 }, cumulativeTargets: { pages: 100 } },
+      createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.trackers.put(plannedGuest as never)
+    await activateWorkspace('planning-import-account')
+    openedDatabases.push(db)
+    await decideGuestData('planning-import-account', 'imported')
+
+    await expect(db.trackers.get(plannedGuest.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: plannedGuest.goalPlanning })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-import-account', 'tracker', plannedGuest.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 2, goalPlanning: plannedGuest.goalPlanning } })
+  })
+
   it('imports guest records as copies with new IDs and remapped parent links on collisions', async () => {
     await activateWorkspace(null)
     openedDatabases.push(db)

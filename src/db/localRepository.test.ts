@@ -9,6 +9,12 @@ const tracker: StoredTrackerDefinition = {
   tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [], customFields: [], milestones: [],
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
+const plannedGoal: StoredTrackerDefinition = {
+  ...tracker, id: 'local-planned-goal', kind: 'goal', schemaVersion: 2,
+  metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', minimum: 2, target: 5, stretch: 8, streakQualification: 'minimum' } }],
+  goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 3 }, cumulativeTargets: { pages: 100 } },
+  deadline: '2026-12-31',
+}
 
 afterEach(async () => {
   db.close()
@@ -16,6 +22,20 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('persists version 2 planning configuration unchanged in IndexedDB and its account outbox', async () => {
+    await activateWorkspace('planning-account')
+    await localRepository.saveTracker(plannedGoal)
+
+    await expect(db.trackers.get(plannedGoal.id)).resolves.toMatchObject({
+      schemaVersion: 2,
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 3 }, cumulativeTargets: { pages: 100 } },
+      metrics: [{ thresholds: { minimum: 2, target: 5, stretch: 8 } }],
+    })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-account', 'tracker', plannedGoal.id]).first()).resolves.toMatchObject({
+      payload: { schemaVersion: 2, goalPlanning: { cumulativeTargets: { pages: 100 } } },
+    })
+  })
+
   it('publishes an account owner only after its local record and outbox transaction commits', async () => {
     await activateWorkspace('mutation-account')
     const owners: string[] = []

@@ -186,6 +186,43 @@ a { color: inherit; text-decoration: none; }
 .goal-milestones li strong { color: var(--ink); font-size: 11px; font-weight: 650; }
 .goal-milestones li small { color: var(--ink-subtle); font-size: 10px; line-height: 1.45; }
 .goal-card-summary { display: grid; gap: 6px; margin-top: 15px; color: var(--ink-subtle); font-size: 10px; }
+.goal-plan-visualization { margin-top: 21px; padding-top: 16px; border-top: 1px solid var(--line); }
+.goal-plan-visualization > h3 { margin: 0 0 13px; color: var(--ink); font-family: var(--font-display); font-size: 19px; font-weight: 400; }
+.goal-plan-visualization > p, .goal-daily-metric > p { margin: 8px 0; color: var(--ink-muted); font-size: 10px; line-height: 1.55; }
+.goal-daily-plans, .goal-cumulative-plans { display: grid; gap: 16px; }
+.goal-daily-metric, .goal-cumulative-metric { min-width: 0; }
+.goal-daily-metric + .goal-daily-metric, .goal-cumulative-metric + .goal-cumulative-metric { padding-top: 14px; border-top: 1px solid var(--line); }
+.goal-plan-metric-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; color: var(--ink); font-size: 11px; }
+.goal-plan-metric-heading > span { color: var(--ink-muted); text-align: right; }
+.goal-plan-days { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; }
+.goal-plan-day { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 7px; background: var(--surface-raised); color: var(--ink-subtle); font-size: 9px; }
+.goal-plan-day.met { background: var(--accent-soft); color: var(--accent-strong); }
+.goal-plan-day.missed, .goal-plan-day.skipped, .goal-plan-day.below-target { background: #f5e9e5; color: #994d3f; }
+.goal-plan-day.rest { background: #f2eee5; color: #8b7650; }
+.goal-plan-day.future, .goal-plan-day.pending { border: 1px dashed var(--line); background: transparent; }
+.goal-plan-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; color: var(--ink-subtle); font-size: 9px; }
+.goal-plan-bars { display: grid; gap: 8px; margin-top: 13px; }
+.goal-plan-bars > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 9px; color: var(--ink-muted); font-size: 9px; }
+.goal-plan-bar { height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-raised); }
+.goal-plan-bar i { display: block; height: 100%; border-radius: inherit; }
+.goal-plan-bar i.actual { background: var(--accent); }
+.goal-plan-bar i.expected { background: #d3a45f; }
+.goal-plan-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 13px 0 0; }
+.goal-plan-facts > div { display: grid; gap: 3px; }
+.goal-plan-facts dt { color: var(--ink-subtle); font-size: 9px; }
+.goal-plan-facts dd { margin: 0; color: var(--ink); font-size: 11px; font-weight: 650; overflow-wrap: anywhere; }
+.goal-plan-status { margin: 13px 0 0; color: var(--accent-strong); font-size: 10px; font-weight: 650; }
+.goal-plan-status.behind, .goal-plan-status.overdue { color: #994d3f; }
+.goal-planning-editor { padding-top: 22px; border-top: 1px solid var(--line); }
+.goal-planning-mode { max-width: 520px; }
+.goal-planning-note { color: var(--accent-strong); font-size: 11px; line-height: 1.6; }
+.goal-planning-metrics { display: grid; gap: 12px; margin-top: 16px; }
+.goal-planning-metric { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface-raised); }
+.goal-planning-metric > p { margin: 8px 0 0; color: var(--ink-muted); font-size: 11px; }
+.goal-planning-metric-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; color: var(--ink); font-size: 12px; }
+.goal-planning-metric-heading span { color: var(--ink-muted); }
+.goal-planning-metric .form-field { max-width: 520px; }
+.goal-planning-targets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .today-page > .surface { margin-top: 25px; }
 .today-storage-note { display: flex; align-items: center; gap: 8px; margin: 25px 0 17px; color: var(--ink-subtle); font-size: 11px; }
 .today-checkin-list { display: grid; gap: 15px; }

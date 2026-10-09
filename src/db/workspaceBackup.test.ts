@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db, ProgressTrackerDatabase } from './database'
+import { localRepository } from './localRepository'
 import { backupRecordCount, createWorkspaceBackup, downloadWorkspaceBackup, previewWorkspaceRestore, restoreWorkspaceBackup, WORKSPACE_BACKUP_FORMAT, WORKSPACE_BACKUP_VERSION, type WorkspaceBackup } from './workspaceBackup'
 
 const accountIds: string[] = []
@@ -25,6 +26,24 @@ afterEach(async () => {
 })
 
 describe('workspace backups', () => {
+  it('validates and restores v2 planning data with its pending sync payload intact', async () => {
+    const accountId = `planning-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    const planned = {
+      ...restoreTracker, id: 'backup-planned-goal', schemaVersion: 2 as const, kind: 'goal' as const,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, minimum: 2, target: 5, stretch: 8, streakQualification: 'minimum' as const } }],
+      deadline: '2026-12-31', goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: { pages: 3 }, cumulativeTargets: { pages: 100 } },
+    }
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(planned as never)
+    const backup = await createWorkspaceBackup(accountId)
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+    await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 2, goalPlanning: planned.goalPlanning })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'tracker', planned.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 2, goalPlanning: planned.goalPlanning } })
+  })
+
   it('exports a consistent, versioned snapshot of the current workspace, including pending sync data', async () => {
     const accountId = `backup-${crypto.randomUUID()}`
     accountIds.push(accountId)

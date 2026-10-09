@@ -36,7 +36,7 @@ function toServerPayload(operation: SyncOperation): Record<string, unknown> {
 
 function trackerFromServer(row: ServerTracker): StoredTrackerDefinition {
   const parsed = trackerDefinitionSchema.parse(normalizeTrackerTimestamps(row.definition))
-  if (parsed.id !== row.id || parsed.kind !== row.kind || parsed.status !== row.status) throw new Error('Cloud tracker fields do not match its stored definition.')
+  if (parsed.id !== row.id || parsed.kind !== row.kind || parsed.status !== row.status || parsed.schemaVersion !== row.schema_version) throw new Error('Cloud tracker fields do not match its stored definition.')
   return parsed as StoredTrackerDefinition
 }
 

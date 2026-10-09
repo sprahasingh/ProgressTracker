@@ -79,6 +79,14 @@ const customFieldSchema = z.object({
   if (field.options && !unique(field.options)) context.addIssue({ code: 'custom', path: ['options'], message: 'Options must be unique.' })
 })
 
+const planningTarget = z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER)
+const goalPlanningSchema = z.object({
+  mode: z.enum(['daily-recurring', 'cumulative-deadline']),
+  progressSemantics: z.record(z.string(), z.enum(['incremental', 'snapshot'])),
+  dailyTargets: z.record(z.string(), planningTarget),
+  cumulativeTargets: z.record(z.string(), planningTarget),
+})
+
 const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof metricSchema>>, context: z.RefinementCtx, path: (string | number)[] = []) => {
   if (typeof rule !== 'object' || rule === null) return
   const value = rule as Record<string, unknown>
@@ -95,7 +103,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -112,11 +120,14 @@ export const trackerDefinitionSchema = z.object({
   qualificationRule: ruleSchema.optional(),
   customFields: z.array(customFieldSchema),
   milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
+  goalPlanning: goalPlanningSchema.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
   deletedAt: z.iso.datetime().nullable(),
 }).superRefine((tracker, context) => {
+  if (tracker.schemaVersion === 1 && tracker.goalPlanning) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Planning configuration requires tracker schema version 2.' })
+  if (tracker.schemaVersion === 2 && (tracker.kind !== 'goal' || !tracker.goalPlanning)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 2 is reserved for goals with planning configuration.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
@@ -125,6 +136,35 @@ export const trackerDefinitionSchema = z.object({
   tracker.milestones.forEach((milestone, index) => {
     if (milestone.metricId && !metrics.has(milestone.metricId)) context.addIssue({ code: 'custom', path: ['milestones', index, 'metricId'], message: 'Milestone references an unknown metric.' })
   })
+  if (tracker.goalPlanning) {
+    const plan = tracker.goalPlanning
+    if (plan.mode === 'cumulative-deadline' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Cumulative goals require a deadline.' })
+    for (const [field, targets] of [['dailyTargets', plan.dailyTargets], ['cumulativeTargets', plan.cumulativeTargets]] as const) {
+      for (const [metricId, target] of Object.entries(targets)) {
+        const metric = metrics.get(metricId)
+        if (!metric) {
+          context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Planning target references an unknown metric.' })
+          continue
+        }
+        if (metric.valueType === 'boolean') {
+          context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Boolean metrics cannot have numeric planning targets.' })
+          continue
+        }
+        if (metric.valueType === 'checklist') {
+          if (!Number.isInteger(target)) context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Checklist targets must be whole item counts.' })
+          if (field === 'dailyTargets' && target > (metric.checklistItems?.length ?? 0)) context.addIssue({ code: 'custom', path: ['goalPlanning', field, metricId], message: 'Daily checklist targets cannot exceed the number of items.' })
+        }
+        if (field === 'cumulativeTargets' && plan.progressSemantics[metricId] !== 'incremental') {
+          context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Cumulative targets require explicit incremental-progress semantics.' })
+        }
+      }
+    }
+    for (const [metricId] of Object.entries(plan.progressSemantics)) {
+      const metric = metrics.get(metricId)
+      if (!metric) context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Progress semantics reference an unknown metric.' })
+      else if (metric.valueType === 'boolean') context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Boolean metrics do not support numeric progress semantics.' })
+    }
+  }
   if (tracker.qualificationRule) ruleMetricsCheck(tracker.qualificationRule, metrics, context, ['qualificationRule'])
 })
 

@@ -25,6 +25,42 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse(tracker).success).toBe(true)
   })
 
+  it('keeps version 1 definitions valid and accepts version 2 plans without changing thresholds', () => {
+    const planned: TrackerDefinition = {
+      ...tracker, schemaVersion: 2, kind: 'goal', goalPlanning: {
+        mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 2 }, cumulativeTargets: { pages: 100 },
+      },
+    }
+    expect(trackerDefinitionSchema.parse(tracker).schemaVersion).toBe(1)
+    const parsed = trackerDefinitionSchema.parse(planned)
+    expect(parsed.schemaVersion).toBe(2)
+    expect(parsed.metrics[0]?.thresholds).toMatchObject({ minimum: 2, target: 5, stretch: 10 })
+    expect(parsed.goalPlanning).toMatchObject({ mode: 'cumulative-deadline', dailyTargets: { pages: 2 }, cumulativeTargets: { pages: 100 } })
+  })
+
+  it('rejects planning on v1 and non-goal v2 definitions', () => {
+    const planning = { mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} }
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, goalPlanning: planning }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schemaVersion: 2, goalPlanning: planning }).success).toBe(false)
+  })
+
+  it('validates plan target references, finite bounds, and cumulative semantics', () => {
+    const goal = { ...tracker, schemaVersion: 2 as const, kind: 'goal' as const, goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'snapshot' as const }, dailyTargets: {}, cumulativeTargets: { pages: 20 } } }
+    expect(trackerDefinitionSchema.safeParse(goal).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...goal, goalPlanning: { ...goal.goalPlanning, progressSemantics: { pages: 'incremental' }, cumulativeTargets: { unknown: 20 } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...goal, goalPlanning: { ...goal.goalPlanning, progressSemantics: { pages: 'incremental' }, cumulativeTargets: { pages: Number.MAX_SAFE_INTEGER + 1 } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...goal, deadline: undefined }).success).toBe(false)
+  })
+
+  it('enforces checklist plan count semantics and rejects boolean planning targets', () => {
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [{ id: 'one', label: 'One', position: 0 }, { id: 'two', label: 'Two', position: 1 }] }
+    const goal = { ...tracker, schemaVersion: 2 as const, kind: 'goal' as const, qualificationRule: undefined, milestones: [], metrics: [checklist], goalPlanning: { mode: 'daily-recurring' as const, progressSemantics: {}, dailyTargets: { steps: 3 }, cumulativeTargets: {} } }
+    expect(trackerDefinitionSchema.safeParse(goal).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...goal, goalPlanning: { ...goal.goalPlanning, dailyTargets: { steps: 1.5 } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schemaVersion: 2, kind: 'goal', metrics: [{ id: 'mood', name: 'Mood', valueType: 'boolean' }], goalPlanning: { mode: 'daily-recurring', progressSemantics: {}, dailyTargets: { mood: 1 }, cumulativeTargets: {} } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...goal, goalPlanning: { ...goal.goalPlanning, dailyTargets: { steps: 2 } } }).success).toBe(true)
+  })
+
   it('rejects malformed schedules and rules that reference unknown metrics', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [0, 7] } }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'threshold', metricId: 'missing', level: 'minimum' } }).success).toBe(false)
