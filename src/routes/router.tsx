@@ -8,6 +8,7 @@ import { TrackerSetupPage } from '../features/trackers/TrackerSetupPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
 import { SettingsPage } from '../features/settings/WorkspaceTimeZone'
+import { AchievementsPage } from '../features/dashboard/AchievementsPage'
 
 export const router = createHashRouter([
   {
@@ -21,7 +22,7 @@ export const router = createHashRouter([
       { path: 'trackers', element: <TrackerLibraryPage /> },
       { path: 'trackers/new', element: <TrackerSetupPage /> },
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
-      { path: 'achievements', element: <PlaceholderPage title="Achievements" /> },
+      { path: 'achievements', element: <AchievementsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'auth', element: <AuthPage /> },
     ],
