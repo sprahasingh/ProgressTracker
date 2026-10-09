@@ -178,7 +178,7 @@ export function calculateCumulativeMetricPlan(input: {
 }
 
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */
-export function isTrackerScheduledOccurrence(tracker: TrackerDefinition, date: string): boolean {
+export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt'>, date: string): boolean {
   const time = parseDate(date)
   if (tracker.startDate && date < tracker.startDate) return false
   if (tracker.deadline && date > tracker.deadline) return false

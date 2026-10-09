@@ -15,6 +15,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 afterEach(async () => {
   cleanup()
+  routeParams.trackerId = undefined
   await db.delete()
 })
 
@@ -25,7 +26,7 @@ function renderSetup(path = '/trackers/new') {
 }
 
 describe('tracker setup flow', () => {
-  it('validates required fields before saving', async () => {
+  it('requires a useful name before saving', async () => {
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
@@ -33,65 +34,93 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toHaveLength(0)
   })
 
-  it('creates a locally persisted goal and returns to the tracker library', async () => {
+  it('creates a habit with a daily default and offers an immediate check-in', async () => {
     const user = userEvent.setup()
     renderSetup()
-    await user.type(screen.getByLabelText('What would you like to track?'), 'Run a 10K')
-    await user.selectOptions(screen.getByLabelText('Tracker type'), 'goal')
-    await user.click(screen.getByText('Advanced settings'))
-    await user.clear(screen.getByLabelText('Name'))
-    await user.type(screen.getByLabelText('Name'), 'Distance')
-    await user.clear(screen.getByLabelText(/Target threshold/))
-    await user.type(screen.getByLabelText(/Target threshold/), '10')
-    await user.type(await screen.findByLabelText(/daily planning target/), '4')
-    await user.type(screen.getByLabelText('Unit'), 'km')
+    await user.type(screen.getByLabelText('What habit do you want to build?'), 'Read every day')
+    expect(screen.getByRole('combobox', { name: /How often/ })).toHaveValue('every-day')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
-    await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.objectContaining({ state: expect.any(Object) })))
-    const saved = await localRepository.listTrackers()
-    expect(saved).toHaveLength(1)
-    expect(saved[0]).toMatchObject({
-      schemaVersion: 2, kind: 'goal', name: 'Run a 10K',
-      metrics: [{ name: 'Distance', unit: 'km', thresholds: { target: 10 } }],
-      goalPlanning: { mode: 'daily-recurring', dailyTargets: { [saved[0]!.metrics[0]!.id]: 4 } },
-    })
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Record my first check-in' })).toHaveAttribute('href', '/')
+    expect(await localRepository.listTrackers()).toMatchObject([{ kind: 'habit', name: 'Read every day', schedule: { kind: 'every-day' }, metrics: [{ valueType: 'boolean' }] }])
   })
 
-  it('saves multiple measures, nested success rules, select fields, and milestones', async () => {
+  it('creates a cumulative goal with an amount, unit, 30-day deadline, and separate check-in threshold', async () => {
     const user = userEvent.setup()
     renderSetup()
-    await user.type(screen.getByLabelText('What would you like to track?'), 'Build a portfolio')
-    await user.selectOptions(screen.getByLabelText('Tracker type'), 'project')
-    await user.click(screen.getByText('Advanced settings'))
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    await user.type(screen.getByLabelText('What do you want to achieve?'), 'Solve DSA problems')
+    await user.type(screen.getByLabelText('Total amount'), '100')
+    await user.type(screen.getByLabelText('What are you counting?'), 'problems')
+    expect(screen.getByRole('spinbutton', { name: 'Total amount' })).toHaveValue(100)
+    expect(screen.getByText(/Suggested pace:/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+
+    expect(await screen.findByRole('link', { name: 'Record my first progress' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'View my goal' })).toHaveAttribute('href', '/goals')
+    expect(screen.getByRole('link', { name: 'Customize my plan' })).toHaveAttribute('href', expect.stringMatching(/\/trackers\/.*\/edit/))
+    const [saved] = await localRepository.listTrackers()
+    expect(saved).toMatchObject({
+      schemaVersion: 2, kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { [saved!.metrics[0]!.id]: 'incremental' }, cumulativeTargets: { [saved!.metrics[0]!.id]: 100 } },
+      metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { target: 1 } }],
+    })
+    expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('validates the goal unit and amount rather than silently creating an empty target', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    await user.type(screen.getByLabelText('What do you want to achieve?'), 'Read books')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByText('Enter a total greater than zero, such as 100.')).toBeInTheDocument()
+    expect(screen.getByText('Add what you are counting, such as problems or pages.')).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toHaveLength(0)
+  })
+
+  it('keeps complex measures, nested rules, custom fields, and milestones behind targeted disclosures', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: /Project/ }))
+    await user.type(screen.getByLabelText('What project will you move forward?'), 'Build a portfolio')
+    const advanced = screen.getByText('Advanced options').closest('details')
+    expect(advanced).not.toHaveAttribute('open')
+    await user.click(screen.getByText('Advanced options'))
+    await user.click(screen.getByText('Measures and success levels'))
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const measureNames = screen.getAllByLabelText('Name')
     await user.clear(measureNames[1]!)
     await user.type(measureNames[1]!, 'Focus time')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 2 value type' }), 'duration')
 
+    await user.click(screen.getByText('Success conditions'))
     const ruleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
     await user.selectOptions(ruleKinds[0]!, 'all')
     const nestedRuleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
     await user.selectOptions(nestedRuleKinds[1]!, 'any')
 
+    await user.click(screen.getByText('Extra check-in details'))
     await user.click(screen.getByRole('button', { name: '＋ Add field' }))
     await user.type(screen.getByLabelText('Field name'), 'Mood')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Field type' }), 'single-select')
     fireEvent.change(screen.getByLabelText(/Options/), { target: { value: 'Focused\nTired' } })
+    await user.click(screen.getByText('Milestones', { selector: 'summary' }))
     await user.click(screen.getByRole('button', { name: '＋ Add milestone' }))
     await user.type(screen.getByLabelText('Milestone'), 'Publish first case study')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
-    await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
-    const saved = await localRepository.listTrackers()
-    expect(saved[0]?.metrics).toHaveLength(2)
-    expect(saved[0]?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'duration' })
-    expect(saved[0]?.qualificationRule).toMatchObject({ kind: 'all', operands: [{ kind: 'any', operands: [expect.any(Object), expect.any(Object)] }, expect.any(Object)] })
-    expect(saved[0]?.customFields).toMatchObject([{ name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'] }])
-    expect(saved[0]?.milestones).toMatchObject([{ title: 'Publish first case study' }])
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    const [saved] = await localRepository.listTrackers()
+    expect(saved?.metrics).toHaveLength(2)
+    expect(saved?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'duration' })
+    expect(saved?.qualificationRule).toMatchObject({ kind: 'all', operands: [{ kind: 'any', operands: [expect.any(Object), expect.any(Object)] }, expect.any(Object)] })
+    expect(saved?.customFields).toMatchObject([{ name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'] }])
+    expect(saved?.milestones).toMatchObject([{ title: 'Publish first case study' }])
   })
 
-  it('edits setup without replacing existing tracker identity or creation time', async () => {
+  it('edits an existing habit without changing its identity, kind, or schema version', async () => {
     const existing = {
       schemaVersion: 1 as const, id: 'edit-tracker', name: 'Old name', description: '', kind: 'habit' as const,
       status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'every-day' as const },
@@ -102,35 +131,51 @@ describe('tracker setup flow', () => {
     await localRepository.saveTracker(existing)
     const user = userEvent.setup()
     renderSetup('/trackers/edit-tracker/edit')
-    const name = await screen.findByLabelText('What would you like to track?')
+    const name = await screen.findByLabelText('What habit do you want to build?')
     await user.clear(name)
     await user.type(name, 'Updated name')
-    expect(screen.getByText('Advanced settings').closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('Advanced options').closest('details')).not.toHaveAttribute('open')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
     const saved = await localRepository.getTracker(existing.id)
-    expect(saved?.id).toBe(existing.id)
-    expect(saved?.createdAt).toBe(existing.createdAt)
-    expect(saved?.name).toBe('Updated name')
-    expect(saved?.schemaVersion).toBe(1)
+    expect(saved).toMatchObject({ id: existing.id, name: 'Updated name', createdAt: existing.createdAt, schemaVersion: 1, kind: 'habit' })
   })
 
-  it('keeps the simple measure flow visible while advanced settings start collapsed', async () => {
+  it('keeps a legacy goal per-check-in target when editing it', async () => {
+    const existing = {
+      schemaVersion: 1 as const, id: 'legacy-goal', name: 'Read pages', description: '', kind: 'goal' as const,
+      status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' as const },
+      startDate: '2026-01-01', deadline: '2026-02-01',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 10, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const },
+      customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(existing)
     const user = userEvent.setup()
-    renderSetup()
-    const advanced = screen.getByText('Advanced settings').closest('details')
-    expect(advanced).not.toHaveAttribute('open')
-    await user.type(screen.getByLabelText('What would you like to track?'), 'Read every day')
-    await user.clear(screen.getByLabelText('Measure name'))
-    await user.type(screen.getByLabelText('Measure name'), 'Pages')
-    await user.selectOptions(screen.getByLabelText('Measure type'), 'quantity')
-    await user.clear(screen.getByRole('spinbutton', { name: 'Target per check-in' }))
-    await user.type(screen.getByRole('spinbutton', { name: 'Target per check-in' }), '10')
-    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
-    await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
-    const [saved] = await localRepository.listTrackers()
-    expect(saved).toMatchObject({ name: 'Read every day', metrics: [{ name: 'Pages', valueType: 'quantity', thresholds: { target: 10 } }] })
+    renderSetup('/trackers/legacy-goal/edit')
+    const target = await screen.findByRole('spinbutton', { name: 'Quick target' })
+    await user.clear(target)
+    await user.type(target, '12')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(navigation).toHaveBeenCalled())
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 1, metrics: [{ thresholds: { target: 12 } }] })
+  })
+
+  it('preserves a custom existing schedule when other settings are edited', async () => {
+    const existing = {
+      schemaVersion: 1 as const, id: 'custom-schedule', name: 'Flexible', description: '', kind: 'habit' as const,
+      status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'every-n-days' as const, interval: 2 },
+      metrics: [{ id: 'habit', name: 'Done', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'habit', operator: 'equals' as const, value: true },
+      customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup('/trackers/custom-schedule/edit')
+    await user.click(await screen.findByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(navigation).toHaveBeenCalled())
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ schedule: { kind: 'every-n-days', interval: 2 } })
   })
 
   it('archives without deleting and can still list the archived tracker', async () => {
