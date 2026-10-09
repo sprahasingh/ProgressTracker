@@ -145,4 +145,17 @@ describe('AuthPage', () => {
     await user.click(screen.getByRole('button', { name: 'Use cloud version' }))
     expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'conflict-1', 'use-cloud')
   })
+
+  it('hides prior account conflict details immediately when the signed-in account changes', async () => {
+    const privateConflict = { id: 'private-conflict', ownerUserId: 'account-1', entity: 'tracker', entityId: 'private-tracker', localPayload: { id: 'private-tracker', name: 'Account one secret' }, remoteRecord: null, detectedAt: '2026-01-01T00:00:00.000Z' }
+    authMocks.listSyncConflicts.mockResolvedValueOnce([privateConflict]).mockResolvedValueOnce([])
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'one@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
+    const view = render(<AuthPage />)
+    expect(await screen.findByText(/Account one secret/)).toBeInTheDocument()
+
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-2', email: 'two@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-2', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
+    view.rerender(<AuthPage />)
+
+    expect(screen.queryByText(/Account one secret/)).not.toBeInTheDocument()
+  })
 })

@@ -32,15 +32,17 @@ export function AuthPage() {
   const [signOutError, setSignOutError] = useState<string | null>(null)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([])
+  const [conflictsOwnerUserId, setConflictsOwnerUserId] = useState<string | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
     setSyncConflicts([])
+    setConflictsOwnerUserId(null)
     setConflictError(null)
     if (status !== 'signed-in' || !user?.id || workspaceStatus !== 'ready' || workspaceUserId !== user.id) return () => { active = false }
-    void listSyncConflicts(user.id).then((conflicts) => { if (active) setSyncConflicts(conflicts) }).catch(() => {
+    void listSyncConflicts(user.id).then((conflicts) => { if (active) { setSyncConflicts(conflicts); setConflictsOwnerUserId(user.id) } }).catch(() => {
       if (active) setConflictError('Saved sync conflicts could not be loaded for this account.')
     })
     return () => { active = false }
@@ -53,6 +55,7 @@ export function AuthPage() {
     try {
       await resolveSyncConflict(user.id, conflict.id, choice)
       setSyncConflicts(await listSyncConflicts(user.id))
+      setConflictsOwnerUserId(user.id)
     } catch (cause) {
       setConflictError(cause instanceof Error ? cause.message : 'The conflict could not be resolved. Both copies remain saved.')
     } finally { setResolvingConflict(null) }
@@ -133,7 +136,7 @@ export function AuthPage() {
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
             {syncSummary && <p className="auth-success" role="status">Sync checked {syncSummary.uploaded} uploads and {syncSummary.downloaded} downloads; {syncSummary.conflicts} conflicts need review.</p>}
             {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
-            {syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
+            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
               const cloud = conflict.remoteRecord
               const cloudAvailable = Boolean(cloud && cloud.user_id === user?.id && typeof cloud.server_revision === 'number')
               const localPayload = conflict.localPayload as Record<string, unknown>
