@@ -116,6 +116,12 @@ a { color: inherit; text-decoration: none; }
 .auth-submit { width: 100%; margin-top: 19px; }
 .auth-error { margin: 8px 0 0; color: #a13b3b !important; font-size: 12px !important; line-height: 1.5 !important; }
 .auth-hint { margin: 15px 0 0; color: var(--ink-subtle); font-size: 11px; line-height: 1.6; }
+.auth-label-spaced { margin-top: 17px; }
+.auth-switches, .auth-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 20px; margin-top: 16px; }
+.auth-switches button, .auth-text-button { padding: 4px 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+.auth-text-button { display: block; margin: 13px auto 0; }
+.auth-success { margin: 14px 0 0; color: #267a56; font-size: 12px; line-height: 1.6; }
+.auth-actions { margin-top: 20px; }
 .title-period { color: #78957d; }
 .placeholder-page p { max-width: 390px; margin: 22px 0 0; color: #879188; font-family: Georgia, serif; font-size: 15px; line-height: 1.7; }
 .placeholder-rule { width: 42px; height: 1px; margin-top: 47px; background: #9bb49b; }
