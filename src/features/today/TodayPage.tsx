@@ -13,8 +13,6 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 
-const dateLabel = (value: string) => calendarDateLabel(value, { weekday: 'long', month: 'long', day: 'numeric' })
-
 export function TodayPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
