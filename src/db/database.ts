@@ -184,7 +184,11 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
   const target = new ProgressTrackerDatabase(databaseNameFor(userId))
   await Promise.all([guest.open(), target.open()])
   try {
-    const guestRows = new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]])))
+    // Read every source table from one IndexedDB snapshot. The guest database
+    // stays available in other tabs while an account import is underway.
+    const guestRows = await guest.transaction('r', workspaceTables.map((table) => guest.table(table)), async () =>
+      new Map<string, unknown[]>(await Promise.all(workspaceTables.map(async (tableName) => [tableName, await guest.table(tableName).toArray()] as [string, unknown[]]))),
+    )
     await target.transaction('rw', [target.workspaceMetadata, target.syncOperations, target.syncRecords, ...workspaceTables.map((table) => target.table(table))], async () => {
       const metadata = await target.workspaceMetadata.get('workspace')
       if (metadata?.guestDecision) return
@@ -296,7 +300,10 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
           await queueSyncMutation(target, userId, 'tracker_entry', payload)
         }
       }
-      await target.workspaceMetadata.put({ key: 'workspace', userId, guestDecision: decision, importedAt: decision === 'imported' ? new Date().toISOString() : undefined })
+      await target.workspaceMetadata.put({
+        key: 'workspace', userId, guestDecision: decision,
+        importedAt: decision === 'kept-separate' ? undefined : new Date().toISOString(),
+      })
     })
   } finally { guest.close(); target.close() }
 }

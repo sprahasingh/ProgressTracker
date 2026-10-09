@@ -165,12 +165,15 @@ describe('ProgressTracker database migrations', () => {
     await db.trackers.put({ id: 'guest-copy', name: 'Preserved guest record' } as never)
     await expect(getGuestWorkspaceSummary()).resolves.toMatchObject({ hasData: true })
 
-    await decideGuestData('import-account', 'imported')
-    await decideGuestData('import-account', 'imported')
+    await Promise.all([
+      decideGuestData('import-account', 'imported'),
+      decideGuestData('import-account', 'imported'),
+    ])
     await activateWorkspace('import-account')
     openedDatabases.push(db)
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
     await expect(db.syncOperations.where('ownerUserId').equals('import-account').count()).resolves.toBe(1)
+    await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ guestDecision: 'imported', importedAt: expect.any(String) })
     await activateWorkspace(null)
     openedDatabases.push(db)
     await expect(db.trackers.get('guest-copy')).resolves.toMatchObject({ name: 'Preserved guest record' })
