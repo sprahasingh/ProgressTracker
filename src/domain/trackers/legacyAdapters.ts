@@ -12,17 +12,17 @@ export function categoryToTracker(category: Category): TrackerDefinition {
     status: category.deletedAt ? 'archived' : category.archivedAt ? 'archived' : 'active',
     categoryId: category.id,
     tags: [],
-    icon: category.icon,
-    accent: category.accent,
-    schedule: category.schedule,
+    icon: category.icon ?? '',
+    accent: category.accent ?? '',
+    schedule: category.schedule ?? { kind: 'every-day' },
     metrics: [{ id: category.id, name: 'Completed', valueType: 'boolean' }],
     qualificationRule: { kind: 'comparison', metricId: category.id, operator: 'equals', value: true },
     customFields: [],
     milestones: [],
-    createdAt: category.createdAt,
-    updatedAt: category.updatedAt,
-    archivedAt: category.archivedAt,
-    deletedAt: category.deletedAt,
+    createdAt: category.createdAt ?? category.updatedAt ?? new Date(0).toISOString(),
+    updatedAt: category.updatedAt ?? category.createdAt ?? new Date(0).toISOString(),
+    archivedAt: category.archivedAt ?? null,
+    deletedAt: category.deletedAt ?? null,
   }
 }
 
@@ -34,9 +34,9 @@ export function dailyEntryToTrackerEntry(entry: DailyEntry): TrackerEntry {
     date: entry.date,
     outcome: entry.status === 'skipped' ? 'skipped' : 'recorded',
     values: entry.status === 'completed' ? { [entry.categoryId]: true } : {},
-    note: entry.note,
-    createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
-    deletedAt: entry.deletedAt,
+    note: entry.note ?? '',
+    createdAt: entry.createdAt ?? entry.updatedAt ?? new Date(0).toISOString(),
+    updatedAt: entry.updatedAt ?? entry.createdAt ?? new Date(0).toISOString(),
+    deletedAt: entry.deletedAt ?? null,
   }
 }

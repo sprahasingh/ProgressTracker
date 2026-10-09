@@ -4,7 +4,7 @@ A local-first personal productivity app for daily consistency, focused work, and
 
 ## Project status
 
-The project has a reusable interface foundation, IndexedDB schema/repositories, Supabase magic-link authentication, and a validated generic tracker domain contract. The current Today page is still a welcome/empty-state shell: tracker setup, daily logging, adaptive planning, analytics, password authentication, and synchronization remain future work. See [the product and architecture roadmap](docs/ROADMAP.md).
+The project has a reusable interface foundation, generic tracker setup and local persistence, Supabase magic-link authentication, and tested planning/rule domain logic. The current Today page remains a welcome shell; daily logging, expanded metric/rule editing, analytics, password authentication, and synchronization remain future work. See [the product and architecture roadmap](docs/ROADMAP.md).
 
 ## Tech stack
 
@@ -31,7 +31,7 @@ Shared UI components should remain presentation-focused. Product rules belong in
 
 `src/domain/trackers/types.ts` defines a storage-independent, schema-versioned tracker model for habits, goals, challenges, and projects. It represents schedule variants, typed metrics and thresholds, nested qualification rules, custom fields, milestones, and dated entries with extensible JSON values. `schema.ts` validates definitions and entries with Zod at data boundaries, including schedule ranges, threshold ordering, metric references, and custom-field option rules.
 
-`legacyAdapters.ts` projects existing category and daily-entry records into this domain shape while preserving IDs and history. A legacy category is represented as a boolean habit, and completed/skipped entries retain their identity and metadata. Quantitative progress cannot be inferred from legacy free-text notes. Generic records are persisted locally by Dexie v3 and have a forward-only PostgreSQL schema; application screens and Supabase client data access have not been connected to them. See `docs/ROADMAP.md` for the staged plan and known risks.
+`legacyAdapters.ts` projects existing category and daily-entry records into this domain shape while preserving IDs and history. A legacy category is represented as a boolean habit, and completed/skipped entries retain their identity and metadata. Quantitative progress cannot be inferred from legacy free-text notes. Generic records are persisted locally by Dexie v3; the tracker library and setup forms use this local repository. The PostgreSQL schema is prepared, but Supabase client data access has not been connected. See `docs/ROADMAP.md` for the staged plan and known risks.
 
 Pure planning and qualification calculations live in `src/domain/trackers/planning.ts`. They classify minimum/target/stretch levels, evaluate nested `all`/`any`/`at-least` rules across metrics, and distribute remaining work evenly over eligible days. Recalculate with updated completed work/dates to redistribute the remaining load. Plans report planned, rest, missed, early-completion, and overdue dates plus completion and overdue summaries. Callers choose `daily-recurring` or `cumulative-deadline` mode. These functions have no persistence, clock, timezone, or UI dependencies; the as-of date is an explicit input for deterministic calculations.
 
@@ -43,7 +43,9 @@ Dexie wraps IndexedDB behind `src/db/localRepository.ts`; components should call
 
 Database schema version 3 upgrades version 1/2 installations transactionally. Version 2 adds generic `trackers` and `trackerEntries` stores and projects each legacy category and daily entry into them, preserving the existing IDs, date, note, timestamps, completion/skipped state, and tombstones. The original legacy stores are retained unchanged as compatibility copies; this migration does not delete or rewrite user activity. Version 1 records first receive the existing v2 timestamp/tombstone upgrade and then the v3 projection. Daily entries have a unique category/date index and generic tracker entries have a unique tracker/date index. Repository methods validate calendar dates and use date strings as daily identity, separate from timestamps. Progress history stores each recorded value; it does not keep only a mutable current total. Cloud sync remains planned for a later step.
 
-The generic Dexie stores currently exist as a persistence foundation for the domain model. Application screens and repository write APIs still use legacy records until a later migration step changes those call sites deliberately. IndexedDB schema upgrades run as a database transaction; tests cover upgrades from both v1 and v2 fixtures, preservation of legacy records/tombstones, and reading migrated rows after closing and reopening the database.
+The tracker library and setup screens use local repository methods to list, create, edit, and archive generic trackers. Creation starts habits with a boolean completion metric and other tracker types with a quantity metric and target. The setup form supports daily, weekday, three-times-weekly, or flexible schedules and optional start/deadline dates. Tracker type and creation identity are stable after creation; expanded metric/rule editing and daily logging are later steps. Archiving is reversible by showing archived trackers; this flow does not physically delete records.
+
+IndexedDB schema upgrades run as a database transaction; tests cover upgrades from both v1 and v2 fixtures, preservation of legacy records/tombstones, and reading migrated rows after closing and reopening the database. Generic tracker definitions are validated before local writes.
 
 ## Supabase configuration
 

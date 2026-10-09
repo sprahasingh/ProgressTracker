@@ -23,7 +23,7 @@ This roadmap describes the adaptive productivity and goal-tracking direction whi
 2. **Pure domain behavior** — completed in this phase: deterministic achievement classification, nested AND/OR/at-least rule evaluation, rest-day-aware workload distribution, recalculation, and deadline state results. Timezone-aware schedules and richer recurrence semantics remain limitations to close before shipping UI.
 3. **IndexedDB evolution** — completed in this phase: Dexie v3 generic tracker/entry tables and a transactional projection of legacy categories/entries, verified from v1/v2 fixtures and after reopen. Original legacy rows remain intact.
 4. **Cloud schema evolution** — implemented in this phase as an additive migration and pgTAP coverage for generic tracker ownership, cross-user references, tombstones, and revisions. Hosted application remains a user-run dashboard step; no hosted project was accessed.
-5. **Tracker setup flows** — build create/edit flows for habits, goals, challenges, and projects with sensible defaults and validation.
+5. **Tracker setup flows** — implemented in this phase: local tracker list/create/edit/archive with schedule and date setup, first metrics, type-aware defaults, and Zod validation.
 6. **Metrics and rules editor** — support numeric/duration/checklist metrics, thresholds, custom fields, milestones, and nested qualification rules with accessible controls.
 7. **Daily logging and adaptive schedules** — implement quick logging, skips, schedule-aware prompts, and explainable qualification states.
 8. **Challenges and rewards** — add streaks and progression based on tested domain calculations; keep rewards motivational and recoverable after missed days.
@@ -36,7 +36,8 @@ Backup/export, timezone/account settings, installable PWA behavior, and deployme
 
 ## Known limitations and risks
 
-- Generic definitions and entries are now persisted in IndexedDB by the Dexie v3 migration, but new UI writes and cloud persistence are not yet implemented. Legacy records continue to be retained as compatibility copies.
+- Generic definitions and entries are persisted in IndexedDB. Tracker create/edit/list/archive flows use local repository methods; daily logging and cloud writes are not implemented. Legacy records continue to be retained as compatibility copies.
+- The current setup screen supports a compact set of schedules and edits only the initial metric. Additional metric, custom-field, milestone, and qualification-rule editing belongs to Phase 6.
 - The read-only legacy projection maps each old category to a boolean habit with one completion metric. It cannot infer quantitative progress from the free-form note field.
 - Category schedules lack an explicit timezone. Schedule evaluation must define whether it uses the user’s selected timezone before streak or occurrence behavior is shipped.
 - Generic metric and rule schemas are versioned, but future migrations still need explicit conversion rules and compatibility tests.
