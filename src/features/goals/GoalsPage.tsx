@@ -103,6 +103,31 @@ export function GoalsPage() {
                 return <li key={metric.id}><span>{metric.name}</span><strong>{valueText}{target !== undefined ? ` · target ${target}${metric.unit ? ` ${metric.unit}` : ''}` : ''}</strong></li>
               })}
             </ul>}
+            {tracker.milestones.length > 0 && <section className="goal-milestones" aria-label={`${tracker.name} milestones`}>
+              <h3>Milestones</h3>
+              <ul>
+                {tracker.milestones.map((milestone) => {
+                  const metric = tracker.metrics.find((item) => item.id === milestone.metricId)
+                  const observed = metric && milestone.targetValue !== undefined
+                    ? goalEntries.flatMap((entry) => {
+                      const value = entry.values[metric.id]
+                      return entry.outcome === 'recorded' && typeof value === 'number' ? [value] : []
+                    })
+                    : []
+                  const bestValue = observed.length === 0 ? undefined : metric?.thresholds?.direction === 'decrease'
+                    ? observed.reduce((best, value) => Math.min(best, value), Number.POSITIVE_INFINITY)
+                    : observed.reduce((best, value) => Math.max(best, value), Number.NEGATIVE_INFINITY)
+                  const reached = bestValue !== undefined && milestone.targetValue !== undefined &&
+                    (metric?.thresholds?.direction === 'decrease' ? bestValue <= milestone.targetValue : bestValue >= milestone.targetValue)
+                  const checkpoint = bestValue === undefined ? 'Not started' : `${bestValue}${metric?.unit ? ` ${metric.unit}` : ''} of ${milestone.targetValue ?? 'target'}`
+                  const due = milestone.dueDate ? ` · Due ${calendarDateLabel(milestone.dueDate)}` : ''
+                  return <li key={milestone.id}>
+                    <span className={`goal-milestone-marker${reached ? ' reached' : ''}`} aria-hidden="true">{reached ? '✓' : '○'}</span>
+                    <div><strong>{milestone.title || 'Untitled milestone'}</strong>{milestone.description && <small>{milestone.description}</small>}<small>{reached ? `Reached · best ${checkpoint}` : `${checkpoint}${due}`}</small></div>
+                  </li>
+                })}
+              </ul>
+            </section>}
             <div className="goal-card-summary">
               <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}</span>
               <span>{latest ? `${latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
