@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { activateWorkspace, db, queueSyncMutation } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
+import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
 
@@ -46,6 +47,25 @@ afterEach(async () => {
 })
 
 describe('account-scoped sync engine', () => {
+  it('notifies workspace views when remote tracker or progress data is downloaded', async () => {
+    await activateWorkspace('sync-user')
+    const remote = tracker('remote-view-refresh')
+    const remoteEntry = {
+      id: 'remote-view-progress', user_id: 'sync-user', tracker_id: remote.id, entry_date: '2026-10-09', outcome: 'recorded',
+      entry_values: { pages: 6 }, note: '', created_at: '2026-10-09T09:00:00.000Z', updated_at: '2026-10-09T09:00:00.000Z', deleted_at: null, server_revision: 1,
+    }
+    const owners: Array<string | null> = []
+    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId) => owners.push(ownerId))
+    try {
+      const { client } = fakeClient({ trackerRows: [serverTracker(remote)], trackerEntryRows: [remoteEntry] })
+      await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 2 })
+      expect(owners).toEqual(['sync-user'])
+      await expect(db.trackerEntries.get(remoteEntry.id)).resolves.toMatchObject({ trackerId: remote.id, values: { pages: 6 } })
+    } finally {
+      unsubscribe()
+    }
+  })
+
   it('uploads and downloads account-wide holiday rows through the revisioned owner-scoped RPC', async () => {
     await activateWorkspace('sync-user')
     const [row] = await localRepository.saveAccountHolidays(['2026-10-12'], 'travel')
@@ -118,19 +138,25 @@ describe('account-scoped sync engine', () => {
 
   it('uploads and downloads v4 precision definitions through the existing revisioned sync RPC', async () => {
     await activateWorkspace('sync-user')
-    const v4: StoredTrackerDefinition = {
+    const original: StoredTrackerDefinition = {
       ...plannedGoal, schemaVersion: 4,
       metrics: [{ ...plannedGoal.metrics[0]!, precision: { decimalPlaces: 0, increment: 1 } }],
+    }
+    await localRepository.saveTracker(original)
+    const v4: StoredTrackerDefinition = {
+      ...original, startDate: '2026-10-09', deadline: '2026-10-12',
+      metrics: [{ ...original.metrics[0]!, precision: { decimalPlaces: 1, increment: 0.1 } }],
+      goalPlanning: { ...original.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: { '2026-10-09': 4.2, '2026-10-10': 3.8 } } },
     }
     await localRepository.saveTracker(v4)
     const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(v4, 'sync-user', 1) } })
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
-    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 4, definition: { schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 0, increment: 1 } }] } })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 4, definition: { schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 1, increment: 0.1 } }], goalPlanning: { allocations: { pages: { '2026-10-09': 4.2, '2026-10-10': 3.8 } } } } })
     await db.trackers.clear()
     await db.syncRecords.clear()
     const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v4)] })
     await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
-    await expect(db.trackers.get(v4.id)).resolves.toMatchObject({ schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 0, increment: 1 } }] })
+    await expect(db.trackers.get(v4.id)).resolves.toMatchObject({ schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 1, increment: 0.1 } }], goalPlanning: { allocations: { pages: { '2026-10-09': 4.2, '2026-10-10': 3.8 } } } })
   })
 
   it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {

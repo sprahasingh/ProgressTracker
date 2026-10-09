@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
+import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -245,7 +246,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
   return { uploaded, conflicts, failed }
 }
 
-async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: string, row: ServerTracker): Promise<{ downloaded: number; conflicts: number }> {
+async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: string, row: ServerTracker): Promise<{ downloaded: number; conflicts: number; changed?: boolean }> {
   if (row.user_id !== userId) throw new Error('Cloud response contained a tracker owned by another account.')
   const remote = trackerFromServer(row)
   const stateKey = keyFor('tracker', row.id)
@@ -265,16 +266,16 @@ async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: str
       await database.syncConflicts.put({ id: `pull:tracker:${row.id}`, ownerUserId: userId, entity: 'tracker', entityId: row.id, localPayload: local, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
       return { downloaded: 0, conflicts: 1 }
     }
-    if (!state || row.server_revision >= state.serverRevision) {
+    if (!state || !local || row.server_revision > state.serverRevision) {
       await database.trackers.put(remote)
       await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'tracker', entityId: row.id, serverRevision: row.server_revision })
-      return { downloaded: local ? 0 : 1, conflicts: 0 }
+      return { downloaded: local ? 0 : 1, conflicts: 0, changed: true }
     }
     return { downloaded: 0, conflicts: 0 }
   })
 }
 
-async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: string, row: ServerEntry): Promise<{ downloaded: number; conflicts: number }> {
+async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: string, row: ServerEntry): Promise<{ downloaded: number; conflicts: number; changed?: boolean }> {
   if (row.user_id !== userId) throw new Error('Cloud response contained an entry owned by another account.')
   const remote = entryFromServer(row)
   const stateKey = keyFor('tracker_entry', row.id)
@@ -294,16 +295,16 @@ async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: strin
       await database.syncConflicts.put({ id: `pull:tracker_entry:${row.id}`, ownerUserId: userId, entity: 'tracker_entry', entityId: row.id, localPayload: local, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
       return { downloaded: 0, conflicts: 1 }
     }
-    if (!state || row.server_revision >= state.serverRevision) {
+    if (!state || !local || row.server_revision > state.serverRevision) {
       await database.trackerEntries.put(remote)
       await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'tracker_entry', entityId: row.id, serverRevision: row.server_revision })
-      return { downloaded: local ? 0 : 1, conflicts: 0 }
+      return { downloaded: local ? 0 : 1, conflicts: 0, changed: true }
     }
     return { downloaded: 0, conflicts: 0 }
   })
 }
 
-async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: string, row: ServerHoliday): Promise<{ downloaded: number; conflicts: number }> {
+async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: string, row: ServerHoliday): Promise<{ downloaded: number; conflicts: number; changed?: boolean }> {
   if (row.user_id !== userId) throw new Error('Cloud response contained a holiday owned by another account.')
   const remote: AccountHoliday = { id: row.id, date: row.holiday_date as AccountHoliday['date'], reason: row.reason, createdAt: normalizeSyncTimestamp(row.created_at, 'created_at') as string, updatedAt: normalizeSyncTimestamp(row.updated_at, 'updated_at') as string, deletedAt: row.deleted_at === null ? null : normalizeSyncTimestamp(row.deleted_at, 'deleted_at') as string }
   if (remote.reason !== null && !['travel', 'exam', 'personal', 'other'].includes(remote.reason)) throw new Error('Cloud holiday has an unsupported reason.')
@@ -324,19 +325,20 @@ async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: str
       await database.syncConflicts.put({ id: `pull:account_holiday:${row.id}`, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, localPayload: local, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
       return { downloaded: 0, conflicts: 1 }
     }
-    if (!state || row.server_revision >= state.serverRevision) {
+    if (!state || !local || row.server_revision > state.serverRevision) {
       await database.accountHolidays.put(remote)
       await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, serverRevision: row.server_revision })
-      return { downloaded: local ? 0 : 1, conflicts: 0 }
+      return { downloaded: local ? 0 : 1, conflicts: 0, changed: true }
     }
     return { downloaded: 0, conflicts: 0 }
   })
 }
 
-async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries' | 'account_holidays', apply: (row: T) => Promise<{ downloaded: number; conflicts: number }>) {
+async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries' | 'account_holidays', apply: (row: T) => Promise<{ downloaded: number; conflicts: number; changed?: boolean }>) {
   let cursor = ''
   let downloaded = 0
   let conflicts = 0
+  let changed = 0
   for (;;) {
     await accountState(database, userId)
     await assertUser(client, userId)
@@ -355,11 +357,12 @@ async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(
       const result = await apply(row)
       downloaded += result.downloaded
       conflicts += result.conflicts
+      if (result.changed) changed += 1
     }
     cursor = rows[rows.length - 1]!.id
     if (rows.length < pageSize) break
   }
-  return { downloaded, conflicts }
+  return { downloaded, conflicts, changed }
 }
 
 async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
@@ -379,7 +382,9 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
   const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
-  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted, downloaded: trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed }
+  const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded
+  if (trackerPull.changed + entryPull.changed + holidayPull.changed > 0) publishWorkspaceDataChange(userId)
+  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed }
 }
 
 /**

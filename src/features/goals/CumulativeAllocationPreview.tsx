@@ -41,6 +41,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const [error, setError] = useState('')
   const allocations = eligibleDays.map((day) => manualValues[day.date] ?? day.amount ?? 0)
   const totals = summarizeAllocations(preview.remainingTarget, allocations)
+  const suggestedTotals = summarizeAllocations(preview.remainingTarget, eligibleDays.map((day) => day.amount ?? 0))
   const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
   const isChecklistMetric = metric.valueType === 'checklist'
   const format = (value: number) => `${formatTrackerNumber(value)}${unit}`
@@ -118,24 +119,26 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     <p className="allocation-preview-note">{dirty ? replaceSavedPlan ? 'This reset replaces the saved allocation schedule when you save; actual check-ins stay untouched.' : 'These changes are not saved yet.' : tracker.schemaVersion >= 3 && savedPlanExists ? `Confirmed allocations are saved for ${tracker.goalPlanning?.planningTimeZone ?? timeZone}.` : 'Preview only. Allocations become persistent only after Save Plan.'} Planned amounts remain separate from actual check-ins. Dates use the {tracker.goalPlanning?.planningTimeZone ?? timeZone} planning calendar.</p>
     {!v3WritesEnabled && <p className="allocation-preview-warning" role="status">Saving persistent plans is disabled in this production build until the required hosted schema migration is applied and verified.</p>}
     {error && <p className="allocation-preview-warning" role="alert">{error}</p>}
-    {suggestionChanged && !dirty && <div className="allocation-preview-warning" role="status"><p>{savedAllocationInvalid ? 'Some saved allocations no longer match this metric’s whole-unit precision.' : 'Your suggested pace has adjusted to remaining work and scheduled days.'} Your saved plan is unchanged.</p><button className="button button-secondary button-small" type="button" onClick={resetSuggested} disabled={saving}>Use updated suggestion</button></div>}
+    {suggestionChanged && !dirty && <div className="allocation-preview-warning" role="status"><p>{savedAllocationInvalid ? 'Some saved allocations no longer match this metric’s precision.' : 'Progress or eligible dates changed, so the automatic suggestions below have been recalculated.'} Saved allocations remain unchanged. Choose “Use updated suggestion” and then save to replace them.</p><button className="button button-secondary button-small" type="button" onClick={resetSuggested} disabled={saving}>Use updated suggestion</button></div>}
     {holidayConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{holidayConflicts.length} holiday date{holidayConflicts.length === 1 ? '' : 's'} have saved allocations. They are preserved and excluded from this preview until you choose how to resolve them.</p><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues(suggested); setResolveHolidayConflicts(true); setDirty(true) }}>Move holiday allocations to eligible days</button></div>}
     <div className="allocation-preview-summary" role="group" aria-label={`${metric.name} preview totals`}>
       <span><small>Actual recorded</small><strong>{format(preview.actualProgress)}</strong></span>
       <span><small>Remaining target</small><strong>{format(preview.remainingTarget)}</strong></span>
-      <span><small>Planned total</small><strong>{format(totals.plannedTotal)}</strong></span>
+      <span><small>{savedPlanExists && !dirty ? 'Saved total' : 'Planned total'}</small><strong>{format(totals.plannedTotal)}</strong></span>
+      <span><small>Suggested total now</small><strong>{format(suggestedTotals.plannedTotal)}</strong></span>
       <span><small>{totals.shortfall ? 'Shortfall' : totals.overAllocation ? 'Over-allocation' : 'Balance'}</small><strong>{format(totals.shortfall || totals.overAllocation)}</strong></span>
     </div>
-    {preview.eligibleDayCount === 0 && preview.remainingTarget > 0 && <p className="allocation-preview-warning" role="status">No scheduled days remain before the deadline. The remaining target is currently unallocated.</p>}
+    {preview.eligibleDayCount === 0 && preview.remainingTarget > 0 && <p className="allocation-preview-warning" role="status">The goal is behind schedule: {format(preview.remainingTarget)} remains and no eligible scheduled days remain before the deadline.</p>}
     {eligibleDays.length > 0 && <div className="allocation-preview-table-wrap"><table className="allocation-preview-table">
-      <thead><tr><th scope="col">Date</th><th scope="col">Actual recorded</th><th scope="col">Preview allocation</th></tr></thead>
+      <thead><tr><th scope="col">Date</th><th scope="col">Actual recorded</th><th scope="col">{savedPlanExists && !dirty ? 'Saved allocation' : dirty ? 'Your draft allocation' : 'Preview allocation'}</th><th scope="col">Suggested now</th></tr></thead>
       <tbody>{preview.days.map((day) => {
         const entry = latestEntries.get(day.date)
           const actual = entry?.outcome === 'skipped' ? 'Skipped' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
         return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
-          <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : 'Rest day'}</span>}</th>
+          <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : day.closed ? 'Logged' : 'Rest day'}</span>}</th>
           <td>{actual === null ? '—' : actual === 'Skipped' ? 'Skipped' : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
-          <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : <span className="allocation-rest-value">Not scheduled</span>}</td>
+          <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : savedPlanExists ? 'Saved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : savedPlanExists ? 'Saved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : day.closed && saved[day.date] !== undefined ? <span aria-label={`Saved allocation for ${day.date}`}>{format(saved[day.date] ?? 0)}</span> : <span className="allocation-rest-value">{day.closed ? 'Logged' : 'Not scheduled'}</span>}</td>
+          <td>{day.eligible ? <span aria-label={`Suggested allocation for ${day.date}`}>{format(day.amount ?? 0)}</span> : <span className="allocation-rest-value">—</span>}</td>
         </tr>
       })}</tbody>
     </table></div>}

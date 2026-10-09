@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { localRepository } from '../../db/localRepository'
+import { applyDocumentAppearance, rememberAppearance } from './appearance'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -43,19 +44,17 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
     }
   }, [loaded, ownerUserId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!loaded || loaded.ownerUserId !== ownerUserId) return
     const media = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null
     const apply = () => {
-      const dark = loaded.appearance === 'dark' || (loaded.appearance === 'system' && Boolean(media?.matches))
-      if (dark) document.documentElement.dataset.theme = 'dark'
-      else delete document.documentElement.dataset.theme
+      applyDocumentAppearance(loaded.appearance, Boolean(media?.matches))
+      rememberAppearance(loaded.appearance)
     }
     apply()
     if (loaded.appearance === 'system') media?.addEventListener('change', apply)
     return () => {
       media?.removeEventListener('change', apply)
-      delete document.documentElement.dataset.theme
     }
   }, [loaded, ownerUserId])
 

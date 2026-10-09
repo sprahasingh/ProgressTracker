@@ -25,6 +25,17 @@ function renderSetup(path = '/trackers/new') {
   return render(<MemoryRouter><TrackerSetupPage /></MemoryRouter>)
 }
 
+function precisePlannedGoal(id: string, decimalPlaces: 0 | 1 | 2, increment: number, allocations: Record<string, number>) {
+  return {
+    schemaVersion: 4 as const, id, name: 'Precision plan', description: '', kind: 'goal' as const, status: 'active' as const,
+    categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'every-day' as const }, startDate: '2026-01-05', deadline: '2026-01-06',
+    metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', precision: { decimalPlaces, increment }, thresholds: { direction: 'increase' as const, target: 1, streakQualification: 'target' as const } }],
+    qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const }, customFields: [], milestones: [],
+    goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: 'UTC', allocations: { pages: allocations } },
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+  }
+}
+
 describe('tracker setup flow', () => {
   it('requires a useful name before saving', async () => {
     const user = userEvent.setup()
@@ -167,6 +178,78 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(navigation).toHaveBeenCalled())
     expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 1, metrics: [{ thresholds: { target: 12 } }] })
+  })
+
+  it('sets the least restrictive valid increment for selected precision and saves the v4 definition', async () => {
+    const existing = {
+      schemaVersion: 1 as const, id: 'precision-goal', name: 'Solve problems', description: '', kind: 'goal' as const,
+      status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' as const },
+      startDate: '2026-01-01', deadline: '2026-02-01',
+      metrics: [{ id: 'problems', name: 'Problems', valueType: 'quantity' as const, unit: 'problems', thresholds: { direction: 'increase' as const, target: 1.2, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'problems', level: 'target' as const },
+      customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup('/trackers/precision-goal/edit')
+    await screen.findByRole('textbox', { name: 'What do you want to achieve?' })
+    await user.click(screen.getByText('Advanced options'))
+    await user.click(screen.getByText('Measures and success levels'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Problems recording precision' }), '1')
+    expect(screen.getByRole('combobox', { name: 'Problems allowed increment' })).toHaveValue('0.1')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(navigation).toHaveBeenCalled())
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({
+      schemaVersion: 4,
+      metrics: [{ precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 1.2 } }],
+    })
+  })
+
+  it.each([
+    { from: 0 as const, fromIncrement: 1, to: 1 as const, toIncrement: 0.1, allocations: { '2026-01-05': 3, '2026-01-06': 4 } },
+    { from: 0 as const, fromIncrement: 1, to: 2 as const, toIncrement: 0.01, allocations: { '2026-01-05': 3, '2026-01-06': 4 } },
+    { from: 2 as const, fromIncrement: 0.01, to: 1 as const, toIncrement: 0.1, allocations: { '2026-01-05': 3.2, '2026-01-06': 4.5 } },
+    { from: 2 as const, fromIncrement: 0.01, to: 0 as const, toIncrement: 1, allocations: { '2026-01-05': 3, '2026-01-06': 4 } },
+  ])('changes precision $from to $to and preserves compatible saved allocations', async ({ from, fromIncrement, to, toIncrement, allocations }) => {
+    const existing = precisePlannedGoal(`precision-${from}-${to}`, from, fromIncrement, allocations)
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await screen.findByRole('textbox', { name: 'What do you want to achieve?' })
+    await user.click(screen.getByText('Advanced options'))
+    await user.click(screen.getByText('Measures and success levels'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Pages recording precision' }), String(to))
+    expect(screen.getByRole('combobox', { name: 'Pages allowed increment' })).toHaveValue(String(toIncrement))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
+      schemaVersion: 4, metrics: [{ precision: { decimalPlaces: to, increment: toIncrement } }],
+      goalPlanning: { cumulativeTargets: { pages: 10 }, allocations: { pages: allocations } },
+    }))
+  })
+
+  it('blocks a precision decrease that conflicts with saved allocations without changing the goal or progress', async () => {
+    const existing = precisePlannedGoal('precision-incompatible-plan', 2, 0.01, { '2026-01-05': 1.25, '2026-01-06': 2.35 })
+    await localRepository.saveTracker(existing)
+    const progress = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-05', outcome: 'recorded', values: { pages: 1.23 }, note: 'saved progress' })
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await screen.findByRole('textbox', { name: 'What do you want to achieve?' })
+    await user.click(screen.getByText('Advanced options'))
+    await user.click(screen.getByText('Measures and success levels'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Pages recording precision' }), '1')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Saved daily allocations for Pages (increments of 0.1) do not match the selected precision.')
+    expect(alert).toHaveTextContent('Your goal total, allocations, and recorded progress have not changed.')
+    expect(alert).not.toHaveTextContent('2026-01-05')
+    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({
+      schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 2, increment: 0.01 } }],
+      goalPlanning: { cumulativeTargets: { pages: 10 }, allocations: { pages: { '2026-01-05': 1.25, '2026-01-06': 2.35 } } },
+    })
+    await expect(db.trackerEntries.get(progress.id)).resolves.toMatchObject({ values: { pages: 1.23 }, note: 'saved progress' })
   })
 
   it('preserves a custom existing schedule when other settings are edited', async () => {

@@ -62,7 +62,7 @@ function dateRange(startDate: string, endDate: string): string[] {
   return dates
 }
 
-function latestEntriesByDate(tracker: TrackerDefinition, entries: readonly TrackerEntry[]): Map<string, TrackerEntry> {
+export function latestEntriesByDate(tracker: TrackerDefinition, entries: readonly TrackerEntry[]): Map<string, TrackerEntry> {
   const latest = new Map<string, TrackerEntry>()
   for (const entry of entries) {
     if (entry.trackerId !== tracker.id) continue
@@ -147,8 +147,8 @@ export function calculateCumulativeMetricPlan(input: {
   const asOf = parseDate(input.asOfDate)
   if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
   const tracker = { ...input.tracker, startDate: input.startDate }
-  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date) && !input.holidays?.has(date))
   const latest = latestEntriesByDate(tracker, input.entries)
+  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date) && !input.holidays?.has(date))
   const progressValues: number[] = []
   for (const [date, entry] of latest) {
     const timestamp = parseDate(date)
@@ -160,7 +160,12 @@ export function calculateCumulativeMetricPlan(input: {
   const actualProgress = sumDecimalValues(progressValues)
   const scheduledDaysTotal = scheduledDates.length
   const elapsedScheduledDays = scheduledDates.filter((date) => parseDate(date) <= asOf).length
-  const scheduledDaysRemaining = scheduledDates.filter((date) => parseDate(date) >= asOf).length
+  // Today stays available until its tracker entry is submitted. Once a recorded
+  // or skipped entry exists, pace and allocation suggestions use future dates only.
+  const todayClosed = latest.has(input.asOfDate)
+  const scheduledDaysRemaining = scheduledDates.filter((date) =>
+    parseDate(date) > asOf || (parseDate(date) === asOf && !todayClosed),
+  ).length
   const remainingWork = Math.max(0, input.totalTarget - actualProgress)
   const expectedProgress = scheduledDaysTotal === 0 ? 0 : input.totalTarget * elapsedScheduledDays / scheduledDaysTotal
   let status: CumulativeMetricPlan['status']

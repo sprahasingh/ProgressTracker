@@ -1,5 +1,6 @@
--- Read-only hosted-project verification for migration 20261010000100.
--- Run only after applying the migration in the intended project.
+-- Read-only hosted-project verification for migrations 20261010000100 and
+-- 20261011000200_repair_tracker_bin_permanent_deletion.sql.
+-- Run after applying the repair and, optionally, the V4 migration.
 -- This inspects catalog/configuration only. It does not read tracker content or write anything.
 with
 ledger as (
@@ -25,8 +26,8 @@ ledger as (
              from cron.job where jobname = 'progress-tracker-bin-cleanup'$query$,
            true, false, '') end as cron_job_xml,
          case when to_regclass('cron.job_run_details') is not null and to_regclass('cron.job') is not null then query_to_xml(
-           $query$select d.status, d.start_time::text as start_time, d.end_time::text as end_time,
-             d.return_message from cron.job_run_details d join cron.job j using (jobid)
+           $query$select d.status, d.start_time::text as start_time, d.end_time::text as end_time
+             from cron.job_run_details d join cron.job j using (jobid)
              where j.jobname = 'progress-tracker-bin-cleanup'
              order by d.start_time desc limit 1$query$,
            true, false, '') end as cron_run_xml,
@@ -41,7 +42,6 @@ ledger as (
          (xpath('/table/row/status/text()', cron_run_xml))[1]::text as latest_run_status,
          (xpath('/table/row/start_time/text()', cron_run_xml))[1]::text as latest_run_start,
          (xpath('/table/row/end_time/text()', cron_run_xml))[1]::text as latest_run_end,
-         (xpath('/table/row/return_message/text()', cron_run_xml))[1]::text as latest_run_message,
          coalesce(((xpath('/table/row/enabled/text()', control_xml))[1]::text)::boolean, false) as cleanup_enabled,
          coalesce((select c.relrowsecurity from pg_class c where c.oid = control_oid), false) as control_rls_enabled,
          coalesce(has_table_privilege('anon', control_oid, 'select'), false) as control_anon_select,
@@ -59,7 +59,9 @@ ledger as (
       coalesce((select format('count=%s; roles=%s; command=%s; using=%s', count(*), min(roles::text), min(cmd), min(qual))
         from pg_policies where schemaname='public' and tablename='tracker_deletion_ledger'), 'count=0'),
       (select count(*) = 1 and bool_and(policyname='tracker_deletion_ledger_select_own' and permissive='PERMISSIVE'
-        and roles=array['authenticated']::name[] and cmd='SELECT' and qual like '%user_id%' and qual like '%auth.uid()%')
+        and roles=array['authenticated']::name[] and cmd='SELECT'
+        and regexp_replace(regexp_replace(lower(coalesce(qual,'')), 'as uid', '', 'g'), '[[:space:]()]', '', 'g')
+          = 'selectauth.uidisnotnullanduser_id=selectauth.uid')
        from pg_policies where schemaname='public' and tablename='tracker_deletion_ledger')),
     ('grant', 'tracker_deletion_ledger', 'authenticated SELECT only; anon has no rights',
       format('authenticated select=%s insert=%s update=%s delete=%s; anon select=%s',
@@ -104,14 +106,17 @@ ledger as (
       coalesce((select format('definer=%s; config=%s; auth=%s; anon=%s; lock=%s; ledger-before-receipt=%s', p.prosecdef, p.proconfig,
         has_function_privilege('authenticated',p.oid,'execute'), has_function_privilege('anon',p.oid,'execute'),
         position('pg_advisory_xact_lock' in p.prosrc)>0,
-        position('tracker_deletion_ledger' in p.prosrc)>0 and position('tracker_deletion_ledger' in p.prosrc)<position('sync_operation_receipts' in p.prosrc))
+        position('from public.tracker_deletion_ledger' in lower(p.prosrc))>0
+          and position('from public.tracker_deletion_ledger' in lower(p.prosrc))
+            < position('from public.sync_operation_receipts' in lower(p.prosrc)))
         from pg_proc p where p.oid=(select oid from sync_rpc)), 'MISSING'),
       coalesce((select p.prosecdef and p.proconfig @> array['search_path=""']::text[]
         and has_function_privilege('authenticated',p.oid,'execute') and not has_function_privilege('anon',p.oid,'execute')
         and not exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE')
         and position('pg_advisory_xact_lock' in p.prosrc)>0
-        and position('tracker_deletion_ledger' in p.prosrc)>0
-        and position('tracker_deletion_ledger' in p.prosrc)<position('sync_operation_receipts' in p.prosrc)
+        and position('from public.tracker_deletion_ledger' in lower(p.prosrc))>0
+        and position('from public.tracker_deletion_ledger' in lower(p.prosrc))
+          < position('from public.sync_operation_receipts' in lower(p.prosrc))
         from pg_proc p where p.oid=(select oid from sync_rpc)),false)),
     ('function', 'finalize_tracker_deletion', 'internal SECURITY DEFINER; search_path empty; no API execute',
       coalesce((select format('definer=%s; config=%s; anon=%s; authenticated=%s',p.prosecdef,p.proconfig,
@@ -139,15 +144,15 @@ ledger as (
         and not has_table_privilege('authenticated',to_regclass('public.trackers'),'insert') and not has_table_privilege('authenticated',to_regclass('public.trackers'),'update')
         and not has_table_privilege('authenticated',to_regclass('public.trackers'),'delete') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'insert')
         and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'update') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'delete')),
-    ('cron', 'progress-tracker-bin-cleanup', 'one active hourly job at minute 17 invokes cleanup RPC',
+    ('cron', 'progress-tracker-bin-cleanup', 'cleanup is off; scheduler may be absent, or exactly one known active hourly job may be installed',
       coalesce((select format('cron.job exists=%s; matching job count=%s; correct active schedule and command=%s',
         cron_job_table_exists, cleanup_job_count, cleanup_job_config_ok) from runtime_state), 'MISSING'),
-      coalesce((select cron_job_table_exists and cleanup_job_count=1 and cleanup_job_config_ok from runtime_state),false)),
-    ('cron run', 'progress-tracker-bin-cleanup', 'at least one successful scheduled execution',
-      coalesce((select format('cron.job_run_details exists=%s; status=%s; start=%s; end=%s; result=%s',
-        cron_runs_table_exists, latest_run_status, latest_run_start, latest_run_end, latest_run_message)
-        from runtime_state where latest_run_status is not null), 'NO RUN RECORDED OR CRON TABLE MISSING'),
-      coalesce((select cron_runs_table_exists and latest_run_status='succeeded' from runtime_state),false)),
+      coalesce((select not cleanup_enabled and (cleanup_job_count=0 or (cron_job_table_exists and cleanup_job_count=1 and cleanup_job_config_ok)) from runtime_state),false)),
+    ('cron run', 'progress-tracker-bin-cleanup', 'not required while cleanup is off; required before enabling cleanup',
+      coalesce((select format('cron.job_run_details exists=%s; status=%s; start=%s; end=%s',
+        cron_runs_table_exists, latest_run_status, latest_run_start, latest_run_end)
+        from runtime_state), 'NO RUN RECORDED OR CRON TABLE MISSING'),
+      coalesce((select not cleanup_enabled or (cron_runs_table_exists and latest_run_status='succeeded') from runtime_state),false)),
     ('cleanup', 'expiry threshold', 'server routine uses a 30-day server-time threshold and bounded batches',
       coalesce((select format('30-day=%s; batch-limit-500=%s; ledger-retained=%s',
         position('interval ''30 days''' in p.prosrc)>0, position('limit 500' in lower(p.prosrc))>0,
@@ -156,8 +161,8 @@ ledger as (
       coalesce((select position('interval ''30 days''' in p.prosrc)>0 and position('limit 500' in lower(p.prosrc))>0
         and position('finalize_tracker_deletion' in p.prosrc)>0 from pg_proc p where p.oid=(select oid from cleanup_fn)),false))
 ), overall as (
-  select 'OVERALL'::text category, 'migration 20261010000100'::text object_name,
-    'all required hosted checks pass; cleanup switch remains off until operator enables it'::text expected_configuration,
+  select 'OVERALL'::text category, 'repair 20261011000200'::text object_name,
+    'all hosted protections pass; scheduled cleanup remains off until separately configured and approved'::text expected_configuration,
     format('%s checks; %s failed',count(*),count(*) filter(where not ok)) actual_configuration,
     coalesce(bool_and(ok),false) ok from checks
 )

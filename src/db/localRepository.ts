@@ -161,7 +161,7 @@ export const localRepository = {
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
     if (draft.schemaVersion === 3 && !isSchemaV3WriteEnabled()) throw new Error('Schema v3 plan writes are disabled until the hosted migration is applied and verified.')
-    if (draft.schemaVersion === 4 && !isSchemaV4WriteEnabled()) throw new Error('Schema v4 precision writes are disabled until the hosted migration is applied and verified.')
+    if (draft.schemaVersion === 4 && !isSchemaV4WriteEnabled()) throw new Error('Precision settings need schema v4. Apply and verify migration 20261012000100_tracker_numeric_precision_v4.sql in Supabase, then enable VITE_ENABLE_TRACKER_SCHEMA_V4 for the production build. No tracker changes were saved.')
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()

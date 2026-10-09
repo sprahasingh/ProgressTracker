@@ -89,7 +89,7 @@ describe('workspace mutation notifications', () => {
 
   it('publishes an account owner only after its local record and outbox transaction commits', async () => {
     await activateWorkspace('mutation-account')
-    const owners: string[] = []
+    const owners: Array<string | null> = []
     const unsubscribe = subscribeToWorkspaceMutations((ownerId) => owners.push(ownerId))
     try {
       await localRepository.saveTracker(tracker)
@@ -101,13 +101,13 @@ describe('workspace mutation notifications', () => {
     }
   })
 
-  it('does not publish guest-only tracker edits', async () => {
+  it('publishes guest workspace edits for local views without treating them as account sync', async () => {
     await activateWorkspace(null)
-    const owners: string[] = []
+    const owners: Array<string | null> = []
     const unsubscribe = subscribeToWorkspaceMutations((ownerId) => owners.push(ownerId))
     try {
       await localRepository.saveTracker(tracker)
-      expect(owners).toEqual([])
+      expect(owners).toEqual([null])
       await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ name: tracker.name })
     } finally {
       unsubscribe()
@@ -117,7 +117,7 @@ describe('workspace mutation notifications', () => {
   it('publishes check-in and tombstone edits for the account that owns the workspace', async () => {
     await activateWorkspace('entry-owner')
     await localRepository.saveTracker(tracker)
-    const owners: string[] = []
+    const owners: Array<string | null> = []
     const unsubscribe = subscribeToWorkspaceMutations((ownerId) => owners.push(ownerId))
     try {
       await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-10-09', outcome: 'skipped', values: {}, note: 'rest day' })
