@@ -4,56 +4,118 @@ import userEvent from '@testing-library/user-event'
 import { AuthPage } from './AuthPage'
 
 const authMocks = vi.hoisted(() => ({
-  sendSignInLink: vi.fn(),
-  useAuth: vi.fn(),
+  sendSignInLink: vi.fn(), signInWithPassword: vi.fn(), signUpWithPassword: vi.fn(),
+  sendPasswordReset: vi.fn(), updateAccountPassword: vi.fn(), useAuth: vi.fn(),
 }))
 
-vi.mock('./authService', () => ({ sendSignInLink: authMocks.sendSignInLink }))
-vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
-vi.mock('../../services/supabase/client', () => ({
-  supabaseConfiguration: { status: 'ready' },
+vi.mock('./authService', () => ({
+  sendSignInLink: authMocks.sendSignInLink, signInWithPassword: authMocks.signInWithPassword,
+  signUpWithPassword: authMocks.signUpWithPassword, sendPasswordReset: authMocks.sendPasswordReset,
+  updateAccountPassword: authMocks.updateAccountPassword,
 }))
+vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
+vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
 
 describe('AuthPage', () => {
   afterEach(() => cleanup())
-
   beforeEach(() => {
-    authMocks.sendSignInLink.mockReset()
-    authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn() })
+    Object.values(authMocks).forEach((mock) => mock.mockReset())
+    authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
   })
 
-  it('validates email before requesting a link', async () => {
+  it('validates email before requesting a magic link', async () => {
     const user = userEvent.setup()
     render(<AuthPage />)
-
     await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }))
-
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email address.')
     expect(authMocks.sendSignInLink).not.toHaveBeenCalled()
   })
 
-  it('requests a one-time sign-in link and confirms the destination', async () => {
+  it('preserves the magic-link sign-in flow', async () => {
     const user = userEvent.setup()
     authMocks.sendSignInLink.mockResolvedValue({ error: null })
     render(<AuthPage />)
-
     await user.type(screen.getByLabelText('Email address'), '  PERSON@example.com  ')
     await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }))
-
-    expect(await screen.findByRole('heading', { name: 'Check your inbox' })).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('We sent a sign-in link to person@example.com')
     expect(authMocks.sendSignInLink).toHaveBeenCalledWith('person@example.com', expect.any(String))
   })
 
-  it('shows service errors without losing the entered email', async () => {
+  it('signs in with a valid email and password', async () => {
     const user = userEvent.setup()
-    authMocks.sendSignInLink.mockResolvedValue({ error: 'Email provider is not enabled.' })
+    authMocks.signInWithPassword.mockResolvedValue({ error: null })
     render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Use password' }))
+    await user.type(screen.getByLabelText('Email address'), 'person@example.com')
+    await user.type(screen.getByLabelText('Password'), 'correct-horse')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(authMocks.signInWithPassword).toHaveBeenCalledWith('person@example.com', 'correct-horse')
+  })
 
-    const emailField = screen.getByLabelText('Email address')
-    await user.type(emailField, 'person@example.com')
-    await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }))
+  it('rejects too-short passwords before creating an account', async () => {
+    const user = userEvent.setup()
+    render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Email address'), 'person@example.com')
+    await user.type(screen.getByLabelText('Password'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Use at least 8 characters.')
+    expect(authMocks.signUpWithPassword).not.toHaveBeenCalled()
+  })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Email provider is not enabled.')
-    expect(emailField).toHaveValue('person@example.com')
+  it('shows confirmation guidance after sign-up when email confirmation is required', async () => {
+    const user = userEvent.setup()
+    authMocks.signUpWithPassword.mockResolvedValue({ error: null, requiresEmailConfirmation: true })
+    render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Email address'), 'person@example.com')
+    await user.type(screen.getByLabelText('Password'), 'long-enough-password')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('check your inbox to confirm')
+  })
+
+  it('uses neutral copy after requesting a password reset', async () => {
+    const user = userEvent.setup()
+    authMocks.sendPasswordReset.mockResolvedValue({ error: null })
+    render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Use password' }))
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    await user.type(screen.getByLabelText('Email address'), 'person@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('If an account can receive a password reset')
+    expect(authMocks.sendPasswordReset).toHaveBeenCalledWith('person@example.com', expect.any(String))
+  })
+
+  it('allows a signed-in magic-link user to set a password after confirmation', async () => {
+    const user = userEvent.setup()
+    const completePasswordRecovery = vi.fn()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { email: 'person@example.com' }, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery })
+    authMocks.updateAccountPassword.mockResolvedValue({ error: null })
+    render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Set or change password' }))
+    await user.type(screen.getByLabelText('New password'), 'long-enough-password')
+    await user.type(screen.getByLabelText('Confirm password'), 'long-enough-password')
+    await user.click(screen.getByRole('button', { name: 'Save password' }))
+    expect(authMocks.updateAccountPassword).toHaveBeenCalledWith('long-enough-password')
+    expect(completePasswordRecovery).toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent('Your password has been updated.')
+  })
+
+  it('requires confirmation to match before setting a password', async () => {
+    const user = userEvent.setup()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { email: 'person@example.com' }, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
+    render(<AuthPage />)
+    await user.click(screen.getByRole('button', { name: 'Set or change password' }))
+    await user.type(screen.getByLabelText('New password'), 'long-enough-password')
+    await user.type(screen.getByLabelText('Confirm password'), 'different-password')
+    await user.click(screen.getByRole('button', { name: 'Save password' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match.')
+    expect(authMocks.updateAccountPassword).not.toHaveBeenCalled()
+  })
+
+  it('renders password setup for a verified recovery session', () => {
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { email: 'person@example.com' }, signOut: vi.fn(), passwordRecovery: true, completePasswordRecovery: vi.fn() })
+    render(<AuthPage />)
+    expect(screen.getByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument()
   })
 })

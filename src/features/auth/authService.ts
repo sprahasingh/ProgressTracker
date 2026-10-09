@@ -14,3 +14,31 @@ export async function sendSignInLink(email: string, redirectTo: string): Promise
 
   return { error: error?.message ?? null }
 }
+
+export async function signInWithPassword(email: string, password: string): Promise<{ error: string | null }> {
+  const client = getSupabaseClient()
+  if (!client) return { error: 'Supabase is not configured. Local use is still available on this device.' }
+  const { error } = await client.auth.signInWithPassword({ email, password })
+  return { error: error?.message ?? null }
+}
+
+export async function signUpWithPassword(email: string, password: string, redirectTo: string): Promise<{ error: string | null; requiresEmailConfirmation: boolean }> {
+  const client = getSupabaseClient()
+  if (!client) return { error: 'Supabase is not configured. Local use is still available on this device.', requiresEmailConfirmation: false }
+  const { data, error } = await client.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
+  return { error: error?.message ?? null, requiresEmailConfirmation: !data.session }
+}
+
+export async function sendPasswordReset(email: string, redirectTo: string): Promise<{ error: string | null }> {
+  const client = getSupabaseClient()
+  if (!client) return { error: 'Supabase is not configured. Local use is still available on this device.' }
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo })
+  return { error: error?.message ?? null }
+}
+
+export async function updateAccountPassword(password: string): Promise<{ error: string | null }> {
+  const client = getSupabaseClient()
+  if (!client) return { error: 'Supabase is not configured. Local use is still available on this device.' }
+  const { error } = await client.auth.updateUser({ password })
+  return { error: error?.message ?? null }
+}
