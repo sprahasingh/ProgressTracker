@@ -138,6 +138,7 @@ function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTracke
 function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; onSaved: () => Promise<void> }) {
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
+  const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   const [note, setNote] = useState(entry.note)
   const [entryOutcome, setEntryOutcome] = useState<StoredTrackerEntry['outcome']>(entry.outcome)
   const [saving, setSaving] = useState(false)
@@ -149,7 +150,18 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
     else next[key] = value
     return next
   })
+  function setInputValidity(key: string, valid: boolean) {
+    setInvalidInputs((current) => {
+      const next = new Set(current)
+      if (valid) next.delete(key); else next.add(key)
+      return next
+    })
+  }
   async function saveChanges() {
+    if (entryOutcome === 'recorded' && invalidInputs.size > 0) {
+      setIssue('Finish or correct the highlighted number fields before saving.')
+      return
+    }
     // Historical values may predate a newly selected precision; allow edits without rewriting their meaning.
     const validationIssue = entryOutcome === 'recorded' ? validateTrackerEntryValues(tracker, values, { enforcePrecision: false }) : undefined
     if (validationIssue) {
@@ -174,11 +186,11 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
   const statusClass = entry.outcome === 'skipped' ? 'skipped' : qualifies ? 'completed' : 'partial'
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
     {saved && <p className="auth-success" role="status">{saved}</p>}
-    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setEditing(true); setSaved('') }}>Edit check-in</button>}
+    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setInvalidInputs(new Set()); setEditing(true); setSaved('') }}>Edit check-in</button>}
     {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
     {editing && <div className="history-edit-form">
       <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Recorded</option><option value="skipped">Skipped</option></select></label>
-      {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
+      {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={entry.date} today={entry.date} onInputValidityChange={setInputValidity} />}
       <label className="form-field form-field-wide"><span>Note <em>· optional</em></span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} /></label>
       {issue && <p className="today-validation" role="alert">{issue}</p>}
       <div className="today-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void saveChanges()}>{saving ? 'Saving…' : 'Save changes'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => { setEditing(false); setIssue('') }}>Cancel</button></div>

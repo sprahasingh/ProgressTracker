@@ -256,6 +256,7 @@ type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
 
 function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdit, historical, onSave, onClear, onClose }: CheckinSheetProps) {
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
+  const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   const [note, setNote] = useState(entry?.note ?? '')
   const [noteExpanded, setNoteExpanded] = useState(false)
   const [issue, setIssue] = useState('')
@@ -266,9 +267,10 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   const closeRequestRef = useRef<() => void>(() => {})
   const originalValues = entry?.values ?? {}
   const dirty = JSON.stringify(values) !== JSON.stringify(originalValues) || note !== (entry?.note ?? '')
-  const firstMetric = tracker.metrics[0]
-  const quickBoolean = tracker.metrics.length === 1 && firstMetric?.valueType === 'boolean' && tracker.customFields.length === 0 && !entry
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
+  const expectedDetails = useMemo(() => getTodayMetricDetails(tracker, entry, today, entries, holidays), [tracker, entry, today, entries, holidays])
+  const expectedAmounts = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expected]]))
+  const expectedLabels = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expectedLabel?.replace(/^Today’s /, '').replace(/ threshold$/, '').toLowerCase() ?? 'target']]))
 
   useLayoutEffect(() => { if (!dirty) { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') } }, [entry, dirty])
   useModalLayer(true, sheetRef, () => closeRequestRef.current())
@@ -285,7 +287,15 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
     const next = { ...current }; if (value === undefined) delete next[key]; else next[key] = value; return next
   })
+  function setInputValidity(key: string, valid: boolean) {
+    setInvalidInputs((current) => {
+      const next = new Set(current)
+      if (valid) next.delete(key); else next.add(key)
+      return next
+    })
+  }
   async function submit(outcome: 'recorded' | 'skipped', payload = values) {
+    if (outcome === 'recorded' && invalidInputs.size > 0) { setIssue('Finish or correct the highlighted number fields before saving.'); return }
     const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: entry?.values }) : undefined
     if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
     setIssue(''); setSaving(true)
@@ -302,13 +312,13 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
         <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
         {!canEdit ? <p className="today-detail-notice">{holidays.has(today) ? 'Today is a holiday, so this activity cannot be checked in.' : 'Today is not a scheduled day for this activity.'} Existing recorded activity remains available to view.</p> : <>
           {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was skipped. Recording progress will replace the skipped state.</p>}
-          {!quickBoolean && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
+          <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', quickBoolean ? { [firstMetric!.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : quickBoolean ? 'Mark complete' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
+      {canEdit && <footer className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
     </section>
   </div>, document.body)
 }

@@ -71,7 +71,14 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('status', { name: 'Pending' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     expect(screen.getByLabelText('Pages')).toBeInTheDocument()
-    await user.type(screen.getByLabelText('Pages'), '5')
+    const pagesInput = screen.getByLabelText('Pages')
+    await user.click(screen.getByRole('button', { name: 'Increase Pages' }))
+    expect(pagesInput).toHaveValue('1')
+    expect(document.querySelector('.numeric-target-feedback')).toHaveTextContent('4 remaining · target 5')
+    expect(document.querySelector('.checkin-draft-preview')).toHaveTextContent('Unsaved preview')
+    await expect(localRepository.getTrackerEntry('today-tracker', today())).resolves.toBeUndefined()
+    await user.clear(pagesInput)
+    await user.type(pagesInput, '5')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Please complete all required fields.')
     await user.selectOptions(screen.getByLabelText(/Mood/), 'Focused')
@@ -89,6 +96,20 @@ describe('Today check-ins', () => {
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
+  })
+
+  it('blocks saving an unfinished numeric draft and leaves the stored check-in unchanged', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    const pages = screen.getByRole('spinbutton', { name: 'Pages' })
+    await user.type(pages, '.')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('correct the highlighted number fields')
+    await expect(localRepository.getTrackerEntry('today-tracker', today())).resolves.toBeUndefined()
+    expect(pages).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('expands and collapses the note row without losing unsaved text', async () => {

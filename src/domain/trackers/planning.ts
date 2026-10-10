@@ -360,6 +360,20 @@ export function classifyAchievement(metric: TrackerMetricDefinition, value: Trac
   return 'none'
 }
 
+export type TargetProgress = { state: 'remaining' | 'reached' | 'exceeded'; amount: number }
+
+/** Shared target comparison for check-in previews and daily summaries. */
+export function getTargetProgress(value: number, target: number, direction: 'increase' | 'decrease' = 'increase'): TargetProgress {
+  if (direction === 'increase') {
+    if (value < target) return { state: 'remaining', amount: target - value }
+    if (value > target) return { state: 'exceeded', amount: value - target }
+  } else {
+    if (value > target) return { state: 'remaining', amount: value - target }
+    if (value < target) return { state: 'exceeded', amount: target - value }
+  }
+  return { state: 'reached', amount: 0 }
+}
+
 export type RuleEvaluation = { qualified: boolean; achievedMetricIds: string[]; failedMetricIds: string[] }
 
 export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly TrackerMetricDefinition[], values: Record<string, TrackerValue>): RuleEvaluation {
