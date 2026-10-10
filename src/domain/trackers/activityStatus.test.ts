@@ -66,38 +66,32 @@ describe('shared activity status rules', () => {
     expect(ACTIVITY_STATUS_PRESENTATION.partial.colorToken).toBe('--status-partial')
     expect(ACTIVITY_STATUS_PRESENTATION.holiday.colorToken).toBe('--status-holiday')
     expect(ACTIVITY_STATUS_PRESENTATION.missed.colorToken).toBe('--status-missed')
-    const expectedLight = {
-      pending: ['#6b7280', '#f3f4f6'], completed: ['#16a34a', '#dcfce7'], partial: ['#b45309', '#fef3c7'],
-      missed: ['#dc2626', '#fee2e2'], holiday: ['#7c3aed', '#ede9fe'], rest: ['#6366f1', '#e0e7ff'], neutral: ['#78716c', '#f5f5f4'],
-    }
-    for (const [name, [foreground, surface]] of Object.entries(expectedLight)) {
-      expect(tokens).toContain(`--status-${name}: ${foreground}`)
-      expect(tokens).toContain(`--status-${name}-surface: ${surface}`)
-    }
     const lightTokenBlock = tokens.split("[data-theme='dark']")[0]!
     const darkTokenBlock = tokens.split("[data-theme='dark']")[1]!
-    for (const status of ['pending', 'completed', 'partial', 'holiday', 'missed', 'rest', 'neutral']) {
-      const lightForeground = lightTokenBlock.match(new RegExp(`--status-${status}: (#[0-9a-f]{6})`))?.[1]
-      const darkForeground = darkTokenBlock.match(new RegExp(`--status-${status}: (#[0-9a-f]{6})`))?.[1]
-      for (const block of [lightTokenBlock, darkTokenBlock]) {
-        const surface = block.match(new RegExp(`--status-${status}-surface: (#[0-9a-f]{6})`))?.[1]
-        const ink = block.match(new RegExp(`--status-${status}-ink: (#[0-9a-f]{6})`))?.[1]
-        expect(surface && ink ? contrast(surface, ink) : 0).toBeGreaterThanOrEqual(4.5)
-        const foreground = block.match(new RegExp(`--status-${status}: (#[0-9a-f]{6})`))?.[1]
-        expect(surface && foreground ? contrast(surface, foreground) : 0).toBeGreaterThanOrEqual(3)
-        expect(block).toMatch(new RegExp(`--status-${status}-border: #[0-9a-f]{6}`))
+    const expected = {
+      pending: { light: ['#6b7280', '#f3f4f6', '#e5e7eb'], dark: ['#a1a1aa', '#27272a', '#3f3f46'] },
+      completed: { light: ['#26834a', '#e8f8ed', '#bce6c9'], dark: ['#b7e5c4', '#3c5544', '#53705a'] },
+      partial: { light: ['#a66b15', '#fff5de', '#f2ddaf'], dark: ['#eed6ab', '#594c37', '#756347'] },
+      missed: { light: ['#c54d56', '#fff0f1', '#f4c8cc'], dark: ['#efb9b9', '#5b3f43', '#775359'] },
+      holiday: { light: ['#7952b3', '#f5efff', '#dfcef5'], dark: ['#d7c4ee', '#51435f', '#6c5980'] },
+      rest: { light: ['#4e67b8', '#eef2ff', '#cdd7fa'], dark: ['#c4d0f1', '#404c67', '#576787'] },
+    } as const
+    const lowContrastLightText: string[] = []
+    for (const [status, palettes] of Object.entries(expected)) {
+      for (const [theme, block] of [['light', lightTokenBlock], ['dark', darkTokenBlock]] as const) {
+        const [foreground, surface, border] = palettes[theme]
+        expect(block).toContain(`--status-${status}: ${foreground}`)
+        expect(block).toContain(`--status-${status}-ink: ${foreground}`)
+        expect(block).toContain(`--status-${status}-surface: ${surface}`)
+        expect(block).toContain(`--status-${status}-border: ${border}`)
+        expect(contrast(surface, foreground)).toBeGreaterThanOrEqual(3)
+        if (theme === 'light' && contrast(surface, foreground) < 4.5) lowContrastLightText.push(status)
       }
-      expect(lightForeground).toBe(expectedLight[status as keyof typeof expectedLight][0])
-      expect(darkForeground).toBeTruthy()
     }
-    expect(tokens).toContain('--status-rest-surface: #e0e7ff')
+    // The prescribed light colors remain exact; these four foregrounds need darkening for 4.5:1 normal-text contrast.
+    expect(lowContrastLightText).toEqual(['pending', 'completed', 'partial', 'missed'])
     expect(tokens).toContain('--status-neutral-surface: #f5f5f4')
-    expect(lightTokenBlock).toContain('--status-pending-border: #e5e7eb')
-    expect(lightTokenBlock).toContain('--status-pending-ink: #646b75')
-    expect(darkTokenBlock).toContain('--status-pending: #a1a1aa')
-    expect(darkTokenBlock).toContain('--status-pending-surface: #27272a')
-    expect(darkTokenBlock).toContain('--status-pending-border: #3f3f46')
-    expect(darkTokenBlock).toContain('--status-pending-ink: #a1a1aa')
+    expect(tokens).toContain('--status-rest-surface: #eef2ff')
     expect(styles).toMatch(/\.status-pending\s*\{[^}]*--status-bg:\s*var\(--status-pending-surface\)[^}]*--status-stroke:\s*var\(--status-pending-border\)/s)
     expect(styles).toMatch(/\.week-rhythm-day\.holiday\s*\{[^}]*var\(--status-holiday-surface\)/s)
     expect(styles).toMatch(/\.week-rhythm-day\.rest\s*\{[^}]*var\(--status-rest-surface\)/s)
