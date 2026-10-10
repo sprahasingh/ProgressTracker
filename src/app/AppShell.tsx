@@ -4,6 +4,7 @@ import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 import { WorkspaceLoadingState } from '../components/ui/WorkspaceLoadingState'
+import { ToastProvider } from '../components/ui/ToastProvider'
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
@@ -52,7 +53,7 @@ export function AppShell() {
   const guestChoiceReady = !sessionTransitionPending && status === 'signed-in' && workspaceStatus === 'needs-guest-choice' && workspaceOwnerVerified
 
   return (
-    <div className="app-frame">
+    <ToastProvider><div className="app-frame">
       <a className="skip-link" href="#main-content" onClick={(event) => {
         event.preventDefault()
         document.getElementById('main-content')?.focus()
@@ -135,6 +136,6 @@ export function AppShell() {
           </details>
         </nav>
       </main>
-    </div>
+    </div></ToastProvider>
   )
 }

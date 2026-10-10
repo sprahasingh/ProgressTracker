@@ -5,6 +5,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { StoredTrackerDefinition } from '../../db/models'
@@ -17,6 +18,7 @@ import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
 export function TrackerLibraryPage() {
+  const { notify } = useToast()
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const today = localCalendarDate(new Date(), timeZone)
@@ -74,9 +76,9 @@ export function TrackerLibraryPage() {
     try {
       await localRepository.archiveTracker(id)
       await refresh()
+      notify({ kind: 'success', title: 'Tracker archived', description: 'Its history and plan are still available.', dedupeKey: `tracker:${id}` })
     } catch {
-      const context = workspaceRef.current
-      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be archived. Your saved data is unchanged.' })
+      notify({ kind: 'error', title: 'Couldn’t archive tracker', description: 'Your tracker is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${id}` })
     }
   }
 
@@ -84,9 +86,9 @@ export function TrackerLibraryPage() {
     try {
       await localRepository.unarchiveTracker(id)
       await refresh()
+      notify({ kind: 'success', title: 'Tracker restored', description: 'It is active again with its saved history.', dedupeKey: `tracker:${id}` })
     } catch {
-      const context = workspaceRef.current
-      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be restored. Your saved data is unchanged.' })
+      notify({ kind: 'error', title: 'Couldn’t restore tracker', description: 'Your tracker is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${id}` })
     }
   }
 
@@ -95,9 +97,9 @@ export function TrackerLibraryPage() {
     try {
       await localRepository.deleteTracker(tracker.id)
       await refresh()
+      notify({ kind: 'success', title: 'Tracker moved to the Bin', description: 'You can restore it with its history and plan for 30 days.', dedupeKey: `tracker:${tracker.id}` })
     } catch {
-      const context = workspaceRef.current
-      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be moved to the Bin. Your saved data is unchanged.' })
+      notify({ kind: 'error', title: 'Couldn’t move tracker to the Bin', description: 'Your tracker is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` })
     }
   }
 

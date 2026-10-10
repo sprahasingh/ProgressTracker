@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
+import { useToast } from '../../components/ui/ToastProvider'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
@@ -22,6 +23,7 @@ function recoveryLabel(deletedAt: string, now: number, accountOwned: boolean) {
 }
 
 export function TrackerBinPage() {
+  const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncNow, isOnline } = useAuth()
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const ready = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
@@ -63,8 +65,8 @@ export function TrackerBinPage() {
 
   async function restore(tracker: StoredTrackerDefinition) {
     setBusyId(tracker.id); setError('')
-    try { await localRepository.restoreTracker(tracker.id); await refresh() }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Restore failed. Your data is unchanged.') }
+    try { await localRepository.restoreTracker(tracker.id); await refresh(); notify({ kind: 'success', title: 'Tracker restored', description: 'It is active again with its saved history.', dedupeKey: `tracker:${tracker.id}` }) }
+    catch { notify({ kind: 'error', title: 'Couldn’t restore tracker', description: 'Your data is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` }) }
     finally { setBusyId(null) }
   }
 
@@ -77,8 +79,9 @@ export function TrackerBinPage() {
       if (result === 'queued') {
         await refresh()
         if (isOnline) void syncNow().catch(() => undefined)
-      } else await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Permanent deletion could not be requested. Your data is unchanged.') }
+        notify({ kind: 'warning', title: 'Deletion request queued', description: 'The tracker and history will be removed across devices after the server confirms it.', duration: 0, dedupeKey: `delete:${tracker.id}` })
+      } else { await refresh(); notify({ kind: 'success', title: 'Tracker permanently deleted', description: 'Its saved history was removed from this guest workspace.', dedupeKey: `delete:${tracker.id}` }) }
+    } catch { notify({ kind: 'error', title: 'Couldn’t request permanent deletion', description: 'Your data is unchanged. Please try again.', duration: 0, dedupeKey: `delete:${tracker.id}` }) }
     finally { setBusyId(null) }
   }
 

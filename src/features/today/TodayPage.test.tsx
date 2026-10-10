@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { StoredTrackerDefinition } from '../../db/models'
@@ -10,9 +11,10 @@ import { calendarDateLabel } from '../shared/localDates'
 import { TodayPage } from './TodayPage'
 import todayStyles from '../../styles.css?raw'
 
-vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null }) }))
+const todayMocks = vi.hoisted(() => ({ auth: { status: 'local-only', user: null, isOnline: true } as { status: string; user: null | { id: string }; isOnline: boolean } }))
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => todayMocks.auth }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); todayMocks.auth = { status: 'local-only', user: null, isOnline: true }; await db.delete() })
 const today = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` as `${number}-${number}-${number}`
 
 const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-day' }): StoredTrackerDefinition => ({
@@ -25,6 +27,20 @@ const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-
 })
 
 describe('Today check-ins', () => {
+  it('labels an offline account check-in as device-saved while sync is pending', async () => {
+    todayMocks.auth = { status: 'signed-in', user: { id: 'account-a' }, isOnline: false }
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Pages' }), '1')
+    await user.selectOptions(screen.getByLabelText(/Mood/), 'Focused')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+
+    expect(await screen.findByRole('status', { name: 'Saved on this device' })).toHaveTextContent('It will sync when your account is online.')
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 1, 'field:mood': 'Focused' } })
+  })
+
   it.each([320, 360, 390, 430, 768, 1280])('keeps long tracker and measure summaries structured at %ipx', async (width) => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     const measureName = 'Sessions completed during the advanced distributed systems course'
@@ -41,7 +57,7 @@ describe('Today check-ins', () => {
       qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const },
     }
     await localRepository.saveTracker(longTracker)
-    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
 
     const card = await screen.findByRole('heading', { name: longTracker.name }).then((heading) => heading.closest('.today-checkin-card')!)
     expect(card.querySelector('.today-compact-metric')).toHaveTextContent(measureName)
@@ -63,7 +79,7 @@ describe('Today check-ins', () => {
   it('validates required fields, saves locally, evaluates the rule, and edits the same daily entry', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(tracker())
-    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
 
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
     const activityCard = screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')!
@@ -95,6 +111,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: /Check-in updated/ })).toHaveTextContent('Your progress has been saved on this device.')
     await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
   })
 
@@ -110,6 +127,32 @@ describe('Today check-ins', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('correct the highlighted number fields')
     await expect(localRepository.getTrackerEntry('today-tracker', today())).resolves.toBeUndefined()
     expect(pages).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it.each(['new', 'update'] as const)('keeps the %s check-in editor open with values intact when local saving fails', async (mode) => {
+    const user = userEvent.setup()
+    const existing = mode === 'update'
+    await localRepository.saveTracker(tracker())
+    if (existing) await localRepository.saveTrackerEntry({ trackerId: 'today-tracker', date: today(), outcome: 'recorded', values: { pages: 2, 'field:mood': 'Focused' }, note: '' })
+    vi.spyOn(localRepository, 'saveTrackerEntry').mockRejectedValueOnce(new Error('private storage detail'))
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+
+    await user.click(await screen.findByRole('button', { name: existing ? /Open Daily reading/ : 'Open Daily reading, Pending' }))
+    const pages = screen.getByRole('spinbutton', { name: 'Pages' })
+    if (!existing) {
+      await user.type(pages, '3')
+      await user.selectOptions(screen.getByLabelText(/Mood/), 'Focused')
+    } else {
+      await user.clear(pages)
+      await user.type(pages, '4')
+    }
+    await user.click(screen.getByRole('button', { name: existing ? 'Update check-in' : 'Save check-in' }))
+
+    expect(await screen.findByRole('alert', { name: existing ? 'Couldn’t update check-in' : 'Couldn’t save check-in' })).toHaveTextContent('Your changes were not saved')
+    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Pages' })).toHaveValue(existing ? '4' : '3')
+    expect(screen.queryByText('private storage detail')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert', { name: existing ? 'Couldn’t update check-in' : 'Couldn’t save check-in' })).toHaveTextContent('Please try again.')
   })
 
   it('expands and collapses the note row without losing unsaved text', async () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
@@ -13,6 +14,7 @@ import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 const reasonLabel: Record<HolidayReason, string> = { travel: 'Travel', exam: 'Exam', personal: 'Personal', other: 'Other' }
 
 export function HolidaysPage() {
+  const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
@@ -26,7 +28,6 @@ export function HolidaysPage() {
   const [rows, setRows] = useState<AccountHoliday[]>([])
   const [allRows, setAllRows] = useState<AccountHoliday[]>([])
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const requestGeneration = useRef(0)
 
@@ -46,21 +47,21 @@ export function HolidaysPage() {
   useWorkspaceDataChanges(owner, workspaceReady, refresh)
 
   async function addRange(event: React.FormEvent) {
-    event.preventDefault(); setError(''); setMessage('')
+    event.preventDefault(); setError('')
     try {
       const dates = expandHolidayRange(startDate, endDate)
       await localRepository.saveAccountHolidays(dates, reason || null)
       await refresh()
-      setMessage(`${dates.length} ${dates.length === 1 ? 'day' : 'days'} marked as a holiday. Existing check-ins are unchanged.`)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Holiday dates could not be saved.') }
+      notify({ kind: 'success', title: dates.length === 1 ? 'Holiday added' : 'Holidays added', description: `${dates.length} ${dates.length === 1 ? 'date was' : 'dates were'} saved. Existing check-ins are unchanged.`, dedupeKey: 'holidays' })
+    } catch { notify({ kind: 'error', title: 'Couldn’t save holiday dates', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: 'holidays' }) }
   }
   async function remove(date: CalendarDate) {
-    try { await localRepository.removeAccountHoliday(date); await refresh(); setMessage(`${calendarDateLabel(date)} removed from holidays. Activity history was preserved.`) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Holiday could not be removed.') }
+    try { await localRepository.removeAccountHoliday(date); await refresh(); notify({ kind: 'success', title: 'Holiday removed', description: `${calendarDateLabel(date)} was removed. Activity history was preserved.`, dedupeKey: `holiday:${date}` }) }
+    catch { notify({ kind: 'error', title: 'Couldn’t remove holiday', description: 'The holiday is unchanged. Please try again.', duration: 0, dedupeKey: `holiday:${date}` }) }
   }
   async function restore(date: CalendarDate) {
-    try { await localRepository.restoreAccountHoliday(date); await refresh(); setMessage(`${calendarDateLabel(date)} restored as a holiday.`) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Holiday could not be restored.') }
+    try { await localRepository.restoreAccountHoliday(date); await refresh(); notify({ kind: 'success', title: 'Holiday restored', description: `${calendarDateLabel(date)} is a holiday again.`, dedupeKey: `holiday:${date}` }) }
+    catch { notify({ kind: 'error', title: 'Couldn’t restore holiday', description: 'The holiday is unchanged. Please try again.', duration: 0, dedupeKey: `holiday:${date}` }) }
   }
 
   return <section className="tracker-page holidays-page" aria-labelledby="holidays-title">
@@ -73,9 +74,9 @@ export function HolidaysPage() {
       <button className="button button-primary button-medium" type="submit">Mark holiday</button>
     </form></Surface>
     <div className="holiday-status-legend" aria-label="Activity status legend"><span><i className="status-mark completed" aria-hidden="true">✓</i> Green · Completed</span><span><i className="status-mark partial" aria-hidden="true">◐</i> Orange · Partial</span><span><i className="status-mark missed" aria-hidden="true">!</i> Red · Missed</span><span><i className="status-mark holiday" aria-hidden="true">☀</i> Blue · Holiday</span></div>
-    {error && <p role="alert" className="form-alert">{error}</p>}{message && <p role="status" className="auth-success">{message}</p>}
+    {error && <p role="alert" className="form-alert">{error}</p>}
     <section aria-labelledby="holiday-list-title"><div className="holiday-list-heading"><h2 id="holiday-list-title">Your holidays</h2><Link to="/calendar">View calendar</Link></div>
-      {loading ? <p role="status" className="tracker-loading">Loading holidays…</p> : rows.length === 0 ? <Surface><p>No holidays added yet. Your tracker schedules continue as usual.</p></Surface> : <div className="holiday-list">{rows.map((row) => <HolidayRow key={row.id} row={row} onRemove={() => void remove(row.date)} onSave={async (next) => { try { await localRepository.saveAccountHolidays([row.date], next); await refresh(); setMessage('Holiday reason updated.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Holiday could not be updated.') } }} />)}</div>}
+      {loading ? <p role="status" className="tracker-loading">Loading holidays…</p> : rows.length === 0 ? <Surface><p>No holidays added yet. Your tracker schedules continue as usual.</p></Surface> : <div className="holiday-list">{rows.map((row) => <HolidayRow key={row.id} row={row} onRemove={() => void remove(row.date)} onSave={async (next) => { try { await localRepository.saveAccountHolidays([row.date], next); await refresh(); notify({ kind: 'success', title: 'Holiday updated', description: 'Your holiday details were saved on this device.', dedupeKey: `holiday:${row.date}` }) } catch { notify({ kind: 'error', title: 'Couldn’t update holiday', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `holiday:${row.date}` }) } }} />)}</div>}
     </section>
     {allRows.some((row) => row.deletedAt !== null) && <details className="holiday-removed"><summary>Recently removed dates</summary><div className="holiday-list">{allRows.filter((row) => row.deletedAt !== null).map((row) => <Surface className="holiday-row" key={row.id}><span>{calendarDateLabel(row.date)} · Removed</span><button className="button button-secondary button-small" onClick={() => void restore(row.date)}>Restore holiday</button></Surface>)}</div></details>}
     <p className="holiday-sync-note"><span className="sync-dot" /> Saved on this device first. Account holidays sync when signed in and online; guest holidays stay in the guest workspace.</p>

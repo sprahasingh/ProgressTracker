@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
 import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
@@ -78,6 +79,7 @@ function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeForm
 }
 
 export function TrackerSetupPage() {
+  const { notify } = useToast()
   const { timeZone } = useWorkspaceTimeZone()
   const { trackerId } = useParams()
   const navigate = useNavigate()
@@ -285,10 +287,13 @@ export function TrackerSetupPage() {
         return
       }
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
-      if (existing) navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
+      if (existing) {
+        notify({ kind: 'success', title: 'Tracker updated', description: 'Your changes were saved on this device.', dedupeKey: `tracker:${result.id}` })
+        navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
+      }
       else setSavedTracker(result)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save this tracker locally.')
+    } catch {
+      notify({ kind: 'error', title: existing ? 'Couldn’t update tracker' : 'Couldn’t create tracker', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: existing?.id ? `tracker:${existing.id}` : `tracker-create:${values.name}` })
     } finally {
       setSaving(false)
     }

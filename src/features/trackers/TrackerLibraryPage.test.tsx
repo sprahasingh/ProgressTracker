@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { TrackerLibraryPage } from './TrackerLibraryPage'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 import type { StoredTrackerDefinition } from '../../db/models'
 
 const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
@@ -14,7 +15,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
 
   it('does not describe an empty local list as an empty account during initial cloud sync', async () => {
     libraryMocks.listTrackers.mockResolvedValue([])
-    render(<MemoryRouter><TrackerLibraryPage /></MemoryRouter>)
+    render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
 
     expect(await screen.findByText('Checking your cloud progress')).toBeInTheDocument()
     expect(screen.queryByText('A blank page is a good start')).not.toBeInTheDocument()
@@ -54,7 +55,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
     libraryMocks.deleteTracker.mockResolvedValue(tracker)
     vi.stubGlobal('confirm', vi.fn(() => true))
     const user = userEvent.setup()
-    render(<MemoryRouter><TrackerLibraryPage /></MemoryRouter>)
+    render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
 
     expect(await screen.findByRole('link', { name: 'Check in today' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Edit setup' })).toHaveAttribute('href', '/trackers/menu-habit/edit')
@@ -62,6 +63,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
     await user.click(screen.getByRole('button', { name: 'More actions for Read daily' }))
     await user.click(screen.getByRole('menuitem', { name: 'Archive tracker' }))
     expect(libraryMocks.archiveTracker).toHaveBeenCalledWith('menu-habit')
+    expect(await screen.findByRole('status', { name: 'Tracker archived' })).toHaveTextContent('Its history and plan are still available.')
 
     await user.click(screen.getByRole('button', { name: 'More actions for Read daily' }))
     await user.click(screen.getByRole('menuitem', { name: 'Delete tracker' }))

@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
@@ -136,6 +137,7 @@ function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTracke
 }
 
 function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; onSaved: () => Promise<void> }) {
+  const { notify } = useToast()
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
@@ -143,7 +145,6 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
   const [entryOutcome, setEntryOutcome] = useState<StoredTrackerEntry['outcome']>(entry.outcome)
   const [saving, setSaving] = useState(false)
   const [issue, setIssue] = useState('')
-  const [saved, setSaved] = useState('')
   const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
     const next = { ...current }
     if (value === undefined) delete next[key]
@@ -169,15 +170,14 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
       return
     }
     setIssue('')
-    setSaved('')
     setSaving(true)
     try {
       await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: entry.date, outcome: entryOutcome, values: entryOutcome === 'skipped' ? {} : values, note })
       await onSaved()
       setEditing(false)
-      setSaved('Check-in updated.')
-    } catch (cause) {
-      setIssue(cause instanceof Error ? cause.message : 'This check-in could not be updated.')
+      notify({ kind: 'success', title: 'Check-in updated', description: 'Your progress has been saved on this device.', dedupeKey: `checkin:${tracker.id}:${entry.date}` })
+    } catch {
+      notify({ kind: 'error', title: 'Couldn’t update check-in', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${entry.date}` })
     } finally {
       setSaving(false)
     }
@@ -185,8 +185,7 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
   const outcomeLabel = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Completed · success rule met' : 'Partial progress logged'
   const statusClass = entry.outcome === 'skipped' ? 'skipped' : qualifies ? 'completed' : 'partial'
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
-    {saved && <p className="auth-success" role="status">{saved}</p>}
-    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setInvalidInputs(new Set()); setEditing(true); setSaved('') }}>Edit check-in</button>}
+    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setInvalidInputs(new Set()); setEditing(true) }}>Edit check-in</button>}
     {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
     {editing && <div className="history-edit-form">
       <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Recorded</option><option value="skipped">Skipped</option></select></label>
