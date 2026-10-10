@@ -57,9 +57,11 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(upgraded)
     await upgraded.open()
 
-    expect(upgraded.verno).toBe(8)
+    expect(upgraded.verno).toBe(9)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
     await expect(upgraded.appNotifications.toArray()).resolves.toEqual([])
+    await expect(upgraded.notificationPreferences.toArray()).resolves.toEqual([])
+    await expect(upgraded.customMotivationMessages.toArray()).resolves.toEqual([])
     await expect(upgraded.categories.get('cat-1')).resolves.toMatchObject({
       id: 'cat-1', name: 'DSA', createdAt: '2026-01-01T12:00:00.000Z', updatedAt: '2026-01-01T12:00:00.000Z', deletedAt: null,
     })
@@ -94,9 +96,11 @@ describe('ProgressTracker database migrations', () => {
     const upgraded = new ProgressTrackerDatabase(name)
     openedDatabases.push(upgraded)
     await upgraded.open()
-    expect(upgraded.verno).toBe(8)
+    expect(upgraded.verno).toBe(9)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
     await expect(upgraded.appNotifications.toArray()).resolves.toEqual([])
+    await expect(upgraded.notificationPreferences.toArray()).resolves.toEqual([])
+    await expect(upgraded.customMotivationMessages.toArray()).resolves.toEqual([])
     await expect(upgraded.categories.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z' })
     await expect(upgraded.dailyEntries.get('entry-tombstone')).resolves.toMatchObject({ id: 'entry-tombstone', deletedAt: '2026-02-04T00:00:00.000Z' })
     await expect(upgraded.trackers.get('cat-tombstone')).resolves.toMatchObject({ id: 'cat-tombstone', deletedAt: '2026-02-03T00:00:00.000Z', status: 'archived' })
