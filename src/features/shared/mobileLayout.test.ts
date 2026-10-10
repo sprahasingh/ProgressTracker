@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import styles from '../../styles.css?raw'
 import tokens from '../../styles/tokens.css?raw'
+import heatmap from '../dashboard/ActivityHeatmap.tsx?raw'
 
 const viewportWidths = [320, 360, 390, 430] as const
 
@@ -32,5 +33,29 @@ describe('mobile page and card spacing', () => {
     expect(styles).toMatch(/\.analytics-tracker,[\s\S]*?\.achievement-card,[\s\S]*?\.history-entry-card,[\s\S]*?\.settings-card/)
     expect(styles).toMatch(/\.notification-accordion\s*\{[^}]*border: 1px solid var\(--line\);[^}]*border-radius: var\(--radius-card-nested\)/s)
     expect(styles).not.toMatch(/\.today-checkin-card(?:\.status-card)?\s*\{[^}]*border-top(?:-width|-color)?:\s*3px/)
+  })
+
+  it.each([320, 360, 390, 430, 560])('stacks Calendar filters without overlap at %ipx', (width) => {
+    expect(width).toBeGreaterThanOrEqual(320)
+    expect(styles).toMatch(/@media\s*\(max-width:\s*560px\)[\s\S]*?\.calendar-toolbar\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;/)
+    expect(styles).toMatch(/\.calendar-toolbar\s*>\s*\.tracker-filter\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
+    expect(styles).toMatch(/\.calendar-toolbar\s*>\s*\.history-filter\s*\{[^}]*grid-column:\s*1;/)
+    expect(styles).toMatch(/\.calendar-toolbar\s*>\s*\.button-quiet\s*\{[^}]*grid-column:\s*2;/)
+    expect(styles).toMatch(/@media\s*\(max-width:\s*900px\)[\s\S]*?\.calendar-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
+  })
+
+  it('reserves the fixed navigation height and safe area in the mobile scroll space', () => {
+    expect(styles).toMatch(/--mobile-nav-visible-height:\s*64px;/)
+    expect(styles).toMatch(/\.main-area\s*\{\s*padding-bottom:\s*calc\(var\(--mobile-nav-visible-height\)\s*\+\s*var\(--safe-area-max-inset-bottom\)\);\s*\}/)
+    expect(styles).toMatch(/\.page-content\s*\{\s*scroll-padding-bottom:\s*calc\(var\(--mobile-nav-visible-height\)\s*\+\s*var\(--safe-area-max-inset-bottom\)\);\s*\}/)
+  })
+
+  it('keeps the heatmap compact, horizontally scrollable, and accessible on small screens', () => {
+    expect(styles).toMatch(/\.activity-heatmap-scroll\s*\{[^}]*overflow-x:\s*auto;/)
+    expect(styles).toMatch(/\.heatmap-cells\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--heatmap-columns\),\s*24px\);[^}]*grid-template-rows:\s*repeat\(7,\s*24px\);/)
+    expect(styles).toMatch(/\.heatmap-cells\s+\.heatmap-cell::before\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/)
+    expect(styles).toMatch(/@media\s*\(max-width:\s*430px\)[\s\S]*?\.heatmap-cells\s+\.heatmap-cell::before\s*\{\s*width:\s*11px;\s*height:\s*11px;/)
+    expect(styles).toMatch(/button\.heatmap-cell:focus-visible\s*\{[^}]*outline:/)
+    expect(heatmap).toMatch(/role="region" aria-label="Scrollable 12-week activity heatmap" tabIndex=\{0\}/)
   })
 })

@@ -7,6 +7,11 @@ import { useEffect, useRef, useState } from 'react'
 export function ActivityHeatmap({ days, trackerName }: { days: readonly HeatmapDay[]; trackerName: string | null }) {
   const [selectedDay, setSelectedDay] = useState<HeatmapDay | null>(null)
   const sectionRef = useRef<HTMLElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const viewport = scrollRef.current
+    if (viewport) viewport.scrollLeft = viewport.scrollWidth
+  }, [days.length])
   useEffect(() => {
     if (!selectedDay) return
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setSelectedDay(null) }
@@ -27,7 +32,7 @@ export function ActivityHeatmap({ days, trackerName }: { days: readonly HeatmapD
   })
   return <section ref={sectionRef} className="activity-heatmap-section" aria-labelledby="activity-heatmap-title">
     <div className="activity-heatmap-heading"><div><h2 id="activity-heatmap-title">Activity Heatmap</h2><p>{trackerName ? `${trackerName} · last 12 weeks` : 'All Trackers · last 12 weeks'}</p></div><InfoButton title="Activity Heatmap" summary="Each day shows qualifying activity divided by that day’s eligible tracker opportunities." description="In All Trackers, each tracker follows its own schedule and Strict Mode policy; the cell percentage is qualified opportunities divided by eligible opportunities. For one tracker, the same rule applies to that tracker’s streak qualification. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Neutral cells mean no eligible opportunities; gray means 0%; green shades mean 1–25%, 26–50%, 51–75%, 76–99%, and 100%. Each cell can be tapped or focused for its counts and holiday/rest context." /></div>
-    <div className="activity-heatmap-scroll" role="region" aria-label="Scrollable 12-week activity heatmap" tabIndex={0}>
+    <div ref={scrollRef} className="activity-heatmap-scroll" role="region" aria-label="Scrollable 12-week activity heatmap" tabIndex={0}>
       <div className="activity-heatmap" style={{ '--heatmap-columns': columns } as CSSProperties}>
         <div className="heatmap-months" aria-hidden="true">{monthLabels.map((label, index) => <span key={index}>{label}</span>)}</div>
         <div className="heatmap-body">
