@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { fireEvent } from '@testing-library/dom'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
@@ -22,6 +22,40 @@ async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: 
 }
 
 describe('Goals page allocation preview', () => {
+  it('resets expanded tracker details when the route is left and restored with browser history', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const goal: StoredTrackerDefinition = {
+      schemaVersion: 4, id: 'route-reset-goal', name: 'Route reset goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 3),
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
+      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 2 }, cumulativeTargets: {}, planningTimeZone: 'UTC' },
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(goal)
+    function HistoryActions() {
+      const navigate = useNavigate()
+      return <div><button onClick={() => navigate(-1)}>Back</button><button onClick={() => navigate(1)}>Forward</button></div>
+    }
+    render(<MemoryRouter initialEntries={['/goals']}><Routes>
+      <Route path="/goals" element={<><GoalsPage /><Link to="/calendar">Calendar</Link><HistoryActions /></>} />
+      <Route path="/calendar" element={<><p>Calendar route</p><Link to="/goals">Goals</Link><HistoryActions /></>} />
+    </Routes></MemoryRouter>)
+
+    const card = await screen.findByRole('button', { name: /Route reset goal/ })
+    await user.click(card)
+    expect(card).toHaveAttribute('aria-expanded', 'true')
+    await user.click(screen.getByRole('link', { name: 'Calendar' }))
+    expect(await screen.findByText('Calendar route')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Goals' }))
+    expect(await screen.findByRole('button', { name: /Route reset goal/ })).toHaveAttribute('aria-expanded', 'false')
+    await user.click(screen.getByRole('button', { name: /Route reset goal/ }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Calendar route')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Forward' }))
+    expect(await screen.findByRole('button', { name: /Route reset goal/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('gives goal-plan dates distinct accessible markers for rest days and holidays', async () => {
     const user = userEvent.setup()
     const today = localCalendarDate(new Date(), 'UTC')
