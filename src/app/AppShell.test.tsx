@@ -115,7 +115,7 @@ describe('app navigation quality', () => {
     expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(document.activeElement).toHaveAttribute('id', 'main-content')
-    expect(await screen.findByText('Nothing scheduled today')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' })).toBeInTheDocument()
 
     const desktopNav = screen.getByRole('navigation', { name: 'Primary navigation' })
     expect(within(desktopNav).getAllByRole('link')).toHaveLength(4)
