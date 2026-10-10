@@ -13,7 +13,7 @@ export function TrackerEntryFields({ tracker, values, setValue }: {
         const current = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, TrackerValue> : {}
         setValue(metric.id, { ...current, [item.id]: event.target.checked })
       }} /> <span>{item.label}</span></label>)}</fieldset>
-      return <label className="form-field" key={metric.id}><span>{metric.name}{metric.unit ? <em> · {metric.unit}</em> : null}</span><input className="auth-input" type="number" min="0" step={metric.precision?.increment ?? (metric.valueType === 'duration' ? '1' : 'any')} value={typeof value === 'number' ? value : ''} onChange={(event) => setValue(metric.id, event.target.value === '' ? undefined : Number(event.target.value))} /></label>
+      return <label className="form-field" key={metric.id}><span>{metric.name}{metric.unit ? <em> · {metric.unit}</em> : null}</span><input className="auth-input" type="number" inputMode="decimal" min="0" step={metric.precision?.increment ?? (metric.valueType === 'duration' ? '1' : 'any')} placeholder={metric.unit ? `Enter ${metric.unit}` : 'Enter amount'} value={typeof value === 'number' ? value : ''} onChange={(event) => setValue(metric.id, event.target.value === '' ? undefined : Number(event.target.value))} /></label>
     })}
     {tracker.customFields.slice().sort((a, b) => a.position - b.position).map((field) => <CustomField key={field.id} field={field} value={values[`field:${field.id}`]} setValue={(value) => setValue(`field:${field.id}`, value)} />)}
   </div>

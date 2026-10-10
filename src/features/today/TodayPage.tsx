@@ -18,6 +18,7 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { useAuth } from '../auth/AuthProvider'
+import { TodayRequirements } from './TodayRequirements'
 
 export function TodayPage() {
   const { status: authStatus, user } = useAuth()
@@ -35,8 +36,8 @@ export function TodayPage() {
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true)
     setError('')
     setLoadError('')
     try {
@@ -46,12 +47,12 @@ export function TodayPage() {
         localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
       ])
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
-      const goals = allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline && tracker.deadline >= today)
-      const latestGoalDeadline = goals.reduce<CalendarDate | null>((latest, tracker) => {
+      const goals = allTrackers.filter((tracker) => tracker.status === 'active' && tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
+      const latestGoalDeadline = goals.reduce<CalendarDate>((latest, tracker) => {
         const deadline = tracker.deadline as CalendarDate
         return !latest || deadline > latest ? deadline : latest
-      }, null)
-      const planningHolidays = latestGoalDeadline
+      }, today)
+      const planningHolidays = goals.length
         ? await localRepository.listAccountHolidays(shiftCalendarDate(today, -6), latestGoalDeadline)
         : holidays
       const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
@@ -74,11 +75,12 @@ export function TodayPage() {
     }
   }, [today])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { void refresh(true) }, [refresh])
   useEffect(() => subscribeToWorkspaceDataChanges((changedOwner) => {
     if (changedOwner === expectedOwner) void refresh()
   }), [expectedOwner, refresh])
   const trackers = useMemo(() => todayHoliday ? [] : allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today, todayHoliday])
+  const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
   const remainingCount = Math.max(0, trackers.length - loggedCount)
@@ -164,13 +166,13 @@ export function TodayPage() {
       </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : trackers.length === 0 ? (
+      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : trackers.length === 0 ? (
         <Surface>
           <EmptyState title="Nothing scheduled today" description="Create an active tracker and choose a schedule to see it here. Your existing progress stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} />
         </Surface>
       ) : (
         <div className="today-checkin-list">
-          {trackers.map((tracker) => <CheckinCard key={tracker.id} tracker={tracker} entry={entryByTracker.get(tracker.id)} onSave={save} onClear={clear} />)}
+          {trackers.map((tracker) => <CheckinCard key={tracker.id} tracker={tracker} entry={entryByTracker.get(tracker.id)} today={today} entries={goalEntries} holidays={holidaySet} onSave={save} onClear={clear} />)}
         </div>
       )}
       {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Skipped' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}
@@ -181,11 +183,14 @@ export function TodayPage() {
 type CheckinCardProps = {
   tracker: StoredTrackerDefinition
   entry?: StoredTrackerEntry
+  today: string
+  entries: readonly StoredTrackerEntry[]
+  holidays: ReadonlySet<string>
   onSave: (tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<void>
   onClear: (tracker: StoredTrackerDefinition) => Promise<void>
 }
 
-function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
+function CheckinCard({ tracker, entry, today, entries, holidays, onSave, onClear }: CheckinCardProps) {
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
   const [note, setNote] = useState(entry?.note ?? '')
   const [issue, setIssue] = useState('')
@@ -215,23 +220,10 @@ function CheckinCard({ tracker, entry, onSave, onClear }: CheckinCardProps) {
 
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
   const activityStatus = entry?.outcome === 'recorded' ? result?.qualified ? 'completed' : 'partial' : 'pending'
-  const targets = tracker.metrics.flatMap((metric) => {
-    const target = tracker.goalPlanning?.mode === 'daily-recurring'
-      ? tracker.goalPlanning.dailyTargets[metric.id]
-      : metric.thresholds?.target
-    if (target === undefined || metric.valueType === 'boolean') return []
-    const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
-    const completed = typeof value === 'number' ? value
-      : metric.valueType === 'checklist' && value && typeof value === 'object' ? Object.values(value).filter((item) => item === true).length
-        : 0
-    const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
-    return [{ id: metric.id, name: metric.name, target, completed, remaining: Math.max(0, target - completed), unit }]
-  })
-
   return (
     <Surface className={`today-checkin-card status-card status-${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`}>
-      <div className="today-checkin-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div><span className={`today-state ${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`} role="status" aria-label={entry?.outcome === 'skipped' ? 'Skipped; no success or miss counted' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}><span aria-hidden="true">{entry?.outcome === 'skipped' ? '—' : ACTIVITY_STATUS_PRESENTATION[activityStatus].icon}</span> {entry?.outcome === 'skipped' ? 'Skipped' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}</span></div>
-      {targets.length > 0 && <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress today`}>{targets.map((target) => <div key={target.id}><span>{target.name}{tracker.goalPlanning?.mode === 'daily-recurring' ? ' · today' : ''}</span><strong>{formatTrackerNumber(target.completed)} / {formatTrackerNumber(target.target)}{target.unit}</strong><small>{formatTrackerNumber(target.remaining)}{target.unit} left</small></div>)}</div>}
+      <div className="today-checkin-heading"><div className="today-checkin-title"><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div><span className={`today-state ${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`} role="status" aria-label={entry?.outcome === 'skipped' ? 'Skipped; no success or miss counted' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}><span aria-hidden="true">{entry?.outcome === 'skipped' ? '—' : ACTIVITY_STATUS_PRESENTATION[activityStatus].icon}</span> {entry?.outcome === 'skipped' ? 'Skipped' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}</span></div>
+      <TodayRequirements tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
       <div>
         {!(canOneTapComplete && !entry) && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
         <details className="today-note-details">

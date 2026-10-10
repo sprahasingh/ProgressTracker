@@ -1451,3 +1451,175 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .mobile-nav { background: var(--surface); border-color: var(--line); box-shadow: 0 -5px 16px #25201a0d; }
 [data-theme='dark'] .mobile-nav { box-shadow: 0 -5px 18px #0005; }
 .today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { box-shadow: var(--shadow-card); }
+
+/* Compact tracker creation/editing keeps the quick path focused while advanced
+   configuration remains available in the same form. */
+.tracker-setup-page .page-header { gap: 6px; margin-bottom: 12px; }
+.tracker-setup-page .page-header .eyebrow { margin-bottom: 3px; }
+.tracker-setup-page .page-title { margin: 0; font-family: var(--font-sans); font-size: clamp(27px, 3vw, 32px); font-weight: 720; letter-spacing: -.8px; }
+.tracker-setup-page .page-description { margin: 5px 0 0; font-size: 12px; }
+.tracker-setup-page .tracker-form-card { margin-top: 0; padding: 14px; }
+.tracker-setup-form { display: grid; gap: 14px; padding: 0; }
+.tracker-setup-form .tracker-kind-picker,
+.tracker-setup-form .tracker-name-field,
+.tracker-setup-form .simple-measure-choice,
+.tracker-setup-form .tracker-quick-fields { margin: 0; }
+.tracker-setup-form .form-field { gap: 6px; font-size: 12px; }
+.tracker-setup-form .auth-input { min-height: 46px; }
+.tracker-setup-form .tracker-kind-picker legend,
+.tracker-setup-form .simple-measure-choice legend { margin-bottom: 7px; font-size: 12px; }
+.tracker-setup-form .tracker-kind-options { gap: 7px; }
+.tracker-setup-form .tracker-kind-option { align-items: center; min-height: 48px; padding: 8px 10px; gap: 8px; }
+.tracker-setup-form .tracker-kind-option small { display: none; }
+.tracker-setup-form .tracker-kind-option-icon { width: 25px; height: 25px; }
+.tracker-setup-form .other-tracker-types { margin-top: 7px; }
+.tracker-setup-form .other-tracker-types > summary { padding: 7px 0; font-size: 11px; }
+.tracker-setup-form .simple-measure-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.tracker-setup-form .simple-measure-options label { min-height: 46px; padding: 8px 10px; font-size: 11px; }
+.simple-numeric-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 11px; border-radius: 12px; background: var(--surface-muted); }
+.simple-numeric-settings .field-hint { grid-column: 1 / -1; }
+.tracker-setup-form .tracker-quick-fields { margin: 0; }
+.tracker-setup-form .advanced-setup { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.tracker-setup-form .advanced-setup > summary { min-height: 48px; padding: 8px 0; }
+.tracker-setup-form .advanced-setup > summary small { font-size: 10px; }
+.tracker-setup-form .advanced-setup-content { padding: 2px 0 0; border-top: 0; }
+.tracker-setup-form .advanced-setup-content > .form-field { margin: 12px 0; }
+.tracker-setup-form .advanced-subsection { margin-top: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.tracker-setup-form .advanced-subsection > summary { min-height: 46px; padding: 12px 2px; }
+.tracker-setup-form .advanced-subsection > :not(summary) { padding: 0 2px 12px; }
+.tracker-setup-form .advanced-subsection .tracker-configuration { margin-top: 8px; gap: 18px; }
+.tracker-setup-form .configuration-heading h2 { font-family: var(--font-sans); font-size: 16px; font-weight: 680; }
+.tracker-setup-form .configuration-heading p { font-size: 11px; }
+.tracker-setup-form .configuration-card { padding: 10px 0; border: 0; border-radius: 0; background: transparent; }
+.tracker-setup-form .configuration-card-heading { margin-bottom: 8px; }
+.tracker-setup-form .configuration-card-heading > strong { font-size: 12px; letter-spacing: 0; text-transform: none; }
+.tracker-setup-form .tracker-form-actions { justify-content: flex-start; align-items: center; margin: 0 -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 97%, transparent); }
+.tracker-setup-form .tracker-form-actions .button-primary { min-height: 46px; flex: 1; }
+.tracker-setup-form .tracker-form-actions .button-quiet { min-height: 44px; padding-right: 12px; padding-left: 12px; }
+.tracker-setup-form .form-alert { margin: 0; }
+
+@media (max-width: 760px) {
+  .tracker-setup-page { padding: 5px 0; }
+  .tracker-setup-page .page-header { margin-bottom: 10px; }
+  .tracker-setup-page .page-title { font-size: 29px; }
+  .tracker-setup-page .tracker-form-card { padding: 12px; }
+  .tracker-setup-form { gap: 12px; }
+  .tracker-setup-form .tracker-kind-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tracker-setup-form .tracker-kind-option { min-width: 0; }
+  .tracker-setup-form .tracker-kind-option-icon { display: none; }
+  .tracker-setup-form .simple-measure-options label { justify-content: center; min-width: 0; }
+  .tracker-setup-form .tracker-form-actions { position: sticky; z-index: 8; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -5px 15px #0000000a; backdrop-filter: blur(12px); }
+  .tracker-setup-form .advanced-setup-content { padding: 2px 0 0; }
+  .tracker-setup-form .configuration-heading { flex-direction: row; align-items: center; }
+  .tracker-setup-form .configuration-heading h2 { font-size: 15px; }
+}
+@media (max-width: 360px) {
+  .tracker-setup-page .tracker-form-card { padding: 10px; }
+  .simple-numeric-settings { gap: 8px; padding: 9px; }
+  .tracker-setup-form .tracker-form-actions { margin-right: -10px; margin-left: -10px; padding-right: 10px; padding-left: 10px; }
+}
+
+/* Today cards keep names, values, and remaining work in separate, shrinkable rows. */
+.today-checkin-card,
+.today-checkin-heading,
+.today-checkin-title,
+.today-target-summary,
+.today-target-metric,
+.today-entry-fields,
+.today-entry-fields > *,
+.today-actions { min-width: 0; }
+.today-checkin-heading { gap: 10px; }
+.today-checkin-title { flex: 1 1 auto; overflow-wrap: anywhere; }
+.today-checkin-title h2,
+.today-checkin-title p,
+.today-target-name { overflow-wrap: anywhere; word-break: normal; }
+.today-checkin-title h2 { margin-top: 7px; line-height: 1.25; }
+.today-state { max-width: 42%; white-space: normal; text-align: center; }
+.today-target-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+.today-target-metric {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--status-fg) 18%, var(--status-stroke));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status-bg) 78%, var(--surface));
+}
+.today-target-name { color: var(--ink-muted); font-size: 11px; line-height: 1.35; }
+.today-target-value { color: var(--ink); font-size: 15px; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.today-target-remaining { color: var(--status-fg); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.today-entry-fields { gap: 10px; margin-top: 12px; }
+.today-entry-fields .form-field { min-width: 0; gap: 5px; }
+.today-entry-fields .form-field > span { line-height: 1.35; overflow-wrap: anywhere; }
+.today-entry-fields .auth-input { min-width: 0; min-height: 44px; }
+.today-actions { gap: 7px; margin-top: 10px; padding-top: 9px; }
+.today-actions .button { min-height: 44px; }
+.today-validation, .today-result { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .today-checkin-card.status-card { padding: 12px; }
+  .today-checkin-heading { align-items: flex-start; }
+  .today-entry-fields { grid-template-columns: minmax(0, 1fr); }
+  .today-checkin-list { gap: 9px; }
+}
+@media (max-width: 420px) {
+  .today-checkin-card.status-card { padding: 11px; }
+  .today-state { padding: 5px 7px; font-size: 9px; }
+  .today-target-summary { grid-template-columns: minmax(0, 1fr); }
+  .today-target-metric { padding: 7px 9px; }
+  .today-actions .button-primary { flex: 1 1 100%; }
+  .today-actions .button-quiet { min-height: 44px; }
+}
+
+/* Share one mobile page gutter so nested feature wrappers do not consume the
+   same horizontal space twice. Cards retain their own readable inner padding. */
+@media (max-width: 760px) {
+  .page-content { padding-right: 10px; padding-left: 10px; }
+  .tracker-page,
+  .placeholder-page { padding-right: 0; padding-left: 0; }
+  .surface-padded,
+  .tracker-card,
+  .goal-card,
+  .dashboard-tracker-card,
+  .dashboard-calendar-card,
+  .analytics-tracker,
+  .settings-card,
+  .calendar-month-card,
+  .calendar-day-details { padding: 14px; }
+  .today-checkin-card.status-card { padding: 14px; }
+  .tracker-card-actions { flex-wrap: wrap; margin-right: 0; margin-left: 0; }
+}
+@media (max-width: 360px) {
+  .page-content { padding-right: 8px; padding-left: 8px; }
+}
+
+.today-requirements-summary { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; min-width: 0; margin-top: 11px; }
+.today-requirements-summary .today-target-summary { margin-top: 0; }
+.today-requirements-trigger { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-raised); color: var(--accent-strong); font: 700 21px/1 var(--font-sans); cursor: pointer; }
+.today-requirements-trigger:hover { border-color: var(--accent); background: var(--accent-soft); }
+.today-requirements-trigger:focus-visible, .today-requirements-close:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.today-requirement-label { color: var(--ink-subtle); font-size: 10px; line-height: 1.3; }
+.today-requirement-note { color: var(--accent-strong); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+.today-requirements-backdrop { position: fixed; z-index: 1300; inset: 0; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px)); background: rgb(10 12 10 / .55); }
+.today-requirements-sheet { width: min(100%, 560px); max-height: min(82dvh, 760px); overflow: auto; overscroll-behavior: contain; padding: 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-card); }
+.today-requirements-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.today-requirements-heading h2 { margin: 5px 0 0; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+.today-requirements-close { flex: 0 0 44px; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-raised); color: var(--ink); font-size: 27px; line-height: 1; cursor: pointer; }
+.today-requirements-section { display: grid; gap: 8px; margin-top: 15px; }
+.today-requirements-section > h3 { margin: 0; color: var(--accent-strong); font-size: 12px; }
+.today-requirements-metric { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); }
+.today-requirements-metric h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; margin: 0 0 7px; color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
+.today-requirements-metric h4 span { color: var(--ink-subtle); font-size: 10px; font-weight: 500; }
+.today-requirements-section dl { display: grid; gap: 6px; margin: 0; }
+.today-requirements-section dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); align-items: start; gap: 12px; }
+.today-requirements-section dt { color: var(--ink-muted); font-size: 11px; overflow-wrap: anywhere; }
+.today-requirements-section dd { margin: 0; color: var(--ink); font-size: 11px; font-weight: 650; text-align: right; overflow-wrap: anywhere; }
+.today-requirements-note { padding: 10px 12px; border-radius: 10px; background: var(--surface-muted); color: var(--ink-muted); font-size: 11px; line-height: 1.5; }
+@media (max-width: 600px) {
+  .today-requirements-backdrop { align-items: end; padding: 0 8px max(8px, env(safe-area-inset-bottom, 0px)); }
+  .today-requirements-sheet { width: 100%; max-height: min(86dvh, 760px); padding: 17px 14px max(17px, env(safe-area-inset-bottom, 0px)); border-radius: 20px 20px 14px 14px; }
+}
