@@ -23,6 +23,20 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('upserts notification identities and preserves unread state on replacement', async () => {
+    await activateWorkspace('notification-owner')
+    const original = await localRepository.putAppNotification({ identity: 'daily-reminder:2026-10-10:16:00', kind: 'pending', title: '2 check-ins waiting', body: 'Review today', href: '/' })
+    await localRepository.markAppNotificationRead(original.id)
+    const replacement = await localRepository.putAppNotification({ identity: original.identity, kind: 'pending', title: '1 check-in waiting', body: 'Updated after progress', href: '/?focus=t1' })
+    expect(replacement.id).toBe(original.id)
+    expect(replacement.readAt).toEqual(expect.any(String))
+    expect(await localRepository.listAppNotifications()).toHaveLength(1)
+    await localRepository.markAllAppNotificationsRead()
+    expect(await localRepository.listAppNotifications()).toMatchObject([{ readAt: expect.any(String) }])
+    await activateWorkspace('notification-owner-b')
+    await expect(localRepository.listAppNotifications()).resolves.toEqual([])
+  })
+
   it('restores an archived tracker and queues the active state for synchronization', async () => {
     await activateWorkspace('archive-owner')
     await localRepository.saveTracker({ ...tracker, status: 'archived', archivedAt: '2026-10-01T12:00:00.000Z' })

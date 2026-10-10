@@ -1,6 +1,6 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { AccountHoliday, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
@@ -8,6 +8,10 @@ import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 
 function newId(): string {
   return crypto.randomUUID()
+}
+
+function publishNotificationChange() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('app-notifications-changed'))
 }
 
 function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
@@ -25,6 +29,43 @@ function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
 }
 
 export const localRepository = {
+  async listAppNotifications(): Promise<AppNotification[]> {
+    const database = await openDatabase()
+    return (await database.appNotifications.orderBy('createdAt').reverse().limit(100).toArray())
+  },
+
+  async putAppNotification(notification: Omit<AppNotification, 'id' | 'createdAt' | 'readAt'> & { createdAt?: string }): Promise<AppNotification> {
+    const database = await openDatabase()
+    const existing = await database.appNotifications.where('identity').equals(notification.identity).first()
+    const saved: AppNotification = { ...notification, id: existing?.id ?? newId(), createdAt: notification.createdAt ?? new Date().toISOString(), readAt: existing?.readAt ?? null }
+    await database.appNotifications.put(saved)
+    publishNotificationChange()
+    return saved
+  },
+
+  async markAppNotificationRead(id: string): Promise<void> {
+    const database = await openDatabase()
+    const row = await database.appNotifications.get(id)
+    if (row && !row.readAt) { await database.appNotifications.update(id, { readAt: new Date().toISOString() }); publishNotificationChange() }
+  },
+
+  async removeUnreadReminderNotifications(dates: readonly string[], keepIdentities: ReadonlySet<string>): Promise<string[]> {
+    const database = await openDatabase()
+    const rows = await database.appNotifications.filter((row) => (row.kind === 'pending' || row.kind === 'overdue') && dates.some((date) => row.identity.includes(`:${date}:`))).toArray()
+    const stale = rows.filter((row) => !keepIdentities.has(row.identity))
+    await database.appNotifications.bulkDelete(stale.filter((row) => !row.readAt).map((row) => row.id))
+    if (stale.some((row) => !row.readAt)) publishNotificationChange()
+    return stale.map((row) => row.identity)
+  },
+
+  async markAllAppNotificationsRead(): Promise<void> {
+    const database = await openDatabase()
+    const rows = await database.appNotifications.filter((row) => !row.readAt).toArray()
+    const readAt = new Date().toISOString()
+    await database.appNotifications.bulkPut(rows.map((row) => ({ ...row, readAt })))
+    if (rows.length) publishNotificationChange()
+  },
+
   async listAccountHolidays(startDate?: CalendarDate, endDate?: CalendarDate, includeDeleted = false): Promise<AccountHoliday[]> {
     const database = await openDatabase()
     let rows = startDate && endDate

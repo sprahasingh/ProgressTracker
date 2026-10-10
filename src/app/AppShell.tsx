@@ -5,6 +5,8 @@ import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
 import { WorkspaceLoadingState } from '../components/ui/WorkspaceLoadingState'
 import { ToastProvider } from '../components/ui/ToastProvider'
+import { NotificationCenter } from '../components/NotificationCenter'
+import { ForegroundReminderMonitor } from '../features/notifications/ForegroundReminderMonitor'
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
@@ -95,6 +97,7 @@ export function AppShell() {
           <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
           </Link>
+          <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (
@@ -116,7 +119,7 @@ export function AppShell() {
                 <button className="button button-secondary button-medium" onClick={() => void chooseGuestData?.('kept-separate')}>Keep guest progress separate</button>
               </div>
             </section>
-          ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><Outlet /></WorkspaceTimeZoneProvider>}
+          ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><ForegroundReminderMonitor enabled={workspaceReady} /><Outlet /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {primaryNavigation.map(({ to, label, icon, matches, end }) => {

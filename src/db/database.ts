@@ -16,6 +16,7 @@ import type {
   PermanentDeletionRequest,
   PermanentDeletionLedgerEntry,
   TrackerVerification,
+  AppNotification,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
@@ -53,6 +54,7 @@ export class ProgressTrackerDatabase extends Dexie {
   permanentDeletionRequests!: Table<PermanentDeletionRequest, string>
   permanentDeletionLedger!: Table<PermanentDeletionLedgerEntry, string>
   trackerVerification!: Table<TrackerVerification, string>
+  appNotifications!: Table<AppNotification, string>
 
   constructor(name = 'ProgressTracker') {
     super(name)
@@ -162,6 +164,22 @@ export class ProgressTrackerDatabase extends Dexie {
       permanentDeletionLedger: '&key, ownerUserId, trackerId',
       trackerVerification: '&trackerId, status',
     })
+
+    this.version(8).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      accountHolidays: 'id, &date, updatedAt, deletedAt',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      trackerVerification: '&trackerId, status',
+      appNotifications: 'id, &identity, kind, createdAt, readAt',
+    })
   }
 }
 
@@ -169,7 +187,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 7
+export const DATABASE_SCHEMA_VERSION = 8
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 
