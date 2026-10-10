@@ -23,12 +23,12 @@
 .holiday-removed { margin-top: 20px; color: var(--ink-muted); }
 .holiday-removed > summary { cursor: pointer; margin-bottom: 12px; }
 .holiday-sync-note { margin-top: 24px; color: var(--ink-subtle); font-size: 12px; }
-.today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: color-mix(in srgb, var(--status-holiday) 45%, var(--line)); background: var(--status-holiday-surface); }
+.today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: var(--status-holiday-border); background: var(--status-holiday-surface); }
 .today-holiday-banner > div { flex: 1; }
 .today-holiday-banner strong { color: var(--status-holiday-ink); }
 .today-holiday-banner p { margin: 4px 0 0; color: var(--ink-muted); font-size: 12px; }
 .today-holiday-banner a, .today-holiday-records a { color: var(--accent-strong); font-size: 12px; font-weight: 650; }
-.today-holiday-records { margin: 18px 0; padding: 16px 20px; border: 1px solid color-mix(in srgb, var(--status-holiday) 45%, var(--line)); border-radius: var(--radius-control); background: var(--status-holiday-surface); }
+.today-holiday-records { margin: 18px 0; padding: 16px 20px; border: 1px solid var(--status-holiday-border); border-radius: var(--radius-control); background: var(--status-holiday-surface); }
 .today-holiday-records h2 { margin: 0 0 8px; font-size: 16px; }
 .today-holiday-records p { margin: 5px 0; color: var(--ink-muted); font-size: 13px; }
 .week-rhythm-day.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
@@ -554,7 +554,6 @@ a { color: inherit; text-decoration: none; }
 .calendar-day.calendar-day-today { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .calendar-day-empty { pointer-events: none; }
 .calendar-dot { width: 5px; height: 5px; border-radius: 50%; background: #c8cec8; }
-.calendar-dot.qualified { background: #699474; }
 .calendar-dot.skipped { background: var(--status-neutral); }
 .calendar-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; color: var(--ink-subtle); font-size: 9px; }
 .calendar-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -811,12 +810,12 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .tracker-kind-chip { background: var(--info-soft); color: var(--info); }
 .tracker-archived-chip { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .today-state.skipped, .goal-plan-day.skipped { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
-.goal-plan-day.met, .history-outcome.positive { background: var(--positive-soft); color: var(--positive); }
+.goal-plan-day.met { background: var(--positive-soft); color: var(--positive); }
 .goal-plan-day.missed, .goal-plan-day.skipped, .goal-plan-day.below-target,
 .auth-error, .today-validation, .form-alert { color: var(--danger); }
 .form-alert { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: var(--danger-soft); }
 .auth-success { color: var(--positive); }
-.goal-plan-bar i.actual, .calendar-dot.qualified { background: var(--positive); }
+.goal-plan-bar i.actual { background: var(--positive); }
 .goal-plan-bar i.expected { background: var(--warning); }
 .goal-plan-day.missed, .goal-plan-day.skipped, .goal-plan-day.below-target,
 .goal-plan-status.behind, .goal-plan-status.overdue { background: var(--danger-soft); color: var(--danger); }
@@ -1371,9 +1370,6 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .week-rhythm-weekday { font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .week-rhythm-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--surface-raised); color: var(--ink-subtle); font-size: 17px; font-weight: 800; }
 .week-rhythm-date { color: var(--ink-subtle); font-size: 9px; line-height: 1; }
-.week-rhythm-day.complete { background: color-mix(in srgb, var(--joy-teal-soft) 62%, transparent); }
-.week-rhythm-day.complete .week-rhythm-mark { background: var(--joy-teal); color: #fff; box-shadow: 0 3px 9px color-mix(in srgb, var(--joy-teal) 25%, transparent); }
-.week-rhythm-day.partial .week-rhythm-mark { background: var(--joy-citrus-soft); color: var(--warning); }
 .week-rhythm-day.today { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: color-mix(in srgb, var(--joy-coral-soft) 68%, transparent); }
 .week-rhythm-day.today .week-rhythm-weekday { color: var(--accent-strong); }
 .week-rhythm-day.today .week-rhythm-mark { color: var(--accent-strong); }
@@ -1590,7 +1586,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .status-partial { --status-bg: var(--status-partial-surface); --status-stroke: var(--status-partial-border); --status-fg: var(--status-partial-ink); }
 .status-holiday { --status-bg: var(--status-holiday-surface); --status-stroke: var(--status-holiday-border); --status-fg: var(--status-holiday-ink); }
 .status-missed { --status-bg: var(--status-missed-surface); --status-stroke: var(--status-missed-border); --status-fg: var(--status-missed-ink); }
-.status-unscheduled { --status-bg: var(--status-rest-surface); --status-stroke: var(--status-rest-border); --status-fg: var(--status-rest-ink); }
+.status-unscheduled, .status-rest { --status-bg: var(--status-rest-surface); --status-stroke: var(--status-rest-border); --status-fg: var(--status-rest-ink); }
 .status-neutral, .status-skipped { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-neutral-ink); }
 .today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
 .tracker-archived-chip { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
@@ -1623,9 +1619,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .calendar-status-mark.pending, .activity-calendar .calendar-cell-status.pending, .goal-plan-day.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .calendar-status-mark.skipped, .activity-calendar .calendar-cell-status.skipped, .calendar-dot.skipped, .goal-plan-day.skipped { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .week-rhythm-day.complete { background: var(--status-completed-surface); color: var(--status-completed-ink); }
-.week-rhythm-day.complete .week-rhythm-mark { background: var(--status-completed); color: #fff; }
 .week-rhythm-day.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
-.week-rhythm-day.partial .week-rhythm-mark { background: var(--status-partial); color: #fff; }
 .week-rhythm-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
 .week-rhythm-day.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .week-rhythm-day.rest { background: var(--status-rest-surface); color: var(--status-rest-ink); }
@@ -1647,7 +1641,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .goal-plan-day.future, .goal-plan-day.pending { border-color: var(--status-pending-border); }
 .goal-plan-day.rest { background: var(--status-rest-surface); color: var(--status-rest-ink); }
 
-/* Keep status symbols on their dedicated hues while labels use contrast-safe ink. */
+/* Status text and symbols share the exact foreground token for each status. */
 .calendar-dot.pending svg, .calendar-cell-status.pending .calendar-cell-mark,
 .week-rhythm-day.pending .week-rhythm-mark { color: var(--status-pending); }
 .calendar-dot.completed svg, .calendar-cell-status.completed .calendar-cell-mark,
@@ -1672,6 +1666,48 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .calendar-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 8px 12px; margin: 0 0 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink-muted); font-size: 12px; }
 .calendar-legend > span { min-width: 0; display: inline-flex; align-items: center; gap: 7px; }
 .calendar-legend .calendar-dot { flex: 0 0 22px; width: 22px; height: 22px; margin: 0; }
+
+/* Semantic status borders use the same theme tokens as cards and badges. */
+.status-badge { border: 1px solid var(--status-stroke, var(--line)); }
+.today-state, .history-outcome.pending, .history-outcome.completed, .history-outcome.partial,
+.history-outcome.missed, .history-outcome.holiday, .history-outcome.rest { border: 1px solid transparent; }
+.history-outcome.pending { background: var(--status-pending-surface); color: var(--status-pending); }
+.history-outcome.completed { background: var(--status-completed-surface); color: var(--status-completed); }
+.history-outcome.partial { background: var(--status-partial-surface); color: var(--status-partial); }
+.history-outcome.missed { background: var(--status-missed-surface); color: var(--status-missed); }
+.history-outcome.holiday { background: var(--status-holiday-surface); color: var(--status-holiday); }
+.history-outcome.rest { background: var(--status-rest-surface); color: var(--status-rest); }
+.today-state.pending, .history-outcome.pending, .history-outcome.status-pending { border: 1px solid var(--status-pending-border); }
+.today-state.completed, .history-outcome.completed, .history-outcome.status-completed, .status-mark.completed,
+.calendar-dot.completed, .calendar-dot.qualified, .calendar-status-mark.completed,
+.activity-calendar .calendar-cell-status.completed, .week-rhythm-day.complete,
+.goal-plan-day.met, .goal-plan-day.completed, .history-outcome.positive { border-color: var(--status-completed-border); }
+.today-state.partial, .history-outcome.partial, .history-outcome.status-partial, .status-mark.partial,
+.calendar-dot.partial, .calendar-status-mark.partial,
+.activity-calendar .calendar-cell-status.partial, .week-rhythm-day.partial,
+.goal-plan-day.partial, .goal-plan-day.below-target { border-color: var(--status-partial-border); }
+.today-state.missed, .history-outcome.missed, .history-outcome.status-missed, .status-mark.missed,
+.calendar-dot.missed, .calendar-status-mark.missed,
+.activity-calendar .calendar-cell-status.missed, .week-rhythm-day.missed,
+.goal-plan-day.missed { border-color: var(--status-missed-border); }
+.today-state.holiday, .history-outcome.holiday, .history-outcome.status-holiday, .status-mark.holiday,
+.calendar-dot.holiday, .calendar-status-mark.holiday,
+.activity-calendar .calendar-cell-status.holiday, .week-rhythm-day.holiday,
+.goal-plan-day.holiday { border-color: var(--status-holiday-border); }
+.today-state.unscheduled, .history-outcome.rest, .history-outcome.status-unscheduled,
+.calendar-dot.unscheduled, .calendar-status-mark.unscheduled,
+.activity-calendar .calendar-cell-status.unscheduled, .week-rhythm-day.rest,
+.goal-plan-day.rest { border-color: var(--status-rest-border); }
+.calendar-status-mark.pending, .activity-calendar .calendar-cell-status.pending,
+.week-rhythm-day.pending, .goal-plan-day.pending, .goal-plan-day.future { border-color: var(--status-pending-border); }
+.calendar-status-mark, .calendar-dot, .status-mark { border: 1px solid transparent; }
+.activity-calendar .calendar-cell-status { border-color: var(--status-stroke, var(--line)); }
+.activity-calendar .calendar-cell-status.pending { --status-stroke: var(--status-pending-border); }
+.activity-calendar .calendar-cell-status.completed { --status-stroke: var(--status-completed-border); }
+.activity-calendar .calendar-cell-status.partial { --status-stroke: var(--status-partial-border); }
+.activity-calendar .calendar-cell-status.missed { --status-stroke: var(--status-missed-border); }
+.activity-calendar .calendar-cell-status.holiday { --status-stroke: var(--status-holiday-border); }
+.activity-calendar .calendar-cell-status.unscheduled { --status-stroke: var(--status-rest-border); }
 
 /* Neutral, nearly black dark mode with restrained brand color. */
 [data-theme='dark'] .main-area { background: var(--canvas); }
