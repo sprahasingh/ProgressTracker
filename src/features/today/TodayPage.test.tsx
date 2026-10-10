@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../../db/database'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
@@ -9,12 +9,13 @@ import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { calendarDateLabel } from '../shared/localDates'
 import { TodayPage } from './TodayPage'
+import { TrackerSetupPage } from '../trackers/TrackerSetupPage'
 import todayStyles from '../../styles.css?raw'
 
-const todayMocks = vi.hoisted(() => ({ auth: { status: 'local-only', user: null, isOnline: true } as { status: string; user: null | { id: string }; isOnline: boolean } }))
+const todayMocks = vi.hoisted(() => ({ auth: { status: 'local-only', user: null, isOnline: true, syncStatus: 'idle' } as { status: string; user: null | { id: string }; isOnline: boolean; syncStatus?: string } }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => todayMocks.auth }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); todayMocks.auth = { status: 'local-only', user: null, isOnline: true }; await db.delete() })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); todayMocks.auth = { status: 'local-only', user: null, isOnline: true, syncStatus: 'idle' }; await db.delete() })
 const today = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` as `${number}-${number}-${number}`
 
 const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-day' }): StoredTrackerDefinition => ({
@@ -27,6 +28,129 @@ const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-
 })
 
 describe('Today check-ins', () => {
+  it('welcomes a first-time guest and links straight to tracker creation', async () => {
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' })).toBeInTheDocument()
+    expect(screen.getByText('Build better habits, work toward your goals, and celebrate progress one day at a time.')).toBeInTheDocument()
+    expect(screen.getByText('Start with one activity. You can customize everything later.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Create your first tracker' })).toHaveAttribute('href', '/trackers/new')
+    expect(screen.getByText('Your progress is saved on this device.')).toBeInTheDocument()
+    expect(screen.queryByText(/IndexedDB|database/i)).not.toBeInTheDocument()
+  })
+
+  it('shows account sync status without claiming signed-in progress is device-only', async () => {
+    todayMocks.auth = { status: 'signed-in', user: { id: 'account-a' }, isOnline: true, syncStatus: 'complete' }
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' })).toBeInTheDocument()
+    expect(screen.getByText('Account sync is up to date.')).toBeInTheDocument()
+    expect(screen.queryByText('Your progress is saved on this device.')).not.toBeInTheDocument()
+  })
+
+  it('waits for initial account sync before showing a first-time welcome', async () => {
+    todayMocks.auth = { status: 'signed-in', user: { id: 'account-a' }, isOnline: true, syncStatus: 'waiting' }
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByText('Checking your account for saved trackers…')).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+  })
+
+  it('offers account recovery when signed-in account data is unavailable offline', async () => {
+    todayMocks.auth = { status: 'signed-in', user: { id: 'account-a' }, isOnline: false, syncStatus: 'offline' }
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Your account is offline' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Account sync' })).toHaveAttribute('href', '/settings#sync-data')
+    expect(screen.getByRole('link', { name: 'Create a tracker' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+  })
+
+  it('shows the inactive state for archived trackers instead of treating the user as new', async () => {
+    await localRepository.saveTracker({ ...tracker(), status: 'archived' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'No active trackers' })).toBeInTheDocument()
+    expect(screen.getByText('Your trackers are currently inactive. Restore an existing tracker or create a new one to get started.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View trackers' })).toHaveAttribute('href', '/trackers')
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+  })
+
+  it('offers the inactive state for paused trackers too', async () => {
+    await localRepository.saveTracker({ ...tracker(), status: 'paused' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'No active trackers' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View trackers' })).toHaveAttribute('href', '/trackers')
+  })
+
+  it('offers the Bin when deleted tracker records remain but none are active', async () => {
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    await localRepository.deleteTracker('today-tracker')
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'No active trackers' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View Bin' })).toHaveAttribute('href', '/bin')
+  })
+
+  it('shows the unscheduled state for an existing active tracker while retaining its rest-day card', async () => {
+    await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [] })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Nothing scheduled today' })).toBeInTheDocument()
+    expect(screen.getByText('You’re all caught up for today. Check your trackers or plan what comes next.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View trackers' })).toHaveAttribute('href', '/trackers')
+    expect(screen.getByRole('button', { name: 'Open Daily reading, Rest day' })).toBeInTheDocument()
+  })
+
+  it('keeps the completed-day experience for scheduled work', async () => {
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    await localRepository.saveTrackerEntry({ trackerId: 'today-tracker', date: today(), outcome: 'recorded', values: { pages: 5 }, note: '' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'All done for today!' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+  })
+
+  it('does not flash an empty state while the tracker records are still loading', async () => {
+    let resolveTrackers!: (value: StoredTrackerDefinition[]) => void
+    vi.spyOn(localRepository, 'listTrackers').mockImplementationOnce(() => new Promise((resolve) => { resolveTrackers = resolve }))
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading today’s trackers')
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+    await act(async () => resolveTrackers([]))
+    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' })).toBeInTheDocument()
+  })
+
+  it.each([320, 360, 390, 430, 768, 1280])('keeps the welcome state content-sized at %ipx', async (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    const welcome = await screen.findByRole('heading', { name: 'Start tracking what matters.' })
+    expect(welcome.closest('.empty-state')).toHaveTextContent('Create your first tracker')
+    expect(todayStyles).toMatch(/\.today-context-empty \.empty-state\s*\{\s*padding:\s*24px 20px/s)
+    expect(todayStyles).toMatch(/@media\s*\(max-width:\s*360px\)[\s\S]*?\.today-context-empty \.empty-state\s*\{\s*padding:\s*22px 14px/s)
+  })
+
+  it('returns to Today with a creation toast when the first-time action opened the form', async () => {
+    const user = userEvent.setup()
+    render(<ToastProvider><MemoryRouter initialEntries={['/']}><Routes>
+      <Route path="/" element={<TodayPage />} />
+      <Route path="/trackers/new" element={<TrackerSetupPage />} />
+    </Routes></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('link', { name: 'Create your first tracker' }))
+    await user.type(await screen.findByRole('textbox', { name: 'What habit do you want to build?' }), 'Read every day')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('status', { name: /Tracker created/ })).toHaveTextContent('Your new tracker is ready.')
+    expect(await screen.findByRole('button', { name: 'Open Read every day, Pending' })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toHaveLength(1)
+  })
+
+  it('keeps first-time users on the form and reports an error when tracker creation fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(localRepository, 'saveTracker').mockRejectedValueOnce(new Error('private storage detail'))
+    render(<ToastProvider><MemoryRouter initialEntries={['/']}><Routes>
+      <Route path="/" element={<TodayPage />} />
+      <Route path="/trackers/new" element={<TrackerSetupPage />} />
+    </Routes></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('link', { name: 'Create your first tracker' }))
+    await user.type(await screen.findByRole('textbox', { name: 'What habit do you want to build?' }), 'Read every day')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('alert', { name: 'Couldn’t create tracker' })).toHaveTextContent('Your changes were not saved')
+    expect(screen.getByRole('textbox', { name: 'What habit do you want to build?' })).toHaveValue('Read every day')
+    expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
+  })
+
   it('labels an offline account check-in as device-saved while sync is pending', async () => {
     todayMocks.auth = { status: 'signed-in', user: { id: 'account-a' }, isOnline: false }
     const user = userEvent.setup()
@@ -524,6 +648,6 @@ describe('Today check-ins', () => {
     expect(screen.getByText('Your check-ins are still here')).toBeInTheDocument()
     expect(screen.queryByText('Nothing scheduled today')).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('link', { name: 'Create a tracker' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Create your first tracker' })).toBeInTheDocument()
   })
 })

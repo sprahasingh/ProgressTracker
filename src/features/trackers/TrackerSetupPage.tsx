@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -82,7 +82,9 @@ export function TrackerSetupPage() {
   const { notify } = useToast()
   const { timeZone } = useWorkspaceTimeZone()
   const { trackerId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const returnToToday = (location.state as { returnTo?: unknown } | null)?.returnTo === 'today'
   const [existing, setExisting] = useState<TrackerDefinition>()
   const [values, setValues] = useState<FormValues>(() => defaultValues(undefined, timeZone))
   const [configuration, setConfiguration] = useState<Configuration>(() => {
@@ -290,6 +292,10 @@ export function TrackerSetupPage() {
       if (existing) {
         notify({ kind: 'success', title: 'Tracker updated', description: 'Your changes were saved on this device.', dedupeKey: `tracker:${result.id}` })
         navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
+      }
+      else if (returnToToday) {
+        notify({ kind: 'success', title: 'Tracker created', description: 'Your new tracker is ready. Your progress is saved on this device.', dedupeKey: `tracker:${result.id}` })
+        navigate('/', { replace: true })
       }
       else setSavedTracker(result)
     } catch {

@@ -25,8 +25,19 @@ import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
 
+function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncStatus: string): string {
+  if (authStatus !== 'signed-in') return authStatus === 'signed-out'
+    ? 'Saved on this device. Sign in to set up account sync.'
+    : 'Your progress is saved on this device.'
+  if (syncStatus === 'error') return 'Some account changes still need to sync. Check sync status in Settings.'
+  if (!isOnline || syncStatus === 'offline') return 'Changes are saved on this device while your account is offline.'
+  if (syncStatus === 'waiting' || syncStatus === 'syncing') return 'Your account changes are waiting to sync.'
+  if (syncStatus === 'complete') return 'Account sync is up to date.'
+  return 'Progress is saved on this device. Check Settings for account sync status.'
+}
+
 export function TodayPage() {
-  const { status: authStatus, user, isOnline } = useAuth()
+  const { status: authStatus, user, isOnline, syncStatus } = useAuth()
   const { notify } = useToast()
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const ownerRef = useRef(expectedOwner)
@@ -34,6 +45,7 @@ export function TodayPage() {
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [allTrackers, setAllTrackers] = useState<StoredTrackerDefinition[]>([])
+  const [hasDeletedTrackerRecords, setHasDeletedTrackerRecords] = useState(false)
   const [upcomingGoals, setUpcomingGoals] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [weekEntries, setWeekEntries] = useState<StoredTrackerEntry[]>([])
@@ -53,8 +65,9 @@ export function TodayPage() {
     if (showLoading) setLoading(true)
     setLoadError('')
     try {
-      const [allTrackers, recentEntries, holidays] = await Promise.all([
-        localRepository.listTrackers(),
+      const [allTrackers, deletedTrackers, recentEntries, holidays] = await Promise.all([
+        localRepository.listTrackers(true),
+        localRepository.listDeletedTrackers(),
         localRepository.listTrackerEntriesBetween(shiftCalendarDate(today, -6), today),
         localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
       ])
@@ -74,6 +87,7 @@ export function TodayPage() {
       }, today)
       const historicalGoalEntries = goals.length ? await localRepository.listTrackerEntriesBetween(earliestGoalDate, today) : []
       setAllTrackers(allTrackers)
+      setHasDeletedTrackerRecords(deletedTrackers.length > 0)
       setUpcomingGoals(allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.status === 'active' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
         .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
       setEntries(todayEntries)
@@ -92,6 +106,10 @@ export function TodayPage() {
   useWorkspaceDataChanges(expectedOwner, authStatus !== 'loading', refresh)
   const trackers = useMemo(() => todayHoliday ? [] : allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today, todayHoliday])
   const activityTrackers = useMemo(() => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null), [allTrackers])
+  const accountCheckPending = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
+    && isOnline !== false && ['idle', 'waiting', 'syncing'].includes(syncStatus)
+  const accountCheckUnavailable = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
+    && (isOnline === false || syncStatus === 'offline' || syncStatus === 'error')
   const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
@@ -156,7 +174,7 @@ export function TodayPage() {
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." help={{ title: 'Today', summary: 'Record today’s progress with the least friction.', description: 'Each active tracker appears when today is a scheduled opportunity. Enter its metric values, optional details, and notes, then save the check-in. A skipped day is recorded separately from no activity. Your week pattern marks scheduled completion and rest days; the workspace time zone determines today.' }} />
       {todayHoliday && <Surface className="today-holiday-banner"><span className="status-mark holiday" aria-hidden="true">☀</span><div><strong>Today is a holiday</strong><p>{todayHoliday.reason ? `${todayHoliday.reason[0]!.toUpperCase()}${todayHoliday.reason.slice(1)} · ` : ''}Your scheduled goals and streaks are paused today. Recorded activity remains saved.</p></div><Link to={`/holidays?date=${today}`}>Manage holidays</Link></Surface>}
-      {!loading && !loadError && allTrackers.length > 0 && <details className="week-rhythm-disclosure"><summary>Your last 7 days</summary><section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
+      {!loading && !loadError && activityTrackers.length > 0 && <details className="week-rhythm-disclosure"><summary>Your last 7 days</summary><section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
           {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} completed` : ''}${day.isToday ? ', today' : ''}`}>
@@ -168,7 +186,7 @@ export function TodayPage() {
         <p className="week-rhythm-caption">Rest days are part of your rhythm too.</p>
       </section></details>}
       {!loading && !loadError && trackers.length > 0 && <section className={`today-overview surface${allComplete ? ' all-handled' : ''}`} aria-label="Today at a glance">
-        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All scheduled activities completed.' : 'No scheduled activity remains.' : `${remainingCount} ${remainingCount === 1 ? 'activity' : 'activities'} still actionable`}</h2><p>{completedCount} completed · {partialCount} partially complete · {loggedCount} of {trackers.length} checked in{skippedCount ? ` · ${skippedCount} skipped` : ''}.</p></div>
+        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All done for today!' : 'No scheduled activity remains.' : `${remainingCount} ${remainingCount === 1 ? 'activity' : 'activities'} still actionable`}</h2><p>{completedCount} completed · {partialCount} partially complete · {loggedCount} of {trackers.length} checked in{skippedCount ? ` · ${skippedCount} skipped` : ''}.</p></div>
         <div className="today-progress" role="img" aria-label={`${completedCount} of ${trackers.length} scheduled activities completed`}><span>{completedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? completedCount / trackers.length * 100 : 0}%` }} /></div><small>completed today</small></div>
       </section>}
       {!loading && !loadError && upcomingGoals.length > 0 && <section className="today-upcoming-goals" aria-labelledby="today-upcoming-title">
@@ -197,12 +215,33 @@ export function TodayPage() {
         })}</div>
       </section>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : activityTrackers.length === 0 ? (
-        <Surface>
-          <EmptyState title="Nothing scheduled today" description="Create an active tracker and choose a schedule to see it here. Your existing progress stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} />
+      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : accountCheckPending ? (
+        <Surface className="today-context-empty"><p role="status" className="tracker-loading">Checking your account for saved trackers…</p></Surface>
+      ) : activityTrackers.length === 0 ? (
+        <Surface className="today-context-empty">
+          {accountCheckUnavailable ? <EmptyState
+            title={isOnline === false || syncStatus === 'offline' ? 'Your account is offline' : 'Couldn’t check your account'}
+            description="No trackers are saved on this device yet. Reconnect to check your account, or create a tracker now."
+            action={<div className="today-empty-actions"><Link className="button button-secondary button-medium" to="/settings#sync-data">Account sync</Link><Link className="button button-primary button-medium" to="/trackers/new" state={{ returnTo: 'today' }}>Create a tracker</Link></div>}
+          /> : allTrackers.length === 0 && !hasDeletedTrackerRecords ? <EmptyState
+            title="Start tracking what matters."
+            description="Build better habits, work toward your goals, and celebrate progress one day at a time."
+            note="Start with one activity. You can customize everything later."
+            action={<Link className="button button-primary button-medium" to="/trackers/new" state={{ returnTo: 'today' }}>Create your first tracker</Link>}
+            secondary={<p className="today-empty-storage-note">{emptyStateStorageMessage(authStatus, isOnline, syncStatus)}</p>}
+          /> : <EmptyState
+            title="No active trackers"
+            description="Your trackers are currently inactive. Restore an existing tracker or create a new one to get started."
+            action={<div className="today-empty-actions"><Link className="button button-primary button-medium" to={allTrackers.length === 0 && hasDeletedTrackerRecords ? '/bin' : '/trackers'}>{allTrackers.length === 0 && hasDeletedTrackerRecords ? 'View Bin' : 'View trackers'}</Link><Link className="button button-secondary button-medium" to="/trackers/new" state={{ returnTo: 'today' }}>Create a tracker</Link></div>}
+            secondary={<p className="today-empty-storage-note">{emptyStateStorageMessage(authStatus, isOnline, syncStatus)}</p>}
+          />}
         </Surface>
       ) : (
-        <div className="today-checkin-list">
+        <>
+          {!todayHoliday && trackers.length === 0 && <Surface className="today-context-empty">
+            <EmptyState title="Nothing scheduled today" description="You’re all caught up for today. Check your trackers or plan what comes next." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} />
+          </Surface>}
+          <div className="today-checkin-list">
           {activityTrackers.map((tracker) => {
             const entry = entryByTracker.get(tracker.id)
             const status = getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet })
@@ -210,7 +249,8 @@ export function TodayPage() {
             return <CheckinCard key={tracker.id} tracker={tracker} entry={entry} today={today} entries={goalEntries} holidays={holidaySet} status={status}
               historical={false} onOpen={() => setSelectedActivity({ trackerId: tracker.id, date: today })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
           })}
-        </div>
+          </div>
+        </>
       )}
       {recentMisses.length > 0 && <details className="today-missed-disclosure" onToggle={(event) => setShowMissed(event.currentTarget.open)}><summary>Missed opportunities in the last week <span>{recentMisses.length}</span></summary>{showMissed && <div className="today-checkin-list">{recentMisses.map(({ tracker, date }) => {
         const entry = weekEntries.find((item) => item.trackerId === tracker.id && item.date === date)

@@ -2022,3 +2022,21 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
   .tracker-card-actions > a { flex: 0 1 auto; }
   .allocation-page-controls { flex-wrap: wrap; }
 }
+
+/* Today’s context-aware empty states stay content-sized and compact. */
+.today-page > .today-context-empty { margin: 12px 0 16px; }
+.today-context-empty .empty-state { padding: 24px 20px; }
+.today-context-empty .empty-state-icon { width: 40px; height: 40px; }
+.today-context-empty .empty-state h2 { margin-top: 14px; font-size: clamp(20px, 5vw, 24px); line-height: 1.25; }
+.today-context-empty .empty-state > p { margin-top: 8px; }
+.today-context-empty .empty-state > .empty-state-note { margin-top: 12px; color: var(--ink-subtle); font-size: 12px; }
+.today-context-empty .empty-state-action { margin-top: 17px; }
+.today-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.today-context-empty .empty-state-secondary { margin-top: 12px; }
+.today-empty-storage-note { margin: 0; color: var(--ink-subtle); font-size: 11px; line-height: 1.45; }
+.today-context-empty .button { min-height: 44px; }
+@media (max-width: 360px) {
+  .today-context-empty .empty-state { padding: 22px 14px; }
+  .today-empty-actions { width: 100%; }
+  .today-empty-actions .button { flex: 1 1 100%; }
+}
