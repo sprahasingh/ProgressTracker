@@ -56,8 +56,8 @@ describe('shared activity status rules', () => {
     expect(ACTIVITY_STATUS_PRESENTATION.holiday.colorToken).toBe('--status-holiday')
     expect(ACTIVITY_STATUS_PRESENTATION.missed.colorToken).toBe('--status-missed')
     for (const [name, light, dark] of [
-      ['pending', '#eab308', '#facc15'], ['completed', '#22c55e', '#4ade80'], ['partial', '#f97316', '#fb923c'],
-      ['holiday', '#8b5cf6', '#a78bfa'], ['missed', '#ef4444', '#f87171'],
+      ['pending', '#4f83c2', '#7fb7f2'], ['completed', '#16836a', '#5fd0a9'], ['partial', '#d97706', '#ffb45e'],
+      ['holiday', '#7956b3', '#b8a0f2'], ['missed', '#d9535f', '#ff828c'],
     ]) {
       expect(tokens).toContain(`--status-${name}: ${light}`)
       expect(tokens).toContain(`--status-${name}: ${dark}`)

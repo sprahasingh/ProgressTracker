@@ -1299,6 +1299,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .week-rhythm-day.today { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: color-mix(in srgb, var(--joy-coral-soft) 68%, transparent); }
 .week-rhythm-day.today .week-rhythm-weekday { color: var(--accent-strong); }
 .week-rhythm-day.today .week-rhythm-mark { color: var(--accent-strong); }
+.week-rhythm-day.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .week-rhythm-day.rest .week-rhythm-mark { background: transparent; color: var(--ink-subtle); }
 .week-rhythm-caption { margin: 10px 0 0; color: var(--ink-subtle); font-size: 10px; text-align: center; }
 .today-overview { margin-top: 0; }
@@ -1546,7 +1547,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .week-rhythm-day.partial .week-rhythm-mark { background: var(--status-partial); color: #fff; }
 .week-rhythm-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
 .week-rhythm-day.holiday, .week-rhythm-day.rest { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
-.week-rhythm-day.today { background: var(--status-pending-surface); color: var(--status-pending-ink); }
+.week-rhythm-day.today { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); }
 .today-result { color: var(--status-fg, var(--status-completed-ink)); }
 .goal-plan-day.met { background: var(--status-completed-surface); color: var(--status-completed-ink); }
 .goal-plan-day.below-target { background: var(--status-partial-surface); color: var(--status-partial-ink); }
