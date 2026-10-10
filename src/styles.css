@@ -2268,8 +2268,12 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .tracker-filter { min-width: 190px; }
 .tracker-filter select { min-width: 0; max-width: 100%; }
 .activity-heatmap-section { min-width: 0; margin: 14px 0 22px; padding: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
-.activity-heatmap-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.activity-heatmap-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .activity-heatmap-heading > div { min-width: 0; }
+.activity-heatmap-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.activity-heatmap-controls select { min-width: 0; max-width: 100%; padding: 6px 26px 6px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font: inherit; font-size: 11px; }
+.activity-heatmap-controls select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.activity-heatmap-heading > .info-button { flex: 0 0 auto; }
 .activity-heatmap-heading h2 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 600; }
 .activity-heatmap-heading p { margin: 4px 0 0; color: var(--ink-subtle); font-size: 12px; }
 .activity-heatmap-scroll { width: 100%; min-width: 0; max-width: 100%; margin-top: 12px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-color: var(--line) transparent; }
@@ -2312,6 +2316,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .heatmap-cells .heatmap-cell::before { border-radius: 2.5px; }
   .insights-filter-toolbar { justify-content: stretch; }
   .insights-filter-toolbar .tracker-filter { width: 100%; }
+  .activity-heatmap-controls { order: 3; width: 100%; margin-left: 0; }
+  .activity-heatmap-controls select { flex: 1 1 auto; }
 }
 @media (prefers-reduced-motion: reduce) { .heatmap-cell { scroll-behavior: auto; transition: none; } }
 
