@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { NotificationsSettings } from './NotificationsSettings'
 import { localRepository } from '../../db/localRepository'
 import { db } from '../../db/database'
@@ -18,6 +19,9 @@ describe('notification settings', () => {
     const master = await screen.findByRole('checkbox', { name: /Enable reminders in this account/ })
     await waitFor(() => expect(master.closest('fieldset')).toBeEnabled())
     expect(screen.getByText('Setup required')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More about Background delivery setup' }))
+    expect(screen.getByRole('dialog', { name: 'Background delivery setup' })).toHaveTextContent(/do not confirm background delivery/i)
+    fireEvent.keyDown(document, { key: 'Escape' })
     fireEvent.click(master)
     await waitFor(async () => expect(await localRepository.getNotificationPreferences()).toMatchObject({ enabled: true, timezone: 'UTC' }))
     expect(screen.getByText(/Saved on this device/)).toBeInTheDocument()
@@ -32,6 +36,50 @@ describe('notification settings', () => {
     expect(document.querySelector('.notification-times input')).toHaveValue('09:15')
     expect(screen.getByRole('combobox', { name: 'Message type' })).toHaveValue('custom')
     expect(screen.getByText(/Account sync setup is unavailable/)).toBeInTheDocument()
+  })
+
+  it('adds, edits, prevents duplicate times, and removes a specifically named reminder time', async () => {
+    const user = userEvent.setup()
+    render(<NotificationsSettings />)
+    const master = await screen.findByRole('checkbox', { name: /Enable reminders in this account/ })
+    await waitFor(() => expect(master.closest('fieldset')).toBeEnabled())
+
+    const dailyTimes = screen.getByLabelText('Daily reminder times')
+    const inputs = dailyTimes.querySelectorAll('input[type="time"]')
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0]).toHaveValue('16:00')
+    expect(dailyTimes.querySelector('svg[data-icon="bin"]')).toBeInTheDocument()
+    await user.click(within(dailyTimes).getByRole('button', { name: 'Add time' }))
+    await waitFor(async () => expect((await localRepository.getNotificationPreferences())?.daily_times).toContain('20:00'))
+
+    const updatedInputs = dailyTimes.querySelectorAll('input[type="time"]')
+    fireEvent.change(updatedInputs[0]!, { target: { value: '17:30' } })
+    await waitFor(async () => expect((await localRepository.getNotificationPreferences())?.daily_times).toContain('17:30'))
+    fireEvent.change(dailyTimes.querySelectorAll('input[type="time"]')[0]!, { target: { value: '22:00' } })
+    await waitFor(() => expect(screen.getAllByRole('status').some((status) => /already scheduled/.test(status.textContent ?? ''))).toBe(true))
+    expect(dailyTimes.querySelectorAll('input[type="time"]')[0]).toHaveValue('17:30')
+
+    const removeButton = within(dailyTimes).getByRole('button', { name: /Remove 5:30 PM daily reminder/ })
+    expect(removeButton).toHaveTextContent('Remove')
+    expect(removeButton.querySelector('[data-icon="bin"]')).toBeInTheDocument()
+    await user.click(removeButton)
+    await waitFor(async () => expect((await localRepository.getNotificationPreferences())?.daily_times).not.toContain('17:30'))
+  })
+
+  it('edits and removes a named custom motivational message', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveCustomMotivationMessage({ id: 'message-a', message: 'Be kind to yourself', enabled: true, deleted: false })
+    render(<NotificationsSettings />)
+    await screen.findByText('Be kind to yourself')
+    const motivationDetails = screen.getByText('Motivation', { exact: true }).closest('details')!
+    await user.click(motivationDetails.querySelector('summary')!)
+    expect(motivationDetails).toHaveAttribute('open')
+    await user.click(screen.getByRole('button', { name: 'Edit message: Be kind to yourself' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit motivation message' }), { target: { value: 'One small step' } })
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(async () => expect((await localRepository.listCustomMotivationMessages()).map((row) => row.message)).toContain('One small step'))
+    await user.click(screen.getByRole('button', { name: 'Remove custom message: One small step' }))
+    await waitFor(async () => expect(await localRepository.listCustomMotivationMessages()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'message-a', deleted: true })])))
   })
 
   it('leaves preferences editable if the hosted notification tables cannot be read', async () => {
@@ -76,7 +124,7 @@ describe('notification settings', () => {
     }))
     expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('user_id')
     expect(worker.pushManager.subscribe).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Disable this device' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove device registration' }))
     await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('manage-push-subscription', { body: { action: 'revoke', subscription: { endpoint: current.endpoint } } }))
     expect(current.unsubscribe).toHaveBeenCalledOnce()
   })
