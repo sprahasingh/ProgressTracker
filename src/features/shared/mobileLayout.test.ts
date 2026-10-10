@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import styles from '../../styles.css?raw'
+import tokens from '../../styles/tokens.css?raw'
 
 const viewportWidths = [320, 360, 390, 430] as const
 
@@ -21,5 +22,15 @@ describe('mobile page and card spacing', () => {
     expect(styles).toContain('[data-theme=\'dark\']')
     expect(styles).toMatch(/\.settings-card,\s*\.calendar-month-card,[\s\S]*?\.calendar-day-details\s*\{\s*padding:\s*14px;/)
     expect(styles).not.toContain('[data-theme=\'dark\'] .page-content')
+  })
+
+  it('uses the shared rounded card treatment for Today, Insights, and nested notification groups', () => {
+    expect(tokens).toMatch(/--radius-card:\s*22px;/)
+    expect(tokens).toMatch(/--radius-card-nested:\s*15px;/)
+    expect(tokens).toMatch(/\[data-theme='dark'\]\s*\{[\s\S]*?--shadow-card:\s*0 10px 28px/)
+    expect(styles).toContain('.today-checkin-card.status-card { border: 1px solid var(--status-stroke, var(--line)); }')
+    expect(styles).toMatch(/\.analytics-tracker,[\s\S]*?\.achievement-card,[\s\S]*?\.history-entry-card,[\s\S]*?\.settings-card/)
+    expect(styles).toMatch(/\.notification-accordion\s*\{[^}]*border: 1px solid var\(--line\);[^}]*border-radius: var\(--radius-card-nested\)/s)
+    expect(styles).not.toMatch(/\.today-checkin-card(?:\.status-card)?\s*\{[^}]*border-top(?:-width|-color)?:\s*3px/)
   })
 })
