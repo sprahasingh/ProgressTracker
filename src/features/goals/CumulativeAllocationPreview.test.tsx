@@ -17,7 +17,7 @@ describe('cumulative allocation preview UI', () => {
   it('labels values as a preview, tracks unsaved edits, and reports manual over-allocation', () => {
     render(<CumulativeAllocationPreview tracker={tracker} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="Asia/Kolkata" onSave={vi.fn()} v3WritesEnabled />)
 
-    expect(screen.getByText('Preview only. Allocations become persistent only after Save Plan. Planned amounts remain separate from actual check-ins. Dates use the Asia/Kolkata planning calendar.')).toBeInTheDocument()
+    expect(screen.getByText('Preview only · save to store allocations. Suggestions recalculate when progress or scheduled days change. Saved allocations change only when you save. Actual check-ins remain separate.')).toBeInTheDocument()
     expect(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' })).toHaveValue(3.34)
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Allocation for 2026-01-05' }), { target: { value: '5' } })
     expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('cumulative allocation preview UI', () => {
     expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
     expect(savedGoal.goalPlanning?.allocations?.pages?.['2026-01-07']).toBe(4)
     expect(onSave).not.toHaveBeenCalled()
-    expect(screen.getByText(/This reset replaces the saved allocation schedule/)).toBeInTheDocument()
+    expect(screen.getByText(/This reset replaces saved allocations when saved; check-ins stay unchanged/)).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Save Plan' })[0]!)
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0]?.[0].goalPlanning?.allocations?.pages).toEqual({ '2026-01-06': 3, '2026-01-07': 3 })

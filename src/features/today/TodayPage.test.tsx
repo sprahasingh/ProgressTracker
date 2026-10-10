@@ -279,6 +279,21 @@ describe('Today check-ins', () => {
     expect(todayStyles).toContain('env(safe-area-inset-top, 0px)')
     expect(todayStyles).toContain('-webkit-overflow-scrolling: touch')
     expect(todayStyles).toContain('overflow-wrap: anywhere')
+    expect(todayStyles).toMatch(/\.today-detail-backdrop\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*1400/s)
+    expect(todayStyles).toMatch(/details:not\(\.mobile-more\)\[open\] > summary::after\s*\{[^}]*rotate\(180deg\)/s)
+  })
+
+  it('renders the check-in sheet in the viewport-level portal above application navigation', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Daily reading' })
+    expect(dialog.closest('.tracker-page')).toBeNull()
+    const backdrop = dialog.closest('.today-detail-backdrop') as HTMLElement
+    expect(backdrop.parentElement).toBe(document.body)
+    expect(backdrop.style.height).toBe(`${window.innerHeight}px`)
+    expect(screen.getByRole('button', { name: 'Close check-in details' })).toHaveAttribute('type', 'button')
   })
 
   it('closes the top Today overlay first when browser back is used', async () => {
