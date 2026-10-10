@@ -4,13 +4,15 @@ import { InfoButton } from '../../components/ui/InfoButton'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 
 function freshMetric(index: number): TrackerMetricDefinition {
-  return { id: crypto.randomUUID(), name: `Measure ${index + 1}`, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' } }
+  return { id: crypto.randomUUID(), name: `Measure ${index + 1}`, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
 }
 
 function defaultRule(metric: TrackerMetricDefinition): TrackerRule {
   if (metric.thresholds?.target !== undefined) return { kind: 'threshold', metricId: metric.id, level: 'target' }
   if (metric.thresholds?.minimum !== undefined) return { kind: 'threshold', metricId: metric.id, level: 'minimum' }
-  return { kind: 'comparison', metricId: metric.id, operator: 'equals', value: metric.valueType === 'boolean' }
+  return metric.valueType === 'boolean'
+    ? { kind: 'comparison', metricId: metric.id, operator: 'equals', value: true }
+    : { kind: 'comparison', metricId: metric.id, operator: 'at-least', value: 1 }
 }
 
 function ruleUsesMetric(rule: TrackerRule | undefined, metricId: string): boolean {
@@ -40,7 +42,7 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
       const level = levels.find((name) => metric.thresholds?.[name] !== undefined)
       if (level) onChange(path, { kind, metricId: metric.id, level })
     } else if (metric && kind === 'comparison') {
-      onChange(path, { kind, metricId: metric.id, operator: metric.valueType === 'boolean' ? 'equals' : 'at-least', value: metric.valueType === 'boolean' })
+      onChange(path, { kind, metricId: metric.id, operator: metric.valueType === 'boolean' ? 'equals' : 'at-least', value: metric.valueType === 'boolean' ? true : 1 })
     }
   }
 
@@ -56,7 +58,7 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
       <div className="rule-node-controls">
         <select aria-label="Success condition type" className="auth-input" value={rule.kind} onChange={(event) => selectKind(event.target.value)}>
           <option value="comparison">Metric comparison</option>
-          {metric?.thresholds && <option value="threshold">Achievement threshold</option>}
+          {metric && (['minimum', 'target', 'stretch'] as const).some((level) => metric.thresholds?.[level] !== undefined) && <option value="threshold">Achievement threshold</option>}
           <option value="all">All conditions (AND)</option><option value="any">Any condition (OR)</option><option value="at-least">At least N conditions</option>
         </select>
         <InfoButton title="Condition type" summary="Choose how this success rule evaluates one or more conditions." description="Metric comparison checks a value directly. Achievement threshold checks the metric’s minimum, target, or stretch level. All (AND) requires every child rule; Any (OR) requires at least one; At least N lets you choose how many child rules must pass." />
@@ -125,7 +127,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
     updateMetric(metric.id, {
       valueType: type,
       unit: type === 'quantity' || type === 'duration' ? metric.unit ?? '' : undefined,
-      thresholds: type === 'quantity' || type === 'duration' || type === 'checklist' ? metric.thresholds ?? { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' } : undefined,
+      thresholds: type === 'quantity' || type === 'duration' || type === 'checklist' ? metric.thresholds ?? { direction: 'increase', streakQualification: 'any-recorded-value' } : undefined,
       precision: type === 'quantity' || type === 'duration' ? metric.precision : undefined,
       checklistItems: type === 'checklist' ? metric.checklistItems?.length ? metric.checklistItems : [{ id: crypto.randomUUID(), label: 'First item', position: 0 }] : undefined,
     })

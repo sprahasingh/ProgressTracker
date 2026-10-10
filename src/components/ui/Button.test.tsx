@@ -33,9 +33,10 @@ describe('shared button system', () => {
     expect(styles).toMatch(/\.button:focus-visible\s*\{/)
   })
 
-  it('allows long labels to wrap without a fixed width', () => {
+  it('wraps button labels at spaces while protecting their intrinsic word width', () => {
     render(<Button variant="secondary">Use this device’s version from an unusually narrow screen</Button>)
     expect(screen.getByRole('button')).toHaveClass('button-medium')
-    expect(styles).toMatch(/\.button\s*\{[^}]*max-width:\s*100%[^}]*white-space:\s*normal/s)
+    expect(styles).toMatch(/\.button\s*\{[^}]*min-width:\s*min-content[^}]*max-width:\s*100%[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*normal/s)
+    expect(styles).toMatch(/\.button\s*\{[^}]*flex-shrink:\s*0/s)
   })
 })

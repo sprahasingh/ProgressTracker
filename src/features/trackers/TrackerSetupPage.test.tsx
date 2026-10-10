@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -80,7 +80,7 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 4, metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
   })
 
-  it.each([320, 360, 390])('keeps the essential setup controls and compact action footer available at %ipx', async (width) => {
+  it.each([320, 360, 390, 430])('keeps the essential setup controls and compact action footer available at %ipx', async (width) => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     window.dispatchEvent(new Event('resize'))
@@ -91,6 +91,9 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('button', { name: 'Create tracker' })).toBeInTheDocument()
     expect(styles).toContain('@media (max-width: 360px)')
     expect(styles).toContain('bottom: calc(64px + env(safe-area-inset-bottom, 0px))')
+    expect(styles).toContain('white-space: normal;')
+    expect(styles).toContain('overflow-wrap: normal;')
+    expect(styles).toContain('.configuration-heading .dashboard-heading-actions { flex: 0 0 auto;')
     cleanup()
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
@@ -116,7 +119,7 @@ describe('tracker setup flow', () => {
     expect(saved).toMatchObject({
       schemaVersion: 2, kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' },
       goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { [saved!.metrics[0]!.id]: 'incremental' }, cumulativeTargets: { [saved!.metrics[0]!.id]: 100 } },
-      metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { target: 1 } }],
+      metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }],
     })
     expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
@@ -129,7 +132,8 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('radio', { name: 'Number or amount' })).toBeChecked()
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
-    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 1, kind: 'goal', name: 'Read books' }])
+    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 1, kind: 'goal', name: 'Read books', metrics: [{ thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }] }])
+    expect((await localRepository.listTrackers())[0]?.metrics[0]?.thresholds?.target).toBeUndefined()
   })
 
   it('keeps complex measures, nested rules, custom fields, and milestones behind targeted disclosures', async () => {
@@ -151,6 +155,7 @@ describe('tracker setup flow', () => {
 
     await user.click(screen.getByText('Success rule', { selector: 'summary' }))
     const ruleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
+    expect(within(ruleKinds[0]!).queryByRole('option', { name: 'Achievement threshold' })).not.toBeInTheDocument()
     await user.selectOptions(ruleKinds[0]!, 'all')
     const nestedRuleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
     await user.selectOptions(nestedRuleKinds[1]!, 'any')
