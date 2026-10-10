@@ -203,16 +203,19 @@ select results_eq(
   $$values (true, 4::bigint)$$,
   'restored category keeps its UUID and advances revision'
 );
+set constraints goals_category_owner_fk, daily_entries_category_owner_fk immediate;
 select throws_ok(
   $$delete from public.categories where id = '00000000-0000-4000-8000-000000000101'$$,
   '23503', null, 'physical parent deletion is restricted while child history exists'
 );
+set constraints goals_category_owner_fk, daily_entries_category_owner_fk deferred;
 
 reset role;
 select lives_ok(
   $$delete from auth.users where id = '00000000-0000-4000-8000-000000000001'$$,
   'deleting an auth user can cascade through all of that user’s related records'
 );
+set constraints all immediate;
 select results_eq(
   $$select count(*) from public.categories where user_id = '00000000-0000-4000-8000-000000000001'
   union all select count(*) from public.goals where user_id = '00000000-0000-4000-8000-000000000001'

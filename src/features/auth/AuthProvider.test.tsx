@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './AuthProvider'
 import { publishWorkspaceMutation } from '../../db/workspaceMutationEvents'
 
 const providerMocks = vi.hoisted(() => ({
-  authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string } } | null) => void),
+  authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string }; access_token?: string } | null) => void),
   activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(),
   synchronizeWorkspace: vi.fn(),
 }))
@@ -18,13 +18,14 @@ vi.mock('../../db/database', () => ({
 }))
 vi.mock('../../services/supabase/syncEngine', () => ({ synchronizeWorkspace: providerMocks.synchronizeWorkspace }))
 vi.mock('../../services/supabase/client', () => ({
+  supabaseConfiguration: { status: 'ready', url: 'https://supabase.example.test', publishableKey: 'sb_publishable_test' },
   getSupabaseClient: () => ({ auth: {
     onAuthStateChange: (callback: typeof providerMocks.authListener) => {
       providerMocks.authListener = callback
       return { data: { subscription: { unsubscribe: vi.fn() } } }
     },
     signOut: vi.fn().mockResolvedValue({ error: null }),
-  } }),
+  }, functions: { invoke: vi.fn().mockResolvedValue({ error: null }) } }),
 }))
 
 function Probe() {
@@ -36,13 +37,16 @@ function Probe() {
     <span data-testid="sync-state">{auth.syncStatus}</span>
     <span data-testid="sync-error">{auth.syncError}</span>
     <span data-testid="sync-summary">{auth.syncSummary?.conflicts ?? 0}</span>
+    <span data-testid="push-ownership">{auth.pushOwnershipStatus}:{auth.pushOwnershipMessage}</span>
+    <span data-testid="auth-user">{auth.status}:{auth.user?.id ?? 'guest'}</span>
     <button onClick={() => void auth.syncNow()}>manual-sync</button>
     <button onClick={() => void auth.chooseGuestData('kept-separate')}>keep-guest</button>
+    <button onClick={() => void auth.signOut()}>auth-signout</button>
   </div>
 }
 
 function emit(event: string, userId?: string) {
-  const session = userId ? { user: { id: userId, email: `${userId}@example.com` } } : null
+  const session = userId ? { access_token: `token-${userId}`, user: { id: userId, email: `${userId}@example.com` } } : null
   act(() => providerMocks.authListener?.(event, session))
 }
 
@@ -62,9 +66,157 @@ describe('AuthProvider automatic sync lifecycle', () => {
     providerMocks.synchronizeWorkspace.mockReset().mockResolvedValue({ uploaded: 0, downloaded: 2, conflicts: 0, failed: 0 })
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
     delete (window as Window & { latestSync?: () => Promise<void> }).latestSync
+    localStorage.removeItem('progress-tracker:push-owner')
+    Reflect.deleteProperty(navigator, 'serviceWorker')
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => callback() } })
   })
 
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
+  afterEach(async () => {
+    cleanup()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    Reflect.deleteProperty(navigator, 'serviceWorker')
+    Reflect.deleteProperty(navigator, 'locks')
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.deleteDatabase('progress-tracker-push-ownership')
+      request.onsuccess = request.onerror = request.onblocked = () => resolve()
+    })
+  })
+
+  it('revokes Account A with Account A’s captured token before allowing a direct Account A to B switch', async () => {
+    const subscription = { endpoint: 'https://push.example.test/a', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValueOnce(subscription).mockResolvedValue(null) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'revoked' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+
+    emit('SIGNED_IN', 'account-b')
+
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ authorization: 'Bearer token-account-a' }) })
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce()
+    expect(localStorage.getItem('progress-tracker:push-owner')).toBeNull()
+  })
+
+  it('blocks the new account and keeps a recoverable cleanup record when offline revocation fails', async () => {
+    const subscription = { endpoint: 'https://push.example.test/offline-a', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(subscription) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    emit('SIGNED_IN', 'account-b')
+
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('cleanup-required:'))
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce()
+    expect(localStorage.getItem('progress-tracker:push-owner')).toBe('account-a')
+    const pending = await new Promise<{ ownerId: string; endpoint: string }[]>((resolve, reject) => {
+      const request = indexedDB.open('progress-tracker-push-ownership', 1)
+      request.onsuccess = () => {
+        const get = request.result.transaction('pending-cleanups').objectStore('pending-cleanups').getAll()
+        get.onsuccess = () => { resolve(get.result); request.result.close() }
+        get.onerror = () => reject(get.error)
+      }
+      request.onerror = () => reject(request.error)
+    })
+    expect(pending).toEqual([{ ownerId: 'account-a', endpoint: subscription.endpoint }])
+  })
+
+  it('requires the previous account for restored sessions and clears queued cleanup when that account returns', async () => {
+    const subscription = { endpoint: 'https://push.example.test/recovery', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValueOnce(subscription).mockResolvedValue(null) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    emit('SIGNED_IN', 'account-b')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('cleanup-required:'))
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ authorization: 'Bearer token-account-a' }) })
+
+    emit('SIGNED_IN', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ headers: expect.objectContaining({ authorization: 'Bearer token-account-a' }) })
+    expect(localStorage.getItem('progress-tracker:push-owner')).toBeNull()
+  })
+
+  it('fails closed when an app is restored under B but the stored subscription owner is A', async () => {
+    const subscription = { endpoint: 'https://push.example.test/restored', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(subscription) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-b')
+
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('cleanup-required:'))
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem('progress-tracker:push-owner')).toBe('account-a')
+  })
+
+  it('uses Account A credentials for a cross-tab A to signed-out transition', async () => {
+    const subscription = { endpoint: 'https://push.example.test/cross-tab', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(subscription) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    emit('SIGNED_OUT')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ authorization: 'Bearer token-account-a' }) })
+    expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-out:guest')
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('revokes the owned endpoint before a normal explicit sign-out', async () => {
+    const subscription = { endpoint: 'https://push.example.test/explicit', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(subscription) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    act(() => screen.getByRole('button', { name: 'auth-signout' }).click())
+    await waitFor(() => expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-out:guest'))
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce()
+    expect(localStorage.getItem('progress-tracker:push-owner')).toBeNull()
+  })
+
+  it('serializes rapid A to B to A transitions so stale cleanup cannot run after the final identity', async () => {
+    const subscription = { endpoint: 'https://push.example.test/rapid', unsubscribe: vi.fn().mockResolvedValue(true) }
+    const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValueOnce(subscription).mockResolvedValue(null) } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker) } })
+    localStorage.setItem('progress-tracker:push-owner', 'account-a')
+    let finish!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { finish = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    emit('SIGNED_IN', 'account-b')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    emit('SIGNED_IN', 'account-a')
+    finish(new Response('{}', { status: 200 }))
+    await waitFor(() => expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-in:account-a'))
+    await waitFor(() => expect(screen.getByTestId('push-ownership')).toHaveTextContent('ready:'))
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ authorization: 'Bearer token-account-a' }) })
+  })
 
   it('automatically syncs once after login only after the account workspace is ready', async () => {
     const opening = deferred<void>()

@@ -2,6 +2,80 @@ const CACHE_PREFIX = 'progress-tracker-shell-'
 const CACHE_NAME = `${CACHE_PREFIX}v1`
 const APP_ROOT = new URL('./', self.location.href)
 const SHELL_URL = APP_ROOT.href
+const PUSH_CHANGE_DB = 'progress-tracker-push-subscription-changes'
+
+function openPushChangeDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PUSH_CHANGE_DB, 2)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('changes')) request.result.createObjectStore('changes', { keyPath: 'id' })
+      if (!request.result.objectStoreNames.contains('owner')) request.result.createObjectStore('owner', { keyPath: 'id' })
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function getPushOwner() {
+  const database = await openPushChangeDb()
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = database.transaction('owner', 'readonly').objectStore('owner').get('current')
+      request.onsuccess = () => resolve(request.result?.ownerId ?? null)
+      request.onerror = () => reject(request.error)
+    })
+  } finally { database.close() }
+}
+
+async function setPushOwner(ownerId) {
+  const database = await openPushChangeDb()
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction('owner', 'readwrite')
+      const store = transaction.objectStore('owner')
+      if (typeof ownerId === 'string' && ownerId) store.put({ id: 'current', ownerId })
+      else store.delete('current')
+      transaction.oncomplete = resolve
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+  } finally { database.close() }
+}
+
+async function storePushSubscriptionChange(change) {
+  const database = await openPushChangeDb()
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction('changes', 'readwrite')
+    transaction.objectStore('changes').put(change)
+    transaction.oncomplete = resolve
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  })
+  database.close()
+}
+
+async function getPendingPushSubscriptionChanges() {
+  const database = await openPushChangeDb()
+  const changes = await new Promise((resolve, reject) => {
+    const request = database.transaction('changes', 'readonly').objectStore('changes').getAll()
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  database.close()
+  return changes
+}
+
+async function acknowledgePushSubscriptionChange(id) {
+  const database = await openPushChangeDb()
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction('changes', 'readwrite')
+    transaction.objectStore('changes').delete(id)
+    transaction.oncomplete = resolve
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  })
+  database.close()
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -80,6 +154,37 @@ self.addEventListener('push', (event) => {
       data: { url: payload.url },
     })
   })())
+})
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const change = {
+      id: crypto.randomUUID(),
+      ownerUserId: await getPushOwner().catch(() => null),
+      oldEndpoint: event.oldSubscription?.endpoint ?? null,
+      newSubscription: event.newSubscription?.toJSON() ?? null,
+    }
+    try { await storePushSubscriptionChange(change) } catch { /* The next app visit can still register its current subscription. */ }
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const windowClient of windows) windowClient.postMessage({ type: 'PROGRESS_TRACKER_PUSH_SUBSCRIPTION_CHANGED', ...change, changeId: change.id })
+  })())
+})
+
+self.addEventListener('message', (event) => {
+  const message = event.data
+  if (!message || typeof message !== 'object') return
+  if (message.type === 'PROGRESS_TRACKER_SET_PUSH_OWNER') {
+    event.waitUntil(setPushOwner(message.ownerId).catch(() => undefined))
+  } else if (message.type === 'PROGRESS_TRACKER_GET_PUSH_SUBSCRIPTION_CHANGES') {
+    event.waitUntil((async () => {
+      try {
+        const changes = await getPendingPushSubscriptionChanges()
+        event.source?.postMessage({ type: 'PROGRESS_TRACKER_PENDING_PUSH_SUBSCRIPTION_CHANGE', changes: changes.map((change) => ({ ...change, changeId: change.id })) })
+      } catch { /* Push registration remains retryable from Notifications settings. */ }
+    })())
+  } else if (message.type === 'PROGRESS_TRACKER_ACK_PUSH_SUBSCRIPTION_CHANGE' && typeof message.changeId === 'string') {
+    event.waitUntil(acknowledgePushSubscriptionChange(message.changeId).catch(() => undefined))
+  }
 })
 
 self.addEventListener('notificationclick', (event) => {
