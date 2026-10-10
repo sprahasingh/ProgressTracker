@@ -137,6 +137,30 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'threshold', metricId: 'missing', level: 'minimum' } }).success).toBe(false)
   })
 
+  it('allows only equality comparisons for booleans while retaining numeric operators', () => {
+    const booleanMetric = { id: 'done', name: 'Done', valueType: 'boolean' as const }
+    const comparison = (operator: 'equals' | 'at-least' | 'at-most', value: boolean | number) => ({ ...tracker, metrics: [booleanMetric], qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator, value }, milestones: [] })
+    expect(trackerDefinitionSchema.safeParse(comparison('equals', true)).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(comparison('equals', false)).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(comparison('at-least', true)).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse(comparison('at-most', false)).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse(comparison('at-least', 1)).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 5 } }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-most', value: 5 } }).success).toBe(true)
+  })
+
+  it('validates milestone checkpoint values for boolean and checklist metrics', () => {
+    const booleanMetric = { id: 'done', name: 'Done', valueType: 'boolean' as const }
+    const booleanMilestone = { id: 'done-check', title: 'Complete', description: '', metricId: 'done', targetValue: 1, position: 0 }
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [booleanMetric], qualificationRule: undefined, milestones: [booleanMilestone] }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [booleanMetric], qualificationRule: undefined, milestones: [{ ...booleanMilestone, targetValue: 2 }] }).success).toBe(false)
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [{ id: 'a', label: 'A', position: 0 }, { id: 'b', label: 'B', position: 1 }] }
+    const checklistMilestone = { ...booleanMilestone, metricId: 'steps', targetValue: 2 }
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [checklist], qualificationRule: undefined, milestones: [checklistMilestone] }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [checklist], qualificationRule: undefined, milestones: [{ ...checklistMilestone, targetValue: 1.5 }] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [checklist], qualificationRule: undefined, milestones: [{ ...checklistMilestone, targetValue: 3 }] }).success).toBe(false)
+  })
+
   it('checks increasing and decreasing threshold order', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [{ id: 'x', name: 'X', valueType: 'quantity', thresholds: { direction: 'increase', minimum: 5, target: 2, streakQualification: 'minimum' } }] }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [{ id: 'x', name: 'X', valueType: 'quantity', thresholds: { direction: 'decrease', minimum: 10, target: 5, stretch: 2, streakQualification: 'target' } }], qualificationRule: undefined, milestones: [] }).success).toBe(true)

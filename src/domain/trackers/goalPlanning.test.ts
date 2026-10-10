@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan } from './planning'
+import { calculateTrackerAnalytics } from './analytics'
 
 const tracker: TrackerDefinition = {
   schemaVersion: 1, id: 'goal-plan', name: 'Write', description: '', kind: 'goal', status: 'active', categoryId: null,
@@ -14,6 +15,23 @@ function entry(date: string, value: number, updatedAt = `${date}T12:00:00.000Z`,
 }
 
 describe('daily recurring planning', () => {
+  it('starts at the later of tracker creation and configured start', () => {
+    const createdToday = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', startDate: '2026-10-01' }
+    const daily = calculateDailyRecurringMetricPlan({ tracker: createdToday, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-04', entries: [] })
+    expect(daily.days.map((day) => day.date)).toEqual(['2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'])
+    expect(daily.days.some((day) => day.state === 'missed' && day.date < createdToday.createdAt.slice(0, 10))).toBe(false)
+    const withoutConfiguredStart = { ...createdToday, startDate: undefined }
+    expect(calculateDailyRecurringMetricPlan({ tracker: withoutConfiguredStart, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-04', entries: [] }).days[0]?.date).toBe('2026-10-02')
+    const futureStart = calculateDailyRecurringMetricPlan({ tracker: createdToday, metricId: 'pages', target: 5, startDate: '2026-10-05', asOfDate: '2026-10-04', entries: [] })
+    expect(futureStart.days.map((day) => [day.date, day.state])).toEqual([
+      ['2026-10-05', 'future'], ['2026-10-06', 'future'], ['2026-10-07', 'future'], ['2026-10-08', 'future'], ['2026-10-09', 'future'],
+    ])
+    const shortWindowTracker = { ...createdToday, deadline: '2026-10-04' }
+    const shortWindowPlan = calculateDailyRecurringMetricPlan({ tracker: shortWindowTracker, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-04', entries: [] })
+    const analytics = calculateTrackerAnalytics(shortWindowTracker, [], '2026-10-01', '2026-10-04')
+    expect(shortWindowPlan.elapsedOpportunities).toBe(analytics.scheduledCount)
+  })
+
   it('follows scheduled days, leaves today open, and excludes rest days from missed consistency', () => {
     const plan = calculateDailyRecurringMetricPlan({
       tracker, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-07',
@@ -51,6 +69,21 @@ describe('daily recurring planning', () => {
 })
 
 describe('cumulative deadline planning', () => {
+  it('excludes pre-creation scheduled days and progress from goal projections', () => {
+    const createdToday = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', startDate: '2026-10-01' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: createdToday, metricId: 'pages', totalTarget: 100, startDate: '2026-10-01', asOfDate: '2026-10-06', progressSemantics: 'incremental',
+      entries: [entry('2026-10-01', 90), entry('2026-10-02', 5), entry('2026-10-06', 0)],
+    })
+    expect(plan).toMatchObject({ actualProgress: 5, scheduledDaysTotal: 6, scheduledDaysRemaining: 3, remainingWork: 95 })
+  })
+
+  it('handles a deadline equal to the first eligible date and an exhausted plan', () => {
+    const createdOnDeadline = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', deadline: '2026-10-02', startDate: '2026-10-01' }
+    const plan = calculateCumulativeMetricPlan({ tracker: createdOnDeadline, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-03', progressSemantics: 'incremental' })
+    expect(plan).toMatchObject({ scheduledDaysTotal: 1, scheduledDaysRemaining: 0, status: 'overdue', requiredDailyPace: null })
+  })
+
   it('recalculates from a later start while retaining pre-start entries as saved history', () => {
     const historical = entry('2026-10-01', 20)
     const current = entry('2026-10-05', 5)

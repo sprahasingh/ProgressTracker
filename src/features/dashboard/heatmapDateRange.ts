@@ -1,5 +1,6 @@
 import type { CalendarDate } from '../../db/models'
 import { assertCalendarDate } from '../../db/calendarDate'
+import { trackerActiveStartDate } from '../../domain/trackers/planning'
 
 export type HeatmapRangeSelection = 'auto' | 'last3Months' | 'last6Months' | 'last12Months' | 'year'
 export type HeatmapDateRangeOption = Exclude<HeatmapRangeSelection, 'auto'>
@@ -28,10 +29,10 @@ export function heatmapDateRange(today: CalendarDate, selection: HeatmapDateRang
   return { startDate: subtractCalendarMonths(today, months), endDate: today }
 }
 
-export function availableHeatmapYears(trackers: readonly { startDate?: string | null; createdAt: string }[], today: CalendarDate): number[] {
+export function availableHeatmapYears(trackers: readonly { startDate?: string | null; createdAt: string; goalPlanning?: { planningTimeZone?: string } }[], today: CalendarDate, timeZone?: string): number[] {
   const currentYear = Number(today.slice(0, 4))
   const earliest = trackers.reduce<CalendarDate>((date, tracker) => {
-    const created = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
+    const created = trackerActiveStartDate(tracker as Parameters<typeof trackerActiveStartDate>[0], timeZone) as CalendarDate
     return created < date ? created : date
   }, today)
   return Array.from({ length: currentYear - Number(earliest.slice(0, 4)) + 1 }, (_, index) => currentYear - index)

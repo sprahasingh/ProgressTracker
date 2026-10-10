@@ -1,6 +1,6 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from './types'
 import { assertDateRange } from '../../db/calendarDate'
-import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
 import { qualifiesForStreak } from './progression'
 
 export type MetricObservation = { date: string; value: number }
@@ -48,6 +48,7 @@ export function calculateTrackerAnalytics(
   startDate: string,
   endDate: string,
   holidays: ReadonlySet<string> = new Set(),
+  timeZone?: string,
 ): TrackerAnalytics {
   assertDateRange(startDate, endDate)
   const latestByDate = new Map<string, TrackerEntry>()
@@ -63,14 +64,13 @@ export function calculateTrackerAnalytics(
   let scheduledCount = 0
   let scheduledQualifiedCount = 0
   if (activeSchedule) {
-    const createdDay = tracker.createdAt.slice(0, 10)
-    const trackerFirst = tracker.startDate && tracker.startDate > createdDay ? tracker.startDate : createdDay
+    const trackerFirst = trackerActiveStartDate(tracker, timeZone)
     const firstDate = trackerFirst > startDate ? trackerFirst : startDate
     const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
     const boundedEnd = tracker.deadline && tracker.deadline < endDate ? tracker.deadline : endDate
     for (let time = dateNumber(firstDate); time <= dateNumber(boundedEnd); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      const opportunity = tracker.strictMode === true ? isTrackerInActivePeriod(tracker, date) : isTrackerInActivePeriod(tracker, date) && isTrackerScheduledOccurrence(tracker, date) && !holidays.has(date)
+      const opportunity = tracker.strictMode === true ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && !holidays.has(date)
       if (!opportunity) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.

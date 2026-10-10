@@ -8,12 +8,13 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { calculateCumulativeMetricPlan, getTargetProgress } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { calendarDateLabel } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 
 type Props = {
   tracker: StoredTrackerDefinition
   entry?: StoredTrackerEntry
   today: string
+  timeZone: string
   entries: readonly StoredTrackerEntry[]
   holidays: ReadonlySet<string>
   compactIconOnly?: boolean
@@ -60,7 +61,7 @@ function scheduleDescription(tracker: StoredTrackerDefinition): string {
   }
 }
 
-export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>): TodayMetricDetails[] {
+export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, timeZone = 'UTC'): TodayMetricDetails[] {
   return tracker.metrics.map((metric) => {
     const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
     const completed = metric.valueType === 'boolean'
@@ -81,13 +82,16 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       const totalTarget = planning.cumulativeTargets[metric.id]
       const incremental = planning.progressSemantics[metric.id] === 'incremental'
       if (totalTarget === undefined || !incremental || !tracker.deadline) return common
-      const startDate = tracker.startDate ?? tracker.createdAt.slice(0, 10)
-      const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: today, holidays }
+      const planningTimeZone = timeZone
+      const createdDate = localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
+      const startDate = tracker.startDate && tracker.startDate > createdDate ? tracker.startDate : createdDate
+      const planningToday = planningTimeZone === timeZone ? today : localCalendarDate(new Date(), planningTimeZone)
+      const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: planningToday, holidays, timeZone: planningTimeZone }
       const plan = calculateCumulativeMetricPlan({ ...planInput, progressSemantics: 'incremental' })
-      const savedAllocation = planning.allocations?.[metric.id]?.[today]
+      const savedAllocation = planning.allocations?.[metric.id]?.[planningToday]
       const preview = createCumulativeAllocationPreview(planInput)
-      const todaySuggestion = preview.days.find((day) => day.date === today && day.eligible)?.amount ?? undefined
-      const nextSuggestionDay = preview.days.find((day) => day.date > today && day.eligible)
+      const todaySuggestion = preview.days.find((day) => day.date === planningToday && day.eligible)?.amount ?? undefined
+      const nextSuggestionDay = preview.days.find((day) => day.date > planningToday && day.eligible)
       const suggestion = todaySuggestion
       const expected = savedAllocation ?? suggestion
       return {
@@ -115,13 +119,13 @@ function amount(value: number, unit: string): string {
   return `${formatTrackerNumber(value)}${singularUnit ? ` ${singularUnit}` : ''}`
 }
 
-export function TodayRequirements({ tracker, entry, today, entries, holidays, compactIconOnly = false, historical = false }: Props) {
+export function TodayRequirements({ tracker, entry, today, timeZone, entries, holidays, compactIconOnly = false, historical = false }: Props) {
   const [open, setOpen] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
-  const metrics = getTodayMetricDetails(tracker, entry, today, entries, holidays)
+  const metrics = getTodayMetricDetails(tracker, entry, today, entries, holidays, timeZone)
   const hasThresholds = metrics.some((metric) => metric.minimum !== undefined || metric.target !== undefined || metric.stretch !== undefined)
   const hasPlanning = metrics.some((metric) => metric.totalTarget !== undefined || metric.expectedLabel === 'Today’s target')
   const isCumulative = tracker.goalPlanning?.mode === 'cumulative-deadline' && metrics.some((metric) => metric.totalTarget !== undefined)

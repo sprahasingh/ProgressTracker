@@ -1,12 +1,8 @@
-import { assertCalendarDate } from '../../db/calendarDate'
+import { assertCalendarDate, calendarDateInTimeZone } from '../../db/calendarDate'
 import type { CalendarDate } from '../../db/models'
 
 export function localCalendarDate(date = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'): CalendarDate {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
-  const value = `${values.year}-${values.month}-${values.day}`
-  assertCalendarDate(value)
-  return value
+  return calendarDateInTimeZone(date, timeZone)
 }
 
 export function shiftCalendarDate(value: CalendarDate, days: number): CalendarDate {

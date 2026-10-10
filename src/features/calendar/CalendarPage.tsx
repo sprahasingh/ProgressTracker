@@ -18,7 +18,7 @@ import { mondayFirstWeekday } from '../../db/calendarDate'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateStreak } from '../../domain/trackers/progression'
 import { InfoButton } from '../../components/ui/InfoButton'
-import { isTrackerInActivePeriod } from '../../domain/trackers/planning'
+import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; missed: number; pending: number; entries: number; holiday: boolean; visualStatus: ActivityStatus }
@@ -71,7 +71,7 @@ export function CalendarPage() {
     try {
       const trackers = await localRepository.listTrackers(true)
       const earliest = trackers.reduce<CalendarDate>((minimum, tracker) => {
-        const first = tracker.startDate && tracker.startDate > tracker.createdAt.slice(0, 10) ? tracker.startDate : tracker.createdAt.slice(0, 10)
+        const first = trackerActiveStartDate(tracker, timeZone)
         return first < minimum ? first as CalendarDate : minimum
       }, start)
       const [entries, holidays] = await Promise.all([
@@ -86,7 +86,7 @@ export function CalendarPage() {
     } finally {
       if (requestRef.current === request) setLoading(false)
     }
-  }, [month, today])
+  }, [month, today, timeZone])
 
   useEffect(() => {
     if (!workspaceReady || !workspaceKey) {
@@ -110,7 +110,7 @@ export function CalendarPage() {
       for (const tracker of trackers) {
         if (tracker.deletedAt !== null || tracker.status !== 'active') continue
         const entry = entries.find((item) => item.trackerId === tracker.id && item.date === date)
-        const status = getTrackerActivityStatus({ tracker, entry, date, today, holidays })
+        const status = getTrackerActivityStatus({ tracker, entry, date, today, holidays, timeZone })
         if (status === 'completed') completed += 1
         if (status === 'partial') partial += 1
         if (status === 'missed') missed += 1
@@ -126,17 +126,17 @@ export function CalendarPage() {
                 : 'completed'
       return { date, completed, partial, missed, pending, entries: entries.filter((entry) => entry.date === date).length, holiday, visualStatus }
     })
-  }, [month, today, visibleData, selectedTracker])
+  }, [month, today, visibleData, selectedTracker, timeZone])
   const selectedSummary = summaries.find((day) => day.date === selectedDate)
   const selectedEntries = displayedEntries.filter((entry) => entry.date === selectedDate)
   const selectedHoliday = visibleData?.holidays.includes(selectedDate) ?? false
-  const selectedStreak = selectedTracker ? calculateStreak(selectedTracker, (visibleData?.entries ?? []).filter((entry) => entry.trackerId === selectedTracker.id), today, new Set(visibleData?.holidays ?? [])) : null
+  const selectedStreak = selectedTracker ? calculateStreak(selectedTracker, (visibleData?.entries ?? []).filter((entry) => entry.trackerId === selectedTracker.id), today, new Set(visibleData?.holidays ?? []), timeZone) : null
   const selectedTrackers = displayedTrackers.filter((tracker) => tracker.deletedAt === null && (
     selectedEntries.some((entry) => entry.trackerId === tracker.id) || tracker.status === 'active'
   )).map((tracker) => {
     const entry = selectedEntries.find((item) => item.trackerId === tracker.id)
-    return { tracker, entry, status: getTrackerActivityStatus({ tracker, entry, date: selectedDate, today, holidays: new Set(visibleData?.holidays ?? []) }) }
-    }).filter(({ tracker, status }) => tracker.status === 'active' || status === 'holiday' || status === 'completed' || status === 'partial' || status === 'missed')
+    return { tracker, entry, status: getTrackerActivityStatus({ tracker, entry, date: selectedDate, today, holidays: new Set(visibleData?.holidays ?? []), timeZone }) }
+  }).filter(({ tracker, status }) => tracker.status === 'active' || status === 'holiday' || status === 'completed' || status === 'partial' || status === 'missed')
 
   function selectDate(date: CalendarDate) {
     setSearchParams({ date }, { replace: false })
@@ -164,7 +164,7 @@ export function CalendarPage() {
         {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status }) => <li key={tracker.id}>
           <span className={`calendar-status-mark ${status}`} aria-label={ACTIVITY_STATUS_PRESENTATION[status].label}><ActivityStatusIcon status={status} /></span>
           <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{entry?.outcome === 'skipped' ? ' · marked intentionally' : entry ? ` · ${selectedHoliday || status === 'unscheduled' ? 'Progress recorded: ' : ''}${formatEntry(tracker, entry)}` : ''}</span>{entry?.note && <small>{entry.note}</small>}</div>
-          {entry ? <Link className="button button-quiet button-small" to={`/history?date=${selectedDate}`}>View history</Link> : tracker.status === 'active' && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate) ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{status === 'unscheduled' || selectedHoliday ? 'Voluntary check-in' : 'Open check-in'}</Link> : <Link className="button button-quiet button-small" to="/">Open Today</Link>}
+          {entry ? <Link className="button button-quiet button-small" to={`/history?date=${selectedDate}`}>View history</Link> : tracker.status === 'active' && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate, timeZone) ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{status === 'unscheduled' || selectedHoliday ? 'Voluntary check-in' : 'Open check-in'}</Link> : <Link className="button button-quiet button-small" to="/">Open Today</Link>}
         </li>)}</ul>}
       </Surface>
     </div>}

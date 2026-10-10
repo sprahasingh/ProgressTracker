@@ -56,7 +56,7 @@ export function AnalyticsPage() {
       ])
       const holidayDates = new Set(holidays.map((holiday) => holiday.date))
       const summaries = trackers.filter((tracker) => tracker.deletedAt === null).map((tracker) =>
-        calculateTrackerAnalytics(tracker, entries, startDate, today, holidayDates),
+        calculateTrackerAnalytics(tracker, entries, startDate, today, holidayDates, timeZone),
       )
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
         setSnapshot({ workspaceKey: currentWorkspace.key, summaries, holidayCount: holidays.length })
@@ -68,7 +68,7 @@ export function AnalyticsPage() {
     } finally {
       if (generationRef.current === generation) setLoading(false)
     }
-  }, [startDate, today])
+  }, [startDate, today, timeZone])
 
   useEffect(() => {
     if (!workspaceReady || !workspaceKey) {

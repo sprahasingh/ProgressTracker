@@ -27,18 +27,19 @@ export function getTrackerActivityStatus(input: {
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  timeZone?: string
 }): ActivityStatus {
   const { tracker, entry, date, today } = input
   if (input.holidays?.has(date)) return 'holiday'
   if (entry && entry.deletedAt !== null) {
-    if (tracker.status !== 'active' || !isTrackerScheduledOccurrence(tracker, date)) return 'unscheduled'
+    if (tracker.status !== 'active' || !isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return 'unscheduled'
     return date < today ? 'missed' : 'pending'
   }
   if (entry?.outcome === 'recorded') {
     if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
     return date === today ? 'pending' : 'partial'
   }
-  if (!isTrackerScheduledOccurrence(tracker, date)) return 'unscheduled'
+  if (!isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return 'unscheduled'
   if (entry?.outcome === 'skipped') return date > today ? 'pending' : 'missed'
   if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'unscheduled'
   return date < today ? 'missed' : 'pending'

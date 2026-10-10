@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, getTargetProgress, isScheduledDate } from './planning'
+import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, getTargetProgress, isScheduledDate, metricObservationForMilestone, trackerActiveStartDate } from './planning'
 import type { TrackerDefinition } from './types'
 
 const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): TrackerDefinition => ({
@@ -20,6 +20,43 @@ describe('target progress feedback', () => {
     expect(getTargetProgress(7, 5)).toEqual({ state: 'exceeded', amount: 2 })
     expect(getTargetProgress(7, 5, 'decrease')).toEqual({ state: 'remaining', amount: 2 })
     expect(getTargetProgress(3, 5, 'decrease')).toEqual({ state: 'exceeded', amount: 2 })
+  })
+
+  it('clamps generic goal work plans to the active creation boundary', () => {
+    const createdTracker = { ...base(), startDate: '2026-01-01', createdAt: '2026-01-03T09:00:00.000Z' }
+    const result = createWorkPlan({ tracker: createdTracker, metricId: 'pages', mode: 'cumulative-deadline', startDate: '2026-01-01', deadline: '2026-01-05', asOfDate: '2026-01-04', totalWork: 10, completedWork: 0 })
+    expect(result.days.map((day) => day.date)).toEqual(['2026-01-03', '2026-01-04', '2026-01-05'])
+    expect(result.days.some((day) => day.state === 'missed' && day.date < '2026-01-03')).toBe(false)
+  })
+})
+
+describe('milestone observations and active dates', () => {
+  it('converts persisted numeric, boolean, and checklist observations safely', () => {
+    const booleanMetric = { id: 'done', name: 'Done', valueType: 'boolean' as const }
+    const checklistMetric = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [{ id: 'a', label: 'A', position: 0 }, { id: 'b', label: 'B', position: 1 }, { id: 'c', label: 'C', position: 2 }] }
+    const numericMetric = { id: 'pages', name: 'Pages', valueType: 'quantity' as const }
+    expect(metricObservationForMilestone(booleanMetric, true)).toBe(1)
+    expect(metricObservationForMilestone(booleanMetric, false)).toBe(0)
+    expect(metricObservationForMilestone(booleanMetric, undefined)).toBeUndefined()
+    expect(metricObservationForMilestone(checklistMetric, { a: true, b: false })).toBe(1)
+    expect(metricObservationForMilestone(checklistMetric, { a: true, b: true })).toBe(2)
+    expect(metricObservationForMilestone(checklistMetric, { a: true, b: true, c: true })).toBe(3)
+    expect(metricObservationForMilestone(checklistMetric, undefined)).toBeUndefined()
+    expect(metricObservationForMilestone(checklistMetric, ['a', 'b'])).toBeUndefined()
+    expect(metricObservationForMilestone(checklistMetric, { unknown: true })).toBeUndefined()
+    expect(metricObservationForMilestone(numericMetric, 25)).toBe(25)
+    expect(metricObservationForMilestone(numericMetric, Number.NaN)).toBeUndefined()
+    expect(metricObservationForMilestone(numericMetric, -1)).toBeUndefined()
+  })
+
+  it('uses workspace-local creation dates around midnight and daylight-saving transitions', () => {
+    const tracker = { createdAt: '2026-10-01T18:30:00.000Z', startDate: '2026-09-30' }
+    expect(trackerActiveStartDate(tracker, 'Asia/Kolkata')).toBe('2026-10-02')
+    expect(trackerActiveStartDate(tracker, 'America/Los_Angeles')).toBe('2026-10-01')
+    expect(trackerActiveStartDate(tracker, 'UTC')).toBe('2026-10-01')
+    expect(trackerActiveStartDate({ createdAt: '2026-10-01T18:30:00.000Z', startDate: '2026-10-05' }, 'Asia/Kolkata')).toBe('2026-10-05')
+    expect(trackerActiveStartDate({ createdAt: '2026-03-08T09:30:00.000Z' }, 'America/Los_Angeles')).toBe('2026-03-08')
+    expect(trackerActiveStartDate({ createdAt: '2026-03-08T10:30:00.000Z' }, 'America/Los_Angeles')).toBe('2026-03-08')
   })
 })
 

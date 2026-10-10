@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthPage } from './AuthPage'
 
@@ -166,6 +166,44 @@ describe('AuthPage', () => {
     expect(screen.getByText('Cloud version', { selector: 'summary' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Use cloud version' }))
     expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'conflict-1', 'use-cloud')
+  })
+
+  it('labels tracker, daily-entry, and holiday conflicts and preserves their resolution actions', async () => {
+    const user = userEvent.setup()
+    const common = { ownerUserId: 'account-1', detectedAt: '2026-01-01T00:00:00.000Z' }
+    const cloud = { user_id: 'account-1', server_revision: 2 }
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle' })
+    authMocks.listSyncConflicts.mockResolvedValue([
+      { ...common, id: 'tracker-conflict', entity: 'tracker', entityId: 'tracker-1', localPayload: { id: 'tracker-1', name: 'Local' }, remoteRecord: { ...cloud, definition: { id: 'tracker-1', name: 'Cloud' } } },
+      { ...common, id: 'entry-conflict', entity: 'tracker_entry', entityId: 'entry-1', localPayload: { id: 'entry-1', date: '2026-01-02' }, remoteRecord: { ...cloud, date: '2026-01-02' } },
+      { ...common, id: 'holiday-conflict', entity: 'account_holiday', entityId: 'holiday-1', localPayload: { id: 'holiday-1', date: '2026-01-03', reason: 'exam' }, remoteRecord: { ...cloud, holiday_date: '2026-01-03', reason: 'travel' } },
+    ])
+    authMocks.resolveSyncConflict.mockResolvedValue(undefined)
+    render(<AuthPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Sync conflicts' })).toBeInTheDocument()
+    expect(screen.getByText('Tracker conflict · tracker-1')).toBeInTheDocument()
+    expect(screen.getByText('Daily entry conflict · entry-1')).toBeInTheDocument()
+    expect(screen.getByText('Holiday conflict · holiday-1')).toBeInTheDocument()
+    expect(screen.getByText(/This device: 2026-01-03 · Exam\. Cloud: 2026-01-03 · Travel\./)).toBeInTheDocument()
+    const trackerCard = screen.getByText('Tracker conflict · tracker-1').closest('article')!
+    const entryCard = screen.getByText('Daily entry conflict · entry-1').closest('article')!
+    const holidayCard = screen.getByText('Holiday conflict · holiday-1').closest('article')!
+    await user.click(within(trackerCard).getByRole('button', { name: 'Keep this device’s version' }))
+    await user.click(within(entryCard).getByRole('button', { name: 'Use cloud version' }))
+    await user.click(within(holidayCard).getByRole('button', { name: 'Use cloud version' }))
+    expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'tracker-conflict', 'keep-local')
+    expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'entry-conflict', 'use-cloud')
+    expect(authMocks.resolveSyncConflict).toHaveBeenCalledWith('account-1', 'holiday-conflict', 'use-cloud')
+  })
+
+  it('does not offer the entry-only fork action for an unavailable holiday conflict', async () => {
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle' })
+    authMocks.listSyncConflicts.mockResolvedValue([{ id: 'holiday-conflict', ownerUserId: 'account-1', entity: 'account_holiday', entityId: 'holiday-1', localPayload: { id: 'holiday-1', date: '2026-01-03', reason: 'exam' }, remoteRecord: null, detectedAt: '2026-01-01T00:00:00.000Z' }])
+    render(<AuthPage />)
+    const holidayCard = await screen.findByText('Holiday conflict · holiday-1')
+    expect(holidayCard.closest('article')).toHaveTextContent('The cloud holiday is unavailable to review.')
+    expect(within(holidayCard.closest('article')!).queryByRole('button', { name: 'Save local copy as new' })).not.toBeInTheDocument()
   })
 
   it('hides prior account conflict details immediately when the signed-in account changes', async () => {

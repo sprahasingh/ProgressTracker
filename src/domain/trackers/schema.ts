@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isTrackerScheduledOccurrence } from './planning'
+import { isTrackerScheduledOccurrence, trackerCreationDate } from './planning'
 
 const id = z.string().min(1)
 const calendarDate = z.iso.date()
@@ -113,6 +113,8 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
       if (!metric.thresholds || metric.thresholds[value.level as 'minimum' | 'target' | 'stretch'] === undefined) context.addIssue({ code: 'custom', path, message: 'Threshold rule references an undefined metric level.' })
     } else if (typeof value.value === 'boolean' ? metric.valueType !== 'boolean' : metric.valueType === 'boolean') {
       context.addIssue({ code: 'custom', path, message: 'Comparison value does not match metric type.' })
+    } else if (metric.valueType === 'boolean' && value.operator !== 'equals') {
+      context.addIssue({ code: 'custom', path: [...path, 'operator'], message: 'Boolean comparisons support Equals only.' })
     }
   }
   if (Array.isArray(value.operands)) value.operands.forEach((operand, index) => ruleMetricsCheck(operand, metrics, context, [...path, 'operands', index]))
@@ -135,7 +137,7 @@ export const trackerDefinitionSchema = z.object({
   metrics: z.array(metricSchema),
   qualificationRule: ruleSchema.optional(),
   customFields: z.array(customFieldSchema),
-  milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
+  milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().min(0).optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
   goalPlanning: goalPlanningSchema.optional(),
   strictMode: z.boolean().optional(),
   createdAt: z.iso.datetime(),
@@ -155,7 +157,12 @@ export const trackerDefinitionSchema = z.object({
   const customIds = tracker.customFields.map((field) => field.id)
   if (!unique(customIds)) context.addIssue({ code: 'custom', path: ['customFields'], message: 'Custom field IDs must be unique.' })
   tracker.milestones.forEach((milestone, index) => {
-    if (milestone.metricId && !metrics.has(milestone.metricId)) context.addIssue({ code: 'custom', path: ['milestones', index, 'metricId'], message: 'Milestone references an unknown metric.' })
+    if (milestone.metricId) {
+      const metric = metrics.get(milestone.metricId)
+      if (!metric) context.addIssue({ code: 'custom', path: ['milestones', index, 'metricId'], message: 'Milestone references an unknown metric.' })
+      else if (milestone.targetValue !== undefined && metric.valueType === 'boolean' && ![0, 1].includes(milestone.targetValue)) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Boolean milestones use checkpoint 1 (true) or 0 (false).' })
+      else if (milestone.targetValue !== undefined && metric.valueType === 'checklist' && (!Number.isInteger(milestone.targetValue) || milestone.targetValue > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Checklist milestones use a whole checked-item count within the checklist size.' })
+    }
   })
   if (tracker.goalPlanning) {
     const plan = tracker.goalPlanning
@@ -201,9 +208,9 @@ export const trackerDefinitionSchema = z.object({
           if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
           if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
-          const effectiveStartDate = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+          const effectiveStartDate = tracker.startDate && tracker.startDate > trackerCreationDate(tracker, plan.planningTimeZone) ? tracker.startDate : trackerCreationDate(tracker, plan.planningTimeZone)
           const historicalAllocation = date < effectiveStartDate
-          const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date))
+          const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
           if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
         }
       }

@@ -13,7 +13,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, type GoalPlanDayState } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, metricObservationForMilestone, trackerActiveStartDate, trackerCreationDate, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -67,9 +67,12 @@ export function GoalsPage() {
       let latest: CalendarDate = today
       let holidayLatest: CalendarDate = shiftCalendarDate(today, 14)
       for (const tracker of goalTrackers) {
-        const trackerZone = tracker.schemaVersion >= 3 ? tracker.goalPlanning?.planningTimeZone ?? timeZone : timeZone
-        const start = (tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), trackerZone)) as CalendarDate
-        const trackerToday = localCalendarDate(new Date(), trackerZone) as CalendarDate
+        // Fetch from an earlier configured start when present so older saved
+        // observations remain available to milestone summaries. Domain plans
+        // separately clamp opportunities and progress to the active start.
+        const created = trackerCreationDate(tracker, timeZone)
+        const start = (tracker.startDate && tracker.startDate < created ? tracker.startDate : created) as CalendarDate
+        const trackerToday = localCalendarDate(new Date(), timeZone) as CalendarDate
         if (start < earliest) earliest = start
         if (trackerToday > latest) latest = trackerToday
         const trackerHorizon = (tracker.deadline && tracker.deadline > shiftCalendarDate(trackerToday, 14) ? tracker.deadline : shiftCalendarDate(trackerToday, 14)) as CalendarDate
@@ -124,14 +127,14 @@ export function GoalsPage() {
       </div>
       <div className="tracker-card-grid">
         {goals.map(({ tracker, entries: goalEntries }) => {
-          const planningTimeZone = tracker.schemaVersion >= 3 ? tracker.goalPlanning?.planningTimeZone ?? timeZone : timeZone
+          const planningTimeZone = timeZone
           const planningToday = localCalendarDate(new Date(), planningTimeZone)
           const recorded = goalEntries.filter((entry) => entry.outcome === 'recorded')
           const latest = goalEntries[0]
           const overdue = tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < planningToday)
           const state = overdue ? 'Overdue' : tracker.status === 'completed' ? 'Completed' : tracker.status === 'paused' ? 'Paused' : tracker.status === 'archived' ? 'Archived' : 'In progress'
           const latestQualified = latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
-          const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
+          const startDate = trackerActiveStartDate(tracker, planningTimeZone)
           const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
           const expanded = expandedGoals.has(tracker.id)
@@ -168,7 +171,7 @@ export function GoalsPage() {
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
                   const metric = tracker.metrics.find((item) => item.id === metricId)
                   if (!metric) return null
-                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate, holidays: holidayDates })
+                  const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate, holidays: holidayDates, timeZone: planningTimeZone })
                   const todayEntry = goalEntries.find((entry) => entry.date === planningToday && entry.deletedAt === null)
                   const todayValue = goalMetricValue(metric, todayEntry)
                   const missed = plan.days.filter((day) => ['missed', 'skipped', 'below-target'].includes(day.state)).length
@@ -185,7 +188,7 @@ export function GoalsPage() {
                   : <div className="goal-cumulative-plans">{Object.entries(tracker.goalPlanning.cumulativeTargets).map(([metricId, totalTarget]) => {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
-                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates })
+                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates, timeZone: planningTimeZone })
                     const todayPreview = createCumulativeAllocationPreview({ tracker, entries: goalEntries, metricId, totalTarget, startDate, asOfDate: planningToday, holidays: holidayDates })
                     const todaySuggestion = todayPreview.days.find((day) => day.date === planningToday && day.eligible)?.amount
                     const todaySaved = tracker.goalPlanning?.allocations?.[metricId]?.[planningToday]
@@ -219,8 +222,8 @@ export function GoalsPage() {
                   const metric = tracker.metrics.find((item) => item.id === milestone.metricId)
                   const observed = metric && milestone.targetValue !== undefined
                     ? goalEntries.flatMap((entry) => {
-                      const value = entry.values[metric.id]
-                      return entry.outcome === 'recorded' && typeof value === 'number' ? [value] : []
+                      const value = metricObservationForMilestone(metric, entry.values[metric.id])
+                      return entry.outcome === 'recorded' && value !== undefined ? [value] : []
                     })
                     : []
                   const bestValue = observed.length === 0 ? undefined : metric?.thresholds?.direction === 'decrease'
@@ -228,7 +231,8 @@ export function GoalsPage() {
                     : observed.reduce((best, value) => Math.max(best, value), Number.NEGATIVE_INFINITY)
                   const reached = bestValue !== undefined && milestone.targetValue !== undefined &&
                     (metric?.thresholds?.direction === 'decrease' ? bestValue <= milestone.targetValue : bestValue >= milestone.targetValue)
-                  const checkpoint = bestValue === undefined ? 'Not started' : `${formatTrackerNumber(bestValue)}${metric?.unit ? ` ${metric.unit}` : ''} of ${milestone.targetValue === undefined ? 'target' : formatTrackerNumber(milestone.targetValue)}`
+                  const metricUnit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''
+                  const checkpoint = bestValue === undefined ? 'Not started' : `${formatTrackerNumber(bestValue)}${metricUnit} of ${milestone.targetValue === undefined ? 'target' : formatTrackerNumber(milestone.targetValue)}`
                   const due = milestone.dueDate ? ` · Due ${calendarDateLabel(milestone.dueDate)}` : ''
                   return <li key={milestone.id}>
                     <span className={`goal-milestone-marker${reached ? ' reached' : ''}`} aria-hidden="true"><ActivityStatusIcon status={reached ? 'completed' : 'pending'} /></span>
@@ -261,15 +265,15 @@ function buildGoalProgressSummary(
   fallbackTimeZone: string,
   holidays: ReadonlySet<string>,
 ): GoalProgressSummary[] {
-  const planningTimeZone = tracker.schemaVersion >= 3 ? tracker.goalPlanning?.planningTimeZone ?? fallbackTimeZone : fallbackTimeZone
+  const planningTimeZone = fallbackTimeZone
   const asOfDate = localCalendarDate(new Date(), planningTimeZone)
-  const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
+  const startDate = trackerActiveStartDate(tracker, planningTimeZone)
   const cumulativeTargets = tracker.goalPlanning?.mode === 'cumulative-deadline' ? tracker.goalPlanning.cumulativeTargets : {}
   const latestRecorded = entries.find((entry) => entry.outcome === 'recorded')
   return tracker.metrics.map((metric) => {
     const target = cumulativeTargets[metric.id]
     if (target !== undefined && tracker.goalPlanning?.progressSemantics[metric.id] === 'incremental') {
-      const plan = calculateCumulativeMetricPlan({ tracker, entries, metricId: metric.id, totalTarget: target, asOfDate, startDate, progressSemantics: 'incremental', holidays })
+      const plan = calculateCumulativeMetricPlan({ tracker, entries, metricId: metric.id, totalTarget: target, asOfDate, startDate, progressSemantics: 'incremental', holidays, timeZone: planningTimeZone })
       const percent = target === 0 ? 100 : Math.min(100, Math.max(0, plan.actualProgress / target * 100))
       const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
       return { metricId: metric.id, name: metric.name, value: `${formatTrackerNumber(plan.actualProgress)} / ${formatTrackerNumber(target)}${unit}`, target, remaining: plan.remainingWork, percent, unit }

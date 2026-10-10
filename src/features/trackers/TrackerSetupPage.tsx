@@ -14,7 +14,7 @@ import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
-import { isTrackerScheduledOccurrence } from '../../domain/trackers/planning'
+import { isTrackerScheduledOccurrence, trackerCreationDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import type { CalendarDate } from '../../db/models'
@@ -220,7 +220,7 @@ export function TrackerSetupPage() {
       if (!window.confirm(message)) return
     }
     if (existing && parsed.data.startDate) {
-      const createdDate = existing.createdAt.slice(0, 10)
+      const createdDate = trackerCreationDate(existing, timeZone)
       const oldActiveStart = existing.startDate && existing.startDate > createdDate ? existing.startDate : createdDate
       const newActiveStart = parsed.data.startDate > createdDate ? parsed.data.startDate : createdDate
       if (newActiveStart > oldActiveStart) {
