@@ -27,6 +27,7 @@ import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
 import { mondayFirstWeekday } from '../../db/calendarDate'
+import { getWeekRhythmState } from './weekRhythm'
 
 function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncStatus: string): string {
   if (authStatus !== 'signed-in') return authStatus === 'signed-out'
@@ -137,7 +138,7 @@ export function TodayPage() {
     const statuses = scheduled.map((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: new Set(holidayDates) }))
     const done = isHoliday ? 0 : statuses.filter((status) => status === 'completed').length
     const partial = statuses.some((status) => status === 'partial')
-    const state = isHoliday ? 'holiday' : scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 || partial ? 'partial' : statuses.includes('skipped') && isToday ? 'skipped' : isToday ? 'today' : 'missed'
+    const state = getWeekRhythmState({ isHoliday, scheduled: scheduled.length, done, hasPartial: partial, hasSkipped: statuses.includes('skipped'), isToday, isFuture: date > today })
     const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : state === 'skipped' ? 'skipped; neutral' : 'pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state, statusLabel }
   }), [today, weekStart, allTrackers, weekEntries, holidayDates])
