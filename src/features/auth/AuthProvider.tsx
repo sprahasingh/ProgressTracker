@@ -1,11 +1,34 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
-import { activateWorkspace, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestDataDecision, type GuestWorkspaceSummary } from '../../db/database'
+import { activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestDataDecision, type GuestWorkspaceSummary } from '../../db/database'
 import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
 import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
+
+function deletionLockKey(ownerId: string) { return `progress-tracker:account-deletion:${ownerId}` }
+
+function hasDeletionLock(ownerId: string): boolean {
+  if (typeof localStorage === 'undefined') return false
+  try {
+    const startedAt = Number(localStorage.getItem(deletionLockKey(ownerId)))
+    if (!startedAt) return false
+    if (Date.now() - startedAt > 24 * 60 * 60_000) {
+      localStorage.removeItem(deletionLockKey(ownerId))
+      return false
+    }
+    return true
+  } catch { return false }
+}
+
+function setDeletionLock(ownerId: string, locked: boolean) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    if (locked) localStorage.setItem(deletionLockKey(ownerId), String(Date.now()))
+    else localStorage.removeItem(deletionLockKey(ownerId))
+  } catch { /* The in-memory guard below still protects this tab. */ }
+}
 
 type AuthState = {
   status: AuthStatus
@@ -26,6 +49,10 @@ type AuthState = {
   syncError: string | null
   syncNow: () => Promise<void>
   signOut: () => Promise<string | null>
+  accountDeletionNotice: string | null
+  prepareAccountDeletion: (ownerId: string) => Promise<number>
+  resumeAccountSyncAfterDeletionFailure: (ownerId: string) => void
+  finishAccountDeletion: (ownerId: string) => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -34,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<User | null>(null)
   const [passwordRecovery, setPasswordRecovery] = useState(false)
+  const [accountDeletionNotice, setAccountDeletionNotice] = useState<string | null>(null)
   const [workspaceStatus, setWorkspaceStatus] = useState<AuthState['workspaceStatus']>('loading')
   const [workspaceUserId, setWorkspaceUserId] = useState<string | null>(null)
   const [sessionTransitionPending, setSessionTransitionPending] = useState(false)
@@ -50,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authInitializedRef = useRef(false)
   const workspaceReadyRef = useRef(false)
   const syncPromisesRef = useRef(new Map<string, Promise<void>>())
+  const deletionOwnerRef = useRef<string | null>(null)
   const mutationVersionRef = useRef(new Map<string, number>())
   const attemptedMutationVersionRef = useRef(new Map<string, number>())
   const mutationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -98,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') setSessionTransitionPending(false)
       if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true)
       if (event === 'SIGNED_OUT' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setPasswordRecovery(false)
+      if (event === 'SIGNED_IN') setAccountDeletionNotice(null)
     })
 
     return () => subscription.unsubscribe()
@@ -136,11 +166,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status, user?.id, workspaceRetry])
 
   function requestSync(ownerId: string, trigger: 'automatic' | 'manual'): Promise<void> {
+    if (deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return Promise.resolve()
     const active = syncPromisesRef.current.get(ownerId)
     if (active) return active
 
     const promise = Promise.resolve().then(async () => {
-      if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current) return
+      if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return
       attemptedMutationVersionRef.current.set(ownerId, mutationVersionRef.current.get(ownerId) ?? 0)
       setSyncStatus('syncing')
       setSyncTrigger(trigger)
@@ -173,10 +204,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const timer = setTimeout(() => {
         mutationTimersRef.current.delete(ownerId)
         void (async () => {
-          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current) return
+          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current || hasDeletionLock(ownerId)) return
           const active = syncPromisesRef.current.get(ownerId)
           if (active) await active
-          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current) return
+          if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || !isOnlineRef.current || hasDeletionLock(ownerId)) return
           const changedVersion = mutationVersionRef.current.get(ownerId) ?? 0
           const attemptedVersion = attemptedMutationVersionRef.current.get(ownerId) ?? 0
           if (changedVersion > attemptedVersion) await requestSyncRef.current(ownerId, 'automatic')
@@ -258,10 +289,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSyncStatus('error')
       return
     }
+    if (deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) {
+      setSyncError('Account deletion is in progress in another tab. Sync is paused until its result is confirmed.')
+      setSyncStatus('waiting')
+      return
+    }
     await requestSync(ownerId, 'manual')
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut }}>{children}</AuthContext.Provider>
+  async function prepareAccountDeletion(ownerId: string): Promise<number> {
+    if (status !== 'signed-in' || user?.id !== ownerId || workspaceStatus !== 'ready' || workspaceUserId !== ownerId) {
+      throw new Error('Your signed-in account workspace is not ready for deletion.')
+    }
+    deletionOwnerRef.current = ownerId
+    setDeletionLock(ownerId, true)
+    const timer = mutationTimersRef.current.get(ownerId)
+    if (timer) clearTimeout(timer)
+    mutationTimersRef.current.delete(ownerId)
+    await syncPromisesRef.current.get(ownerId)
+    if (authUserIdRef.current !== ownerId) throw new Error('The signed-in account changed. Reopen Settings and try again.')
+    return countPendingWorkspaceSyncOperations(ownerId)
+  }
+
+  function resumeAccountSyncAfterDeletionFailure(ownerId: string) {
+    if (deletionOwnerRef.current === ownerId) deletionOwnerRef.current = null
+    setDeletionLock(ownerId, false)
+  }
+
+  async function finishAccountDeletion(ownerId: string): Promise<string | null> {
+    if (deletionOwnerRef.current !== ownerId || authUserIdRef.current !== ownerId) return 'The active account changed before local cleanup. Sign out and reopen the app.'
+    let cleanupError: string | null = null
+    try { await clearDeletedAccountWorkspace(ownerId) }
+    catch (cause) { cleanupError = cause instanceof Error ? cause.message : 'Local account data could not be cleared.' }
+    const client = getSupabaseClient()
+    if (client) {
+      try {
+        const { error } = await client.auth.signOut({ scope: 'local' })
+        if (error) cleanupError ??= `The account is deleted, but this device could not clear its saved sign-in: ${error.message}`
+      } catch (cause) {
+        cleanupError ??= `The account is deleted, but this device could not clear its saved sign-in: ${cause instanceof Error ? cause.message : 'unknown error'}`
+      }
+    }
+    deletionOwnerRef.current = null
+    setDeletionLock(ownerId, false)
+    setUser(null)
+    setStatus('signed-out')
+    setAccountDeletionNotice(cleanupError ? `Your account was deleted. ${cleanupError}` : 'Your account and its cloud data were deleted. This device is now using guest mode.')
+    setPasswordRecovery(false)
+    setSessionTransitionPending(false)
+    return null
+  }
+
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {

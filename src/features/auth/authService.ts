@@ -15,6 +15,14 @@ export async function sendSignInLink(email: string, redirectTo: string): Promise
   return { error: error?.message ?? null }
 }
 
+/** Reauthentication link for an existing account; this must never create a new user. */
+export async function requestAccountDeletionReauthentication(email: string, redirectTo: string): Promise<{ error: string | null }> {
+  const client = getSupabaseClient()
+  if (!client) return { error: 'Supabase is not configured.' }
+  const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: false } })
+  return { error: error?.message ?? null }
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<{ error: string | null }> {
   const client = getSupabaseClient()
   if (!client) return { error: 'Supabase is not configured. Local use is still available on this device.' }
