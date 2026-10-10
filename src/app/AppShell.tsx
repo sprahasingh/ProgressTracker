@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
+import { WorkspaceLoadingState } from '../components/ui/WorkspaceLoadingState'
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
@@ -96,11 +97,11 @@ export function AppShell() {
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (
-            <section className="workspace-gate" role={workspaceStatus === 'error' ? 'alert' : 'status'}>
-              <h1>{workspaceStatus === 'error' ? 'Workspace unavailable' : 'Opening your workspace'}</h1>
-              <p>{workspaceStatus === 'error' ? workspaceError : 'Your local data is being opened for this session.'}</p>
-              {workspaceStatus === 'error' && <button className="button button-secondary button-medium" onClick={retryWorkspace}>Try again</button>}
-            </section>
+            workspaceStatus === 'error' ? <section className="workspace-gate" role="alert">
+              <h1>Workspace unavailable</h1>
+              <p>{workspaceError}</p>
+              <button className="button button-secondary button-medium" onClick={retryWorkspace}>Try again</button>
+            </section> : <WorkspaceLoadingState />
           ) : guestChoiceReady ? (
             <section className="workspace-gate" aria-labelledby="guest-import-title">
               <h1 id="guest-import-title">You have progress saved as a guest</h1>

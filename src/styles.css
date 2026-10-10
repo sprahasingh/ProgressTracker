@@ -220,6 +220,14 @@ a { color: inherit; text-decoration: none; }
 .sync-conflict .auth-actions { justify-content: flex-start; }
 @media (max-width: 600px) { .sync-conflict-versions { grid-template-columns: 1fr; } }
 .workspace-gate { max-width: 720px; margin: 48px auto; padding: 30px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+.workspace-startup { display: grid; align-content: start; gap: 14px; width: min(100%, 760px); min-height: min(420px, 55vh); margin: 0 auto; padding: 8px 0; }
+.workspace-startup-line, .workspace-startup-card { display: block; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); }
+.workspace-startup-line { height: 10px; }
+.workspace-startup-line-heading { width: min(42%, 210px); height: 22px; margin-bottom: 5px; border-radius: 7px; }
+.workspace-startup-line-wide { width: min(75%, 430px); }
+.workspace-startup-line-short { width: min(53%, 300px); }
+.workspace-startup-card { width: 100%; height: 150px; margin-top: 9px; border-radius: var(--radius-card); background: color-mix(in srgb, var(--surface) 55%, var(--surface-muted)); }
+.workspace-gate .button { margin-top: 8px; }
 .settings-card { max-width: 680px; margin-top: 28px; padding: 26px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
 .settings-card .form-field { max-width: 460px; }
 .settings-card > p { max-width: 600px; color: var(--ink-muted); font-size: 13px; line-height: 1.7; }

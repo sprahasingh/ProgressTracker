@@ -59,8 +59,10 @@ describe('app navigation quality', () => {
   it('does not render route content until the signed-in account workspace is active', () => {
     authState.value = { status: 'signed-in', user: { id: 'user-b', email: 'b@example.com' }, passwordRecovery: false, workspaceStatus: 'loading', workspaceUserId: 'user-a' } as never
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Account private content</p>} /></Route></Routes></MemoryRouter>)
-    expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Account private content')).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Mobile navigation' })).toBeInTheDocument()
+    expect(screen.queryByText('Opening your workspace')).not.toBeInTheDocument()
     authState.value = guestReadyState
   })
 
