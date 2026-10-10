@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { SectionHeader } from '../../components/ui/SectionHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
@@ -142,7 +143,7 @@ export function CalendarPage() {
     {loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : error ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open the calendar." action={<button className="button button-secondary button-medium" onClick={() => void refresh()}>Try again</button>} /></Surface> : <div className="calendar-layout">
       <Surface className="calendar-month-card"><h2>{calendarDateLabel(`${month}-01`, { month: 'long', year: 'numeric' })}</h2><MonthCalendar days={summaries} selected={selectedDate} today={today} onSelect={selectDate} /></Surface>
       <Surface className="calendar-day-details" aria-live="polite">
-        <div className="calendar-day-heading"><div><span className="eyebrow">SELECTED DAY</span><h2>{calendarDateLabel(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })}</h2></div><Link className="button button-quiet button-small" to={`/holidays?date=${selectedDate}`}>{selectedHoliday ? 'Edit holiday' : 'Mark holiday'}</Link></div>
+        <SectionHeader className="calendar-day-heading" eyebrow="SELECTED DAY" title={calendarDateLabel(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })} action={<Link className="button button-quiet button-small" to={`/holidays?date=${selectedDate}`}>{selectedHoliday ? 'Edit holiday' : 'Mark holiday'}</Link>} />
         {selectedHoliday && <p className="calendar-holiday-note"><span className="status-mark holiday" aria-hidden="true">☀</span> Holiday · scheduled expectations paused{selectedEntries.length ? ` · ${selectedEntries.length} saved check-in${selectedEntries.length === 1 ? '' : 's'} retained` : ''}</p>}
         {!selectedHoliday && selectedSummary && <p className="calendar-day-summary">{selectedSummary.completed} completed · {selectedSummary.partial} partial · {selectedSummary.pending} pending · {selectedSummary.missed} missed · {selectedSummary.skipped} skipped · {selectedSummary.entries} saved check-ins</p>}
         {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status }) => <li key={tracker.id}>

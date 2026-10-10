@@ -1,5 +1,6 @@
 import type { GoalPlanningConfiguration, TrackerMetricDefinition } from '../../domain/trackers/types'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { SectionHeader } from '../../components/ui/SectionHeader'
 
 type Props = {
   metrics: TrackerMetricDefinition[]
@@ -23,7 +24,7 @@ export function GoalPlanningEditor({ metrics, planning, onChange }: Props) {
   }
 
   return <section className="configuration-section goal-planning-editor" aria-labelledby="goal-planning-heading">
-    <header className="configuration-heading"><div><h2 id="goal-planning-heading">Planning targets</h2><p>Planning targets are separate from the per-check-in minimum, target, and stretch thresholds above.</p></div><InfoButton title="Planning targets" summary="Plan progress separately from the success threshold of each check-in." description="Each metric has its own unit and target. Daily recurring plans assess each scheduled date independently. Cumulative deadline plans add only incremental entries; snapshots already represent totals and are never summed. Switching modes preserves both target maps and historical check-ins." /></header>
+    <SectionHeader title="Planning targets" headingId="goal-planning-heading" description="Planning targets are separate from the per-check-in minimum, target, and stretch thresholds above." help={{ title: 'Planning targets', summary: 'Plan progress separately from the success threshold of each check-in.', description: 'Each metric has its own unit and target. Daily recurring plans assess each scheduled date independently. Cumulative deadline plans add only incremental entries; snapshots already represent totals and are never summed. Switching modes preserves both target maps and historical check-ins.' }} />
     <label className="form-field goal-planning-mode"><span>Planning mode <InfoButton title="Planning mode" summary="Choose whether the target repeats or accumulates by a deadline." description="Daily recurring repeats a target on each scheduled day, such as 5 pages every weekday. Cumulative deadline sets one total by a date, such as 100 pages by October 31. Only incremental metrics add together in cumulative mode." /></span><select aria-label="Planning mode" className="auth-input" value={planning.mode} onChange={(event) => onChange({ ...planning, mode: event.target.value as GoalPlanningConfiguration['mode'] })}>
       <option value="daily-recurring">Daily recurring · repeat targets on scheduled days</option>
       <option value="cumulative-deadline">Cumulative deadline · add incremental work toward a total</option>

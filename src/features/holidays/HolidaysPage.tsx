@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { SectionHeader } from '../../components/ui/SectionHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
@@ -75,7 +76,7 @@ export function HolidaysPage() {
     </form></Surface>
     <div className="holiday-status-legend" aria-label="Activity status legend"><span><i className="status-mark completed" aria-hidden="true">✓</i> Green · Completed</span><span><i className="status-mark partial" aria-hidden="true">◐</i> Orange · Partial</span><span><i className="status-mark missed" aria-hidden="true">!</i> Red · Missed</span><span><i className="status-mark holiday" aria-hidden="true">☀</i> Blue · Holiday</span></div>
     {error && <p role="alert" className="form-alert">{error}</p>}
-    <section aria-labelledby="holiday-list-title"><div className="holiday-list-heading"><h2 id="holiday-list-title">Your holidays</h2><Link to="/calendar">View calendar</Link></div>
+    <section aria-labelledby="holiday-list-title"><SectionHeader className="holiday-list-heading" title="Your holidays" headingId="holiday-list-title" action={<Link to="/calendar">View calendar</Link>} />
       {loading ? <p role="status" className="tracker-loading">Loading holidays…</p> : rows.length === 0 ? <Surface><p>No holidays added yet. Your tracker schedules continue as usual.</p></Surface> : <div className="holiday-list">{rows.map((row) => <HolidayRow key={row.id} row={row} onRemove={() => void remove(row.date)} onSave={async (next) => { try { await localRepository.saveAccountHolidays([row.date], next); await refresh(); notify({ kind: 'success', title: 'Holiday updated', description: 'Your holiday details were saved on this device.', dedupeKey: `holiday:${row.date}` }) } catch { notify({ kind: 'error', title: 'Couldn’t update holiday', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `holiday:${row.date}` }) } }} />)}</div>}
     </section>
     {allRows.some((row) => row.deletedAt !== null) && <details className="holiday-removed"><summary>Recently removed dates</summary><div className="holiday-list">{allRows.filter((row) => row.deletedAt !== null).map((row) => <Surface className="holiday-row" key={row.id}><span>{calendarDateLabel(row.date)} · Removed</span><button className="button button-secondary button-small" onClick={() => void restore(row.date)}>Restore holiday</button></Surface>)}</div></details>}
