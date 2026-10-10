@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { SettingsPage } from './WorkspaceTimeZone'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 
@@ -20,7 +21,7 @@ describe('unified Settings authentication states', () => {
   })
 
   it('keeps guest preferences and hides account-only controls', () => {
-    render(<ToastProvider><SettingsPage /></ToastProvider>)
+    render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
     expect(screen.getByLabelText(/Calendar time zone/)).toBeInTheDocument()
     expect(screen.getByLabelText(/Appearance/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change email' })).not.toBeInTheDocument()
@@ -32,7 +33,7 @@ describe('unified Settings authentication states', () => {
   it('shows signed-in profile, allows name edits, and consolidates sync controls', async () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     const user = userEvent.setup()
-    render(<ToastProvider><SettingsPage /></ToastProvider>)
+    render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
     expect(screen.getAllByText('Spraha Singh')).toHaveLength(2)
     expect(screen.getByText('S', { selector: '.settings-profile-avatar' })).toBeInTheDocument()
     expect(screen.getByText('Cloud synchronization controls')).toBeInTheDocument()
@@ -49,7 +50,7 @@ describe('unified Settings authentication states', () => {
   it('validates email and reports the secure confirmation state', async () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     const user = userEvent.setup()
-    render(<ToastProvider><SettingsPage /></ToastProvider>)
+    render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
     await user.click(screen.getByRole('button', { name: 'Change email' }))
     await user.type(screen.getByLabelText('New email address'), 'invalid')
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }))
