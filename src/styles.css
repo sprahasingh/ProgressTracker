@@ -125,7 +125,8 @@ a { color: inherit; text-decoration: none; }
 .surface-padded { padding: 24px; }
 .button {
   display: inline-flex;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: min-content;
   max-width: 100%;
   min-height: var(--button-height-medium);
   align-items: center;
@@ -140,7 +141,7 @@ a { color: inherit; text-decoration: none; }
   line-height: 1.25;
   text-align: center;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   cursor: pointer;
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
 }
@@ -549,6 +550,8 @@ a { color: inherit; text-decoration: none; }
 .tracker-configuration { display: grid; gap: 30px; margin-top: 32px; }
 .configuration-section { display: grid; gap: 13px; }
 .configuration-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.configuration-heading > div:first-child { flex: 1 1 16rem; min-width: 0; }
+.configuration-heading .dashboard-heading-actions { flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
 .configuration-heading h2 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 23px; font-weight: 400; }
 .configuration-heading p { margin: 5px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.5; }
 .configuration-card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); }
@@ -562,9 +565,10 @@ a { color: inherit; text-decoration: none; }
 .form-check input { accent-color: var(--accent); }
 .rule-node { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); }
 .rule-node-nested { margin-top: 4px; margin-left: 14px; border-left: 3px solid var(--accent-soft); }
-.rule-node-controls { display: flex; align-items: center; gap: 8px; }
-.rule-node-controls .auth-input { flex: 1; }
-.rule-leaf-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.rule-node-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rule-node-controls .auth-input { flex: 1 1 12rem; min-width: 0; }
+.rule-node-controls > .button { margin-left: auto; }
+.rule-leaf-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
 .rule-operands { display: grid; gap: 9px; }
 .rule-required { max-width: 180px; }
 
@@ -630,7 +634,9 @@ a { color: inherit; text-decoration: none; }
   .form-grid { grid-template-columns: 1fr; gap: 17px; }
   .form-field-wide { grid-column: auto; }
   .tracker-form-card { margin-top: 23px; }
-  .configuration-heading { align-items: flex-start; flex-direction: column; }
+  .configuration-heading { align-items: flex-start; flex-wrap: wrap; }
+  .configuration-heading > div:first-child { flex-basis: 100%; }
+  .configuration-heading .dashboard-heading-actions { justify-content: flex-start; }
   .configuration-card { padding: 13px; }
   .rule-node-nested { margin-left: 6px; }
   .tracker-form-actions { position: sticky; bottom: 72px; margin-right: -18px; margin-left: -18px; padding: 12px 18px max(12px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); }
@@ -1601,7 +1607,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .tracker-setup-form .other-tracker-types > summary { padding: 7px 0; font-size: 11px; }
 .tracker-setup-form .simple-measure-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .tracker-setup-form .simple-measure-options label { min-height: 46px; padding: 8px 10px; font-size: 11px; }
-.simple-numeric-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 11px; border-radius: 12px; background: var(--surface-muted); }
+.simple-numeric-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; padding: 11px; border-radius: 12px; background: var(--surface-muted); }
+.simple-numeric-settings > * { min-width: 0; }
 .simple-numeric-settings .field-hint { grid-column: 1 / -1; }
 .tracker-setup-form .tracker-quick-fields { margin: 0; }
 .tracker-setup-form .advanced-setup { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
@@ -1619,7 +1626,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .tracker-setup-form .configuration-card-heading { margin-bottom: 8px; }
 .tracker-setup-form .configuration-card-heading > strong { font-size: 12px; letter-spacing: 0; text-transform: none; }
 .tracker-setup-form .tracker-form-actions { justify-content: flex-start; align-items: center; margin: 0 -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 97%, transparent); }
-.tracker-setup-form .tracker-form-actions .button-primary { min-height: 46px; flex: 1; }
+.tracker-setup-form .tracker-form-actions .button-primary { min-height: 46px; flex: 1 1 auto; }
 .tracker-setup-form .tracker-form-actions .button-quiet { min-height: 44px; padding-right: 12px; padding-left: 12px; }
 .tracker-setup-form .form-alert { margin: 0; }
 
@@ -1635,13 +1642,21 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
   .tracker-setup-form .simple-measure-options label { justify-content: center; min-width: 0; }
   .tracker-setup-form .tracker-form-actions { position: sticky; z-index: 8; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -5px 15px #0000000a; backdrop-filter: blur(12px); }
   .tracker-setup-form .advanced-setup-content { padding: 2px 0 0; }
-  .tracker-setup-form .configuration-heading { flex-direction: row; align-items: center; }
+  .tracker-setup-form .configuration-heading { flex-direction: row; align-items: flex-start; }
+  .tracker-setup-form .configuration-heading > div:first-child { flex-basis: 100%; }
   .tracker-setup-form .configuration-heading h2 { font-size: 15px; }
+  .tracker-setup-form .configuration-heading .dashboard-heading-actions { justify-content: flex-start; }
 }
 @media (max-width: 360px) {
   .tracker-setup-page .tracker-form-card { padding: 10px; }
   .simple-numeric-settings { gap: 8px; padding: 9px; }
   .tracker-setup-form .tracker-form-actions { margin-right: -10px; margin-left: -10px; padding-right: 10px; padding-left: 10px; }
+  .simple-numeric-settings,
+  .goal-planning-targets,
+  .goal-target-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 430px) {
+  .goal-planning-targets { grid-template-columns: minmax(0, 1fr); }
 }
 
 .numeric-measure-field > label,

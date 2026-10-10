@@ -33,7 +33,7 @@ function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
   const id = crypto.randomUUID()
   return kind === 'habit'
     ? { id, name: 'Completed', valueType: 'boolean' }
-    : { id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' } }
+    : { id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
 }
 
 function starterRule(metric: TrackerMetricDefinition): TrackerRule {
@@ -141,7 +141,7 @@ export function TrackerSetupPage() {
       if (current.metrics.length !== 1 || existing) return current
       const oldMetric = current.metrics[0]!
       const changed = previousKind === 'habit' && kind !== 'habit'
-        ? { ...oldMetric, name: 'Progress', valueType: 'quantity' as const, unit: '', thresholds: { direction: 'increase' as const, target: 1, streakQualification: 'any-recorded-value' as const } }
+        ? { ...oldMetric, name: 'Progress', valueType: 'quantity' as const, unit: '', thresholds: { direction: 'increase' as const, streakQualification: 'any-recorded-value' as const } }
         : previousKind !== 'habit' && kind === 'habit'
           ? { id: oldMetric.id, name: 'Completed', valueType: 'boolean' as const }
           : oldMetric
@@ -155,7 +155,7 @@ export function TrackerSetupPage() {
     if (!metric) return
     const updated: TrackerMetricDefinition = valueType === 'boolean'
       ? { id: metric.id, name: 'Completed', valueType: 'boolean' }
-      : { id: metric.id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', target: 1, streakQualification: 'any-recorded-value' } }
+      : { id: metric.id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
     setConfiguration((current) => ({ ...current, metrics: [updated, ...current.metrics.slice(1)], rule: starterRule(updated) }))
   }
 
@@ -338,7 +338,7 @@ export function TrackerSetupPage() {
           <div className="form-grid tracker-quick-fields"><label className="form-field"><span>Start date</span><input aria-label="Start date" className="auth-input" type="date" value={values.startDate} onChange={(event) => update('startDate', event.target.value)} /></label></div>
           {!existing && configuration.metrics[0]?.valueType !== 'boolean' && <section className="simple-numeric-settings" aria-label="Numeric measure settings">
             <label className="form-field"><span>Unit <em>optional</em></span><input aria-label="Numeric measure unit" className="auth-input" value={goalUnit || configuration.metrics[0]?.unit || ''} onChange={(event) => { setGoalUnit(event.target.value); setConfiguration((current) => ({ ...current, metrics: current.metrics.map((metric, index) => index === 0 ? { ...metric, unit: event.target.value } : metric) })) }} placeholder="pages, minutes, sessions" /></label>
-            <label className="form-field"><span>Target per check-in <em>optional</em></span><input aria-label="Per-check-in target" className="auth-input" type="number" min="0" step={configuration.metrics[0]?.precision?.increment ?? 'any'} value={configuration.metrics[0]?.thresholds?.target ?? ''} onChange={(event) => updateStarterTarget(event.target.value)} placeholder="1" /></label>
+            <label className="form-field"><span>Target per check-in <em>optional</em></span><input aria-label="Per-check-in target" className="auth-input" type="number" min="0" step={configuration.metrics[0]?.precision?.increment ?? 'any'} value={configuration.metrics[0]?.thresholds?.target ?? ''} onChange={(event) => updateStarterTarget(event.target.value)} placeholder="e.g. 1" /></label>
             <label className="form-field"><span>Precision</span><select aria-label="Numeric precision" className="auth-input" value={configuration.metrics[0]?.precision ? String(configuration.metrics[0].precision.decimalPlaces) : ''} disabled={!isSchemaV4WriteEnabled()} onChange={(event) => { const places = event.target.value === '' ? undefined : Number(event.target.value) as 0 | 1 | 2; setConfiguration((current) => ({ ...current, metrics: current.metrics.map((metric, index) => index === 0 ? { ...metric, precision: places === undefined ? undefined : { decimalPlaces: places, increment: places === 0 ? 1 : places === 1 ? 0.1 : 0.01 } } : metric) })) }}><option value="">Standard</option><option value="0">Whole numbers</option><option value="1">One decimal place</option><option value="2">Up to two decimals</option></select></label>
             {!isSchemaV4WriteEnabled() && <small className="field-hint">Precision settings are unavailable in this build until the numeric precision schema is enabled.</small>}
           </section>}
