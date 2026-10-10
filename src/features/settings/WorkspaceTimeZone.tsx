@@ -9,6 +9,7 @@ import { updateAccountName, requestAccountEmailChange } from '../auth/authServic
 import { AuthPage } from '../auth/AuthPage'
 import { AccountDeletion } from './AccountDeletion'
 import { WorkspaceLoadingState } from '../../components/ui/WorkspaceLoadingState'
+import { NotificationsSettings } from '../notifications/NotificationsSettings'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -162,7 +163,9 @@ export function SettingsPage() {
       {profileError && <p className="auth-error" role="alert">{profileError}</p>}
     </section>
     <section className="settings-section" aria-labelledby="security-title"><h2 id="security-title">Security</h2><p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p></section>
-    <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error)}</section>
+    <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false)}</section>
+    <NotificationsSettings />
+    <section className="settings-section"><h2>Appearance</h2>{renderAppearance(appearance, changeAppearance, error)}</section>
     <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
     <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
   </section>
@@ -174,7 +177,7 @@ export function SettingsPage() {
   </section>
 }
 
-function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], error: string) {
+function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], error: string, includeAppearance = true) {
   return <div className="settings-card">
       <label className="form-field"><span>Calendar time zone <InfoButton title="Calendar time zone" summary="Controls which local calendar date ProgressTracker treats as today." description="Schedules, streak days, deadlines, and date labels use this time zone. Changing it does not shift date-only historical entries. This preference is stored locally and is not yet synchronized across devices." /></span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
         {!zones.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
@@ -182,8 +185,11 @@ function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'sys
       </select></label>
       {deviceZone !== timeZone && <button className="button button-secondary button-medium" onClick={() => void changeTimeZone(deviceZone)}>Use device time zone ({deviceZone.replaceAll('_', ' ')})</button>}
       <p>Saved locally in this workspace and used to decide which calendar day is “today.” Date-only history entries stay on their original dates. This preference is not uploaded or synchronized to other devices yet.</p>
-      <label className="form-field"><span>Appearance <InfoButton title="Appearance" summary="Choose light or dark colors, or follow your device preference." description="System appearance follows your operating system. Light and dark set this workspace’s display mode. This setting is local and currently does not sync across devices." /></span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-      <p>System appearance follows the device’s light or dark setting. This preference is local to the workspace and does not sync across devices.</p>
+      {includeAppearance && <>{renderAppearance(appearance, changeAppearance, error)}</>}
       {error && <p className="auth-error" role="alert">{error}</p>}
     </div>
+}
+
+function renderAppearance(appearance: 'light' | 'dark' | 'system', changeAppearance: (value: 'light' | 'dark' | 'system') => void, error: string) {
+  return <div className="settings-card"><label className="form-field"><span>Appearance <InfoButton title="Appearance" summary="Choose light or dark colors, or follow your device preference." description="System appearance follows your operating system. Light and dark set this workspace’s display mode. This setting is local and currently does not sync across devices." /></span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label><p>System appearance follows the device’s light or dark setting. This preference is local to the workspace and does not sync across devices.</p>{error && <p className="auth-error" role="alert">{error}</p>}</div>
 }

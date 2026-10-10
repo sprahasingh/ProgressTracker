@@ -128,6 +128,16 @@ export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' 
 export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null }
 export type PermanentDeletionLedgerEntry = { key: string; ownerUserId: string; trackerId: string; permanentlyDeletedAt: string }
 export type TrackerVerification = { trackerId: string; status: 'pending-server-check' }
+export type AppNotification = {
+  id: string
+  identity: string
+  kind: 'pending' | 'overdue' | 'motivation' | 'achievement' | 'holiday' | 'info'
+  title: string
+  body: string
+  href: string
+  createdAt: string
+  readAt: string | null
+}
 
 export type DailyEntryDraft = Pick<DailyEntry, 'categoryId' | 'date' | 'status' | 'note'>
 export type DailyJournalDraft = Pick<DailyJournal, 'date' | 'body'>
