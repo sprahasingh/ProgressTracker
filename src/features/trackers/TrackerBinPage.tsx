@@ -99,7 +99,7 @@ export function TrackerBinPage() {
           {request && <p className="bin-pending" role="status">{request.status === 'pending' ? 'Permanent deletion pending server confirmation.' : request.lastError ?? 'Deletion needs attention.'}</p>}
           <div className="tracker-card-actions">
             <Button variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || Boolean(request && request.status === 'pending')} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
-            {isPermanentDeletionEnabled() && <Button variant="secondary" className="bin-delete-button" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => void permanentlyDelete(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
+            {isPermanentDeletionEnabled() && <Button variant="destructive" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => void permanentlyDelete(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
           </div>
         </Surface>
       })}

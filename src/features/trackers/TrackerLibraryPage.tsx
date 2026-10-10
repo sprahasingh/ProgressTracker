@@ -132,7 +132,7 @@ export function TrackerLibraryPage() {
                 {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">Check in today</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
                 {tracker.status !== 'archived' && <Button variant="quiet" size="small" onClick={() => void archive(tracker.id)}>Archive</Button>}
-                <Button variant="quiet" size="small" onClick={() => void moveToBin(tracker)}>Delete</Button>
+                <Button variant="destructive" size="small" onClick={() => void moveToBin(tracker)}>Delete</Button>
               </div>
             </Surface>
           ))}

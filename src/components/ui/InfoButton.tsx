@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { IconButton } from './IconButton'
 
 type Props = {
   title: string
@@ -104,7 +105,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
       aria-labelledby={`info-title-${id}`}
       style={{ position: 'fixed', top: position.top, left: position.left }}
     >
-      <div className="info-popover-heading"><button className="info-dialog-close" type="button" onClick={() => { setOpen(false); buttonRef.current?.focus() }} aria-label="Close explanation">×</button></div>
+      <div className="info-popover-heading"><IconButton className="info-dialog-close" label="Close explanation" onClick={() => { setOpen(false); buttonRef.current?.focus() }}>×</IconButton></div>
       <div className="info-popover-content">
         <p className="info-dialog-summary">{summary}</p>
         <h2 id={`info-title-${id}`}>{title}</h2>

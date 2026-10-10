@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useModalLayer } from '../../components/ui/useModalLayer'
+import { IconButton } from '../../components/ui/IconButton'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
@@ -144,12 +145,12 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
           {metric.nextSuggestion !== undefined && <small className="today-requirement-note">Next scheduled suggestion: {amount(metric.nextSuggestion, metric.unit)}</small>}
         </div>)}
       </div>
-      <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></button>
+      <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></IconButton>
     </div>}
-    {compactIconOnly && <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></button>}
+    {compactIconOnly && <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></IconButton>}
     {open && createPortal(<div className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section ref={sheetRef} className="today-requirements-sheet" role="dialog" aria-modal="true" aria-labelledby="today-requirements-title">
-        <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><button ref={closeRef} className="today-requirements-close" type="button" aria-label="Close daily requirements" onClick={() => setOpen(false)}>×</button></header>
+        <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><IconButton ref={closeRef} className="today-requirements-close" label="Close daily requirements" onClick={() => setOpen(false)}>×</IconButton></header>
         <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
           {metrics.map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}{metric.unit && <span>{metric.unit}</span>}</h4>
             <dl>
