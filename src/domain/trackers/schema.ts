@@ -137,6 +137,7 @@ export const trackerDefinitionSchema = z.object({
   customFields: z.array(customFieldSchema),
   milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
   goalPlanning: goalPlanningSchema.optional(),
+  strictMode: z.boolean().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),

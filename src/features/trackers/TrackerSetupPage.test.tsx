@@ -54,14 +54,51 @@ describe('tracker setup flow', () => {
     await user.type(name, 'Read every day')
     expect(screen.getByLabelText('Start date').getAttribute('value') ?? (screen.getByLabelText('Start date') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(screen.getByRole('combobox', { name: /How often/ }).closest('.advanced-setup')).not.toHaveAttribute('open')
-    await user.click(screen.getByText('More options'))
-    await user.click(screen.getByText('Schedule & holidays'))
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Schedule & holidays'))
     expect(screen.getByRole('combobox', { name: /How often/ })).toHaveValue('every-day')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Record my first check-in' })).toHaveAttribute('href', '/')
     expect(await localRepository.listTrackers()).toMatchObject([{ kind: 'habit', name: 'Read every day', schedule: { kind: 'every-day' }, metrics: [{ valueType: 'boolean' }] }])
+  })
+
+  it('defaults Strict Mode off and persists it on newly created trackers when enabled', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Daily practice')
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Schedule & holidays'))
+    const strictMode = screen.getByRole('checkbox', { name: /Strict Mode/ })
+    expect(strictMode).not.toBeChecked()
+    await user.click(strictMode)
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ strictMode: true }])
+  })
+
+  it('asks before recalculating historical streaks when Strict Mode changes on an existing tracker', async () => {
+    const existing = {
+      schemaVersion: 1 as const, id: 'strict-history', name: 'Read', description: '', kind: 'habit' as const,
+      status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' as const },
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+      customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(existing)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    renderSetup('/trackers/strict-history/edit')
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Schedule & holidays'))
+    await user.click(await screen.findByRole('checkbox', { name: /Strict Mode/ }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('including past holidays and rest days'))
+    expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('strictMode')
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ strictMode: true }))
   })
 
   it('offers compact numeric unit, target, and precision controls and saves them', async () => {

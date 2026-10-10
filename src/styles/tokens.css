@@ -80,6 +80,13 @@
   --status-holiday-ink: #6d28d9;
   --status-rest-ink: #4f46c9;
   --status-neutral-ink: #625b55;
+  --heatmap-empty: #f4f1ec;
+  --heatmap-zero: #e7e5e4;
+  --heatmap-level-2: #dcfce7;
+  --heatmap-level-3: #bbf7d0;
+  --heatmap-level-4: #4ade80;
+  --heatmap-level-5: #22c55e;
+  --heatmap-level-6: #15803d;
 }
 
 [data-theme='dark'] {
@@ -136,4 +143,11 @@
   --status-holiday-ink: #d6c8f3;
   --status-rest-ink: #c4caf8;
   --status-neutral-ink: #d3cdc7;
+  --heatmap-empty: #202024;
+  --heatmap-zero: #3f3f46;
+  --heatmap-level-2: #15372f;
+  --heatmap-level-3: #1e513f;
+  --heatmap-level-4: #24734d;
+  --heatmap-level-5: #34a56a;
+  --heatmap-level-6: #48b978;
 }

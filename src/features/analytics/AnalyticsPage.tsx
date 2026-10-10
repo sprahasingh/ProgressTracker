@@ -13,6 +13,8 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
+import { InfoButton } from '../../components/ui/InfoButton'
 
 type AnalyticsSnapshot = { workspaceKey: string; summaries: TrackerAnalytics[]; holidayCount: number }
 type RangeLength = 7 | 30 | 90
@@ -32,10 +34,13 @@ export function AnalyticsPage() {
   const [snapshot, setSnapshot] = useState<AnalyticsSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ workspaceKey: string; message: string } | null>(null)
-  const summaries = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.summaries : []
+  const allSummaries = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.summaries : []
   const holidayCount = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidayCount : 0
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
+  const trackerFilter = useTrackerFilter(expectedOwner, allSummaries.map((summary) => summary.tracker), !visibleLoading)
+  const selectedTracker = allSummaries.find((summary) => summary.tracker.id === trackerFilter.selectedId)?.tracker ?? null
+  const summaries = selectedTracker ? allSummaries.filter((summary) => summary.tracker.id === selectedTracker.id) : allSummaries
 
   const refresh = useCallback(async () => {
     const currentWorkspace = workspaceRef.current
@@ -83,20 +88,21 @@ export function AnalyticsPage() {
   const consistency = scheduledCount ? Math.round(qualifiedScheduled / scheduledCount * 100) : null
 
   return <section className="tracker-page analytics-page" aria-labelledby="analytics-title">
-    <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and logged values from this workspace." />
+    <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and logged values from this workspace." help={{ title: 'Analytics', summary: 'Statistics follow the tracker selector and selected date range.', description: 'All Trackers adds comparable counts such as check-ins and eligible opportunities while keeping metric values separate because units can differ. Individual Tracker recalculates counts and trends using only that tracker. Consistency divides qualified eligible days by elapsed opportunities; holidays and rest days are excluded in Standard Mode and required in Strict Mode.' }} />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
-    <div className="analytics-toolbar">
+      <div className="analytics-toolbar">
+      <TrackerFilter trackers={allSummaries.map((summary) => summary.tracker)} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Tracker" />
       <label className="history-filter"><span>Period</span><select className="auth-input" value={range} onChange={(event) => setRange(Number(event.target.value) as RangeLength)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
       <span className="analytics-range">{calendarDateLabel(startDate, { month: 'short', day: 'numeric' })} – {calendarDateLabel(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
     </div>
     {visibleError && <div role="alert" className="form-alert">{visibleError}</div>}
     {visibleLoading ? <p role="status" className="tracker-loading">Loading your analytics…</p> : visibleError ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open your workspace analytics." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : summaries.length === 0 ? <Surface><EmptyState title="Analytics start with your first tracker" description="Create a tracker and log activity to see consistency and metric trends here." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
       <div className="dashboard-stats" role="group" aria-label="Activity summary">
-        <AnalyticsStat label="Check-ins" value={entriesCount} detail={`${range} day period`} />
-        <AnalyticsStat label="Success rules met" value={qualifiedCount} detail="among recorded check-ins" />
-        <AnalyticsStat label="Scheduled opportunities" value={scheduledCount} detail="active trackers only" />
-        <AnalyticsStat label="Holidays" value={holidayCount} detail="days paused across this account" />
-        <AnalyticsStat label="Consistency" value={consistency === null ? '—' : `${consistency}%`} detail={consistency === null ? 'no active scheduled days' : `${qualifiedScheduled} of ${scheduledCount} scheduled days met`} />
+        <AnalyticsStat label="Check-ins" value={entriesCount} detail={`${range} day period`} help="Counts saved recorded and intentionally skipped entries for the selected tracker, or all displayed trackers. In All Trackers, counts are added across trackers." />
+        <AnalyticsStat label="Success rules met" value={qualifiedCount} detail="among recorded check-ins" help="Counts recorded entries that met each tracker’s configured success rule. A day can have a saved entry that does not meet its rule." />
+        <AnalyticsStat label="Scheduled opportunities" value={scheduledCount} detail="active trackers only" help="Counts elapsed eligible days in the period. Standard Mode excludes holidays and rest days; Strict Mode requires every calendar day in the tracker’s active date range. An unlogged today is still open." />
+        <AnalyticsStat label="Holidays" value={holidayCount} detail="days paused across this account" help="Counts account holidays in this period. They pause Standard Mode streaks; Strict Mode still requires qualifying activity on those dates." />
+        <AnalyticsStat label="Consistency" value={consistency === null ? '—' : `${consistency}%`} detail={consistency === null ? 'no active scheduled days' : `${qualifiedScheduled} of ${scheduledCount} scheduled days met`} help="Qualified eligible days divided by elapsed opportunities. All Trackers adds each tracker’s own numerator and denominator; a tracker’s policy does not change another tracker’s schedule." />
       </div>
       <div className="analytics-trackers">
         {summaries.map((summary) => <Surface className="analytics-tracker" key={summary.tracker.id}>
@@ -127,6 +133,6 @@ export function AnalyticsPage() {
   </section>
 }
 
-function AnalyticsStat({ label, value, detail }: { label: string; value: number | string; detail: string }) {
-  return <Surface className="dashboard-stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></Surface>
+function AnalyticsStat({ label, value, detail, help }: { label: string; value: number | string; detail: string; help: string }) {
+  return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
 }

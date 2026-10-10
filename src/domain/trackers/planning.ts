@@ -242,6 +242,14 @@ export function isScheduledDate(tracker: TrackerDefinition, date: string): boole
   return isTrackerScheduledOccurrence(tracker, date)
 }
 
+/** Checks the inclusive tracker date window, anchored no earlier than creation. */
+export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt'>, date: string): boolean {
+  parseDate(date)
+  const created = tracker.createdAt.slice(0, 10)
+  const first = tracker.startDate && tracker.startDate > created ? tracker.startDate : created
+  return date >= first && (!tracker.deadline || date <= tracker.deadline)
+}
+
 const DAY_MS = 86_400_000
 const parseDate = (value: string): number => {
   const time = Date.parse(`${value}T00:00:00.000Z`)

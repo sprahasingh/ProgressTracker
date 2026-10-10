@@ -80,6 +80,27 @@ describe('streak calculation', () => {
     expect(calculateStreak(yesNo, [booleanEntry('2026-01-01', false)], '2026-01-01')).toMatchObject({ current: 0, missedCount: 0 })
   })
 
+  it('makes holidays and rest dates required only in Strict Mode', () => {
+    const weekdays = tracker({ startDate: '2026-01-09', deadline: '2026-01-12', schedule: { kind: 'weekdays' } })
+    const holiday = new Set(['2026-01-12'])
+    expect(calculateStreak(weekdays, [entry('2026-01-09')], '2026-01-12', holiday)).toMatchObject({ current: 1, scheduledCount: 1, missedCount: 0 })
+    const strict = { ...weekdays, strictMode: true }
+    expect(calculateStreak(strict, [entry('2026-01-09')], '2026-01-12', holiday)).toMatchObject({ current: 0, scheduledCount: 4, missedCount: 2 })
+    expect(calculateStreak(strict, [entry('2026-01-09'), entry('2026-01-10'), entry('2026-01-11'), entry('2026-01-12')], '2026-01-12', holiday)).toMatchObject({ current: 4, longest: 4, scheduledCount: 4 })
+  })
+
+  it('keeps an incomplete strict day open, then breaks on the next elapsed day, and ignores dates after deadline', () => {
+    const strict = tracker({ strictMode: true, schedule: { kind: 'weekdays' }, startDate: '2026-01-09', deadline: '2026-01-10' })
+    expect(calculateStreak(strict, [entry('2026-01-09')], '2026-01-10')).toMatchObject({ current: 1, missedCount: 0, scheduledCount: 2 })
+    expect(calculateStreak(strict, [entry('2026-01-09')], '2026-01-11')).toMatchObject({ current: 0, missedCount: 1, scheduledCount: 2 })
+    expect(calculateStreak(strict, [entry('2026-01-09'), entry('2026-01-10')], '2026-01-15')).toMatchObject({ current: 2, longest: 2, scheduledCount: 2 })
+  })
+
+  it('treats a recorded numeric zero as qualifying under an unthresholded any-recorded rule', () => {
+    const zeroTracker = tracker({ qualificationRule: undefined, metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' }] })
+    expect(calculateStreak(zeroTracker, [entry('2026-01-01', { pages: 0 })], '2026-01-01').qualifyingCount).toBe(1)
+  })
+
   it('starts a new run after intentional legacy skips and handles year boundaries', () => {
     const definition = tracker({ startDate: '2026-12-30' })
     const skip = { ...entry('2026-12-31'), outcome: 'skipped' as const, values: {} }

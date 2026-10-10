@@ -95,6 +95,17 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('button', { name: 'Open Daily reading, Rest day' })).toBeInTheDocument()
   })
 
+  it('records a voluntary Strict Mode check-in on a rest day without changing its primary status', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [], strictMode: true })
+    render(<ToastProvider><MemoryRouter initialEntries={[{ pathname: '/', state: { openActivity: { trackerId: 'today-tracker', date: today() } } }]}><TodayPage /></MemoryRouter></ToastProvider>)
+    expect(await screen.findByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toHaveTextContent('Rest day')
+    await user.type(screen.getByRole('spinbutton', { name: 'Pages' }), '5')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 5 } })
+  })
+
   it('keeps the completed-day experience for scheduled work', async () => {
     await localRepository.saveTracker({ ...tracker(), customFields: [] })
     await localRepository.saveTrackerEntry({ trackerId: 'today-tracker', date: today(), outcome: 'recorded', values: { pages: 5 }, note: '' })
@@ -585,17 +596,17 @@ describe('Today check-ins', () => {
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
   })
 
-  it('opens rest-day cards for details without offering an invalid check-in', async () => {
+  it('opens rest-day cards and offers a voluntary check-in without changing the rest-day status', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(tracker({ kind: 'none' }))
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Rest day' }))
     expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
-    expect(screen.getByText(/Today is not a scheduled day/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Save check-in' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save check-in' })).toBeInTheDocument()
   })
 
-  it('shows holiday cards as inspectable while keeping holiday check-in actions unavailable', async () => {
+  it('shows holiday cards and allows voluntary progress while preserving Holiday status', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(tracker())
     await localRepository.saveAccountHolidays([today()], 'personal')
@@ -605,8 +616,8 @@ describe('Today check-ins', () => {
     expect(open.closest('.today-checkin-card')).toHaveClass('status-holiday')
     await user.click(open)
     expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
-    expect(screen.getByText(/marked as a holiday|holiday, so this activity cannot/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Save check-in' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save check-in' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Manage holidays' })).toHaveAttribute('href', `/holidays?date=${today()}`)
   })
 

@@ -11,12 +11,15 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
-import { calculateProgressRewards, calculateStreak } from '../../domain/trackers/progression'
+import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
+import { calculateProgressRewards, calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
+import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
+import { calculateActivityHeatmap } from '../../domain/trackers/activityHeatmap'
+import { ActivityHeatmap } from './ActivityHeatmap'
 
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
@@ -65,47 +68,67 @@ export function DashboardPage() {
     return () => { refreshGeneration.current += 1 }
   }, [refresh, workspaceReady, workspaceKey])
   useWorkspaceDataChanges(owner, workspaceReady, refresh)
-  const entryById = useMemo(() => new Map(data.trackers.map((tracker) => [tracker.id, tracker])), [data.trackers])
-  const streakByTracker = useMemo(() => new Map(data.trackers.map((tracker) => {
-    const trackerEntries = data.entries.filter((entry) => entry.trackerId === tracker.id)
+  const trackerFilter = useTrackerFilter(owner, data.trackers, !loading && workspaceReady)
+  const selectedTracker = data.trackers.find((tracker) => tracker.id === trackerFilter.selectedId) ?? null
+  const visibleTrackers = selectedTracker ? [selectedTracker] : data.trackers
+  const visibleIds = new Set(visibleTrackers.map((tracker) => tracker.id))
+  const visibleEntries = data.entries.filter((entry) => visibleIds.has(entry.trackerId))
+  const heatmapStart = shiftCalendarDate(today, -83)
+  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: today, holidays: new Set(data.holidays) }), [visibleTrackers, visibleEntries, heatmapStart, today, data.holidays])
+  const entryById = useMemo(() => new Map(visibleTrackers.map((tracker) => [tracker.id, tracker])), [visibleTrackers])
+  const streakByTracker = useMemo(() => new Map(visibleTrackers.map((tracker) => {
+    const trackerEntries = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
     return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays))] as const
-  })), [data.trackers, data.entries, data.holidays, today])
+  })), [visibleTrackers, visibleEntries, data.holidays, today])
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
-  const weekEntries = data.entries.filter((entry) => entry.date >= weekStart && entry.date <= today)
-  const qualifiedWeek = weekEntries.filter((entry) => {
+  const weekEntries = visibleEntries.filter((entry) => entry.date >= weekStart && entry.date <= today)
+  const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string) => Boolean(tracker && (tracker.strictMode
+    ? isTrackerInActivePeriod(tracker, date)
+    : !data.holidays.includes(date) && isScheduledDate(tracker, date)))
+  const successfulWeek = weekEntries.filter((entry) => {
     const tracker = entryById.get(entry.trackerId)
-    return entry.outcome === 'recorded' && tracker !== undefined && !data.holidays.includes(entry.date) && isScheduledDate(tracker, entry.date) && evaluateTrackerEntry(tracker, entry).qualified
+    return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && evaluateTrackerEntry(tracker!, entry).qualified
   })
-  const scheduledWeek = data.trackers.reduce((count, tracker) => {
-    for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) if (!data.holidays.includes(day) && isScheduledDate(tracker, day)) count += 1
+  const consistencyQualified = weekEntries.filter((entry) => {
+    const tracker = entryById.get(entry.trackerId)
+    return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && qualifiesForStreak(tracker!, entry)
+  })
+  const scheduledWeek = visibleTrackers.reduce((count, tracker) => {
+    for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) {
+      const opportunity = hasOpportunity(tracker, day)
+      const openToday = day === today && !weekEntries.some((entry) => entry.trackerId === tracker.id && entry.date === day)
+      if (opportunity && !openToday) count += 1
+    }
     return count
   }, 0)
-  const completionPercent = scheduledWeek ? Math.round(qualifiedWeek.length / scheduledWeek * 100) : 0
+  const completionPercent = scheduledWeek ? Math.round(consistencyQualified.length / scheduledWeek * 100) : 0
 
   return (
     <section className="tracker-page dashboard-page" aria-labelledby="dashboard-title">
-      <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Insights" description={`Patterns and wins from your saved activity · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} help={{ title: 'Insights', summary: 'See recent consistency, trends, and wins from your active trackers.', description: 'These summaries are calculated from saved check-ins in this workspace and use its time zone. Reward points and streaks summarize qualifying scheduled activity; they are not separate records or a measure of your personal worth.' }} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
+      <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Insights" description={`Patterns and wins from your saved activity · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} help={{ title: 'Insights', summary: 'See recent consistency, tracker-specific streaks, and long-term activity.', description: 'Use the tracker selector to switch between a combined view and one tracker. All Trackers adds eligible opportunities and results across trackers; their streaks remain separate. The heatmap normalizes each day by that day’s eligible opportunities and applies each tracker’s Standard or Strict Mode policy.' }} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
       <SectionTabs label="Insights sections" items={insightsSectionTabs} />
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : error ? <Surface><EmptyState title="Your progress is still here" description="This device could not open local storage. Try loading the overview again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
+        <div className="insights-filter-toolbar"><TrackerFilter trackers={data.trackers} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Show activity for" /></div>
+        <ActivityHeatmap days={heatmapDays} trackerName={selectedTracker?.name ?? null} />
         <div className="dashboard-stats" role="group" aria-label="Recent progress summary">
-          <StatCard label="Active trackers" value={String(data.trackers.length)} detail="ready for your next check-in" help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
-          <StatCard label="Successes · 7 days" value={String(qualifiedWeek.length)} detail={`${scheduledWeek} scheduled check-ins`} help="Counts recorded check-ins that met their success rule on scheduled days during the last seven calendar days, including today." />
-          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of scheduled opportunities' : 'nothing scheduled this week'} help="Qualified scheduled check-ins divided by scheduled opportunities over the last seven days. Rest days are excluded. A dash means no opportunities were scheduled." />
+          <StatCard label={selectedTracker ? 'Selected tracker' : 'Active trackers'} value={String(visibleTrackers.length)} detail={selectedTracker ? selectedTracker.name : 'ready for your next check-in'} help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
+          <StatCard label="Successes · 7 days" value={String(successfulWeek.length)} detail={`${scheduledWeek} elapsed opportunities`} help="Counts recorded check-ins that met their success rule on a day eligible under that tracker’s policy during the last seven calendar days." />
+          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of eligible opportunities' : 'nothing eligible this week'} help="Streak-qualified check-ins divided by elapsed opportunities over the last seven calendar days. Each tracker uses its own streak qualification and policy. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Today remains open until it ends." />
           <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" help="A playful summary of points earned from active tracker streaks and qualifying check-ins. It does not change your records or goals." />
         </div>
         <section className="dashboard-tracker-section" aria-labelledby="progress-heading">
-            <SectionHeader className="dashboard-section-heading dashboard-tracker-title" eyebrow={<><span className="eyebrow-line" /> KEEP GOING</>} title="Your trackers" headingId="progress-heading" help={{ title: 'Tracker progress cards', summary: 'See streaks and the latest saved check-in for each active tracker.', description: 'A current streak counts consecutive scheduled dates that qualified; rest days preserve the count without adding to it. Personal best is the longest qualifying streak recorded. An intentional missed mark breaks the streak. Select a tracker or open Today to record more progress.' }} action={<Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link>} />
+            <SectionHeader className="dashboard-section-heading dashboard-tracker-title" eyebrow={<><span className="eyebrow-line" /> KEEP GOING</>} title="Your trackers" headingId="progress-heading" help={{ title: 'Tracker progress cards', summary: 'See streaks and the latest saved check-in for each active tracker.', description: 'Standard Mode counts qualifying scheduled dates; holidays and rest days preserve continuity without adding to the count. Strict Mode counts every calendar date, including holidays and rest days. Missed or unqualified elapsed opportunities break a streak. Streaks are recalculated from saved entries and the current policy.' }} action={<Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link>} />
             <div className="dashboard-tracker-list">
-              {data.trackers.map((tracker) => {
-                const history = data.entries.filter((entry) => entry.trackerId === tracker.id)
+              {visibleTrackers.map((tracker) => {
+                const history = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
                 const streak = streakByTracker.get(tracker.id)!
                 const latest = history[0]
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
                 const status = getTrackerActivityStatus({ tracker, entry: latest, date: latest?.date ?? today, today, holidays: new Set(data.holidays) })
                 const statusClass = status
-                return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}><div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}</span><span>{latest ? calendarDateLabel(latest.date) : 'Ready when you are'}</span></div><h3>{tracker.name}</h3>{streak.current > 0 || streak.longest > 0 ? <div className="dashboard-tracker-stats"><span><strong>{streak.current}</strong><small>current streak</small></span><span><strong>{streak.longest}</strong><small>personal best</small></span></div> : <p className="dashboard-first-action">Your pattern starts with one check-in.</p>}<div className="dashboard-latest-state">{latest ? <><span className={`history-outcome ${statusClass}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}{latest.outcome === 'skipped' ? ' · marked intentionally' : latestResult ? ' · success rule met' : ''}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : 'No values recorded'}</span></> : <><span className={`history-outcome ${status}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}</span><Link to="/">Make your first check-in →</Link></>}</div></Surface>
+                return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}><div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ''}</span><span>{latest ? calendarDateLabel(latest.date) : 'Ready when you are'}</span></div><h3>{tracker.name}</h3>{streak.current > 0 || streak.longest > 0 ? <div className="dashboard-tracker-stats"><span><strong>{streak.current}</strong><small>current streak <InfoButton title="Current streak" summary="Consecutive qualifying opportunities up to today." description={tracker.strictMode ? 'Strict Mode counts every calendar day from tracker start through deadline, including holidays and rest days. A recorded entry must meet this tracker’s streak qualification. Today remains open until it ends.' : 'Standard Mode counts qualifying scheduled days. Missed scheduled days break the streak, while holidays and rest days preserve it without adding to the count. Today remains open until it ends.'} /></small></span><span><strong>{streak.longest}</strong><small>personal best <InfoButton title="Longest streak" summary="The longest uninterrupted run of qualifying days in this tracker’s saved history." description={tracker.strictMode ? 'This uses every calendar day within the tracker period, including holidays and rest days. Changing Strict Mode recalculates the value from saved entries; entries are not changed.' : 'This counts qualifying scheduled days. Missed scheduled days break the run; holidays and rest days pause it. Changing Strict Mode recalculates the value from saved entries; entries are not changed.'} /></small></span></div> : <p className="dashboard-first-action">Your pattern starts with one check-in.</p>}<div className="dashboard-latest-state">{latest ? <><span className={`history-outcome ${statusClass}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}{latest.outcome === 'skipped' ? ' · marked intentionally' : latestResult ? ' · success rule met' : ''}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : 'No values recorded'}</span></> : <><span className={`history-outcome ${status}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}</span><Link to="/">Make your first check-in →</Link></>}</div></Surface>
               })}
             </div>
           </section>
