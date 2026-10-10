@@ -91,6 +91,25 @@ describe('Today check-ins', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
   })
 
+  it('expands and collapses the note row without losing unsaved text', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    const noteDetails = screen.getByText('Add a note').closest('details')!
+    const summary = screen.getByText('Add a note').closest('summary')!
+    expect(summary).toHaveAttribute('aria-expanded', 'false')
+    expect(noteDetails.querySelector('textarea')).toBeInTheDocument()
+    await user.click(summary)
+    await waitFor(() => expect(summary).toHaveAttribute('aria-expanded', 'true'))
+    await user.type(screen.getByLabelText('Note'), 'Keep this draft')
+    await user.click(summary)
+    await waitFor(() => expect(summary).toHaveAttribute('aria-expanded', 'false'))
+    await user.click(summary)
+    expect(screen.getByLabelText('Note')).toHaveValue('Keep this draft')
+    expect(todayStyles).toMatch(/\.today-note-details\s*>\s*summary::after[\s\S]*?display:\s*none/)
+  })
+
   it('keeps the week pattern collapsed until requested', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(tracker())
@@ -275,12 +294,13 @@ describe('Today check-ins', () => {
     expect(todayStyles).toMatch(/\.today-requirements-content\s*\{[^}]*overflow-y:\s*auto/s)
     expect(todayStyles).toMatch(/\.today-requirements-heading\s*\{[^}]*flex:\s*0 0 auto/s)
     expect(todayStyles).toMatch(/\.today-requirements-trigger\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)
+    expect(todayStyles).toMatch(/\.today-requirements-trigger span\s*\{[^}]*width:\s*30px[^}]*height:\s*30px/s)
     expect(todayStyles).toContain('max-height: min(850px, calc(100dvh - max(12px, env(safe-area-inset-top, 0px))')
     expect(todayStyles).toContain('env(safe-area-inset-top, 0px)')
     expect(todayStyles).toContain('-webkit-overflow-scrolling: touch')
     expect(todayStyles).toContain('overflow-wrap: anywhere')
     expect(todayStyles).toMatch(/\.today-detail-backdrop\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*1400/s)
-    expect(todayStyles).toMatch(/details:not\(\.mobile-more\)\[open\] > summary::after\s*\{[^}]*rotate\(180deg\)/s)
+    expect(todayStyles).toMatch(/details:not\(\.mobile-more\)\[open\] > summary::after\s*\{[^}]*rotate\(225deg\)/s)
   })
 
   it('renders the check-in sheet in the viewport-level portal above application navigation', async () => {
