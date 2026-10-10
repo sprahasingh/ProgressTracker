@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useModalLayer } from '../../components/ui/useModalLayer'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
@@ -122,29 +124,10 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
   const selectedDateLabel = calendarDateLabel(today)
   const requirementLabel = (label: string) => historical ? label.replace('Today’s', `${selectedDateLabel} ·`).replace('today', selectedDateLabel) : label
 
+  useModalLayer(open, sheetRef, () => setOpen(false))
   useEffect(() => {
     if (!open) return
     closeRef.current?.focus()
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); return }
-      if (event.key === 'Tab') {
-        const focusable = sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
-        if (focusable?.length) {
-          const first = focusable[0]!
-          const last = focusable[focusable.length - 1]!
-          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-        }
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = previousOverflow
-      triggerRef.current?.focus()
-    }
   }, [open])
 
   return <>
@@ -161,13 +144,13 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
           {metric.nextSuggestion !== undefined && <small className="today-requirement-note">Next scheduled suggestion: {amount(metric.nextSuggestion, metric.unit)}</small>}
         </div>)}
       </div>
-      <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">ⓘ</span></button>
+      <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></button>
     </div>}
-    {compactIconOnly && <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">ⓘ</span></button>}
-    {open && <div className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+    {compactIconOnly && <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></button>}
+    {open && createPortal(<div className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section ref={sheetRef} className="today-requirements-sheet" role="dialog" aria-modal="true" aria-labelledby="today-requirements-title">
         <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><button ref={closeRef} className="today-requirements-close" type="button" aria-label="Close daily requirements" onClick={() => setOpen(false)}>×</button></header>
-        <section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
+        <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
           {metrics.map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}{metric.unit && <span>{metric.unit}</span>}</h4>
             <dl>
               <div><dt>Completed</dt><dd>{metric.isBoolean ? metric.completed ? 'Complete' : 'Not yet' : amount(Number(metric.completed), metric.unit)}</dd></div>
@@ -188,8 +171,8 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
         </dl></article>)}
           {isCumulative && <div className="today-requirements-note">Adaptive suggestions use recorded progress and remaining scheduled days, excluding rest days, holidays, and already recorded days. A saved allocation remains explicit and is not replaced automatically.</div>}
           {!isCumulative && metrics.some((metric) => metric.expectedLabel === 'Today’s target') && <div className="today-requirements-note">Daily recurring targets apply on scheduled days; they are separate from per-check-in thresholds.</div>}
-        </section>}
+        </section>}</div>
       </section>
-    </div>}
+    </div>, document.body)}
   </>
 }

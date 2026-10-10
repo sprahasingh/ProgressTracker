@@ -4,6 +4,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
+import { useModalLayer } from '../../components/ui/useModalLayer'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -265,25 +266,9 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
 
   useLayoutEffect(() => { if (!dirty) { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') } }, [entry, dirty])
+  useModalLayer(true, sheetRef, () => closeRequestRef.current())
   useEffect(() => {
     closeRef.current?.focus()
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKeyDown = (event: KeyboardEvent) => {
-      // The requirement panel is its own modal layered over this sheet. Let its
-      // Escape and focus trap own keyboard handling while it is open.
-      if (sheetRef.current?.querySelector('.today-requirements-sheet')) return
-      if (event.key === 'Escape') { event.preventDefault(); closeRequestRef.current(); return }
-      if (event.key === 'Tab') {
-        const focusable = sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
-        if (!focusable?.length) return
-        const first = focusable[0]!, last = focusable[focusable.length - 1]!
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown); document.body.style.overflow = previousOverflow }
   }, [])
   function requestClose() {
     if (saving) return
@@ -304,9 +289,10 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   async function clear() { setSaving(true); await onClear(tracker, today); setSaving(false); onClose() }
 
   return <div className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
-    <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef}>
+    <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
       <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}</p></div><button ref={closeRef} type="button" className="today-detail-close" aria-label="Close check-in details" onClick={requestClose}>×</button></header>
       <div className="today-detail-content">
+        {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
         {!canEdit ? <p className="today-detail-notice">{holidays.has(today) ? 'Today is a holiday, so this activity cannot be checked in.' : 'Today is not a scheduled day for this activity.'} Existing recorded activity remains available to view.</p> : <>
           {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was skipped. Recording progress will replace the skipped state.</p>}
@@ -314,9 +300,9 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
           <details className="today-note-details"><summary>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
-          <div className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', quickBoolean ? { [firstMetric!.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : quickBoolean ? 'Mark complete' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</div>
         </>}
       </div>
+      {canEdit && <footer className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', quickBoolean ? { [firstMetric!.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : quickBoolean ? 'Mark complete' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
     </section>
   </div>
 }
