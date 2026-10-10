@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { AppIcon } from './AppIcon'
 
 export type ToastKind = 'success' | 'error' | 'warning' | 'info'
 export type ToastInput = {
@@ -64,7 +65,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         return <section className={`app-toast app-toast-${item.kind}`} key={item.id} role={liveRole} aria-label={item.title} aria-live={item.kind === 'error' ? 'assertive' : 'polite'} aria-atomic="true">
           <svg className="app-toast-icon" aria-hidden="true" viewBox="0 0 24 24"><path d={iconPaths[item.kind]} /></svg>
           <div className="app-toast-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}{item.action && <button className="app-toast-action" onClick={() => { void Promise.resolve(item.action?.onClick()).catch(() => undefined); dismiss(item.id) }}>{item.action.label}</button>}</div>
-          <button className="app-toast-dismiss" type="button" aria-label={`Dismiss notification: ${item.title}`} onClick={() => dismiss(item.id)}>×</button>
+          <button className="app-toast-dismiss" type="button" aria-label={`Dismiss notification: ${item.title}`} onClick={() => dismiss(item.id)}><AppIcon name="close" /></button>
         </section>
       })}
     </div>, document.body)}

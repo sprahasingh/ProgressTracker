@@ -7,12 +7,13 @@ import { WorkspaceLoadingState } from '../components/ui/WorkspaceLoadingState'
 import { ToastProvider } from '../components/ui/ToastProvider'
 import { NotificationCenter } from '../components/NotificationCenter'
 import { ForegroundReminderMonitor } from '../features/notifications/ForegroundReminderMonitor'
+import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
 
 const primaryNavigation = [
-  { to: '/', label: 'Today', icon: '◷', matches: ['/'], end: true },
-  { to: '/trackers', label: 'Trackers', icon: '✳', matches: ['/trackers', '/goals'] },
-  { to: '/calendar', label: 'Calendar', icon: '▦', matches: ['/calendar', '/history'] },
-  { to: '/dashboard', label: 'Insights', icon: '↗', matches: ['/dashboard', '/analytics', '/achievements'] },
+  { to: '/', label: 'Today', icon: 'today', matches: ['/'], end: true },
+  { to: '/trackers', label: 'Trackers', icon: 'trackers', matches: ['/trackers', '/goals'] },
+  { to: '/calendar', label: 'Calendar', icon: 'calendar', matches: ['/calendar', '/history'] },
+  { to: '/dashboard', label: 'Insights', icon: 'insights', matches: ['/dashboard', '/analytics', '/achievements'] },
 ]
 
 const mobileMoreNavigation = [
@@ -71,17 +72,17 @@ export function AppShell() {
           {primaryNavigation.map(({ to, label, icon, matches, end }) => {
             const active = routeMatches(location.pathname, matches)
             return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`nav-link${active ? ' active' : ''}`}>
-              <span className="nav-icon" aria-hidden="true">{icon}</span>
+              <AppIcon className="nav-icon" name={icon as AppIconName} />
               {label}
             </NavLink>
           })}
           </nav>
           <div className="sidebar-secondary" aria-label="More destinations">
             <span className="nav-caption nav-caption-secondary">MORE</span>
-            <NavLink to="/holidays" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">☀</span>Holidays & breaks</NavLink>
-            <NavLink to="/settings" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">⚙</span>Settings</NavLink>
-            <NavLink to="/bin" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">▤</span>Bin</NavLink>
-            {status !== 'signed-in' && <NavLink to="/auth" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">◉</span>Account & sync</NavLink>}
+            <NavLink to="/holidays" className="nav-link secondary-link"><AppIcon className="nav-icon" name="holiday" />Holidays & breaks</NavLink>
+            <NavLink to="/settings" className="nav-link secondary-link"><AppIcon className="nav-icon" name="settings" />Settings</NavLink>
+            <NavLink to="/bin" className="nav-link secondary-link"><AppIcon className="nav-icon" name="bin" />Bin</NavLink>
+            {status !== 'signed-in' && <NavLink to="/auth" className="nav-link secondary-link"><AppIcon className="nav-icon" name="account" />Account & sync</NavLink>}
           </div>
           <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
         </div>
@@ -94,10 +95,10 @@ export function AppShell() {
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
           <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span></Link>
+          <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
           <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
           </Link>
-          <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (
@@ -125,11 +126,11 @@ export function AppShell() {
           {primaryNavigation.map(({ to, label, icon, matches, end }) => {
             const active = routeMatches(location.pathname, matches)
             return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`mobile-nav-link${active ? ' active' : ''}`}>
-              <span aria-hidden="true">{icon}</span><small>{label}</small>
+              <AppIcon className="mobile-nav-icon" name={icon as AppIconName} /><small>{label}</small>
             </NavLink>
           })}
           <details className="mobile-more">
-            <summary aria-label="More destinations">•••<small>More</small></summary>
+            <summary aria-label="More destinations"><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></summary>
             <div className="mobile-more-menu">
               {[...mobileMoreNavigation, ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
                 const details = event.currentTarget.closest('details')

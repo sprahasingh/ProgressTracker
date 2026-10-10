@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
@@ -75,7 +76,7 @@ export function AchievementsPage() {
         {achievements.map(({ tracker, streak, rewards, nextMilestone }) => <Surface key={tracker.id} className="achievement-card">
           <div className="achievement-card-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2></div>{tracker.status === 'archived' && <span className="tracker-kind-chip">Archived</span>}</div>
           <div className="achievement-stats-row"><div><strong>{streak.current}</strong><span>current streak</span></div><div><strong>{streak.longest}</strong><span>personal best</span></div><div><strong>{rewards.totalPoints}</strong><span>points</span></div></div>
-          {rewards.earnedMilestones.length > 0 ? <div className="earned-milestones" aria-label="Earned streak milestones">{rewards.earnedMilestones.map((milestone) => <span className="earned-milestone" key={milestone.id}>✦ {milestone.streak}-check-in streak <small>+{milestone.points} points</small></span>)}</div> : <p className="achievement-note">No streak milestones yet. Each qualified scheduled check-in adds {DEFAULT_REWARD_POLICY.pointsPerQualifiedEntry} points.</p>}
+          {rewards.earnedMilestones.length > 0 ? <div className="earned-milestones" aria-label="Earned streak milestones">{rewards.earnedMilestones.map((milestone) => <span className="earned-milestone" key={milestone.id}><AppIcon name="spark" /> {milestone.streak}-check-in streak <small>+{milestone.points} points</small></span>)}</div> : <p className="achievement-note">No streak milestones yet. Each qualified scheduled check-in adds {DEFAULT_REWARD_POLICY.pointsPerQualifiedEntry} points.</p>}
           {nextMilestone && <p className="achievement-note">Next personal-best milestone: {nextMilestone} scheduled check-ins{streak.longest > 0 ? ` · ${nextMilestone - streak.longest} to go` : ''}.</p>}
         </Surface>)}
       </section>

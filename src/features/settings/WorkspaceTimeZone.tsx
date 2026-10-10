@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type FormEvent } from 'react'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { applyDocumentAppearance, rememberAppearance } from './appearance'
@@ -152,7 +153,7 @@ export function SettingsPage() {
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Your profile, preferences, and account sync in one place." />
     <section className="settings-section" id="personal-information" aria-labelledby="personal-title">
       <h2 id="personal-title">Personal Information</h2>
-      <div className="settings-profile-summary"><span className="settings-profile-avatar" aria-hidden="true">{avatarInitial ?? '◉'}</span><div><strong>{displayName || 'Add your name'}</strong><span>{auth.user.email || 'Email unavailable'}</span></div></div>
+      <div className="settings-profile-summary"><span className="settings-profile-avatar" aria-hidden="true">{avatarInitial ?? <AppIcon name="account" />}</span><div><strong>{displayName || 'Add your name'}</strong><span>{auth.user.email || 'Email unavailable'}</span></div></div>
       {!displayName && <p className="settings-hint">Add your name to complete your profile. You can keep using your trackers either way.</p>}
       <div className="settings-account-rows">
         <div><span><strong>Full name</strong><small>{displayName || 'Not set'}</small></span><button className="button button-secondary button-small" onClick={() => { setNameValue(displayName); setNameEditing(!nameEditing); setProfileError('') }}>{nameEditing ? 'Cancel' : 'Edit'}</button></div>

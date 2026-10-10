@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { detectNotificationCapabilities } from './capabilities'
 import { localRepository } from '../../db/localRepository'
@@ -211,5 +212,5 @@ export function NotificationsSettings() {
 
 function TimeSlots({ values, onChange }: { values: string[]; onChange: (times: string[]) => void }) {
   const candidates = ['20:00','12:00','08:00','14:00','19:00','21:00']
-  return <div className="notification-times">{values.map((value, index) => <label key={index}>Reminder {index + 1}<span><input type="time" value={value} onChange={(event) => { if (!values.some((time, i) => i !== index && time === event.target.value)) onChange(values.map((time, i) => i === index ? event.target.value : time)) }} /><button type="button" className="button button-secondary button-small" aria-label={`Remove reminder time ${index + 1}`} disabled={values.length <= 1} onClick={() => onChange(values.filter((_, i) => i !== index))}>×</button></span></label>)}<button type="button" className="button button-secondary button-small" disabled={values.length >= 6 || !candidates.some((time) => !values.includes(time))} onClick={() => { const value = candidates.find((time) => !values.includes(time)); if (value) onChange([...values, value]) }}>Add time</button></div>
+  return <div className="notification-times">{values.map((value, index) => <label key={index}>Reminder {index + 1}<span><input type="time" value={value} onChange={(event) => { if (!values.some((time, i) => i !== index && time === event.target.value)) onChange(values.map((time, i) => i === index ? event.target.value : time)) }} /><button type="button" className="button button-secondary button-small" aria-label={`Remove reminder time ${index + 1}`} disabled={values.length <= 1} onClick={() => onChange(values.filter((_, i) => i !== index))}><AppIcon name="close" /></button></span></label>)}<button type="button" className="button button-secondary button-small" disabled={values.length >= 6 || !candidates.some((time) => !values.includes(time))} onClick={() => { const value = candidates.find((time) => !values.includes(time)); if (value) onChange([...values, value]) }}>Add time</button></div>
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from '../../components/ui/IconButton'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { useToast } from '../../components/ui/ToastProvider'
 import { useModalLayer } from '../../components/ui/useModalLayer'
@@ -149,7 +150,7 @@ export function AccountDeletion() {
     </section>
     {isOpen && createPortal(<div ref={backdropRef} className="account-delete-backdrop">
       <section ref={panelRef} className="account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="account-delete-title" tabIndex={-1}>
-        <header className="account-delete-heading"><div><span className="settings-hint">ACCOUNT ACTIONS</span><h2 id="account-delete-title">{step === 1 ? 'Delete your account?' : 'Verify and confirm deletion'}</h2></div><IconButton ref={closeRef} className="today-detail-close" label="Close account deletion" disabled={busy || outcomeUncertain} onClick={() => { setStep(0); setError('') }}>×</IconButton></header>
+        <header className="account-delete-heading"><div><span className="settings-hint">ACCOUNT ACTIONS</span><h2 id="account-delete-title">{step === 1 ? 'Delete your account?' : 'Verify and confirm deletion'}</h2></div><IconButton ref={closeRef} className="today-detail-close" label="Close account deletion" disabled={busy || outcomeUncertain} onClick={() => { setStep(0); setError('') }}><AppIcon name="close" /></IconButton></header>
         <div className="account-delete-content">
           {step === 1 ? <>
             <p>This permanently deletes <strong>{email}</strong> and the ProgressTracker cloud data owned by this account. You will lose access to the account. This cannot be undone.</p>

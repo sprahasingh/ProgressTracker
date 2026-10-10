@@ -1364,6 +1364,30 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .topbar .avatar > span { display: block; line-height: 1; }
 .topbar .avatar > svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .topbar .avatar:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
+.nav-icon { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mobile-nav-icon { display: block; width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.empty-state-svg-icon { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mobile-nav-link, .mobile-more > summary { min-width: 0; }
+.notification-center { flex: 0 0 auto; margin-left: 8px; }
+.topbar .avatar { flex-shrink: 0; margin-left: 8px; }
+.topbar .avatar { flex-basis: 44px; width: 44px; height: 44px; }
+.notification-center-trigger { width: 44px; height: 44px; }
+.mobile-nav-link.active { color: var(--accent-strong); }
+.mobile-nav-link.active .mobile-nav-icon { color: var(--accent-strong); }
+.mobile-nav-icon { color: inherit; }
+.nav-icon, .mobile-nav-icon, .empty-state-svg-icon, .tracker-kind-option-icon svg, .today-state svg, .status-mark svg, .calendar-dot svg, .calendar-status-mark svg, .calendar-cell-mark svg, .week-rhythm-mark svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tracker-kind-option-icon svg { width: 23px; height: 23px; stroke-width: 1.9; }
+.today-state svg { width: 13px; height: 13px; vertical-align: -2px; stroke-width: 2; }
+.status-mark svg { width: 14px; height: 14px; stroke-width: 2; }
+.calendar-dot svg { width: 11px; height: 11px; stroke-width: 2; }
+.calendar-status-mark svg { width: 18px; height: 18px; stroke-width: 1.9; }
+.calendar-cell-mark svg { width: 10px; height: 10px; stroke-width: 2; }
+.week-rhythm-mark svg { width: 16px; height: 16px; stroke-width: 1.9; }
 @keyframes sync-pulse { 50% { opacity: .45; } }
 .welcome-panel { background: radial-gradient(ellipse at 78% 43%, color-mix(in srgb, var(--info-soft) 55%, var(--surface)), var(--surface) 53%); }
 .welcome-copy h1 { color: var(--ink); }
@@ -2048,3 +2072,28 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
   .today-empty-actions { width: 100%; }
   .today-empty-actions .button { flex: 1 1 100%; }
 }
+
+/* Shared vector icon sizing and final header action alignment. */
+.topbar .avatar { flex-basis: 44px; width: 44px; height: 44px; }
+.notification-center-trigger { width: 44px; height: 44px; }
+.nav-icon { width: 18px; height: 18px; }
+.mobile-nav-icon { width: 22px; height: 22px; }
+.mobile-nav-link.active, .mobile-nav-link.active .mobile-nav-icon { color: var(--accent-strong); }
+.mobile-nav-icon { color: inherit; }
+.nav-icon { color: var(--ink-subtle); }
+.nav-link[aria-current='page'] .nav-icon { color: var(--accent-strong); }
+.status-mark svg { width: 14px; height: 14px; }
+.calendar-dot svg { width: 11px; height: 11px; }
+.calendar-status-mark svg { width: 18px; height: 18px; }
+.calendar-cell-mark svg { width: 10px; height: 10px; }
+.week-rhythm-mark svg { width: 16px; height: 16px; }
+.today-state svg { width: 13px; height: 13px; vertical-align: -2px; }
+.tracker-kind-option-icon svg { width: 23px; height: 23px; }
+.info-button::before { content: none; }
+.info-button-icon { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.notification-center-close svg, .icon-button svg, .app-toast-dismiss svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.auth-status-icon svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.earned-milestone svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.goal-card-expand-icon { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.goal-milestone-marker svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.settings-profile-avatar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }

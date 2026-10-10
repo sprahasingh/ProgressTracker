@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from './IconButton'
+import { AppIcon } from './AppIcon'
 import { useModalLayer } from './useModalLayer'
 
 type Props = {
@@ -115,7 +116,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
       aria-controls={open ? `info-popover-${id}` : undefined}
       title={label}
       onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggle() }}
-    />
+    ><AppIcon name="info" className="info-button-icon" /></button>
     {open && createPortal(<div
       ref={popoverRef}
       id={`info-popover-${id}`}
@@ -125,7 +126,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
       aria-labelledby={`info-title-${id}`}
       style={{ position: 'fixed', top: position.top, left: position.left }}
     >
-      <div className="info-popover-heading"><IconButton ref={closeRef} className="info-dialog-close" label="Close explanation" onClick={() => { restoreTriggerFocus.current = true; setOpen(false) }}>×</IconButton></div>
+      <div className="info-popover-heading"><IconButton ref={closeRef} className="info-dialog-close" label="Close explanation" onClick={() => { restoreTriggerFocus.current = true; setOpen(false) }}><AppIcon name="close" /></IconButton></div>
       <div className="info-popover-content">
         <p className="info-dialog-summary">{summary}</p>
         <h2 id={`info-title-${id}`}>{title}</h2>

@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
 import { Button } from '../../components/ui/Button'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { useToast } from '../../components/ui/ToastProvider'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
@@ -157,11 +158,11 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
     <section className={`auth-page${embedded ? ' auth-page-embedded' : ''}`} aria-labelledby={embedded ? 'settings-sync-title' : 'auth-page-title'}>
       {!embedded && <PageHeader headingId="auth-page-title" eyebrow="YOUR ACCOUNT" title="Keep your progress close" description="Sign in on each device to prepare your account for secure cross-device sync. Your local data remains available either way." help={{ title: 'Account and sync', summary: 'Sign in to access the private workspace associated with your account.', description: 'Each account has an isolated local workspace. Sync sends queued changes through the authenticated server boundary and preserves local progress if a request fails. Guest progress stays separate unless you explicitly choose to import it. Sign-out keeps that account’s local changes for its next sign-in.' }} />}
       <Surface className="auth-card">
-        {status === 'loading' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">◌</span><h2>Checking your account</h2><p>Your local progress stays available while we check your sign-in.</p></div>}
-        {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true">⌂</span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}
+        {status === 'loading' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="loading" /></span><h2>Checking your account</h2><p>Your local progress stays available while we check your sign-in.</p></div>}
+        {status === 'local-only' && <div className="auth-message" role="status"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="home" /></span><h2>Local mode is ready</h2><p>Supabase is not configured for this build. ProgressTracker remains available on this device.</p>{supabaseConfiguration.status === 'invalid' && <p className="auth-error">{supabaseConfiguration.reason}</p>}</div>}
 
         {status === 'signed-in' && !isRecovery && requestedMode !== 'set-password' && (
-          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true">✓</span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Cloud sync starts after this workspace opens, when this browser reconnects, and after you edit its trackers or entries. Local edits remain saved if a sync attempt fails.</p>
+          <div className="auth-message" role="status"><span className="auth-status-icon auth-status-icon-positive" aria-hidden="true"><AppIcon name="check" /></span><h2>You’re signed in</h2><p className="auth-account-email">{user?.email}</p><p>Your local workspace is private to this account. Cloud sync starts after this workspace opens, when this browser reconnects, and after you edit its trackers or entries. Local edits remain saved if a sync attempt fails.</p>
             {isOnline === false && <p className="auth-hint">You’re offline. Your local progress remains available; cloud data will be checked after reconnecting.</p>}
             {syncStatus === 'waiting' && <p className="auth-hint">Your account workspace is ready. Preparing its first cloud check…</p>}
             {syncStatus === 'syncing' && <p className="auth-hint" role="status">{syncTrigger === 'automatic' ? 'Checking your cloud progress…' : 'Syncing this account…'}</p>}
@@ -184,7 +185,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
         )}
 
         {status === 'signed-out' && requestedMode === 'magic-link' && <form className="auth-form" onSubmit={emailForm.handleSubmit(onMagicLink)} noValidate>
-          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true">✉</span><div><h2>Sign in with email</h2><p>We’ll email you a secure, one-time sign-in link.</p></div></div>
+          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="mail" /></span><div><h2>Sign in with email</h2><p>We’ll email you a secure, one-time sign-in link.</p></div></div>
           <label className="auth-label" htmlFor="auth-email">Email address</label><input className="auth-input" id="auth-email" type="email" autoComplete="email" inputMode="email" placeholder="you@example.com" aria-invalid={Boolean(emailForm.formState.errors.email)} {...emailForm.register('email')} />
           {emailForm.formState.errors.email && <p className="auth-error" role="alert">{emailForm.formState.errors.email.message}</p>}{notice && <p className="auth-success" role="status">{notice}</p>}{requestError && <p className="auth-error" role="alert">{requestError}</p>}
           <Button type="submit" className="auth-submit" disabled={emailForm.formState.isSubmitting}>{emailForm.formState.isSubmitting ? 'Sending link…' : 'Email me a sign-in link'}</Button>
@@ -193,7 +194,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
         </form>}
 
         {status === 'signed-out' && (requestedMode === 'sign-in' || requestedMode === 'sign-up') && <form className="auth-form" onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} noValidate>
-          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true">◎</span><div><h2>{requestedMode === 'sign-in' ? 'Sign in with password' : 'Create your account'}</h2><p>{requestedMode === 'sign-in' ? 'Use your email and password.' : 'Choose a password with at least 8 characters.'}</p></div></div>
+          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="account" /></span><div><h2>{requestedMode === 'sign-in' ? 'Sign in with password' : 'Create your account'}</h2><p>{requestedMode === 'sign-in' ? 'Use your email and password.' : 'Choose a password with at least 8 characters.'}</p></div></div>
           <label className="auth-label" htmlFor="password-email">Email address</label><input className="auth-input" id="password-email" type="email" autoComplete="email" {...passwordForm.register('email')} />
           {passwordForm.formState.errors.email && <p className="auth-error" role="alert">{passwordForm.formState.errors.email.message}</p>}
           <label className="auth-label auth-label-spaced" htmlFor="account-password">Password</label><input className="auth-input" id="account-password" type="password" autoComplete={requestedMode === 'sign-in' ? 'current-password' : 'new-password'} {...passwordForm.register('password')} />
@@ -204,14 +205,14 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
         </form>}
 
         {status === 'signed-out' && requestedMode === 'forgot-password' && <form className="auth-form" onSubmit={emailForm.handleSubmit(onForgotPassword)} noValidate>
-          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true">✉</span><div><h2>Reset your password</h2><p>We’ll send a recovery link if the account can receive one.</p></div></div>
+          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="mail" /></span><div><h2>Reset your password</h2><p>We’ll send a recovery link if the account can receive one.</p></div></div>
           <label className="auth-label" htmlFor="auth-email">Email address</label><input className="auth-input" id="auth-email" type="email" autoComplete="email" {...emailForm.register('email')} />
           {emailForm.formState.errors.email && <p className="auth-error" role="alert">{emailForm.formState.errors.email.message}</p>}{notice && <p className="auth-success" role="status">{notice}</p>}{requestError && <p className="auth-error" role="alert">{requestError}</p>}
           <Button type="submit" className="auth-submit" disabled={emailForm.formState.isSubmitting}>{emailForm.formState.isSubmitting ? 'Sending…' : 'Send reset link'}</Button><button className="auth-text-button" type="button" onClick={() => { clearFeedback(); setMode('sign-in') }}>Back to sign in</button>
         </form>}
 
         {(isRecovery || status === 'signed-in' && requestedMode === 'set-password') && <form className="auth-form" onSubmit={setPasswordForm.handleSubmit(onSetPassword)} noValidate>
-          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true">◎</span><div><h2>{isRecovery ? 'Choose a new password' : 'Set your password'}</h2><p>{isRecovery ? 'Your recovery link is verified. Choose a new password for this account.' : 'Add a password so you can sign in without a magic link.'}</p></div></div>
+          <div className="auth-form-heading"><span className="auth-status-icon" aria-hidden="true"><AppIcon name="account" /></span><div><h2>{isRecovery ? 'Choose a new password' : 'Set your password'}</h2><p>{isRecovery ? 'Your recovery link is verified. Choose a new password for this account.' : 'Add a password so you can sign in without a magic link.'}</p></div></div>
           <label className="auth-label" htmlFor="new-account-password">New password</label><input className="auth-input" id="new-account-password" type="password" autoComplete="new-password" {...setPasswordForm.register('password')} />
           {setPasswordForm.formState.errors.password && <p className="auth-error" role="alert">{setPasswordForm.formState.errors.password.message}</p>}
           <label className="auth-label auth-label-spaced" htmlFor="confirm-account-password">Confirm password</label><input className="auth-input" id="confirm-account-password" type="password" autoComplete="new-password" {...setPasswordForm.register('confirmPassword')} />

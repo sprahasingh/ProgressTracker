@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
+import { AppIcon, type AppIconName } from '../../components/ui/AppIcon'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
@@ -22,11 +23,11 @@ type FormValues = { name: string; description: string; kind: TrackerKind; schedu
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
 const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
-const kindOptions: Array<{ kind: TrackerKind; title: string; description: string; icon: string }> = [
-  { kind: 'habit', title: 'Habit', description: 'Build a regular routine.', icon: '↻' },
-  { kind: 'goal', title: 'Goal', description: 'Work toward an outcome.', icon: '◎' },
-  { kind: 'challenge', title: 'Challenge', description: 'Try a time-limited push.', icon: '⚡' },
-  { kind: 'project', title: 'Project', description: 'Make progress on a bigger effort.', icon: '◇' },
+const kindOptions: Array<{ kind: TrackerKind; title: string; description: string; icon: AppIconName }> = [
+  { kind: 'habit', title: 'Habit', description: 'Build a regular routine.', icon: 'habit' },
+  { kind: 'goal', title: 'Goal', description: 'Work toward an outcome.', icon: 'goal' },
+  { kind: 'challenge', title: 'Challenge', description: 'Try a time-limited push.', icon: 'challenge' },
+  { kind: 'project', title: 'Project', description: 'Make progress on a bigger effort.', icon: 'project' },
 ]
 
 function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
@@ -312,7 +313,7 @@ export function TrackerSetupPage() {
     return <section className="tracker-page tracker-created-page" aria-labelledby="tracker-created-title">
       <PageHeader headingId="tracker-created-title" eyebrow="A GREAT START" title="You’re ready to begin" description={`${savedTracker.name} is saved on this device and ready for your next step.`} />
       <Surface className="tracker-created-card">
-        <span className="tracker-created-mark" aria-hidden="true">✓</span>
+        <span className="tracker-created-mark" aria-hidden="true"><AppIcon name="check" /></span>
         <div><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === savedTracker.kind)?.title}</span><h2>{savedTracker.name}</h2>
           {goal && savedTracker.goalPlanning && savedTracker.metrics[0] && <p>{formatTrackerNumber(savedTracker.goalPlanning.cumulativeTargets[savedTracker.metrics[0].id] ?? 0)} {savedTracker.metrics[0].unit} by {calendarDateLabel(savedTracker.deadline ?? '')}</p>}
         </div>
@@ -336,7 +337,7 @@ export function TrackerSetupPage() {
       <Surface className="tracker-form-card">
         <form className="tracker-form tracker-setup-form" onSubmit={submit} noValidate>
           {error && <div role="alert" className="form-alert">{error}</div>}
-          {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true">{item.icon}</span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div><details className="other-tracker-types" open={values.kind === 'challenge' || values.kind === 'project'}><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true">{item.icon}</span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div></details></fieldset>}
+          {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true"><AppIcon name={item.icon} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div><details className="other-tracker-types" open={values.kind === 'challenge' || values.kind === 'project'}><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true"><AppIcon name={item.icon} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div></details></fieldset>}
           {existing && <div className="editing-kind-note"><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === existing.kind)?.title}</span><p>{kindOptions.find((item) => item.kind === existing.kind)?.description} Type stays the same so saved progress keeps its meaning.</p></div>}
           <label className="form-field tracker-name-field"><span>{selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'}</span><input aria-label={selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'} className="auth-input" maxLength={200} value={values.name} onChange={(event) => update('name', event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'tracker-name-error' : undefined} placeholder={selectedKind === 'goal' ? 'e.g. Solve 100 DSA problems' : selectedKind === 'habit' ? 'e.g. Read every day' : selectedKind === 'challenge' ? 'e.g. 30-day writing challenge' : 'e.g. Launch my portfolio'} />{fieldErrors.name && <small id="tracker-name-error" className="auth-error">{fieldErrors.name}</small>}</label>
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}

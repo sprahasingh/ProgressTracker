@@ -6,6 +6,8 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { AppIcon } from '../../components/ui/AppIcon'
+import { ActivityStatusIcon } from '../../components/ui/ActivityStatusIcon'
 import { Surface } from '../../components/ui/Surface'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
@@ -143,7 +145,7 @@ export function GoalsPage() {
               <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
               <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
               <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}</>}</span>)}</span>
-              <span className="goal-card-expand-hint">{expanded ? 'Hide details' : 'View goal details'} <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span></span>
+              <span className="goal-card-expand-hint">{expanded ? 'Hide details' : 'View goal details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
             </button>
             <div className="goal-expanded-details" id={goalDetailId} hidden={!expanded}>
             {visitedGoals.has(tracker.id) && <>
@@ -226,7 +228,7 @@ export function GoalsPage() {
                   const checkpoint = bestValue === undefined ? 'Not started' : `${formatTrackerNumber(bestValue)}${metric?.unit ? ` ${metric.unit}` : ''} of ${milestone.targetValue === undefined ? 'target' : formatTrackerNumber(milestone.targetValue)}`
                   const due = milestone.dueDate ? ` · Due ${calendarDateLabel(milestone.dueDate)}` : ''
                   return <li key={milestone.id}>
-                    <span className={`goal-milestone-marker${reached ? ' reached' : ''}`} aria-hidden="true">{reached ? '✓' : '○'}</span>
+                    <span className={`goal-milestone-marker${reached ? ' reached' : ''}`} aria-hidden="true"><ActivityStatusIcon status={reached ? 'completed' : 'pending'} /></span>
                     <div><strong>{milestone.title || 'Untitled milestone'}</strong>{milestone.description && <small>{milestone.description}</small>}<small>{reached ? `Reached · best ${checkpoint}` : `${checkpoint}${due}`}</small></div>
                   </li>
                 })}
