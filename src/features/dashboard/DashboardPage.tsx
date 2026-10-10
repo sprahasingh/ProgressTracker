@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { SectionHeader } from '../../components/ui/SectionHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
@@ -95,7 +96,7 @@ export function DashboardPage() {
           <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" help="A playful summary of points earned from active tracker streaks and qualifying check-ins. It does not change your records or goals." />
         </div>
         <section className="dashboard-tracker-section" aria-labelledby="progress-heading">
-            <div className="dashboard-section-heading dashboard-tracker-title"><div><span className="eyebrow"><span className="eyebrow-line" /> KEEP GOING</span><h2 id="progress-heading">Your trackers</h2></div><div className="dashboard-heading-actions"><InfoButton title="Tracker progress cards" summary="See streaks and the latest saved check-in for each active tracker." description="A current streak counts consecutive scheduled dates that qualified; rest days are skipped. Personal best is the longest qualifying streak recorded. The latest status distinguishes a successful rule, a logged value that did not qualify, and a skipped day. Select a tracker or open Today to record more progress." /><Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link></div></div>
+            <SectionHeader className="dashboard-section-heading dashboard-tracker-title" eyebrow={<><span className="eyebrow-line" /> KEEP GOING</>} title="Your trackers" headingId="progress-heading" help={{ title: 'Tracker progress cards', summary: 'See streaks and the latest saved check-in for each active tracker.', description: 'A current streak counts consecutive scheduled dates that qualified; rest days are skipped. Personal best is the longest qualifying streak recorded. The latest status distinguishes a successful rule, a logged value that did not qualify, and a skipped day. Select a tracker or open Today to record more progress.' }} action={<Link to="/trackers">All trackers <span aria-hidden="true">→</span></Link>} />
             <div className="dashboard-tracker-list">
               {data.trackers.map((tracker) => {
                 const history = data.entries.filter((entry) => entry.trackerId === tracker.id)

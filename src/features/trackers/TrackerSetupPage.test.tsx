@@ -93,7 +93,9 @@ describe('tracker setup flow', () => {
     expect(styles).toContain('bottom: calc(64px + env(safe-area-inset-bottom, 0px))')
     expect(styles).toContain('white-space: normal;')
     expect(styles).toContain('overflow-wrap: normal;')
-    expect(styles).toContain('.configuration-heading .dashboard-heading-actions { flex: 0 0 auto;')
+    expect(styles).toContain('.section-header-container { min-width: 0; container-type: inline-size; }')
+    expect(styles).toMatch(/@container\s*\(max-width:\s*360px\)/)
+    expect(styles).not.toContain('.configuration-heading > div:first-child { flex-basis: 100%;')
     cleanup()
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
@@ -153,7 +155,10 @@ describe('tracker setup flow', () => {
     expect(measureNames[1]).toHaveValue('Focus time')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 2 value type' }), 'duration')
 
+    const successDisclosure = screen.getByText('Success rule', { selector: 'summary' }).closest('details')!
     await user.click(screen.getByText('Success rule', { selector: 'summary' }))
+    expect(successDisclosure).toHaveAttribute('open')
+    expect(screen.queryByRole('heading', { name: 'Success rule' })).not.toBeInTheDocument()
     const ruleKinds = screen.getAllByRole('combobox', { name: 'Success condition type' })
     expect(within(ruleKinds[0]!).queryByRole('option', { name: 'Achievement threshold' })).not.toBeInTheDocument()
     await user.selectOptions(ruleKinds[0]!, 'all')
@@ -167,8 +172,12 @@ describe('tracker setup flow', () => {
     const optionInput = screen.getByRole('region', { name: 'Custom fields' }).querySelector('textarea') as HTMLTextAreaElement
     fireEvent.change(optionInput, { target: { value: 'Focused\nTired' } })
     expect(optionInput).toHaveValue('Focused\nTired')
+    const milestoneDisclosure = screen.getByText('Milestones', { selector: 'summary' }).closest('details')!
     await user.click(screen.getByText('Milestones', { selector: 'summary' }))
+    expect(milestoneDisclosure).toHaveAttribute('open')
+    expect(screen.queryByRole('heading', { name: 'Milestones' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ Add milestone' }))
+    expect(milestoneDisclosure).toHaveAttribute('open')
     const milestoneTitle = screen.getByRole('region', { name: 'Milestones' }).querySelector('input') as HTMLInputElement
     await user.type(milestoneTitle, 'Publish first case study')
     expect(milestoneTitle).toHaveValue('Publish first case study')
