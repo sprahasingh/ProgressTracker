@@ -287,7 +287,7 @@ a { color: inherit; text-decoration: none; }
 .notification-settings .notification-capability { display: grid; gap: 4px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--surface-raised) 72%, transparent); }
 .notification-preferences-fieldset { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
 .notification-preferences-fieldset:disabled { opacity: .58; }
-.notification-accordion { min-width: 0; border-top: 1px solid var(--line); }
+.notification-accordion { min-width: 0; }
 .notification-accordion-heading { margin: 0; }
 .notification-accordion-trigger { display: grid; grid-template-columns: minmax(0, 1fr) 20px; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 10px 4px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .notification-accordion-trigger:hover { background: color-mix(in srgb, var(--surface-muted) 55%, transparent); }
@@ -302,7 +302,6 @@ a { color: inherit; text-decoration: none; }
 .notification-accordion-panel > p:first-child { margin-top: 0; }
 .notification-accordion-panel > label:not(.form-field) { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 5px 0; }
 .notification-accordion-panel input[type=checkbox], .notification-accordion-panel input[type=radio] { flex: 0 0 auto; }
-.notification-device-accordion { border-bottom: 1px solid var(--line); }
 .notification-settings .notification-status-heading { margin: 12px 0 6px; }
 .notification-settings .notification-capability { gap: 5px 12px; padding: 10px 12px; }
 .notification-settings .notification-capability p { margin: 2px 0; }
@@ -1084,12 +1083,11 @@ body {
 .today-progress > span { color: var(--accent-strong); }
 .today-progress-track { height: 10px; background: color-mix(in srgb, var(--surface) 70%, var(--joy-sun-soft)); }
 .today-progress-track i { background: linear-gradient(90deg, var(--joy-sun), var(--joy-coral), var(--joy-teal)); }
-.today-upcoming-goal { border: 0; border-left: 4px solid var(--goal-accent, var(--accent)); background: var(--surface); transition: transform 160ms ease, box-shadow 160ms ease; }
+.today-upcoming-goal { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); transition: transform 160ms ease, box-shadow 160ms ease; }
 .today-upcoming-goal:nth-child(3n + 1) { --goal-accent: var(--joy-coral); }
 .today-upcoming-goal:nth-child(3n + 2) { --goal-accent: var(--joy-teal); }
 .today-upcoming-goal:nth-child(3n + 3) { --goal-accent: var(--joy-citrus); }
 .today-upcoming-goal:hover { transform: translateY(-2px); box-shadow: 0 9px 21px color-mix(in srgb, var(--goal-accent) 16%, transparent); }
-.today-checkin-card { border-top: 3px solid var(--joy-teal); }
 .today-state.recorded, .today-result { color: var(--positive); }
 .today-state.recorded { background: var(--positive-soft); }
 .dashboard-stats > :nth-child(4n + 1) { background: linear-gradient(145deg, var(--surface), var(--joy-sun-soft)); }
@@ -1101,7 +1099,6 @@ body {
 .dashboard-stats .dashboard-stat:nth-child(4n + 2) strong { color: var(--joy-teal); }
 .dashboard-stats .dashboard-stat:nth-child(4n + 3) strong { color: var(--joy-coral); }
 .dashboard-stats .dashboard-stat:nth-child(4n + 4) strong { color: var(--joy-citrus); }
-.achievement-card { border-left: 4px solid var(--joy-citrus); }
 .earned-milestone { background: var(--joy-citrus-soft); color: var(--warning); }
 .goal-plan-facts > div { border: 1px solid var(--line); }
 .goal-plan-day.met { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--positive) 28%, transparent); }
@@ -1389,11 +1386,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .today-progress-track i { background: linear-gradient(90deg, var(--joy-coral), var(--joy-citrus), var(--joy-teal)); }
 .today-progress-track i[style*="100%"] { box-shadow: 0 0 12px color-mix(in srgb, var(--joy-teal) 42%, transparent); }
 .today-checkin-list { gap: 11px; }
-.today-checkin-card { padding: 17px 19px; border-top-width: 3px; }
-.today-checkin-card:nth-child(4n + 1) { border-top-color: var(--joy-coral); }
-.today-checkin-card:nth-child(4n + 2) { border-top-color: var(--joy-teal); }
-.today-checkin-card:nth-child(4n + 3) { border-top-color: var(--joy-citrus); }
-.today-checkin-card:nth-child(4n + 4) { border-top-color: var(--joy-blue); }
+.today-checkin-card { padding: 17px 19px; }
 .today-checkin-card.checked-in { background: linear-gradient(110deg, var(--surface), color-mix(in srgb, var(--positive-soft) 50%, var(--surface))); }
 .today-checkin-heading h2 { font-family: var(--font-sans); font-size: 19px; font-weight: 730; letter-spacing: -.3px; }
 .today-entry-fields { gap: 12px; margin-top: 15px; }
@@ -1601,7 +1594,6 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .status-neutral, .status-skipped { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-neutral-ink); }
 .today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
 .tracker-archived-chip { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
-.today-checkin-card.status-card { border-top: 3px solid var(--status-fg); }
 .today-state, .history-outcome.status-completed, .history-outcome.status-partial, .history-outcome.status-pending, .history-outcome.status-missed, .history-outcome.status-holiday, .history-outcome.status-unscheduled {
   display: inline-flex; align-items: center; gap: 5px; background: var(--status-bg); color: var(--status-fg); font-weight: 750;
 }
@@ -1707,7 +1699,6 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 [data-theme='dark'] .history-entry-card.status-card,
 [data-theme='dark'] .dashboard-tracker-card.status-card,
 [data-theme='dark'] .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
-[data-theme='dark'] .today-checkin-card.status-card { border-top-color: var(--status-fg); }
 [data-theme='dark'] .calendar-status-mark, [data-theme='dark'] .calendar-cell-status { border-color: color-mix(in srgb, currentColor 26%, var(--line)); }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2280,6 +2271,57 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .insights-filter-toolbar .tracker-filter { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .heatmap-cell { scroll-behavior: auto; transition: none; } }
+
+/* Shared card surfaces: one quiet outline, clipped corners, and theme-aware depth. */
+.surface,
+.tracker-card,
+.goal-card,
+.today-checkin-card,
+.dashboard-tracker-card,
+.dashboard-calendar-card,
+.dashboard-stat,
+.analytics-tracker,
+.achievement-card,
+.history-entry-card,
+.settings-card,
+.settings-section,
+.activity-heatmap-section {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.status-card { border-radius: var(--radius-card); }
+.today-checkin-card.status-card { border: 1px solid var(--status-stroke, var(--line)); }
+.settings-section { border-color: var(--line); background: var(--surface); }
+.notification-accordion {
+  margin-top: 10px;
+  padding: 3px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card-nested);
+  background: var(--surface-raised);
+}
+.notification-accordion:first-child { margin-top: 0; }
+.notification-device-accordion { border-bottom: 1px solid var(--line); }
+.notification-settings .notification-capability {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card-nested);
+  background: var(--surface-raised);
+}
+.analytics-metric,
+.configuration-card,
+.goal-plan-disclosure,
+.goal-milestone-disclosure,
+.goal-history-disclosure { border-radius: var(--radius-card-nested); }
+@media (max-width: 430px) {
+  .surface-padded,
+  .today-checkin-card,
+  .dashboard-tracker-card,
+  .dashboard-stat,
+  .analytics-tracker,
+  .achievement-card,
+  .history-entry-card,
+  .settings-card,
+  .settings-section { border-radius: 18px; }
+}
 
 /* Shared vector icon sizing and final header action alignment. */
 .topbar .avatar { flex-basis: 44px; width: 44px; height: 44px; }
