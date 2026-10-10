@@ -21,9 +21,10 @@ export function InfoButton({ title, summary, description, label = `More about ${
   const closeRef = useRef<HTMLButtonElement>(null)
   const restoreTriggerFocus = useRef(false)
   const [open, setOpen] = useState(false)
+  const [presentation, setPresentation] = useState<'anchored' | 'sheet'>('anchored')
   const [position, setPosition] = useState({ top: -1000, left: -1000 })
 
-  useModalLayer(open, popoverRef, () => {
+  useModalLayer(open && presentation === 'sheet', popoverRef, () => {
     restoreTriggerFocus.current = true
     setOpen(false)
   })
@@ -48,7 +49,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
       const viewLeft = viewport?.offsetLeft ?? 0
       const viewHeight = viewport?.height ?? window.innerHeight
       const viewWidth = viewport?.width ?? window.innerWidth
-      popover.style.maxHeight = `${Math.max(120, Math.min(520, viewHeight - 24))}px`
+      popover.style.maxHeight = 'none'
       popover.style.maxWidth = `${Math.max(180, viewWidth - 24)}px`
       const panel = popover.getBoundingClientRect()
       if (anchor.width === 0 && anchor.height === 0) {
@@ -57,8 +58,25 @@ export function InfoButton({ title, summary, description, label = `More about ${
       }
       const gap = 8
       const margin = 12
-      const below = anchor.bottom + gap + panel.height <= viewTop + viewHeight - margin
-      const top = below ? anchor.bottom + gap : Math.max(viewTop + margin, anchor.top - panel.height - gap)
+      const mobile = viewWidth <= 760
+      const nav = mobile ? document.querySelector<HTMLElement>('.mobile-nav')?.getBoundingClientRect() : undefined
+      const viewBottom = Math.min(viewTop + viewHeight - margin, nav && nav.top > viewTop ? nav.top - 8 : Infinity)
+      const naturalHeight = Math.max(panel.height, popover.scrollHeight)
+      const belowSpace = Math.max(0, viewBottom - anchor.bottom - gap)
+      const aboveSpace = Math.max(0, anchor.top - viewTop - margin - gap)
+      const fitsBelow = naturalHeight <= belowSpace
+      const fitsAbove = naturalHeight <= aboveSpace
+      const useSheet = mobile && !fitsBelow && !fitsAbove
+      setPresentation(useSheet ? 'sheet' : 'anchored')
+      if (useSheet) {
+        const maxHeight = Math.max(120, viewBottom - viewTop - margin)
+        popover.style.maxHeight = `${maxHeight}px`
+        setPosition({ top: Math.max(viewTop + margin, viewBottom - Math.min(naturalHeight, maxHeight)), left: viewLeft + 12 })
+        return
+      }
+      popover.style.maxHeight = `${Math.max(120, Math.min(520, viewHeight - 24))}px`
+      const below = fitsBelow || (!fitsAbove && belowSpace >= aboveSpace)
+      const top = below ? anchor.bottom + gap : Math.max(viewTop + margin, anchor.top - Math.min(naturalHeight, 520) - gap)
       const centeredLeft = anchor.left + anchor.width / 2 - panel.width / 2
       const left = Math.min(Math.max(viewLeft + margin, centeredLeft), Math.max(viewLeft + margin, viewLeft + viewWidth - panel.width - margin))
       setPosition({ top, left })
@@ -93,6 +111,18 @@ export function InfoButton({ title, summary, description, label = `More about ${
   }, [open])
 
   useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || presentation === 'sheet') return
+      event.preventDefault()
+      restoreTriggerFocus.current = true
+      setOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, presentation])
+
+  useEffect(() => {
     if (open) closeRef.current?.focus()
     else if (restoreTriggerFocus.current) {
       restoreTriggerFocus.current = false
@@ -122,8 +152,9 @@ export function InfoButton({ title, summary, description, label = `More about ${
       id={`info-popover-${id}`}
       className="info-popover"
       role="dialog"
-      aria-modal="true"
+      aria-modal={presentation === 'sheet' ? 'true' : undefined}
       aria-labelledby={`info-title-${id}`}
+      data-presentation={presentation}
       style={{ position: 'fixed', top: position.top, left: position.left }}
     >
       <div className="info-popover-heading"><IconButton ref={closeRef} className="info-dialog-close" label="Close explanation" onClick={() => { restoreTriggerFocus.current = true; setOpen(false) }}><AppIcon name="close" /></IconButton></div>

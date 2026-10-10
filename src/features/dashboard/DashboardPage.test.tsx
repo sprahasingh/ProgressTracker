@@ -55,6 +55,16 @@ describe('local progress dashboard', () => {
     expect(await screen.findByRole('heading', { name: 'Activity Heatmap' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Drink water' })).toBeInTheDocument()
+    const overview = document.querySelector('.dashboard-page')!
+    const regions = [
+      overview.querySelector('.insights-filter-toolbar')!,
+      overview.querySelector('.dashboard-stats')!,
+      overview.querySelector('.activity-heatmap-section')!,
+      overview.querySelector('.dashboard-tracker-section')!,
+    ]
+    const childOrder = Array.from(overview.children)
+    expect(regions.map((region) => childOrder.indexOf(region))).toEqual([2, 3, 4, 5])
+    expect(overview.querySelector('.dashboard-stats')?.children).toHaveLength(4)
     await user.selectOptions(screen.getByRole('combobox', { name: 'Show activity for' }), first.id)
     expect(screen.getByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Drink water' })).not.toBeInTheDocument()
