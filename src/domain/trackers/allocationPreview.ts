@@ -1,5 +1,5 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
-import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence, latestEntriesByDate } from './planning'
+import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence, latestEntriesByDate, trackerActiveStartDate } from './planning'
 
 export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; holiday?: boolean; closed?: boolean }
 export type CumulativeAllocationPreview = {
@@ -25,16 +25,19 @@ export function createCumulativeAllocationPreview(input: {
   asOfDate: string
   startDate: string
   holidays?: ReadonlySet<string>
+  timeZone?: string
 }): CumulativeAllocationPreview {
   const progress = calculateCumulativeMetricPlan({
     ...input,
     progressSemantics: input.tracker.goalPlanning?.progressSemantics[input.metricId] ?? 'snapshot',
     holidays: input.holidays,
+    timeZone: input.timeZone,
   })
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Allocation previews require a numeric or checklist metric.')
 
-  const startDate = input.startDate > input.asOfDate ? input.startDate : input.asOfDate
+  const activeStartDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
+  const startDate = activeStartDate > input.asOfDate ? activeStartDate : input.asOfDate
   const latestEntries = latestEntriesByDate(input.tracker, input.entries)
   const todayClosed = latestEntries.has(input.asOfDate)
   const days: AllocationPreviewDay[] = []
@@ -43,7 +46,7 @@ export function createCumulativeAllocationPreview(input: {
       const date = new Date(time).toISOString().slice(0, 10)
       const holiday = input.holidays?.has(date) ?? false
       const closed = date === input.asOfDate && todayClosed
-      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date) && !holiday && !closed, amount: null, ...(holiday ? { holiday: true } : {}), ...(closed ? { closed: true } : {}) })
+      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday && !closed, amount: null, ...(holiday ? { holiday: true } : {}), ...(closed ? { closed: true } : {}) })
     }
   }
 

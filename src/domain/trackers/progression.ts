@@ -1,5 +1,5 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
-import { classifyAchievement, evaluateTrackerEntry, isTrackerScheduledOccurrence } from './planning'
+import { classifyAchievement, evaluateTrackerEntry, isTrackerScheduledOccurrence, trackerCreationDate } from './planning'
 
 export type StreakResult = {
   asOfDate: string
@@ -81,7 +81,7 @@ export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEnt
   return evaluate(tracker.qualificationRule)
 }
 
-function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>): Occurrence[] {
+function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string): Occurrence[] {
   const boundedEnd = tracker.deadline && tracker.deadline < asOfDate ? tracker.deadline : asOfDate
   const end = parseDate(boundedEnd)
   const byDate = new Map<string, TrackerEntry>()
@@ -93,14 +93,14 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
     byDate.set(entry.date, entry)
   }
 
-  const createdDate = tracker.createdAt.slice(0, 10)
+  const createdDate = trackerCreationDate(tracker, timeZone)
   const anchor = tracker.startDate && tracker.startDate > createdDate ? tracker.startDate : createdDate
   const start = parseDate(anchor)
   const occurrences: Occurrence[] = []
   for (let time = start; time <= end; time += DAY_MS) {
     const date = dateText(time)
     const strict = tracker.strictMode === true
-    if (!strict && (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date))) continue
+    if (!strict && (!isTrackerScheduledOccurrence(tracker, date, timeZone) || holidays.has(date))) continue
     const entry = byDate.get(date)
     const qualified = entry ? qualifiesForStreak(tracker, entry) : false
     occurrences.push({ date, qualified, open: date === asOfDate && (!entry || (entry.outcome === 'recorded' && !qualified)) })
@@ -113,9 +113,9 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
  * run: they neither add to it nor reset it. A missed scheduled occurrence
  * resets the current run, not the personal best.
  */
-export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set()): StreakResult {
+export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): StreakResult {
   parseDate(asOfDate)
-  const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays)
+  const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays, timeZone)
   let longest = 0
   let run = 0
   let qualifyingCount = 0

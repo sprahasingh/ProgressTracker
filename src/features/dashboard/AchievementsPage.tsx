@@ -11,6 +11,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateProgressRewards, calculateStreak, DEFAULT_REWARD_POLICY } from '../../domain/trackers/progression'
+import { trackerActiveStartDate } from '../../domain/trackers/planning'
 import { localCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
@@ -35,7 +36,7 @@ export function AchievementsPage() {
     try {
       const trackers = await localRepository.listTrackers(true)
       const earliest = trackers.reduce<CalendarDate>((date, tracker) => {
-        const anchor = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
+        const anchor = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return anchor < date ? anchor : date
       }, today)
       const [entries, holidays] = await Promise.all([
@@ -49,7 +50,7 @@ export function AchievementsPage() {
     } finally {
       if (refreshGeneration.current === generation) setLoading(false)
     }
-  }, [today])
+  }, [today, timeZone])
   useEffect(() => { if (workspaceReady) void refresh() }, [refresh, workspaceReady])
   useWorkspaceDataChanges(owner, workspaceReady, refresh)
 
@@ -58,11 +59,11 @@ export function AchievementsPage() {
   const visibleTrackers = selectedTracker ? [selectedTracker] : data.trackers
   const achievements = useMemo(() => visibleTrackers.map((tracker) => {
     const history = data.entries.filter((entry) => entry.trackerId === tracker.id)
-    const streak = calculateStreak(tracker, history, today, new Set(data.holidays))
+    const streak = calculateStreak(tracker, history, today, new Set(data.holidays), timeZone)
     const rewards = calculateProgressRewards(streak)
     const nextMilestone = DEFAULT_REWARD_POLICY.streakMilestones.find((milestone) => milestone > streak.longest)
     return { tracker, streak, rewards, nextMilestone }
-  }), [visibleTrackers, data.entries, data.holidays, today])
+  }), [visibleTrackers, data.entries, data.holidays, today, timeZone])
   const totalPoints = achievements.reduce((sum, item) => sum + item.rewards.totalPoints, 0)
   const totalQualifiedEntries = achievements.reduce((sum, item) => sum + item.rewards.qualifyingEntries, 0)
   const totalMilestones = achievements.reduce((sum, item) => sum + item.rewards.earnedMilestones.length, 0)

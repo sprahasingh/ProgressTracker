@@ -69,14 +69,13 @@ describe('shared activity status rules', () => {
     const lightTokenBlock = tokens.split("[data-theme='dark']")[0]!
     const darkTokenBlock = tokens.split("[data-theme='dark']")[1]!
     const expected = {
-      pending: { light: ['#6b7280', '#f3f4f6', '#e5e7eb'], dark: ['#a1a1aa', '#27272a', '#3f3f46'] },
-      completed: { light: ['#26834a', '#e8f8ed', '#bce6c9'], dark: ['#b7e5c4', '#3c5544', '#53705a'] },
-      partial: { light: ['#a66b15', '#fff5de', '#f2ddaf'], dark: ['#eed6ab', '#594c37', '#756347'] },
-      missed: { light: ['#c54d56', '#fff0f1', '#f4c8cc'], dark: ['#efb9b9', '#5b3f43', '#775359'] },
+      pending: { light: ['#555b65', '#f3f4f6', '#e5e7eb'], dark: ['#a1a1aa', '#27272a', '#3f3f46'] },
+      completed: { light: ['#1e6539', '#e8f8ed', '#bce6c9'], dark: ['#b7e5c4', '#3c5544', '#53705a'] },
+      partial: { light: ['#80500c', '#fff5de', '#f2ddaf'], dark: ['#eed6ab', '#594c37', '#756347'] },
+      missed: { light: ['#9f3039', '#fff0f1', '#f4c8cc'], dark: ['#efb9b9', '#5b3f43', '#775359'] },
       holiday: { light: ['#7952b3', '#f5efff', '#dfcef5'], dark: ['#d7c4ee', '#51435f', '#6c5980'] },
       rest: { light: ['#4e67b8', '#eef2ff', '#cdd7fa'], dark: ['#c4d0f1', '#404c67', '#576787'] },
     } as const
-    const lowContrastLightText: string[] = []
     for (const [status, palettes] of Object.entries(expected)) {
       for (const [theme, block] of [['light', lightTokenBlock], ['dark', darkTokenBlock]] as const) {
         const [foreground, surface, border] = palettes[theme]
@@ -85,11 +84,10 @@ describe('shared activity status rules', () => {
         expect(block).toContain(`--status-${status}-surface: ${surface}`)
         expect(block).toContain(`--status-${status}-border: ${border}`)
         expect(contrast(surface, foreground)).toBeGreaterThanOrEqual(3)
-        if (theme === 'light' && contrast(surface, foreground) < 4.5) lowContrastLightText.push(status)
+        if (theme === 'light') expect(contrast(surface, foreground), `${status} light normal text`).toBeGreaterThanOrEqual(4.5)
       }
     }
-    // The prescribed light colors remain exact; these four foregrounds need darkening for 4.5:1 normal-text contrast.
-    expect(lowContrastLightText).toEqual(['pending', 'completed', 'partial', 'missed'])
+    // All six status hues retain at least 3:1 contrast; light normal text uses the stricter WCAG AA threshold.
     expect(tokens).toContain('--status-neutral-surface: #f5f5f4')
     expect(tokens).toContain('--status-rest-surface: #eef2ff')
     expect(styles).toMatch(/\.status-pending\s*\{[^}]*--status-bg:\s*var\(--status-pending-surface\)[^}]*--status-stroke:\s*var\(--status-pending-border\)/s)

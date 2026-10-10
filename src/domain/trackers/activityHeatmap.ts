@@ -6,7 +6,7 @@ export type HeatmapDay = { date: string; eligibleCount: number; qualifiedCount: 
 
 /** Normalizes daily qualifying check-ins by each tracker’s own opportunity policy. */
 export function calculateActivityHeatmap(input: {
-  trackers: readonly TrackerDefinition[]; entries: readonly TrackerEntry[]; startDate: string; endDate: string; holidays?: ReadonlySet<string>
+  trackers: readonly TrackerDefinition[]; entries: readonly TrackerEntry[]; startDate: string; endDate: string; holidays?: ReadonlySet<string>; timeZone?: string
 }): HeatmapDay[] {
   const live = input.trackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null)
   const entriesByTrackerDate = new Map(input.entries.filter((entry) => entry.deletedAt === null).map((entry) => [`${entry.trackerId}:${entry.date}`, entry]))
@@ -15,8 +15,8 @@ export function calculateActivityHeatmap(input: {
     const date = new Date(time).toISOString().slice(0, 10)
     let eligibleCount = 0, qualifiedCount = 0, restCount = 0
     for (const tracker of live) {
-      const inRange = isTrackerInActivePeriod(tracker, date)
-      const scheduled = inRange && isTrackerScheduledOccurrence(tracker, date)
+      const inRange = isTrackerInActivePeriod(tracker, date, input.timeZone)
+      const scheduled = inRange && isTrackerScheduledOccurrence(tracker, date, input.timeZone)
       if (inRange && !scheduled) restCount += 1
       const opportunity = inRange && (tracker.strictMode === true || (!input.holidays?.has(date) && scheduled))
       if (!opportunity) continue

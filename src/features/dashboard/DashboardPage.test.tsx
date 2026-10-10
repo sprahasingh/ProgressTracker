@@ -77,7 +77,7 @@ describe('local progress dashboard', () => {
   })
 
   it('uses responsive automatic defaults until a range is manually selected', async () => {
-    const definition = { ...tracker(), startDate: '2024-01-01' as const }
+    const definition = { ...tracker(), startDate: '2024-01-01' as const, createdAt: '2024-01-01T00:00:00.000Z' }
     await localRepository.saveTracker(definition)
     const originalWidth = window.innerWidth
     window.sessionStorage.removeItem('insights-heatmap-range')

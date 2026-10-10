@@ -5,13 +5,14 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { getTargetProgress } from '../../domain/trackers/planning'
 import type { TrackerDefinition, TrackerEntry, TrackerValue } from '../../domain/trackers/types'
 
-export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, onInputValidityChange, expectedAmounts, expectedLabels }: {
+export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   setValue: (key: string, value: TrackerValue | undefined) => void
   date?: string
   today?: string
   holidays?: ReadonlySet<string>
+  timeZone?: string
   onInputValidityChange?: (key: string, valid: boolean) => void
   expectedAmounts?: Readonly<Record<string, number>>
   expectedLabels?: Readonly<Record<string, string>>
@@ -53,7 +54,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
     {invalidInputs.size === 0 && date && tracker.metrics.some((metric) => {
       const value = values[metric.id]
       return value !== undefined && value !== null && value !== ''
-    }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} />}
+    }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} />}
   </>
 }
 
@@ -83,18 +84,19 @@ function TargetFeedback({ value, target, direction, unit, targetLabel }: { value
   return <small className="numeric-target-feedback">{formatTrackerNumber(progress.amount)}{labelUnit} remaining · {targetLabel} {formatTrackerNumber(target)}{labelUnit}</small>
 }
 
-function DraftStatusPreview({ tracker, values, date, today, holidays }: {
+function DraftStatusPreview({ tracker, values, date, today, holidays, timeZone }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  timeZone?: string
 }) {
   const draftEntry: TrackerEntry = {
     id: 'unsaved-checkin-preview', trackerId: tracker.id, date, outcome: 'recorded', values, note: '',
     createdAt: '', updatedAt: '', deletedAt: null,
   }
-  const status = getTrackerActivityStatus({ tracker, entry: draftEntry, date, today, holidays })
+  const status = getTrackerActivityStatus({ tracker, entry: draftEntry, date, today, holidays, timeZone })
   return <p className={`checkin-draft-preview status-${status}`} role="status">Unsaved preview · {ACTIVITY_STATUS_PRESENTATION[status].label}</p>
 }
 

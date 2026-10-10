@@ -22,8 +22,8 @@ const EMPTY_ALLOCATIONS: Record<string, number> = {}
 export function CumulativeAllocationPreview({ tracker, entries, metricId, startDate, asOfDate, timeZone, onSave, v3WritesEnabled, holidays }: Props) {
   const metric = tracker.metrics.find((item) => item.id === metricId)
   const preview = useMemo(() => createCumulativeAllocationPreview({
-    tracker, entries, metricId, totalTarget: tracker.goalPlanning?.cumulativeTargets[metricId] ?? 0, startDate, asOfDate, holidays,
-  }), [tracker, entries, metricId, startDate, asOfDate, holidays])
+    tracker, entries, metricId, totalTarget: tracker.goalPlanning?.cumulativeTargets[metricId] ?? 0, startDate, asOfDate, holidays, timeZone,
+  }), [tracker, entries, metricId, startDate, asOfDate, holidays, timeZone])
   if (!metric) return null
 
   const eligibleDays = useMemo(() => preview.days.filter((day) => day.eligible), [preview.days])

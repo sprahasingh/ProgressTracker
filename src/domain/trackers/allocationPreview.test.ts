@@ -126,6 +126,7 @@ describe('cumulative allocation preview', () => {
       schedule: { kind: 'every-day' },
       startDate: '2026-01-01',
       deadline,
+      createdAt: '2026-01-01T00:00:00.000Z',
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'questions', precision: { decimalPlaces: 0, increment: 1 } }],
     }
     const firstDay = createCumulativeAllocationPreview({ tracker: wholeQuestionGoal, entries: [], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-01' })

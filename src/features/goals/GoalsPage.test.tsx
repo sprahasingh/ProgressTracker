@@ -22,6 +22,49 @@ async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: 
 }
 
 describe('Goals page allocation preview', () => {
+  it('reaches boolean and checklist checkpoints using persisted check-in values', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const historicalDate = shiftCalendarDate(today, -6)
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 1, id: 'milestone-value-types', name: 'Mixed measure goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: shiftCalendarDate(today, -10),
+      metrics: [
+        { id: 'done', name: 'Done', valueType: 'boolean' },
+        { id: 'steps', name: 'Steps', valueType: 'checklist', checklistItems: [{ id: 'a', label: 'A', position: 0 }, { id: 'b', label: 'B', position: 1 }, { id: 'c', label: 'C', position: 2 }] },
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' },
+        { id: 'errors', name: 'Errors', valueType: 'quantity', thresholds: { direction: 'decrease', streakQualification: 'any-recorded-value' } },
+        { id: 'absent', name: 'Absent', valueType: 'quantity' },
+      ], customFields: [], milestones: [
+        { id: 'boolean-true', title: 'Boolean reaches one', description: '', metricId: 'done', targetValue: 1, position: 0 },
+        { id: 'boolean-false', title: 'Boolean false misses one', description: '', metricId: 'done', targetValue: 1, position: 1 },
+        { id: 'checklist-reaches', title: 'Checklist reaches two', description: '', metricId: 'steps', targetValue: 2, position: 2 },
+        { id: 'checklist-above', title: 'Checklist above one', description: '', metricId: 'steps', targetValue: 1, position: 3 },
+        { id: 'checklist-below', title: 'Checklist below three', description: '', metricId: 'steps', targetValue: 3, position: 4 },
+        { id: 'numeric-remains', title: 'Numeric stays supported', description: '', metricId: 'pages', targetValue: 10, position: 5 },
+        { id: 'decreasing-numeric', title: 'Decreasing numeric stays supported', description: '', metricId: 'errors', targetValue: 5, position: 6 },
+        { id: 'missing-observation', title: 'Missing stays incomplete', description: '', metricId: 'absent', targetValue: 0, position: 7 },
+      ],
+      createdAt: `${shiftCalendarDate(today, -5)}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: historicalDate, outcome: 'recorded', values: { done: true, steps: { a: true, b: true, c: false }, pages: 12, errors: 3 }, note: '' })
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: /Mixed measure goal/ }))
+    await user.click(screen.getByText('Milestones'))
+
+    const milestoneList = screen.getByRole('region', { name: 'Mixed measure goal milestones' })
+    expect(within(milestoneList).getByText('Boolean reaches one').parentElement).toHaveTextContent('Reached · best 1 of 1')
+    expect(within(milestoneList).getByText('Boolean false misses one').parentElement).toHaveTextContent('1 of 1')
+    expect(within(milestoneList).getByText('Checklist reaches two').parentElement).toHaveTextContent('Reached · best 2 items of 2')
+    expect(within(milestoneList).getByText('Checklist above one').parentElement).toHaveTextContent('Reached · best 2 items of 1')
+    expect(within(milestoneList).getByText('Checklist below three').parentElement).toHaveTextContent('2 items of 3')
+    expect(within(milestoneList).getByText('Numeric stays supported').parentElement).toHaveTextContent('Reached · best 12 pages of 10')
+    expect(within(milestoneList).getByText('Decreasing numeric stays supported').parentElement).toHaveTextContent('Reached · best 3 of 5')
+    expect(within(milestoneList).getByText('Missing stays incomplete').parentElement).toHaveTextContent('Not started')
+    expect(await db.trackers.get(tracker.id)).toMatchObject({ milestones: tracker.milestones })
+  })
+
   it('resets expanded tracker details when the route is left and restored with browser history', async () => {
     const user = userEvent.setup()
     const today = localCalendarDate(new Date(), 'UTC')

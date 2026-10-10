@@ -1,4 +1,5 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
+import { calendarDateInTimeZone } from '../../db/calendarDate'
 
 export type GoalMode = 'daily-recurring' | 'cumulative-deadline'
 export type AchievementLevel = 'none' | 'minimum' | 'target' | 'stretch'
@@ -16,6 +17,7 @@ export type PlanningInput = {
   dailyCapacity?: number
   restDays?: number[]
   completedDates?: string[]
+  timeZone?: string
 }
 
 export type PlannedDay = { date: string; state: DayState; plannedWork: number; completed: boolean }
@@ -80,6 +82,38 @@ function numericMetricValue(metric: TrackerMetricDefinition, value: TrackerValue
   return null
 }
 
+/** Converts a persisted observation to the comparable numeric value used by goal milestones. */
+export function metricObservationForMilestone(metric: TrackerMetricDefinition, value: unknown): number | undefined {
+  if (metric.valueType === 'boolean') return typeof value === 'boolean' ? Number(value) : undefined
+  if (metric.valueType === 'quantity' || metric.valueType === 'duration') {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+  }
+  if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const checks = value as Record<string, unknown>
+    const validIds = new Set(metric.checklistItems?.map((item) => item.id) ?? [])
+    if (Object.keys(checks).some((key) => !validIds.has(key)) || Object.values(checks).some((checked) => typeof checked !== 'boolean')) return undefined
+    return Object.values(checks).filter((checked) => checked === true).length
+  }
+  return undefined
+}
+
+export function trackerCreationDate(tracker: Pick<TrackerDefinition, 'createdAt' | 'goalPlanning'>, timeZone?: string): string {
+  try {
+    return calendarDateInTimeZone(tracker.createdAt, timeZone ?? tracker.goalPlanning?.planningTimeZone ?? 'UTC')
+  } catch {
+    // Keep schema safeParse non-throwing for malformed imported zone values; the
+    // schema reports the invalid zone separately and UTC is only a safe boundary fallback.
+    try { return calendarDateInTimeZone(tracker.createdAt, 'UTC') }
+    catch { return '0001-01-01' }
+  }
+}
+
+/** First eligible date follows both the configured start and workspace-local creation date. */
+export function trackerActiveStartDate(tracker: Pick<TrackerDefinition, 'startDate' | 'createdAt' | 'goalPlanning'>, timeZone?: string): string {
+  const created = trackerCreationDate(tracker, timeZone)
+  return tracker.startDate && tracker.startDate > created ? tracker.startDate : created
+}
+
 /** Calculates a per-scheduled-day target without changing check-in threshold semantics. */
 export function calculateDailyRecurringMetricPlan(input: {
   tracker: TrackerDefinition
@@ -89,6 +123,7 @@ export function calculateDailyRecurringMetricPlan(input: {
   asOfDate: string
   startDate: string
   holidays?: ReadonlySet<string>
+  timeZone?: string
 }): DailyRecurringMetricPlan {
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Daily planning requires a numeric or checklist metric.')
@@ -96,16 +131,17 @@ export function calculateDailyRecurringMetricPlan(input: {
   if (metric.valueType === 'checklist' && (!Number.isInteger(input.target) || input.target > (metric.checklistItems?.length ?? 0))) throw new RangeError('Daily checklist target must be a whole count within the checklist size.')
   const asOf = parseDate(input.asOfDate)
   const direction = metric.thresholds?.direction ?? 'increase'
-  const tracker = { ...input.tracker, startDate: input.startDate }
+  const startDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
+  const tracker = { ...input.tracker, startDate }
   const horizon = dateText(asOf + 14 * DAY_MS)
   const endDate = tracker.status === 'active'
     ? tracker.deadline && tracker.deadline < horizon ? tracker.deadline : horizon
     : input.asOfDate
-  if (endDate < input.startDate) return { metricId: metric.id, target: input.target, direction, days: [], metCount: 0, elapsedOpportunities: 0, scheduledDaysRemaining: 0, consistencyPercent: null }
+  if (endDate < startDate) return { metricId: metric.id, target: input.target, direction, days: [], metCount: 0, elapsedOpportunities: 0, scheduledDaysRemaining: 0, consistencyPercent: null }
   const latest = latestEntriesByDate(tracker, input.entries)
-  const days = dateRange(input.startDate, endDate).map((date): GoalPlanDay => {
+  const days = dateRange(startDate, endDate).map((date): GoalPlanDay => {
     if (input.holidays?.has(date)) return { date, state: 'holiday', value: null }
-    if (!isTrackerScheduledOccurrence(tracker, date)) return { date, state: 'rest', value: null }
+    if (!isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return { date, state: 'rest', value: null }
     const dateTime = parseDate(date)
     const entry = latest.get(date)
     if (dateTime > asOf) return { date, state: 'future', value: null }
@@ -135,6 +171,7 @@ export function calculateCumulativeMetricPlan(input: {
   startDate: string
   progressSemantics: 'incremental' | 'snapshot'
   holidays?: ReadonlySet<string>
+  timeZone?: string
 }): CumulativeMetricPlan {
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Cumulative planning requires a numeric or checklist metric.')
@@ -142,13 +179,14 @@ export function calculateCumulativeMetricPlan(input: {
   if (!Number.isFinite(input.totalTarget) || input.totalTarget < 0 || input.totalTarget > Number.MAX_SAFE_INTEGER) throw new RangeError('Cumulative target must be a finite nonnegative number.')
   if (metric.valueType === 'checklist' && !Number.isInteger(input.totalTarget)) throw new RangeError('Cumulative checklist target must be a whole item count.')
   if (!input.tracker.deadline) throw new RangeError('Cumulative planning requires a deadline.')
-  const start = parseDate(input.startDate)
+  const startDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
+  const start = parseDate(startDate)
   const deadline = parseDate(input.tracker.deadline)
   const asOf = parseDate(input.asOfDate)
   if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
-  const tracker = { ...input.tracker, startDate: input.startDate }
+  const tracker = { ...input.tracker, startDate }
   const latest = latestEntriesByDate(tracker, input.entries)
-  const scheduledDates = dateRange(input.startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date) && !input.holidays?.has(date))
+  const scheduledDates = dateRange(startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date, input.timeZone) && !input.holidays?.has(date))
   const progressValues: number[] = []
   for (const [date, entry] of latest) {
     const timestamp = parseDate(date)
@@ -206,9 +244,10 @@ function sumDecimalValues(values: readonly number[]): number {
 }
 
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */
-export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt'>, date: string): boolean {
+export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, timeZone?: string): boolean {
   const time = parseDate(date)
-  if (tracker.startDate && date < tracker.startDate) return false
+  const activeStart = trackerActiveStartDate(tracker, timeZone)
+  if (date < activeStart) return false
   if (tracker.deadline && date > tracker.deadline) return false
   const weekday = new Date(time).getUTCDay()
   const schedule = tracker.schedule
@@ -218,7 +257,7 @@ export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 's
     case 'weekdays': return weekday > 0 && weekday < 6
     case 'selected-weekdays': return schedule.weekdays.includes(weekday)
     case 'every-n-days': {
-      const anchor = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+      const anchor = activeStart
       const elapsed = daysBetween(anchor, date)
       return elapsed >= 0 && elapsed % schedule.interval === 0
     }
@@ -237,16 +276,15 @@ export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 's
 }
 
 /** Returns whether an active tracker has a planned occurrence on this calendar date. */
-export function isScheduledDate(tracker: TrackerDefinition, date: string): boolean {
+export function isScheduledDate(tracker: TrackerDefinition, date: string, timeZone?: string): boolean {
   if (tracker.status !== 'active' || tracker.deletedAt !== null) return false
-  return isTrackerScheduledOccurrence(tracker, date)
+  return isTrackerScheduledOccurrence(tracker, date, timeZone)
 }
 
 /** Checks the inclusive tracker date window, anchored no earlier than creation. */
-export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt'>, date: string): boolean {
+export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, timeZone?: string): boolean {
   parseDate(date)
-  const created = tracker.createdAt.slice(0, 10)
-  const first = tracker.startDate && tracker.startDate > created ? tracker.startDate : created
+  const first = trackerActiveStartDate(tracker, timeZone)
   return date >= first && (!tracker.deadline || date <= tracker.deadline)
 }
 
@@ -305,10 +343,12 @@ function eligibleDates(tracker: TrackerDefinition, startDate: string, endDate: s
 
 /** Distributes remaining work evenly over remaining eligible days; recompute as progress changes. */
 export function createWorkPlan(input: PlanningInput): WorkPlan {
-  const start = parseDate(input.startDate)
+  const effectiveStartDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
+  const start = parseDate(effectiveStartDate)
   const deadline = parseDate(input.deadline)
   const asOf = parseDate(input.asOfDate)
-  if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
+  if (deadline < parseDate(input.startDate)) throw new RangeError('Deadline cannot precede start date.')
+  if (deadline < start) return { mode: input.mode, status: asOf < start ? 'not-started' : 'overdue', totalWork: input.totalWork, completedWork: input.completedWork, remainingWork: input.totalWork - input.completedWork, dailyWorkload: 0, days: [], completionDate: null, overdueByDays: asOf > deadline ? daysBetween(input.deadline, input.asOfDate) : 0 }
   if (!Number.isFinite(input.totalWork) || input.totalWork < 0 || !Number.isFinite(input.completedWork) || input.completedWork < 0) throw new RangeError('Work values must be finite and nonnegative.')
   if (input.completedWork > input.totalWork) throw new RangeError('Completed work cannot exceed total work.')
   if (input.dailyCapacity !== undefined && (!Number.isFinite(input.dailyCapacity) || input.dailyCapacity <= 0)) throw new RangeError('Daily capacity must be finite and greater than zero.')
@@ -316,7 +356,7 @@ export function createWorkPlan(input: PlanningInput): WorkPlan {
   if (!metric) throw new RangeError(`Unknown metric: ${input.metricId}`)
 
   const remaining = input.totalWork - input.completedWork
-  const calendar = eligibleDates(input.tracker, input.startDate, input.deadline, input.restDays ?? [])
+  const calendar = eligibleDates(input.tracker, effectiveStartDate, input.deadline, input.restDays ?? [])
   const remainingDates = calendar.filter((date) => parseDate(date) >= asOf && !listed(input.completedDates, date))
   const dailyWorkload = remainingDates.length ? Math.ceil((remaining / remainingDates.length) * 100) / 100 : 0
   const calculatedCompletionDate = remaining === 0 ? (input.completedDates?.slice().sort().at(-1) ?? input.asOfDate) :

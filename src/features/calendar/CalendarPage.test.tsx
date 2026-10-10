@@ -59,7 +59,8 @@ describe('Calendar page', () => {
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))
-    expect(await screen.findAllByText('Missed')).toHaveLength(2)
+    // A date before this tracker was created is neutral rather than an artificial miss.
+    expect(await screen.findAllByText('Missed')).toHaveLength(1)
   })
 
   it('filters date status counts and tracker details to the selected tracker', async () => {

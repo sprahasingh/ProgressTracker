@@ -146,7 +146,7 @@ export function TrackerLibraryPage() {
                 {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}
               </div>
               <div className="tracker-card-actions">
-                {tracker.status === 'active' && (isScheduledDate(tracker, today) || tracker.strictMode) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : tracker.strictMode && !isScheduledDate(tracker, today) ? 'Voluntary check-in' : 'Check in today'}</Link>}
+                {tracker.status === 'active' && (isScheduledDate(tracker, today, timeZone) || tracker.strictMode) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : tracker.strictMode && !isScheduledDate(tracker, today, timeZone) ? 'Voluntary check-in' : 'Check in today'}</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
                 <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => moveToBin(tracker)} />
               </div>

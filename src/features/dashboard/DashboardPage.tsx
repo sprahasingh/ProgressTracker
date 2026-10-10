@@ -11,7 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
+import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { calculateProgressRewards, calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -64,7 +64,7 @@ export function DashboardPage() {
     try {
       const trackers = (await localRepository.listTrackers(true)).filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null)
       const earliest = trackers.reduce<CalendarDate>((date, tracker) => {
-        const created = (tracker.startDate ?? tracker.createdAt.slice(0, 10)) as CalendarDate
+        const created = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return created < date ? created : date
       }, today)
       const [entries, holidays] = await Promise.all([
@@ -78,7 +78,7 @@ export function DashboardPage() {
     } finally {
       if (refreshGeneration.current === generation && workspaceRef.current.key === requestWorkspace) setLoading(false)
     }
-  }, [today])
+  }, [today, timeZone])
 
   useEffect(() => {
     if (workspaceReady) void refresh()
@@ -92,10 +92,10 @@ export function DashboardPage() {
   const visibleIds = new Set(visibleTrackers.map((tracker) => tracker.id))
   const visibleEntries = data.entries.filter((entry) => visibleIds.has(entry.trackerId))
   const effectiveRange: HeatmapDateRangeOption = rangeSelection === 'auto' ? (viewportWidth < 768 ? 'last6Months' : 'last12Months') : rangeSelection
-  const yearOptions = availableHeatmapYears(data.trackers, today)
+  const yearOptions = availableHeatmapYears(data.trackers, today, timeZone)
   const effectiveYear = yearOptions.includes(selectedYear) ? selectedYear : Number(today.slice(0, 4))
   const { startDate: heatmapStart, endDate: heatmapEnd } = heatmapDateRange(today, effectiveRange, effectiveYear)
-  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: heatmapEnd, holidays: new Set(data.holidays) }), [visibleTrackers, visibleEntries, heatmapStart, heatmapEnd, data.holidays])
+  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: heatmapEnd, holidays: new Set(data.holidays), timeZone }), [visibleTrackers, visibleEntries, heatmapStart, heatmapEnd, data.holidays, timeZone])
   const selectHeatmapRange = (selection: HeatmapDateRangeOption) => {
     setRangeSelection(selection)
     window.sessionStorage.setItem('insights-heatmap-range', selection)
@@ -112,14 +112,14 @@ export function DashboardPage() {
   const entryById = useMemo(() => new Map(visibleTrackers.map((tracker) => [tracker.id, tracker])), [visibleTrackers])
   const streakByTracker = useMemo(() => new Map(visibleTrackers.map((tracker) => {
     const trackerEntries = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
-    return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays))] as const
-  })), [visibleTrackers, visibleEntries, data.holidays, today])
+    return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays), timeZone)] as const
+  })), [visibleTrackers, visibleEntries, data.holidays, today, timeZone])
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
   const weekEntries = visibleEntries.filter((entry) => entry.date >= weekStart && entry.date <= today)
   const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string) => Boolean(tracker && (tracker.strictMode
-    ? isTrackerInActivePeriod(tracker, date)
-    : !data.holidays.includes(date) && isScheduledDate(tracker, date)))
+    ? isTrackerInActivePeriod(tracker, date, timeZone)
+    : !data.holidays.includes(date) && isScheduledDate(tracker, date, timeZone)))
   const successfulWeek = weekEntries.filter((entry) => {
     const tracker = entryById.get(entry.trackerId)
     return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && evaluateTrackerEntry(tracker!, entry).qualified
@@ -160,7 +160,7 @@ export function DashboardPage() {
                 const streak = streakByTracker.get(tracker.id)!
                 const latest = history[0]
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
-                const status = getTrackerActivityStatus({ tracker, entry: latest, date: latest?.date ?? today, today, holidays: new Set(data.holidays) })
+                const status = getTrackerActivityStatus({ tracker, entry: latest, date: latest?.date ?? today, today, holidays: new Set(data.holidays), timeZone })
                 const statusClass = status
                 return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}><div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ''}</span><span>{latest ? calendarDateLabel(latest.date) : 'Ready when you are'}</span></div><h3>{tracker.name}</h3>{streak.current > 0 || streak.longest > 0 ? <div className="dashboard-tracker-stats"><span><strong>{streak.current}</strong><small>current streak <InfoButton title="Current streak" summary="Consecutive qualifying opportunities up to today." description={tracker.strictMode ? 'Strict Mode counts every calendar day from tracker start through deadline, including holidays and rest days. A recorded entry must meet this tracker’s streak qualification. Today remains open until it ends.' : 'Standard Mode counts qualifying scheduled days. Missed scheduled days break the streak, while holidays and rest days preserve it without adding to the count. Today remains open until it ends.'} /></small></span><span><strong>{streak.longest}</strong><small>personal best <InfoButton title="Longest streak" summary="The longest uninterrupted run of qualifying days in this tracker’s saved history." description={tracker.strictMode ? 'This uses every calendar day within the tracker period, including holidays and rest days. Changing Strict Mode recalculates the value from saved entries; entries are not changed.' : 'This counts qualifying scheduled days. Missed scheduled days break the run; holidays and rest days pause it. Changing Strict Mode recalculates the value from saved entries; entries are not changed.'} /></small></span></div> : <p className="dashboard-first-action">Your pattern starts with one check-in.</p>}<div className="dashboard-latest-state">{latest ? <><span className={`history-outcome ${statusClass}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}{latest.outcome === 'skipped' ? ' · marked intentionally' : latestResult ? ' · success rule met' : ''}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : 'No values recorded'}</span></> : <><span className={`history-outcome ${status}`}>{ACTIVITY_STATUS_PRESENTATION[status].label}</span><Link to="/">Make your first check-in →</Link></>}</div></Surface>
               })}
