@@ -4,7 +4,7 @@ import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, getTargetProgress } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel } from '../shared/localDates'
@@ -91,7 +91,7 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       const expected = savedAllocation ?? suggestion
       return {
         ...common,
-        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s suggested allocation' : 'Today’s saved allocation', remaining: Math.max(0, expected - Number(completed)) }),
+        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s suggested allocation' : 'Today’s saved allocation', remaining: Math.max(0, getTargetProgress(Number(completed), expected).amount) }),
         ...(savedAllocation === undefined ? {} : { savedAllocation }),
         ...(suggestion === undefined ? {} : { suggestion }),
         ...(nextSuggestionDay?.amount === null || nextSuggestionDay?.amount === undefined ? {} : { nextSuggestion: nextSuggestionDay.amount, nextSuggestionDate: nextSuggestionDay.date }),
@@ -103,7 +103,7 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       ? planning.dailyTargets[metric.id]
       : thresholds?.target ?? thresholds?.minimum
     const expectedLabel = expected === undefined ? undefined : planning?.mode === 'daily-recurring' ? 'Today’s target' : thresholds?.target !== undefined ? 'Target threshold' : 'Minimum threshold'
-    const remaining = expected === undefined || thresholds?.direction === 'decrease' ? undefined : Math.max(0, expected - Number(completed))
+    const remaining = expected === undefined || thresholds?.direction === 'decrease' ? undefined : Math.max(0, getTargetProgress(Number(completed), expected).amount)
     return { ...common, ...(expected === undefined ? {} : { expected, expectedLabel, ...(remaining === undefined ? {} : { remaining }) }) }
   })
 }

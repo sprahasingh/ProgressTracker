@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, isScheduledDate } from './planning'
+import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, getTargetProgress, isScheduledDate } from './planning'
 import type { TrackerDefinition } from './types'
 
 const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): TrackerDefinition => ({
@@ -12,6 +12,16 @@ const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): 
 })
 
 const plan = (overrides: Partial<Parameters<typeof createWorkPlan>[0]> = {}) => createWorkPlan({ tracker: base(), metricId: 'pages', mode: 'cumulative-deadline', startDate: '2026-01-01', deadline: '2026-01-05', asOfDate: '2026-01-01', totalWork: 10, completedWork: 0, ...overrides })
+
+describe('target progress feedback', () => {
+  it('uses shared increase/decrease target comparisons for previews and summaries', () => {
+    expect(getTargetProgress(4, 5)).toEqual({ state: 'remaining', amount: 1 })
+    expect(getTargetProgress(5, 5)).toEqual({ state: 'reached', amount: 0 })
+    expect(getTargetProgress(7, 5)).toEqual({ state: 'exceeded', amount: 2 })
+    expect(getTargetProgress(7, 5, 'decrease')).toEqual({ state: 'remaining', amount: 2 })
+    expect(getTargetProgress(3, 5, 'decrease')).toEqual({ state: 'exceeded', amount: 2 })
+  })
+})
 
 describe('schedule occurrence calculation', () => {
   it('selects supported recurrence dates deterministically and respects tracker bounds', () => {

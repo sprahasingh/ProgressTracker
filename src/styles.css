@@ -1568,6 +1568,34 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
   .tracker-setup-form .tracker-form-actions { margin-right: -10px; margin-left: -10px; padding-right: 10px; padding-left: 10px; }
 }
 
+.numeric-measure-field > label,
+.form-field > label { display: block; color: var(--ink); font-size: 12px; font-weight: 650; }
+.numeric-measure-field > label em,
+.form-field > label em { color: var(--ink-muted); font-style: normal; font-weight: 450; }
+.numeric-stepper { display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px; align-items: stretch; gap: 8px; width: 100%; min-width: 0; }
+.numeric-stepper-button { min-width: 44px; min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--accent-strong); font: 650 21px/1 var(--font-sans); cursor: pointer; touch-action: manipulation; }
+.numeric-stepper-button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.numeric-stepper-button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.numeric-stepper-button:disabled { color: var(--ink-subtle); cursor: not-allowed; opacity: .55; }
+.numeric-stepper-value { min-width: 0; min-height: 48px; padding-inline: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+.numeric-stepper-value[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent); }
+.numeric-stepper-error { grid-column: 1 / -1; color: var(--danger); font-size: 11px; }
+.numeric-target-feedback { display: block; color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
+.boolean-choice-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.boolean-choice-field legend { margin-bottom: 7px; color: var(--ink); font-size: 12px; font-weight: 650; }
+.boolean-choice-field legend em { color: var(--ink-muted); font-size: 11px; font-style: normal; font-weight: 450; }
+.boolean-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.boolean-choice button { min-width: 0; min-height: 46px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--ink-muted); font: 600 13px/1.25 var(--font-sans); cursor: pointer; }
+.boolean-choice button.selected { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); }
+.boolean-choice button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.checkin-draft-preview { margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--ink-muted); font-size: 12px; }
+.checkin-draft-preview.status-completed { border-color: var(--status-stroke); color: var(--status-fg); }
+.checkin-draft-preview.status-partial { border-color: var(--status-stroke); color: var(--status-fg); }
+@media (max-width: 420px) {
+  .numeric-stepper { grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; }
+  .numeric-stepper-button, .numeric-stepper-value { min-height: 48px; }
+}
+
 /* Today cards keep names, values, and remaining work in separate, shrinkable rows. */
 .today-checkin-card,
 .today-checkin-heading,
