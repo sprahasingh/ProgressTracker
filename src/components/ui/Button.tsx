@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-type ButtonVariant = 'primary' | 'secondary' | 'quiet'
-type ButtonSize = 'small' | 'medium'
+type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'destructive'
+type ButtonSize = 'small' | 'medium' | 'large'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant

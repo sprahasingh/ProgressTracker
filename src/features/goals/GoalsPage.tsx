@@ -237,7 +237,7 @@ export function GoalsPage() {
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
-              <Button variant="quiet" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete</Button>
+              <Button variant="destructive" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete</Button>
             </div>
             </>}
             </div>
