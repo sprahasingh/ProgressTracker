@@ -41,12 +41,13 @@ describe('app navigation quality', () => {
     authState.value = guestReadyState
   })
 
-  it('keeps the avatar keyboard accessible and aligned in the header after sync status', async () => {
+  it('keeps sync, notifications, and the keyboard-accessible avatar in the specified header order', async () => {
     authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, syncStatus: 'complete' } as never
     const user = userEvent.setup()
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/settings" element={<p>Settings</p>} /></Routes></MemoryRouter>)
     const avatar = screen.getByRole('link', { name: 'Open profile settings' })
-    expect(avatar.previousElementSibling).toHaveClass('topbar-sync-state')
+    expect(avatar.previousElementSibling).toHaveClass('notification-center')
+    expect(avatar.previousElementSibling?.previousElementSibling).toHaveClass('topbar-sync-state')
     expect(avatar).toHaveAttribute('href', '/settings#personal-information')
     expect(avatar.tabIndex).toBe(0)
     avatar.focus()
@@ -54,6 +55,20 @@ describe('app navigation quality', () => {
     await user.keyboard('{Enter}')
     expect(await screen.findByText('Settings')).toBeInTheDocument()
     authState.value = guestReadyState
+  })
+
+  it('uses vector icons for primary navigation consistently in desktop and mobile navigation', () => {
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
+    const iconByDestination = { Today: 'today', Trackers: 'trackers', Calendar: 'calendar', Insights: 'insights' }
+    for (const name of ['Primary navigation', 'Mobile navigation']) {
+      const nav = screen.getByRole('navigation', { name })
+      for (const [label, icon] of Object.entries(iconByDestination)) {
+        const link = within(nav).getByRole('link', { name: new RegExp(label) })
+        expect(link.querySelector('svg')).toHaveAttribute('viewBox', '0 0 24 24')
+        expect(link.querySelector('svg')).toHaveAttribute('data-icon', icon)
+        expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+      }
+    }
   })
 
   it('does not render route content until the signed-in account workspace is active', () => {

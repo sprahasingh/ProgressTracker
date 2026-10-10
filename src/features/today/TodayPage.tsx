@@ -7,6 +7,8 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
+import { AppIcon } from '../../components/ui/AppIcon'
+import { ActivityStatusIcon } from '../../components/ui/ActivityStatusIcon'
 import { useToast } from '../../components/ui/ToastProvider'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { localRepository } from '../../db/localRepository'
@@ -173,13 +175,13 @@ export function TodayPage() {
   return (
     <section className="tracker-page today-page" aria-labelledby="today-title">
       <PageHeader headingId="today-title" eyebrow="YOUR DAILY RHYTHM" title="Today" description="Small steps count. Pick up where you are." help={{ title: 'Today', summary: 'Record today’s progress with the least friction.', description: 'Each active tracker appears when today is a scheduled opportunity. Enter its metric values, optional details, and notes, then save the check-in. A skipped day is recorded separately from no activity. Your week pattern marks scheduled completion and rest days; the workspace time zone determines today.' }} />
-      {todayHoliday && <Surface className="today-holiday-banner"><span className="status-mark holiday" aria-hidden="true">☀</span><div><strong>Today is a holiday</strong><p>{todayHoliday.reason ? `${todayHoliday.reason[0]!.toUpperCase()}${todayHoliday.reason.slice(1)} · ` : ''}Your scheduled goals and streaks are paused today. Recorded activity remains saved.</p></div><Link to={`/holidays?date=${today}`}>Manage holidays</Link></Surface>}
+      {todayHoliday && <Surface className="today-holiday-banner"><span className="status-mark holiday"><ActivityStatusIcon status="holiday" /></span><div><strong>Today is a holiday</strong><p>{todayHoliday.reason ? `${todayHoliday.reason[0]!.toUpperCase()}${todayHoliday.reason.slice(1)} · ` : ''}Your scheduled goals and streaks are paused today. Recorded activity remains saved.</p></div><Link to={`/holidays?date=${today}`}>Manage holidays</Link></Surface>}
       {!loading && !loadError && activityTrackers.length > 0 && <details className="week-rhythm-disclosure"><summary>Your last 7 days</summary><section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
           {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} completed` : ''}${day.isToday ? ', today' : ''}`}>
             <span className="week-rhythm-weekday">{calendarDateLabel(day.date, { weekday: 'short' })}</span>
-            <span className="week-rhythm-mark" aria-hidden="true">{day.isHoliday ? '☀' : day.state === 'rest' ? '·' : day.done === day.scheduled && day.scheduled > 0 ? '✓' : day.done > 0 ? '•' : day.isToday ? '＋' : '○'}</span>
+            <span className="week-rhythm-mark" aria-hidden="true">{day.isHoliday ? <AppIcon name="status-holiday" /> : day.state === 'rest' ? null : day.done === day.scheduled && day.scheduled > 0 ? <AppIcon name="status-completed" /> : day.done > 0 ? <AppIcon name="status-partial" /> : day.isToday ? <AppIcon name="today" /> : <AppIcon name="status-pending" />}</span>
             <span className="week-rhythm-date">{Number(day.date.slice(-2))}</span>
           </div>)}
         </div>
@@ -283,7 +285,7 @@ function CheckinCard({ tracker, entry, today, entries, holidays, status, histori
   return <article className={`today-checkin-card status-card status-${status}`}>
     <div className="today-card-main-row">
       <button className="today-activity-open" type="button" onClick={onOpen} ref={onTrigger} aria-label={`Open ${tracker.name}, ${statusInfo.label}${historical ? `, ${calendarDateLabel(today)}` : ''}`}>
-        <span className="today-card-heading"><span className="tracker-kind-chip">{tracker.kind}</span><span className="today-card-title" role="heading" aria-level={2}>{tracker.name}</span><span className={`today-state ${status}`} role="status" aria-label={statusInfo.label}><span aria-hidden="true">{statusInfo.icon}</span> {statusInfo.label}</span></span>
+        <span className="today-card-heading"><span className="tracker-kind-chip">{tracker.kind}</span><span className="today-card-title" role="heading" aria-level={2}>{tracker.name}</span><span className={`today-state ${status}`} role="status" aria-label={statusInfo.label}><ActivityStatusIcon status={status} /> {statusInfo.label}</span></span>
         {tracker.description && <span className="today-card-description">{tracker.description}</span>}
         <span className="today-compact-metrics">
           {summaryMetrics.map((metric) => <span className="today-compact-metric" key={metric.id}><span>{metric.name}</span>{metric.expectedLabel && <small className="today-compact-expectation">{historical ? metric.expectedLabel.replace('Today’s', `${calendarDateLabel(today)} ·`) : metric.expectedLabel === 'Today’s suggested allocation' ? 'Suggested today' : metric.expectedLabel === 'Today’s saved allocation' ? 'Saved allocation today' : metric.expectedLabel}</small>}<strong>{metric.isBoolean ? (metric.completed ? 'Complete' : 'Not complete') : metric.expected !== undefined ? `${formatTrackerNumber(Number(metric.completed))} / ${formatTrackerNumber(metric.expected)}${metric.unit}` : metric.completed ? `${formatTrackerNumber(Number(metric.completed))}${metric.unit} recorded` : 'No progress recorded'}</strong>{metric.remaining !== undefined && <small>{formatTrackerNumber(metric.remaining)}{metric.unit} remaining</small>}</span>)}
@@ -359,7 +361,7 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
 
   return createPortal(<div ref={backdropRef} className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
-      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}>×</IconButton></header>
+      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
       <div className="today-detail-content">
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />

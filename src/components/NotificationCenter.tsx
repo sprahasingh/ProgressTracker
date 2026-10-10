@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { localRepository } from '../db/localRepository'
 import type { AppNotification } from '../db/models'
 import { getSupabaseClient } from '../services/supabase/client'
+import { AppIcon } from './ui/AppIcon'
 
 const color: Record<AppNotification['kind'], string> = { pending: '#EAB308', overdue: '#EF4444', motivation: '#F97316', achievement: '#22C55E', holiday: '#8B5CF6', info: 'var(--ink-muted)' }
 type CenterItem = AppNotification & { remote?: boolean }
@@ -50,7 +51,7 @@ export function NotificationCenter({ ownerUserId, ready }: { ownerUserId: string
     <button className="notification-center-trigger" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>{unread > 0 && <span>{unread > 99 ? '99+' : unread}</span>}
     </button>
-    {open && <section className="notification-center-panel" aria-label="Notification center"><header><strong>Notifications</strong>{unread > 0 && <button className="button button-secondary button-small" onClick={() => void markAll()}>Mark all read</button>}<button className="notification-center-close" aria-label="Close notifications" onClick={() => setOpen(false)}>×</button></header>
+    {open && <section className="notification-center-panel" aria-label="Notification center"><header><strong>Notifications</strong>{unread > 0 && <button className="button button-secondary button-small" onClick={() => void markAll()}>Mark all read</button>}<button className="notification-center-close" aria-label="Close notifications" onClick={() => setOpen(false)}><AppIcon name="close" /></button></header>
       {items.length === 0 ? <p className="notification-center-empty">You're all caught up. New reminders and updates will appear here.</p> : <ul>{items.map((item) => <li key={item.id} className={item.readAt ? 'is-read' : 'is-unread'}><button onClick={() => void openNotification(item)}><i style={{ backgroundColor: color[item.kind] }} /><span><strong>{item.title}</strong><small>{item.body}</small><time dateTime={item.createdAt}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt))}</time></span></button></li>)}</ul>}
     </section>}
   </div>

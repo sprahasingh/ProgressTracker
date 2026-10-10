@@ -25,6 +25,15 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs() })
 beforeEach(() => { for (const mock of Object.values(mocks)) mock.mockReset() })
 
 describe('Tracker Bin', () => {
+  it('uses the shared vector bin icon in its empty state', async () => {
+    mocks.listDeletedTrackers.mockResolvedValue([])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([])
+    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Your Bin is empty' })).toBeInTheDocument()
+    const emptyState = screen.getByRole('heading', { name: 'Your Bin is empty' }).closest('.empty-state')
+    expect(emptyState?.querySelector('.empty-state-icon svg')).toHaveAttribute('viewBox', '0 0 24 24')
+  })
+
   it('shows the recovery countdown and confirms before restoring a goal', async () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     mocks.listDeletedTrackers.mockResolvedValueOnce([deletedTracker]).mockResolvedValue([])

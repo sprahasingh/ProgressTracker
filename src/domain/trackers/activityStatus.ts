@@ -4,14 +4,14 @@ import { evaluateTrackerEntry, isTrackerScheduledOccurrence } from './planning'
 export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'missed' | 'holiday' | 'unscheduled' | 'skipped'
 
 /** Shared words and marks for activity status across calendars and day summaries. */
-export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: string; icon: string; colorToken: string }> = {
-  pending: { label: 'Pending', icon: '○', colorToken: '--status-pending' },
-  completed: { label: 'Completed', icon: '✓', colorToken: '--status-completed' },
-  partial: { label: 'Partially completed', icon: '◐', colorToken: '--status-partial' },
-  missed: { label: 'Missed', icon: '!', colorToken: '--status-missed' },
-  holiday: { label: 'Holiday', icon: '☀', colorToken: '--status-holiday' },
-  unscheduled: { label: 'Rest day', icon: '—', colorToken: '--status-rest' },
-  skipped: { label: 'Skipped', icon: '—', colorToken: '--status-neutral' },
+export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: string; colorToken: string }> = {
+  pending: { label: 'Pending', colorToken: '--status-pending' },
+  completed: { label: 'Completed', colorToken: '--status-completed' },
+  partial: { label: 'Partially completed', colorToken: '--status-partial' },
+  missed: { label: 'Missed', colorToken: '--status-missed' },
+  holiday: { label: 'Holiday', colorToken: '--status-holiday' },
+  unscheduled: { label: 'Rest day', colorToken: '--status-rest' },
+  skipped: { label: 'Skipped', colorToken: '--status-neutral' },
 }
 
 /**

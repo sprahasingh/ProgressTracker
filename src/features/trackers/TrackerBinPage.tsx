@@ -5,6 +5,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
+import { AppIcon } from '../../components/ui/AppIcon'
 import { localRepository } from '../../db/localRepository'
 import type { PermanentDeletionRequest, StoredTrackerDefinition } from '../../db/models'
 import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -90,7 +91,7 @@ export function TrackerBinPage() {
     {owner && !isPermanentDeletionEnabled() && <p className="bin-system-note" role="status">Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.</p>}
     {owner && isPermanentDeletionEnabled() && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}
-    {loading ? <p role="status" className="tracker-loading">Opening your Bin…</p> : trackers.length === 0 ? <Surface><EmptyState title="Your Bin is empty" description="When you delete a tracker, it will appear here with 30 days to restore it." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} /></Surface> : <div className="tracker-card-grid">
+    {loading ? <p role="status" className="tracker-loading">Opening your Bin…</p> : trackers.length === 0 ? <Surface><EmptyState icon={<AppIcon name="bin" className="empty-state-svg-icon" />} title="Your Bin is empty" description="When you delete a tracker, it will appear here with 30 days to restore it." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} /></Surface> : <div className="tracker-card-grid">
       {trackers.map((tracker) => {
         const request = requests.find((item) => item.trackerId === tracker.id)
         const expired = now >= Date.parse(tracker.deletedAt!) + recoveryMs

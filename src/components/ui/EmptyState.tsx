@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AppIcon } from './AppIcon'
 
 type EmptyStateProps = {
   icon?: ReactNode
@@ -9,7 +10,7 @@ type EmptyStateProps = {
   action?: ReactNode
 }
 
-export function EmptyState({ icon = '✳', title, description, note, secondary, action }: EmptyStateProps) {
+export function EmptyState({ icon = <AppIcon name="spark" className="empty-state-svg-icon" />, title, description, note, secondary, action }: EmptyStateProps) {
   return (
     <div className="empty-state">
       <span className="empty-state-icon" aria-hidden="true">{icon}</span>
