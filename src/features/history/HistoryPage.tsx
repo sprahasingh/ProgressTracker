@@ -6,6 +6,8 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
+import { useAuth } from '../auth/AuthProvider'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -19,6 +21,9 @@ import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
 export function HistoryPage() {
+  const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const owner = status === 'signed-in' ? user?.id ?? null : null
+  const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [searchParams] = useSearchParams()
@@ -54,6 +59,7 @@ export function HistoryPage() {
 
   const refresh = useCallback(async () => {
     const request = ++rangeRequest.current
+    if (!workspaceReady) return
     if (rangeIssue) {
       setLoading(false)
       setError('')
@@ -79,9 +85,13 @@ export function HistoryPage() {
     } finally {
       if (request === rangeRequest.current) setLoading(false)
     }
-  }, [endDate, rangeIssue, startDate])
+  }, [endDate, rangeIssue, startDate, workspaceReady])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (workspaceReady) void refresh()
+    return () => { rangeRequest.current += 1 }
+  }, [refresh, workspaceReady])
+  useWorkspaceDataChanges(owner, workspaceReady, refresh)
   const trackerMap = useMemo(() => new Map(trackers.map((tracker) => [tracker.id, tracker])), [trackers])
   const filtered = entries.filter((entry) => trackerFilter === 'all' || entry.trackerId === trackerFilter)
   const grouped = rangeIssue ? [] : groupByDate(filtered)

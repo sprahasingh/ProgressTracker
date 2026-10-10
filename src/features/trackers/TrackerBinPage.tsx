@@ -7,7 +7,7 @@ import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import type { PermanentDeletionRequest, StoredTrackerDefinition } from '../../db/models'
 import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
-import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 
 const recoveryMs = 30 * 24 * 60 * 60 * 1000
@@ -56,10 +56,10 @@ export function TrackerBinPage() {
   useEffect(() => {
     if (!ready || !workspaceKey) return
     void refresh()
-    const unsubscribe = subscribeToWorkspaceMutations((changedOwner) => { if (changedOwner === owner) void refresh() })
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
-    return () => { unsubscribe(); window.clearInterval(timer) }
+    return () => { window.clearInterval(timer) }
   }, [owner, ready, refresh, workspaceKey])
+  useWorkspaceDataChanges(owner, ready, refresh)
 
   async function restore(tracker: StoredTrackerDefinition) {
     setBusyId(tracker.id); setError('')

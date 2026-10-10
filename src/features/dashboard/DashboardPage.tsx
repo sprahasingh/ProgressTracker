@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -7,6 +7,8 @@ import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTab
 import { InfoButton } from '../../components/ui/InfoButton'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
+import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
 import { calculateProgressRewards, calculateStreak } from '../../domain/trackers/progression'
@@ -18,13 +20,23 @@ import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../do
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
 export function DashboardPage() {
+  const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
+  const owner = status === 'signed-in' ? user?.id ?? null : null
+  const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
+  const workspaceKey = owner ?? 'guest'
+  const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
+  workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
   const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const refreshGeneration = useRef(0)
 
   const refresh = useCallback(async () => {
+    if (!workspaceRef.current.ready) return
+    const requestWorkspace = workspaceRef.current.key
+    const generation = ++refreshGeneration.current
     setLoading(true)
     setError('')
     try {
@@ -38,15 +50,20 @@ export function DashboardPage() {
         localRepository.listAccountHolidays(earliest, today),
       ])
       const ids = new Set(trackers.map((tracker) => tracker.id))
-      setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
+      if (refreshGeneration.current === generation && workspaceRef.current.ready && workspaceRef.current.key === requestWorkspace) setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
     } catch {
-      setError('Your overview could not be loaded from this device.')
+      if (refreshGeneration.current === generation && workspaceRef.current.key === requestWorkspace) setError('Your overview could not be loaded from this device.')
     } finally {
-      setLoading(false)
+      if (refreshGeneration.current === generation && workspaceRef.current.key === requestWorkspace) setLoading(false)
     }
   }, [today])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (workspaceReady) void refresh()
+    else setLoading(true)
+    return () => { refreshGeneration.current += 1 }
+  }, [refresh, workspaceReady, workspaceKey])
+  useWorkspaceDataChanges(owner, workspaceReady, refresh)
   const entryById = useMemo(() => new Map(data.trackers.map((tracker) => [tracker.id, tracker])), [data.trackers])
   const streakByTracker = useMemo(() => new Map(data.trackers.map((tracker) => {
     const trackerEntries = data.entries.filter((entry) => entry.trackerId === tracker.id)

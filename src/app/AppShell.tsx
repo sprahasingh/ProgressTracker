@@ -22,6 +22,14 @@ function routeMatches(pathname: string, destinations: readonly string[]) {
   return destinations.some((path) => path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`))
 }
 
+export function getAvatarInitial(user: { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined) {
+  const metadata = user?.user_metadata
+  const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  const value = displayName?.trim() || user?.email?.trim()
+  return value ? value.charAt(0).toLocaleUpperCase() : null
+}
+
 export function AppShell() {
   const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
   const navigate = useNavigate()
@@ -81,7 +89,9 @@ export function AppShell() {
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
           <Link className={`topbar-sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span></Link>
-          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">{user?.email?.trim().charAt(0).toUpperCase() || 'S'}</Link>
+          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">
+            {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
+          </Link>
         </header>
         <div id="main-content" className="page-content" tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (

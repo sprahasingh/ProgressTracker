@@ -1249,6 +1249,27 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .sync-state.complete .sync-dot, .topbar-sync-state.complete .sync-dot { background: var(--positive); }
 .topbar-sync-state { display: inline-flex; align-items: center; gap: 7px; margin-left: 16px; color: var(--ink-muted); font-size: 10px; white-space: nowrap; }
 .topbar-sync-state .sync-dot { width: 6px; height: 6px; margin: 0; }
+.topbar .avatar {
+  display: inline-flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  box-sizing: border-box;
+  margin-left: 10px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+}
+.topbar .avatar > span { display: block; line-height: 1; }
+.topbar .avatar > svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.topbar .avatar:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
 @keyframes sync-pulse { 50% { opacity: .45; } }
 .welcome-panel { background: radial-gradient(ellipse at 78% 43%, color-mix(in srgb, var(--info-soft) 55%, var(--surface)), var(--surface) 53%); }
 .welcome-copy h1 { color: var(--ink); }
@@ -1268,6 +1289,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   .date-chip { display: none; }
   .topbar-sync-state { margin-left: 0; padding: 8px; }
   .topbar-sync-state > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .topbar .avatar { flex-basis: 38px; width: 38px; height: 38px; margin-left: 6px; }
 }
 
 .bin-page .page-header { margin-bottom: 22px; }
@@ -1623,3 +1645,47 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
   .today-requirements-backdrop { align-items: end; padding: 0 8px max(8px, env(safe-area-inset-bottom, 0px)); }
   .today-requirements-sheet { width: 100%; max-height: min(86dvh, 760px); padding: 17px 14px max(17px, env(safe-area-inset-bottom, 0px)); border-radius: 20px 20px 14px 14px; }
 }
+
+/* Today uses compact status cards; editing lives in a focused detail sheet. */
+.today-checkin-card.status-card { padding: 0; overflow: hidden; }
+.today-card-main-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: start; gap: 8px; padding: 12px 14px; }
+.today-activity-open { display: flex; min-width: 0; width: 100%; flex-direction: column; align-items: stretch; gap: 7px; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.today-activity-open:focus-visible, .today-card-info:focus-visible, .today-detail-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.today-card-heading { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.today-card-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 16px; font-weight: 740; line-height: 1.25; }
+.today-card-description { min-width: 0; overflow-wrap: anywhere; color: var(--ink-muted); font-size: 12px; }
+.today-compact-metrics { display: flex; min-width: 0; flex-wrap: wrap; gap: 8px 18px; }
+.today-compact-metric { display: grid; min-width: 0; gap: 1px; color: var(--ink-muted); font-size: 11px; }
+.today-compact-metric > * { overflow-wrap: anywhere; }
+.today-compact-metric strong { color: var(--ink); font-size: 14px; line-height: 1.3; }
+.today-compact-metric small, .today-compact-more { color: var(--ink-muted); font-size: 11px; }
+.today-compact-progress { display: block; width: 100%; height: 4px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--status-fg) 18%, transparent); }
+.today-compact-progress i { display: block; height: 100%; border-radius: inherit; background: var(--status-fg); }
+.today-open-hint { display: flex; justify-content: space-between; color: var(--ink-muted); font-size: 11px; }
+.today-requirements-trigger { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--status-stroke); border-radius: 50%; color: var(--status-fg); background: var(--surface); font-size: 19px; cursor: pointer; }
+.today-detail-backdrop { position: fixed; z-index: 120; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 12px; background: rgb(0 0 0 / 52%); }
+.today-detail-sheet { display: flex; width: min(100%, 640px); max-height: min(92dvh, 850px); flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 20px 20px 12px 12px; background: var(--surface); box-shadow: var(--shadow-card); }
+.today-detail-heading { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 14px; padding: 17px 18px 12px; border-bottom: 1px solid var(--border); }
+.today-detail-heading h2 { max-width: 54ch; margin: 6px 0 2px; overflow-wrap: anywhere; color: var(--ink); font-family: var(--font-sans); font-size: 20px; line-height: 1.2; }
+.today-detail-heading p { margin: 0; color: var(--ink-muted); font-size: 12px; }
+.today-detail-close { flex: 0 0 44px; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 50%; color: var(--ink); background: var(--surface); font-size: 26px; cursor: pointer; }
+.today-detail-content { overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px calc(18px + env(safe-area-inset-bottom, 0px)); }
+.today-detail-content .today-requirements-summary { margin-top: 0; }
+.today-detail-notice { padding: 11px 12px; border-radius: 10px; color: var(--ink-muted); background: var(--surface-muted); font-size: 13px; }
+.today-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.today-detail-actions .button-primary { min-width: 140px; }
+@media (min-width: 700px) {
+  .today-detail-backdrop { align-items: center; padding: 24px; }
+  .today-detail-sheet { border-radius: 18px; }
+}
+@media (max-width: 380px) {
+  .today-card-main-row { grid-template-columns: minmax(0, 1fr) 40px; gap: 5px; padding: 11px 12px; }
+  .today-card-heading { flex-wrap: wrap; gap: 6px; }
+  .today-card-title { flex-basis: 100%; order: 2; }
+  .today-detail-heading, .today-detail-content { padding-left: 14px; padding-right: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .today-detail-sheet { scroll-behavior: auto; } }
+.today-missed-disclosure { margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+.today-missed-disclosure > summary { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: var(--ink); font-size: 13px; font-weight: 700; cursor: pointer; }
+.today-missed-disclosure > summary span { display: grid; min-width: 26px; height: 26px; place-items: center; border-radius: 99px; color: var(--status-missed-ink); background: var(--status-missed-surface); font-size: 11px; }
+.today-missed-disclosure > .today-checkin-list { padding: 0 10px 10px; }

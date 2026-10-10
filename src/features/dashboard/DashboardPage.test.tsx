@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -7,6 +7,8 @@ import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { DashboardPage } from './DashboardPage'
+
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
 
 afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 
@@ -38,6 +40,21 @@ describe('local progress dashboard', () => {
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
+  })
+
+  it('refreshes displayed weekly statistics when a check-in changes while the dashboard is mounted', async () => {
+    const definition = tracker()
+    await localRepository.saveTracker(definition)
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    await screen.findByText('Successes · 7 days')
+    const successValue = () => screen.getByText('Successes · 7 days').closest('.dashboard-stat')?.querySelector('strong')
+    await waitFor(() => expect(successValue()).toHaveTextContent('0'))
+
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { pages: 5 }, note: '' })
+    await waitFor(() => expect(successValue()).toHaveTextContent('1'))
+
+    await localRepository.deleteTrackerEntry(definition.id, localCalendarDate())
+    await waitFor(() => expect(successValue()).toHaveTextContent('0'))
   })
 
   it('shows a retry state instead of an empty account when local reads fail', async () => {

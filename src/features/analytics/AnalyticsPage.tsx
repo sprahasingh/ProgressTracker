@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate } from '../../db/models'
 import { calculateTrackerAnalytics, type TrackerAnalytics } from '../../domain/trackers/analytics'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
@@ -72,6 +73,7 @@ export function AnalyticsPage() {
     void refresh()
     return () => { generationRef.current += 1 }
   }, [refresh, workspaceKey, workspaceReady])
+  useWorkspaceDataChanges(expectedOwner, workspaceReady, refresh)
 
   const activeScheduled = summaries.filter((item) => item.scheduledCount !== null)
   const scheduledCount = activeScheduled.reduce((sum, item) => sum + (item.scheduledCount ?? 0), 0)

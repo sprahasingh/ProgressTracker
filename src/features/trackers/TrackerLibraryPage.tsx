@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -63,6 +64,7 @@ export function TrackerLibraryPage() {
     void refresh()
     return () => { readGenerationRef.current += 1 }
   }, [refresh, workspaceKey, workspaceReady])
+  useWorkspaceDataChanges(expectedOwner, workspaceReady, refresh)
 
   async function archive(id: string) {
     try {

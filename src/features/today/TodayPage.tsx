@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate } from '../../domain/trackers/planning'
+import { getTrackerActivityStatus, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
-import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
@@ -18,11 +18,13 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { useAuth } from '../auth/AuthProvider'
-import { TodayRequirements } from './TodayRequirements'
+import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
 
 export function TodayPage() {
   const { status: authStatus, user } = useAuth()
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
+  const ownerRef = useRef(expectedOwner)
+  ownerRef.current = expectedOwner
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [allTrackers, setAllTrackers] = useState<StoredTrackerDefinition[]>([])
@@ -35,8 +37,14 @@ export function TodayPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
+  const refreshGeneration = useRef(0)
+  const [selectedActivity, setSelectedActivity] = useState<{ trackerId: string; date: CalendarDate } | null>(null)
+  const [showMissed, setShowMissed] = useState(false)
+  const cardTriggers = useRef(new Map<string, HTMLButtonElement>())
 
   const refresh = useCallback(async (showLoading = false) => {
+    const generation = ++refreshGeneration.current
+    const requestOwner = expectedOwner
     if (showLoading) setLoading(true)
     setError('')
     setLoadError('')
@@ -46,6 +54,7 @@ export function TodayPage() {
         localRepository.listTrackerEntriesBetween(shiftCalendarDate(today, -6), today),
         localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
       ])
+      if (refreshGeneration.current !== generation || ownerRef.current !== requestOwner) return
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
       const goals = allTrackers.filter((tracker) => tracker.status === 'active' && tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
       const latestGoalDeadline = goals.reduce<CalendarDate>((latest, tracker) => {
@@ -69,25 +78,31 @@ export function TodayPage() {
       setHolidayDates(planningHolidays.map((holiday) => holiday.date))
       setTodayHoliday(planningHolidays.find((holiday) => holiday.date === today))
     } catch {
-      setLoadError('Today’s check-ins could not be loaded from this device.')
+      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoadError('Today’s check-ins could not be loaded from this device.')
     } finally {
-      setLoading(false)
+      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoading(false)
     }
-  }, [today])
+  }, [expectedOwner, today])
 
   useEffect(() => { void refresh(true) }, [refresh])
-  useEffect(() => subscribeToWorkspaceDataChanges((changedOwner) => {
-    if (changedOwner === expectedOwner) void refresh()
-  }), [expectedOwner, refresh])
+  useWorkspaceDataChanges(expectedOwner, authStatus !== 'loading', refresh)
   const trackers = useMemo(() => todayHoliday ? [] : allTrackers.filter((tracker) => isScheduledDate(tracker, today)), [allTrackers, today, todayHoliday])
+  const activityTrackers = useMemo(() => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null), [allTrackers])
   const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
-  const remainingCount = Math.max(0, trackers.length - loggedCount)
-  const allComplete = trackers.length > 0 && trackers.every((tracker) => {
-    const entry = entryByTracker.get(tracker.id)
-    return entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-  })
+  const completedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet }) === 'completed').length
+  const partialCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet }) === 'partial').length
+  const skippedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet }) === 'skipped').length
+  const remainingCount = Math.max(0, trackers.length - completedCount - skippedCount)
+  const allComplete = trackers.length > 0 && completedCount === trackers.length
+  const selectedTracker = activityTrackers.find((tracker) => tracker.id === selectedActivity?.trackerId)
+  const selectedEntry = selectedActivity ? weekEntries.find((entry) => entry.trackerId === selectedActivity.trackerId && entry.date === selectedActivity.date) : undefined
+  const recentMisses = useMemo(() => Array.from({ length: 6 }, (_, index) => shiftCalendarDate(today, index - 6))
+    .filter((date) => !holidaySet.has(date))
+    .flatMap((date) => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null && isScheduledDate(tracker, date))
+      .filter((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: holidaySet }) === 'missed')
+      .map((tracker) => ({ tracker, date }))), [today, allTrackers, weekEntries, holidaySet])
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = shiftCalendarDate(today, index - 6)
     const scheduled = allTrackers.filter((tracker) => isScheduledDate(tracker, date))
@@ -101,19 +116,19 @@ export function TodayPage() {
     return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state, statusLabel }
   }), [today, allTrackers, weekEntries, holidayDates])
 
-  async function save(tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
+  async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
     setError('')
     try {
-      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome, values: outcome === 'skipped' ? {} : values, note })
+      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date, outcome, values: outcome === 'skipped' ? {} : values, note })
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Your check-in could not be saved.')
     }
   }
 
-  async function clear(tracker: StoredTrackerDefinition) {
+  async function clear(tracker: StoredTrackerDefinition, date: CalendarDate) {
     try {
-      await localRepository.deleteTrackerEntry(tracker.id, today)
+      await localRepository.deleteTrackerEntry(tracker.id, date)
       await refresh()
     } catch {
       setError('This check-in could not be cleared.')
@@ -136,8 +151,8 @@ export function TodayPage() {
         <p className="week-rhythm-caption">Rest days are part of your rhythm too.</p>
       </section></details>}
       {!loading && !loadError && trackers.length > 0 && <section className={`today-overview surface${allComplete ? ' all-handled' : ''}`} aria-label="Today at a glance">
-        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All scheduled goals completed today.' : 'Today is wrapped up.' : `${remainingCount} small ${remainingCount === 1 ? 'step' : 'steps'} to go`}</h2><p>{loggedCount} of {trackers.length} scheduled {trackers.length === 1 ? 'activity' : 'activities'} checked in{entries.some((entry) => entry.outcome === 'skipped') ? ' · skipped activities stay neutral' : ''}.</p></div>
-        <div className="today-progress" role="img" aria-label={`${loggedCount} of ${trackers.length} scheduled activities logged`}><span>{loggedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? loggedCount / trackers.length * 100 : 0}%` }} /></div><small>logged today</small></div>
+        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All scheduled activities completed.' : 'No scheduled activity remains.' : `${remainingCount} ${remainingCount === 1 ? 'activity' : 'activities'} still actionable`}</h2><p>{completedCount} completed · {partialCount} partially complete · {loggedCount} of {trackers.length} checked in{skippedCount ? ` · ${skippedCount} skipped` : ''}.</p></div>
+        <div className="today-progress" role="img" aria-label={`${completedCount} of ${trackers.length} scheduled activities completed`}><span>{completedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? completedCount / trackers.length * 100 : 0}%` }} /></div><small>completed today</small></div>
       </section>}
       {!loading && !loadError && upcomingGoals.length > 0 && <section className="today-upcoming-goals" aria-labelledby="today-upcoming-title">
         <header><div><span className="eyebrow"><span className="eyebrow-line" /> NEXT UP</span><h2 id="today-upcoming-title">Coming up soon</h2></div><Link to="/goals">All goals <span aria-hidden="true">→</span></Link></header>
@@ -166,78 +181,142 @@ export function TodayPage() {
       </section>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : trackers.length === 0 ? (
+      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : activityTrackers.length === 0 ? (
         <Surface>
           <EmptyState title="Nothing scheduled today" description="Create an active tracker and choose a schedule to see it here. Your existing progress stays on this device." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} />
         </Surface>
       ) : (
         <div className="today-checkin-list">
-          {trackers.map((tracker) => <CheckinCard key={tracker.id} tracker={tracker} entry={entryByTracker.get(tracker.id)} today={today} entries={goalEntries} holidays={holidaySet} onSave={save} onClear={clear} />)}
+          {activityTrackers.map((tracker) => {
+            const entry = entryByTracker.get(tracker.id)
+            const status = getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet })
+            const focusKey = `${tracker.id}:${today}`
+            return <CheckinCard key={tracker.id} tracker={tracker} entry={entry} today={today} entries={goalEntries} holidays={holidaySet} status={status}
+              historical={false} onOpen={() => setSelectedActivity({ trackerId: tracker.id, date: today })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
+          })}
         </div>
       )}
+      {recentMisses.length > 0 && <details className="today-missed-disclosure" onToggle={(event) => setShowMissed(event.currentTarget.open)}><summary>Missed opportunities in the last week <span>{recentMisses.length}</span></summary>{showMissed && <div className="today-checkin-list">{recentMisses.map(({ tracker, date }) => {
+        const entry = weekEntries.find((item) => item.trackerId === tracker.id && item.date === date)
+        const focusKey = `${tracker.id}:${date}`
+        return <CheckinCard key={focusKey} tracker={tracker} entry={entry} today={date} entries={goalEntries} holidays={holidaySet} status="missed" historical
+          onOpen={() => setSelectedActivity({ trackerId: tracker.id, date })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
+      })}</div>}</details>}
+      {selectedTracker && selectedActivity && <CheckinSheet key={`${selectedTracker.id}:${selectedActivity.date}`} tracker={selectedTracker} entry={selectedEntry} today={selectedActivity.date} entries={goalEntries} holidays={holidaySet}
+        status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet })}
+        canEdit={isScheduledDate(selectedTracker, selectedActivity.date) && !holidaySet.has(selectedActivity.date) || Boolean(selectedEntry)}
+        historical={selectedActivity.date < today} onSave={save} onClear={clear} onClose={() => { const key = `${selectedTracker.id}:${selectedActivity.date}`; setSelectedActivity(null); window.setTimeout(() => cardTriggers.current.get(key)?.focus(), 0) }} />}
       {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Skipped' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}
     </section>
   )
 }
 
 type CheckinCardProps = {
-  tracker: StoredTrackerDefinition
-  entry?: StoredTrackerEntry
-  today: string
-  entries: readonly StoredTrackerEntry[]
-  holidays: ReadonlySet<string>
-  onSave: (tracker: StoredTrackerDefinition, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<void>
-  onClear: (tracker: StoredTrackerDefinition) => Promise<void>
+  tracker: StoredTrackerDefinition; entry?: StoredTrackerEntry; today: CalendarDate
+  entries: readonly StoredTrackerEntry[]; holidays: ReadonlySet<string>; status: ActivityStatus
+  historical?: boolean
+  onOpen: () => void; onTrigger: (element: HTMLButtonElement | null) => void
 }
 
-function CheckinCard({ tracker, entry, today, entries, holidays, onSave, onClear }: CheckinCardProps) {
+function CheckinCard({ tracker, entry, today, entries, holidays, status, historical = false, onOpen, onTrigger }: CheckinCardProps) {
+  const details = getTodayMetricDetails(tracker, entry, today, entries, holidays)
+  const summaryMetrics = details.slice(0, 2)
+  const primary = summaryMetrics[0]
+  const progress = primary?.expected && primary.expected > 0 ? Math.min(100, Math.max(0, Number(primary.completed) / primary.expected * 100)) : 0
+  const statusInfo = ACTIVITY_STATUS_PRESENTATION[status]
+  return <article className={`today-checkin-card status-card status-${status}`}>
+    <div className="today-card-main-row">
+      <button className="today-activity-open" type="button" onClick={onOpen} ref={onTrigger} aria-label={`Open ${tracker.name}, ${statusInfo.label}${historical ? `, ${calendarDateLabel(today)}` : ''}`}>
+        <span className="today-card-heading"><span className="tracker-kind-chip">{tracker.kind}</span><span className="today-card-title" role="heading" aria-level={2}>{tracker.name}</span><span className={`today-state ${status}`} role="status" aria-label={statusInfo.label}><span aria-hidden="true">{statusInfo.icon}</span> {statusInfo.label}</span></span>
+        {tracker.description && <span className="today-card-description">{tracker.description}</span>}
+        <span className="today-compact-metrics">
+          {summaryMetrics.map((metric) => <span className="today-compact-metric" key={metric.id}><span>{metric.name}</span>{metric.expectedLabel && <small className="today-compact-expectation">{historical ? metric.expectedLabel.replace('Today’s', `${calendarDateLabel(today)} ·`) : metric.expectedLabel === 'Today’s suggested allocation' ? 'Suggested today' : metric.expectedLabel === 'Today’s saved allocation' ? 'Saved allocation today' : metric.expectedLabel}</small>}<strong>{metric.isBoolean ? (metric.completed ? 'Complete' : 'Not complete') : metric.expected !== undefined ? `${formatTrackerNumber(Number(metric.completed))} / ${formatTrackerNumber(metric.expected)}${metric.unit}` : metric.completed ? `${formatTrackerNumber(Number(metric.completed))}${metric.unit} recorded` : 'No progress recorded'}</strong>{metric.remaining !== undefined && <small>{formatTrackerNumber(metric.remaining)}{metric.unit} remaining</small>}</span>)}
+          {details.length > 2 && <small className="today-compact-more">+{details.length - 2} more measures</small>}
+          {!details.length && <span className="today-compact-metric"><strong>{entry ? 'Activity recorded' : 'Open for details'}</strong></span>}
+        </span>
+        {primary?.expected !== undefined && primary.expected > 0 && <span className="today-compact-progress" aria-hidden="true"><i style={{ width: `${progress}%` }} /></span>}
+        <span className="today-open-hint">{entry ? 'View or edit check-in' : historical ? `Open ${calendarDateLabel(today)} activity` : 'Open today’s activity'} <span aria-hidden="true">→</span></span>
+      </button>
+      <TodayRequirements compactIconOnly historical={historical} tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
+    </div>
+  </article>
+}
+
+type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
+  canEdit: boolean
+  historical: boolean
+  onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<void>
+  onClear: (tracker: StoredTrackerDefinition, date: CalendarDate) => Promise<void>
+  onClose: () => void
+}
+
+function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdit, historical, onSave, onClear, onClose }: CheckinSheetProps) {
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
   const [note, setNote] = useState(entry?.note ?? '')
   const [issue, setIssue] = useState('')
   const [saving, setSaving] = useState(false)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const sheetRef = useRef<HTMLElement>(null)
+  const closeRequestRef = useRef<() => void>(() => {})
+  const originalValues = entry?.values ?? {}
+  const dirty = JSON.stringify(values) !== JSON.stringify(originalValues) || note !== (entry?.note ?? '')
   const firstMetric = tracker.metrics[0]
-  const quickBooleanMetric = tracker.metrics.length === 1 && firstMetric?.valueType === 'boolean' ? firstMetric : undefined
-  const canOneTapComplete = Boolean(quickBooleanMetric) && tracker.customFields.length === 0
-  // Sync refreshed local records before paint so a just-saved value cannot
-  // briefly overwrite the user's next edit in the controlled check-in fields.
-  useLayoutEffect(() => { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') }, [entry])
+  const quickBoolean = tracker.metrics.length === 1 && firstMetric?.valueType === 'boolean' && tracker.customFields.length === 0 && !entry
+  const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
 
+  useLayoutEffect(() => { if (!dirty) { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') } }, [entry, dirty])
+  useEffect(() => {
+    closeRef.current?.focus()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      // The requirement panel is its own modal layered over this sheet. Let its
+      // Escape and focus trap own keyboard handling while it is open.
+      if (sheetRef.current?.querySelector('.today-requirements-sheet')) return
+      if (event.key === 'Escape') { event.preventDefault(); closeRequestRef.current(); return }
+      if (event.key === 'Tab') {
+        const focusable = sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+        if (!focusable?.length) return
+        const first = focusable[0]!, last = focusable[focusable.length - 1]!
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown); document.body.style.overflow = previousOverflow }
+  }, [])
+  function requestClose() {
+    if (saving) return
+    if (dirty && !window.confirm('Discard your unsaved check-in changes?')) return
+    onClose()
+  }
+  closeRequestRef.current = requestClose
   const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
-    const next = { ...current }
-    if (value === undefined) delete next[key]
-    else next[key] = value
-    return next
+    const next = { ...current }; if (value === undefined) delete next[key]; else next[key] = value; return next
   })
-
-  async function submit(outcome: 'recorded' | 'skipped', valuesToSave = values) {
-    const valueIssue = outcome === 'recorded' ? validateTrackerEntryValues(tracker, valuesToSave, { existingValues: entry?.values }) : undefined
-    if (valueIssue) { setIssue(valueIssue.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
-    setIssue('')
-    setSaving(true)
-    await onSave(tracker, valuesToSave, note, outcome)
+  async function submit(outcome: 'recorded' | 'skipped', payload = values) {
+    const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: entry?.values }) : undefined
+    if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
+    setIssue(''); setSaving(true)
+    await onSave(tracker, today, payload, note, outcome)
     setSaving(false)
   }
+  async function clear() { setSaving(true); await onClear(tracker, today); setSaving(false); onClose() }
 
-  const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
-  const activityStatus = entry?.outcome === 'recorded' ? result?.qualified ? 'completed' : 'partial' : 'pending'
-  return (
-    <Surface className={`today-checkin-card status-card status-${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`}>
-      <div className="today-checkin-heading"><div className="today-checkin-title"><span className="tracker-kind-chip">{tracker.kind}</span><h2>{tracker.name}</h2>{tracker.description && <p>{tracker.description}</p>}</div><span className={`today-state ${entry?.outcome === 'skipped' ? 'skipped' : activityStatus}`} role="status" aria-label={entry?.outcome === 'skipped' ? 'Skipped; no success or miss counted' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}><span aria-hidden="true">{entry?.outcome === 'skipped' ? '—' : ACTIVITY_STATUS_PRESENTATION[activityStatus].icon}</span> {entry?.outcome === 'skipped' ? 'Skipped' : ACTIVITY_STATUS_PRESENTATION[activityStatus].label}</span></div>
-      <TodayRequirements tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
-      <div>
-        {!(canOneTapComplete && !entry) && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
-        <details className="today-note-details">
-          <summary>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary>
-          <label className="form-field form-field-wide"><span className="visually-hidden">Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="A thought for later, if you like." /></label>
-        </details>
+  return <div className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
+    <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef}>
+      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}</p></div><button ref={closeRef} type="button" className="today-detail-close" aria-label="Close check-in details" onClick={requestClose}>×</button></header>
+      <div className="today-detail-content">
+        <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} entries={entries} holidays={holidays} />
+        {!canEdit ? <p className="today-detail-notice">{holidays.has(today) ? 'Today is a holiday, so this activity cannot be checked in.' : 'Today is not a scheduled day for this activity.'} Existing recorded activity remains available to view.</p> : <>
+          {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was skipped. Recording progress will replace the skipped state.</p>}
+          {!quickBoolean && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
+          <details className="today-note-details"><summary>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
+          {issue && <p className="today-validation" role="alert">{issue}</p>}
+          {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
+          <div className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', quickBoolean ? { [firstMetric!.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : quickBoolean ? 'Mark complete' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</div>
+        </>}
       </div>
-      {issue && <p className="today-validation" role="alert">{issue}</p>}
-      {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
-      <div className="today-actions">
-        <button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', canOneTapComplete && !entry && quickBooleanMetric ? { [quickBooleanMetric.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : canOneTapComplete ? 'Mark complete' : 'Save check-in'}</button>
-        <button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>
-        {entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void onClear(tracker)}>Clear check-in</button>}
-      </div>
-    </Surface>
-  )
+    </section>
+  </div>
 }

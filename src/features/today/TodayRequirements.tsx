@@ -11,9 +11,11 @@ type Props = {
   today: string
   entries: readonly StoredTrackerEntry[]
   holidays: ReadonlySet<string>
+  compactIconOnly?: boolean
+  historical?: boolean
 }
 
-type MetricDetails = {
+export type TodayMetricDetails = {
   id: string
   name: string
   unit: string
@@ -53,7 +55,7 @@ function scheduleDescription(tracker: StoredTrackerDefinition): string {
   }
 }
 
-function metricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>): MetricDetails[] {
+export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>): TodayMetricDetails[] {
   return tracker.metrics.map((metric) => {
     const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
     const completed = metric.valueType === 'boolean'
@@ -108,15 +110,17 @@ function amount(value: number, unit: string): string {
   return `${formatTrackerNumber(value)}${singularUnit ? ` ${singularUnit}` : ''}`
 }
 
-export function TodayRequirements({ tracker, entry, today, entries, holidays }: Props) {
+export function TodayRequirements({ tracker, entry, today, entries, holidays, compactIconOnly = false, historical = false }: Props) {
   const [open, setOpen] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
-  const metrics = metricDetails(tracker, entry, today, entries, holidays)
+  const metrics = getTodayMetricDetails(tracker, entry, today, entries, holidays)
   const hasThresholds = metrics.some((metric) => metric.minimum !== undefined || metric.target !== undefined || metric.stretch !== undefined)
   const hasPlanning = metrics.some((metric) => metric.totalTarget !== undefined || metric.expectedLabel === 'Today’s target')
   const isCumulative = tracker.goalPlanning?.mode === 'cumulative-deadline' && metrics.some((metric) => metric.totalTarget !== undefined)
+  const selectedDateLabel = calendarDateLabel(today)
+  const requirementLabel = (label: string) => historical ? label.replace('Today’s', `${selectedDateLabel} ·`).replace('today', selectedDateLabel) : label
 
   useEffect(() => {
     if (!open) return
@@ -144,29 +148,30 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays }: 
   }, [open])
 
   return <>
-    <div className="today-requirements-summary">
+    {!compactIconOnly && <div className="today-requirements-summary">
       <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress and daily expectation`}>
         {metrics.map((metric) => <div className="today-target-metric" key={metric.id}>
           <span className="today-target-name">{metric.name}</span>
-          {metric.isBoolean ? <><strong className="today-target-value">Complete today</strong><small className="today-target-remaining">{metric.completed ? 'Completed' : 'Not completed'}</small></> : <>
-            <span className="today-requirement-label">{metric.expectedLabel === 'Target threshold' ? 'Today’s target' : metric.expectedLabel === 'Minimum threshold' ? 'Today’s minimum' : metric.expectedLabel ?? 'Progress today'}</span>
+          {metric.isBoolean ? <><strong className="today-target-value">{historical ? 'Complete this activity' : 'Complete today'}</strong><small className="today-target-remaining">{metric.completed ? 'Completed' : 'Not completed'}</small></> : <>
+            <span className="today-requirement-label">{requirementLabel(metric.expectedLabel === 'Target threshold' ? 'Today’s target' : metric.expectedLabel === 'Minimum threshold' ? 'Today’s minimum' : metric.expectedLabel ?? 'Progress today')}</span>
             <strong className="today-target-value">{metric.expected === undefined ? amount(Number(metric.completed), metric.unit) : `${formatTrackerNumber(Number(metric.completed))} / ${amount(metric.expected, metric.unit)}`}</strong>
             {metric.remaining !== undefined && <small className="today-target-remaining">{amount(metric.remaining, metric.unit)} remaining</small>}
           </>}
-          {metric.savedAllocation !== undefined && metric.suggestion !== undefined && metric.savedAllocation !== metric.suggestion && <small className="today-requirement-note">Today’s suggestion: {amount(metric.suggestion, metric.unit)}</small>}
+          {metric.savedAllocation !== undefined && metric.suggestion !== undefined && metric.savedAllocation !== metric.suggestion && <small className="today-requirement-note">{requirementLabel("Today’s suggestion")}: {amount(metric.suggestion, metric.unit)}</small>}
           {metric.nextSuggestion !== undefined && <small className="today-requirement-note">Next scheduled suggestion: {amount(metric.nextSuggestion, metric.unit)}</small>}
         </div>)}
       </div>
       <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">ⓘ</span></button>
-    </div>
+    </div>}
+    {compactIconOnly && <button ref={triggerRef} className="today-requirements-trigger" type="button" aria-label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">ⓘ</span></button>}
     {open && <div className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section ref={sheetRef} className="today-requirements-sheet" role="dialog" aria-modal="true" aria-labelledby="today-requirements-title">
         <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><button ref={closeRef} className="today-requirements-close" type="button" aria-label="Close daily requirements" onClick={() => setOpen(false)}>×</button></header>
-        <section className="today-requirements-section"><h3>Today’s progress</h3>
+        <section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
           {metrics.map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}{metric.unit && <span>{metric.unit}</span>}</h4>
             <dl>
               <div><dt>Completed</dt><dd>{metric.isBoolean ? metric.completed ? 'Complete' : 'Not yet' : amount(Number(metric.completed), metric.unit)}</dd></div>
-              {metric.isBoolean ? <div><dt>Expected</dt><dd>Complete this check-in</dd></div> : metric.expected !== undefined && <div><dt>{metric.expectedLabel}</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
+              {metric.isBoolean ? <div><dt>Expected</dt><dd>Complete this check-in</dd></div> : metric.expected !== undefined && <div><dt>{requirementLabel(metric.expectedLabel ?? 'Expected')}</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
               {!metric.isBoolean && metric.remaining !== undefined && <div><dt>Remaining</dt><dd>{amount(metric.remaining, metric.unit)}</dd></div>}
             </dl>
           </article>)}
@@ -178,7 +183,7 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays }: 
         </dl></article>)}</section>}
         <section className="today-requirements-section"><h3>Schedule</h3><dl><div><dt>Repeats</dt><dd>{scheduleDescription(tracker)}</dd></div>{tracker.startDate && <div><dt>Starts</dt><dd>{calendarDateLabel(tracker.startDate)}</dd></div>}{tracker.deadline && <div><dt>Deadline</dt><dd>{calendarDateLabel(tracker.deadline)}</dd></div>}</dl></section>
         {hasPlanning && <section className="today-requirements-section"><h3>Planning</h3>{metrics.filter((metric) => metric.totalTarget !== undefined || metric.expectedLabel === 'Today’s target').map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}</h4><dl>
-          {metric.totalTarget !== undefined && <><div><dt>Goal total</dt><dd>{amount(metric.totalTarget, metric.unit)}</dd></div><div><dt>Recorded toward goal</dt><dd>{amount(metric.goalProgress ?? 0, metric.unit)}</dd></div><div><dt>Goal remaining</dt><dd>{amount(metric.goalRemaining ?? 0, metric.unit)}</dd></div>{metric.savedAllocation !== undefined && <div><dt>Saved allocation</dt><dd>{amount(metric.savedAllocation, metric.unit)}</dd></div>}{metric.suggestion !== undefined && <div><dt>Today’s adaptive suggestion</dt><dd>{amount(metric.suggestion, metric.unit)}</dd></div>}{metric.nextSuggestion !== undefined && <div><dt>Next scheduled suggestion{metric.nextSuggestionDate ? ` · ${calendarDateLabel(metric.nextSuggestionDate)}` : ''}</dt><dd>{amount(metric.nextSuggestion, metric.unit)}</dd></div>}{metric.planningStatus === 'overdue' && <div><dt>Schedule</dt><dd>Past deadline</dd></div>}{metric.planningStatus === 'no-scheduled-days' && <div><dt>Schedule</dt><dd>No eligible days remain</dd></div>}{metric.planningStatus === 'completed' && <div><dt>Schedule</dt><dd>Goal complete</dd></div>}</>}
+          {metric.totalTarget !== undefined && <><div><dt>Goal total</dt><dd>{amount(metric.totalTarget, metric.unit)}</dd></div><div><dt>Recorded toward goal</dt><dd>{amount(metric.goalProgress ?? 0, metric.unit)}</dd></div><div><dt>Goal remaining</dt><dd>{amount(metric.goalRemaining ?? 0, metric.unit)}</dd></div>{metric.savedAllocation !== undefined && <div><dt>Saved allocation</dt><dd>{amount(metric.savedAllocation, metric.unit)}</dd></div>}{metric.suggestion !== undefined && <div><dt>{requirementLabel("Today’s adaptive suggestion")}</dt><dd>{amount(metric.suggestion, metric.unit)}</dd></div>}{metric.nextSuggestion !== undefined && <div><dt>Next scheduled suggestion{metric.nextSuggestionDate ? ` · ${calendarDateLabel(metric.nextSuggestionDate)}` : ''}</dt><dd>{amount(metric.nextSuggestion, metric.unit)}</dd></div>}{metric.planningStatus === 'overdue' && <div><dt>Schedule</dt><dd>Past deadline</dd></div>}{metric.planningStatus === 'no-scheduled-days' && <div><dt>Schedule</dt><dd>No eligible days remain</dd></div>}{metric.planningStatus === 'completed' && <div><dt>Schedule</dt><dd>Goal complete</dd></div>}</>}
           {metric.expectedLabel === 'Today’s target' && metric.expected !== undefined && <div><dt>Daily plan target</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
         </dl></article>)}
           {isCumulative && <div className="today-requirements-note">Adaptive suggestions use recorded progress and remaining scheduled days, excluding rest days, holidays, and already recorded days. A saved allocation remains explicit and is not replaced automatically.</div>}
