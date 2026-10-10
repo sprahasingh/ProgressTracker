@@ -202,8 +202,9 @@ export const trackerDefinitionSchema = z.object({
           if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
           const effectiveStartDate = tracker.startDate ?? tracker.createdAt.slice(0, 10)
-          const scheduled = tracker.deadline && date >= effectiveStartDate && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date)
-          if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocations must use scheduled dates within the goal start and deadline.' })
+          const historicalAllocation = date < effectiveStartDate
+          const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date))
+          if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
         }
       }
     }

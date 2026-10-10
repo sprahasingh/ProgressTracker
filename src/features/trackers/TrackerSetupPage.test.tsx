@@ -6,6 +6,7 @@ import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
 import styles from '../../styles.css?raw'
+import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
 
 const { navigation, routeParams } = vi.hoisted(() => ({ navigation: vi.fn(), routeParams: { trackerId: undefined as string | undefined } }))
 
@@ -33,6 +34,17 @@ function precisePlannedGoal(id: string, decimalPlaces: 0 | 1 | 2, increment: num
     metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', precision: { decimalPlaces, increment }, thresholds: { direction: 'increase' as const, target: 1, streakQualification: 'target' as const } }],
     qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const }, customFields: [], milestones: [],
     goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: 'UTC', allocations: { pages: allocations } },
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+  }
+}
+
+function datedTracker(id: string, kind: TrackerKind, startDate = '2026-01-05', deadline: string | null = '2100-01-01'): TrackerDefinition {
+  return {
+    schemaVersion: 1, id, name: 'Date range tracker', description: '', kind, status: 'active', categoryId: null,
+    tags: [], icon: '', accent: '', schedule: kind === 'project' ? { kind: 'none' } : { kind: 'every-day' },
+    startDate, deadline: deadline ?? undefined, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+    qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+    customFields: [], milestones: [{ id: 'milestone-1', title: 'First step', description: '', position: 0 }],
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
   }
 }
@@ -249,6 +261,113 @@ describe('tracker setup flow', () => {
     await waitFor(() => expect(navigation).toHaveBeenCalledWith('/trackers', expect.any(Object)))
     const saved = await localRepository.getTracker(existing.id)
     expect(saved).toMatchObject({ id: existing.id, name: 'Updated name', createdAt: existing.createdAt, schemaVersion: 1, kind: 'habit' })
+  })
+
+  it.each(['habit', 'goal', 'challenge', 'project'] as const)('saves a forward future start date for %s without a type-specific restriction', async (kind) => {
+    const existing = datedTracker(`future-${kind}`, kind, '2026-01-05', null)
+    await localRepository.saveTracker(existing)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    const start = await screen.findByLabelText('Start date')
+    fireEvent.change(start, { target: { value: '2099-12-31' } })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2099-12-31', kind }))
+    expect((await localRepository.getTracker(existing.id))?.deadline).toBeUndefined()
+  })
+
+  it.each(['habit', 'goal', 'challenge', 'project'] as const)('saves a backward start date for %s', async (kind) => {
+    const existing = datedTracker(`past-${kind}`, kind)
+    await localRepository.saveTracker(existing)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    fireEvent.change(await screen.findByLabelText('Start date'), { target: { value: '2025-12-31' } })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2025-12-31', kind }))
+  })
+
+  it('explains a start date after the deadline and keeps the tracker unchanged', async () => {
+    const existing = datedTracker('invalid-date-range', 'goal', '2026-01-05', '2026-01-10')
+    await localRepository.saveTracker(existing)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    const start = await screen.findByLabelText('Start date')
+    expect(start).toHaveAttribute('type', 'date')
+    expect(start).toHaveAttribute('max', '2026-01-10')
+    fireEvent.change(start, { target: { value: '2026-01-11' } })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByText(/Start date must be on or before the deadline/)).toBeInTheDocument()
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-05', deadline: '2026-01-10' })
+  })
+
+  it('confirms forward edits that exclude saved activity while preserving check-ins and milestones', async () => {
+    const existing = datedTracker('history-date-range', 'goal', '2026-01-05')
+    await localRepository.saveTracker(existing)
+    const savedEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-05', outcome: 'recorded', values: { done: true }, note: 'Keep this history' })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    fireEvent.change(await screen.findByLabelText('Start date'), { target: { value: '2026-01-07' } })
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 saved check-in record'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('remain in History'))
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-05', milestones: [{ id: 'milestone-1', title: 'First step' }] })
+    expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { done: true }, note: 'Keep this history' })
+
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-07' }))
+    expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { done: true } })
+  })
+
+  it('preserves saved goal allocations and recorded progress when the new start moves past a planned date', async () => {
+    const existing = precisePlannedGoal('goal-start-allocation-history', 0, 1, { '2026-01-05': 3, '2026-01-06': 4 })
+    await db.open()
+    await db.workspaceMetadata.put({ key: 'workspace', userId: 'start-date-owner' })
+    await localRepository.saveTracker(existing)
+    const savedEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-05', outcome: 'recorded', values: { pages: 2 }, note: 'Actual progress' })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    fireEvent.change(await screen.findByLabelText('Start date'), { target: { value: '2026-01-06' } })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
+      startDate: '2026-01-06', goalPlanning: { allocations: { pages: { '2026-01-05': 3, '2026-01-06': 4 } } },
+    }))
+    expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { pages: 2 }, note: 'Actual progress' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['start-date-owner', 'tracker', existing.id]).first()).resolves.toMatchObject({
+      payload: { startDate: '2026-01-06', goalPlanning: { allocations: { pages: { '2026-01-05': 3, '2026-01-06': 4 } } } },
+    })
+  })
+
+  it.each([320, 1280])('keeps the native date controls available at %ipx', async (width) => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    const existing = datedTracker(`date-picker-${width}`, 'goal', '2026-01-05', '2026-01-10')
+    await localRepository.saveTracker(existing)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    expect(await screen.findByLabelText('Start date')).toHaveAttribute('type', 'date')
+    expect(screen.getByLabelText('Start date')).toHaveAttribute('max', '2026-01-10')
+    const deadline = document.querySelector('.tracker-deadline-field input')
+    expect(deadline).toHaveAttribute('type', 'date')
+    expect(deadline).toHaveAttribute('min', '2026-01-05')
+    cleanup()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+  })
+
+  it.each([
+    { kind: 'challenge' as const, deadlineLabel: 'Finish by' },
+    { kind: 'project' as const, deadlineLabel: 'Project deadline' },
+  ])('sets the $kind creation deadline picker minimum to the chosen start date', async ({ kind, deadlineLabel }) => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: new RegExp(kind, 'i') }))
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Schedule & holidays'))
+    const start = screen.getByLabelText('Start date')
+    const deadline = screen.getByLabelText(deadlineLabel)
+    expect(deadline).toHaveAttribute('type', 'date')
+    expect(deadline).toHaveAttribute('min', (start as HTMLInputElement).value)
   })
 
   it('keeps a legacy goal per-check-in target when editing it', async () => {

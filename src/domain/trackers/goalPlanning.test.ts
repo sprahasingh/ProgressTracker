@@ -51,6 +51,18 @@ describe('daily recurring planning', () => {
 })
 
 describe('cumulative deadline planning', () => {
+  it('recalculates from a later start while retaining pre-start entries as saved history', () => {
+    const historical = entry('2026-10-01', 20)
+    const current = entry('2026-10-05', 5)
+    const entries = [historical, current]
+    const plan = calculateCumulativeMetricPlan({
+      tracker, entries, metricId: 'pages', totalTarget: 100, startDate: '2026-10-05', asOfDate: '2026-10-06', progressSemantics: 'incremental',
+    })
+
+    expect(plan).toMatchObject({ actualProgress: 5, scheduledDaysTotal: 5, expectedProgress: 40 })
+    expect(entries).toEqual([historical, current])
+  })
+
   it('sums only explicit increments, counts rest-day work, replaces edits, and ignores tombstones and skipped rows', () => {
     const plan = calculateCumulativeMetricPlan({
       tracker, metricId: 'pages', totalTarget: 100, startDate: '2026-10-01', asOfDate: '2026-10-07', progressSemantics: 'incremental',

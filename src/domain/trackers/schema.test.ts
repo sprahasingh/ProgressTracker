@@ -58,6 +58,18 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.parse(v3)).toMatchObject({ schemaVersion: 3, goalPlanning: { planningTimeZone: 'Asia/Kolkata', allocations: { pages: { '2026-01-05': 4 } } } })
   })
 
+  it('preserves previously saved allocations that fall before a later goal start date', () => {
+    const movedGoal: TrackerDefinition = {
+      ...tracker, schemaVersion: 3, kind: 'goal', schedule: { kind: 'weekdays' }, startDate: '2026-01-06',
+      goalPlanning: {
+        mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 100 },
+        planningTimeZone: 'UTC', allocations: { pages: { '2026-01-05': 4, '2026-01-06': 6 } },
+      },
+    }
+    expect(trackerDefinitionSchema.safeParse(movedGoal)).toMatchObject({ success: true })
+    expect(trackerDefinitionSchema.parse(movedGoal).goalPlanning?.allocations?.pages).toEqual({ '2026-01-05': 4, '2026-01-06': 6 })
+  })
+
   it('rejects invalid v3 dates, time zones, metric types, amounts, and ineligible schedule days', () => {
     const v3 = {
       ...tracker, schemaVersion: 3 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const },
