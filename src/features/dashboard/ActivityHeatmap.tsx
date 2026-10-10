@@ -5,6 +5,8 @@ import type { CSSProperties } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { HeatmapDateRangeOption } from './heatmapDateRange'
 
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+
 type Props = {
   days: readonly HeatmapDay[]
   trackerName: string | null
@@ -60,7 +62,7 @@ export function ActivityHeatmap({ days, trackerName, rangeSelection, year, years
       <div className="activity-heatmap" style={{ '--heatmap-columns': columns } as CSSProperties}>
         <div className="heatmap-months" aria-hidden="true">{monthLabels.map((label, index) => <span key={index}>{label}</span>)}</div>
         <div className="heatmap-body">
-          <div className="heatmap-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+          <div className="heatmap-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((day) => <span key={day}>{day}</span>)}</div>
           <div className="heatmap-cells">{cells.map((day, index) => day ? <button key={day.date} type="button" className={`heatmap-cell heatmap-level-${day.level}${day.holiday ? ' heatmap-holiday' : ''}`} title={heatmapLabel(day, trackerName)} aria-label={heatmapLabel(day, trackerName)} aria-pressed={selectedDay?.date === day.date} onClick={() => setSelectedDay(day)} onFocus={() => setSelectedDay(day)} style={{ gridColumn: Math.floor(index / 7) + 1, gridRow: index % 7 + 1 }} /> : <span key={`blank-${index}`} aria-hidden="true" className="heatmap-cell heatmap-cell-empty" style={{ gridColumn: Math.floor(index / 7) + 1, gridRow: index % 7 + 1 }} />)}</div>
         </div>
       </div>

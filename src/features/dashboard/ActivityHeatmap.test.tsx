@@ -29,6 +29,7 @@ describe('ActivityHeatmap', () => {
 
       expect(labels).toEqual([shortMonth('2026-06-01'), shortMonth('2026-07-01'), shortMonth('2026-08-01')])
       expect(container.querySelectorAll('.heatmap-cells button')).toHaveLength(84)
+      expect(Array.from(container.querySelectorAll('.heatmap-weekdays span'), (span) => span.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
       expect(container.querySelector('.activity-heatmap-scroll')).toHaveAttribute('aria-label', 'Scrollable last 12 months activity heatmap')
       expect(container.querySelector('.activity-heatmap-scroll')?.scrollLeft).toBe(600)
       cleanup()
