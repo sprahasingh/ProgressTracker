@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
 import { Button } from '../../components/ui/Button'
+import { useToast } from '../../components/ui/ToastProvider'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { supabaseConfiguration } from '../../services/supabase/client'
@@ -27,12 +28,14 @@ type SetPasswordValues = z.infer<typeof setPasswordSchema>
 function getCallbackUrl(): string { return `${window.location.origin}${window.location.pathname}` }
 
 export function AuthPage({ embedded = false, redirectSignedIn = false }: { embedded?: boolean; redirectSignedIn?: boolean } = {}) {
+  const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, signOut, passwordRecovery, completePasswordRecovery, syncNow, syncStatus, syncTrigger, isOnline, syncSummary, syncError } = useAuth()
   const [mode, setMode] = useState<AuthMode>('magic-link')
   const [notice, setNotice] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [manualSyncPhase, setManualSyncPhase] = useState<'idle' | 'requested' | 'started'>('idle')
   const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([])
   const [conflictsOwnerUserId, setConflictsOwnerUserId] = useState<string | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
@@ -49,6 +52,24 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
     })
     return () => { active = false }
   }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary])
+
+  useEffect(() => {
+    if (manualSyncPhase === 'requested' && syncStatus === 'syncing') {
+      notify({ kind: 'info', title: 'Sync started', description: 'Checking this account for updates.', dedupeKey: 'manual-sync' })
+      setManualSyncPhase('started')
+    } else if (manualSyncPhase === 'started' && syncStatus === 'complete') {
+      notify({ kind: 'success', title: 'Sync complete', description: 'Your account is up to date.', dedupeKey: 'manual-sync' })
+      setManualSyncPhase('idle')
+    } else if (manualSyncPhase === 'started' && syncStatus === 'error') {
+      notify({ kind: 'warning', title: 'Sync pending', description: 'Your changes remain saved on this device. Sync will retry.', dedupeKey: 'manual-sync' })
+      setManualSyncPhase('idle')
+    }
+  }, [manualSyncPhase, syncStatus, notify])
+
+  async function runManualSync() {
+    setManualSyncPhase('requested')
+    await syncNow?.()
+  }
 
   async function handleConflictResolution(conflict: SyncConflict, choice: 'keep-local' | 'use-cloud' | 'fork-local') {
     if (!user?.id || workspaceUserId !== user.id) return
@@ -118,7 +139,11 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
 
   async function handleSignOut() {
     setIsSigningOut(true)
-    try { setSignOutError(await signOut()) }
+    try {
+      const error = await signOut()
+      setSignOutError(error)
+      if (!error) notify({ kind: 'success', title: 'Signed out', description: 'Your local workspace remains saved on this device.' })
+    }
     catch { setSignOutError('We could not sign out. Check your connection and try again.') }
     finally { setIsSigningOut(false) }
   }
@@ -154,7 +179,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
             })}</section>}
             {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
             {notice && <p className="auth-success" role="status">{notice}</p>}
-            <div className="auth-actions"><Button onClick={() => void syncNow?.()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
+            <div className="auth-actions"><Button onClick={() => void runManualSync()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
           </div>
         )}
 

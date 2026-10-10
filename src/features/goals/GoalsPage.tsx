@@ -7,6 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { Surface } from '../../components/ui/Surface'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -24,6 +25,7 @@ type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
 type GoalProgressSummary = { metricId: string; name: string; value: string; target?: number; remaining?: number; percent?: number; unit: string }
 
 export function GoalsPage() {
+  const { notify } = useToast()
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
@@ -46,8 +48,8 @@ export function GoalsPage() {
 
   async function moveGoalToBin(tracker: StoredTrackerDefinition) {
     if (!window.confirm(`Move “${tracker.name}” to the Bin? You can restore it for 30 days with its progress and plan.`)) return
-    try { await localRepository.deleteTracker(tracker.id); await refresh() }
-    catch { if (workspaceKey) setError({ workspaceKey, message: 'This goal could not be moved to the Bin. Your saved data is unchanged.' }) }
+    try { await localRepository.deleteTracker(tracker.id); await refresh(); notify({ kind: 'success', title: 'Goal moved to the Bin', description: 'Its progress and plan can be restored for 30 days.', dedupeKey: `tracker:${tracker.id}` }) }
+    catch { notify({ kind: 'error', title: 'Couldn’t move goal to the Bin', description: 'Your goal is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` }) }
   }
 
   const refresh = useCallback(async () => {
@@ -201,7 +203,7 @@ export function GoalsPage() {
                         key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
                         v3WritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates}
-                        onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh() }}
+                        onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh(); notify({ kind: 'success', title: 'Daily plan saved', description: 'Your saved allocations were updated on this device.', dedupeKey: `plan:${tracker.id}:${metricId}` }) }}
                       />}
                     </div>
                   })}</div>}

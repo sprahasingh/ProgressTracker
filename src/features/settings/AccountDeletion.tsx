@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from '../../components/ui/IconButton'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { useToast } from '../../components/ui/ToastProvider'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { countPendingWorkspaceSyncOperations } from '../../db/database'
@@ -28,6 +29,7 @@ function tokenIssuedAt(token: string): number | null {
 
 export function AccountDeletion() {
   const auth = useAuth()
+  const { notify } = useToast()
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const [typed, setTyped] = useState('')
   const [pendingCount, setPendingCount] = useState<number | null>(null)
@@ -124,6 +126,7 @@ export function AccountDeletion() {
       if (invokeError) throw new Error(invokeError.message || 'The server could not confirm account deletion. Local data was preserved.')
       if (!data?.deleted) throw new Error('The server did not confirm deletion. Local data was preserved.')
       const cleanupNotice = await auth.finishAccountDeletion(ownerId)
+      notify({ kind: cleanupNotice ? 'warning' : 'success', title: 'Account deletion confirmed', description: cleanupNotice ?? 'Your account and cloud data were deleted. This device is now using guest mode.', duration: cleanupNotice ? 0 : undefined })
       setStep(0); setTyped(''); setPendingCount(null)
       setMessage(cleanupNotice ? cleanupNotice : 'Your account and its cloud data were deleted. This device is now using guest mode.')
     } catch (cause) {

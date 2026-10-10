@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -21,6 +22,23 @@ const definition: StoredTrackerDefinition = {
 }
 
 describe('local check-in history', () => {
+  it('confirms a historical check-in edit after the local write succeeds', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(definition)
+    const date = localCalendarDate()
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Park loop' })
+    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
+    const input = screen.getByRole('spinbutton', { name: 'Distance' })
+    await user.clear(input)
+    await user.type(input, '6')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByRole('status', { name: 'Check-in updated' })).toHaveTextContent('Your progress has been saved on this device.')
+    await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ values: { distance: 6 } })
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+  })
+
   it('lists saved values, notes, outcomes, and filters by tracker', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(definition)

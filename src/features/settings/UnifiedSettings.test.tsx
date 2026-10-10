@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SettingsPage } from './WorkspaceTimeZone'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), updateName: vi.fn(), changeEmail: vi.fn() }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: mocks.auth }))
@@ -19,7 +20,7 @@ describe('unified Settings authentication states', () => {
   })
 
   it('keeps guest preferences and hides account-only controls', () => {
-    render(<SettingsPage />)
+    render(<ToastProvider><SettingsPage /></ToastProvider>)
     expect(screen.getByLabelText(/Calendar time zone/)).toBeInTheDocument()
     expect(screen.getByLabelText(/Appearance/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change email' })).not.toBeInTheDocument()
@@ -31,7 +32,7 @@ describe('unified Settings authentication states', () => {
   it('shows signed-in profile, allows name edits, and consolidates sync controls', async () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    render(<ToastProvider><SettingsPage /></ToastProvider>)
     expect(screen.getAllByText('Spraha Singh')).toHaveLength(2)
     expect(screen.getByText('S', { selector: '.settings-profile-avatar' })).toBeInTheDocument()
     expect(screen.getByText('Cloud synchronization controls')).toBeInTheDocument()
@@ -42,13 +43,13 @@ describe('unified Settings authentication states', () => {
     await user.type(screen.getByLabelText('Full name'), '  Alex Rivera  ')
     await user.click(screen.getByRole('button', { name: 'Save name' }))
     expect(mocks.updateName).toHaveBeenCalledWith('Alex Rivera')
-    expect(await screen.findByRole('status')).toHaveTextContent('Your name was saved.')
+    expect(await screen.findByRole('status', { name: /Name updated/ })).toHaveTextContent('Your profile name was saved.')
   })
 
   it('validates email and reports the secure confirmation state', async () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    render(<ToastProvider><SettingsPage /></ToastProvider>)
     await user.click(screen.getByRole('button', { name: 'Change email' }))
     await user.type(screen.getByLabelText('New email address'), 'invalid')
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }))
@@ -59,6 +60,6 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }))
     expect(mocks.changeEmail).toHaveBeenCalledWith('next@example.com', expect.stringMatching(/^http/))
     expect(await screen.findByText(/confirmation pending for next@example.com/)).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent(/current email stays active until confirmation/i)
+    expect(screen.getByRole('status', { name: /Verification requested/ })).toHaveTextContent(/current address remains active until you confirm/i)
   })
 })

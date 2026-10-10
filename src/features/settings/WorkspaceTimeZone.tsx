@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type FormEvent } from 'react'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { applyDocumentAppearance, rememberAppearance } from './appearance'
 import { useAuth } from '../auth/AuthProvider'
@@ -87,11 +88,10 @@ const suggestedZones = [
 
 export function SettingsPage() {
   const auth = useAuth()
+  const { notify } = useToast()
   const { timeZone, appearance, setTimeZone, setAppearance } = useWorkspaceTimeZone()
-  const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
   const [profileError, setProfileError] = useState('')
-  const [profileNotice, setProfileNotice] = useState('')
   const [nameEditing, setNameEditing] = useState(false)
   const [nameValue, setNameValue] = useState('')
   const [emailEditing, setEmailEditing] = useState(false)
@@ -107,43 +107,41 @@ export function SettingsPage() {
   async function saveName(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const clean = nameValue.trim()
-    setProfileError(''); setProfileNotice('')
+    setProfileError('')
     if (!clean) { setProfileError('Enter your name before saving.'); return }
     const result = await updateAccountName(clean)
     if (result.error) { setProfileError(result.error); return }
-    setProfileNotice('Your name was saved.')
+    notify({ kind: 'success', title: 'Name updated', description: 'Your profile name was saved.' })
     setNameEditing(false)
   }
 
   async function saveEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const clean = emailValue.trim().toLowerCase()
-    setProfileError(''); setProfileNotice('')
+    setProfileError('')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) { setProfileError('Enter a valid email address.'); return }
     const result = await requestAccountEmailChange(clean, `${window.location.origin}${window.location.pathname}`)
     if (result.error) { setProfileError(result.error); return }
     setPendingEmail(result.pendingEmail)
     setEmailEditing(false)
-    setProfileNotice('Check the confirmation messages from Supabase to finish changing your email. Your current email stays active until confirmation.')
+    notify({ kind: 'info', title: 'Verification requested', description: 'Check your email for the next step. Your current address remains active until you confirm.' })
   }
 
   async function changeTimeZone(next: string) {
-    setSaved('')
     setError('')
     try {
       await setTimeZone(next)
-      setSaved('Time zone saved for this workspace.')
+      notify({ kind: 'success', title: 'Time zone updated', description: 'Your calendar preference was saved on this device.' })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The time zone could not be saved.')
     }
   }
 
   async function changeAppearance(next: 'light' | 'dark' | 'system') {
-    setSaved('')
     setError('')
     try {
       await setAppearance(next)
-      setSaved('Appearance saved for this workspace.')
+      notify({ kind: 'success', title: 'Appearance updated', description: 'Your preference was saved on this device.' })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Appearance could not be saved.')
     }
@@ -161,10 +159,10 @@ export function SettingsPage() {
         <div><span><strong>Email address</strong><small>{auth.user.email || 'Not available'}{requestedEmail ? ` · confirmation pending for ${requestedEmail}` : ''}</small></span><button className="button button-secondary button-small" onClick={() => { setEmailValue(''); setEmailEditing(!emailEditing); setProfileError('') }}>{emailEditing ? 'Cancel' : 'Change email'}</button></div>
         {emailEditing && <form className="settings-edit-form" onSubmit={(event) => void saveEmail(event)} noValidate><label className="form-field"><span>New email address</span><input className="auth-input" type="email" inputMode="email" autoComplete="email" value={emailValue} onChange={(event) => setEmailValue(event.target.value)} /></label><p className="settings-hint">Supabase sends verification messages. Your current email remains in use until the change is confirmed.</p><button className="button button-primary button-medium">Send confirmation</button></form>}
       </div>
-      {profileError && <p className="auth-error" role="alert">{profileError}</p>}{profileNotice && <p className="auth-success" role="status">{profileNotice}</p>}
+      {profileError && <p className="auth-error" role="alert">{profileError}</p>}
     </section>
     <section className="settings-section" aria-labelledby="security-title"><h2 id="security-title">Security</h2><p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p></section>
-    <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, saved, error)}</section>
+    <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error)}</section>
     <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
     <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
   </section>
@@ -172,11 +170,11 @@ export function SettingsPage() {
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
-    {renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, saved, error)}
+    {renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error)}
   </section>
 }
 
-function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], saved: string, error: string) {
+function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], error: string) {
   return <div className="settings-card">
       <label className="form-field"><span>Calendar time zone <InfoButton title="Calendar time zone" summary="Controls which local calendar date ProgressTracker treats as today." description="Schedules, streak days, deadlines, and date labels use this time zone. Changing it does not shift date-only historical entries. This preference is stored locally and is not yet synchronized across devices." /></span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
         {!zones.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
@@ -186,7 +184,6 @@ function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'sys
       <p>Saved locally in this workspace and used to decide which calendar day is “today.” Date-only history entries stay on their original dates. This preference is not uploaded or synchronized to other devices yet.</p>
       <label className="form-field"><span>Appearance <InfoButton title="Appearance" summary="Choose light or dark colors, or follow your device preference." description="System appearance follows your operating system. Light and dark set this workspace’s display mode. This setting is local and currently does not sync across devices." /></span><select className="auth-input" value={appearance} onChange={(event) => void changeAppearance(event.target.value as 'light' | 'dark' | 'system')}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
       <p>System appearance follows the device’s light or dark setting. This preference is local to the workspace and does not sync across devices.</p>
-      {saved && <p className="auth-success" role="status">{saved}</p>}
       {error && <p className="auth-error" role="alert">{error}</p>}
     </div>
 }

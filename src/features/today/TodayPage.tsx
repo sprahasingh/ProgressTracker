@@ -7,6 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
+import { useToast } from '../../components/ui/ToastProvider'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
@@ -25,7 +26,8 @@ import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
 
 export function TodayPage() {
-  const { status: authStatus, user } = useAuth()
+  const { status: authStatus, user, isOnline } = useAuth()
+  const { notify } = useToast()
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const ownerRef = useRef(expectedOwner)
   ownerRef.current = expectedOwner
@@ -39,7 +41,6 @@ export function TodayPage() {
   const [todayHoliday, setTodayHoliday] = useState<AccountHoliday | undefined>()
   const [holidayDates, setHolidayDates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
   const refreshGeneration = useRef(0)
   const [selectedActivity, setSelectedActivity] = useState<{ trackerId: string; date: CalendarDate } | null>(null)
@@ -50,7 +51,6 @@ export function TodayPage() {
     const generation = ++refreshGeneration.current
     const requestOwner = expectedOwner
     if (showLoading) setLoading(true)
-    setError('')
     setLoadError('')
     try {
       const [allTrackers, recentEntries, holidays] = await Promise.all([
@@ -121,21 +121,34 @@ export function TodayPage() {
   }), [today, allTrackers, weekEntries, holidayDates])
 
   async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
-    setError('')
+    const wasSaved = weekEntries.some((item) => item.trackerId === tracker.id && item.date === date && item.deletedAt === null)
     try {
       await localRepository.saveTrackerEntry({ trackerId: tracker.id, date, outcome, values: outcome === 'skipped' ? {} : values, note })
       await refresh()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Your check-in could not be saved.')
+      notify({
+        kind: authStatus === 'signed-in' && isOnline === false ? 'warning' : 'success',
+        title: authStatus === 'signed-in' && isOnline === false ? 'Saved on this device' : outcome === 'skipped' ? 'Today marked as skipped' : wasSaved ? 'Check-in updated' : 'Check-in saved',
+        description: authStatus === 'signed-in' && isOnline === false
+          ? 'Saved on this device. It will sync when your account is online.'
+          : 'Your progress has been saved on this device.',
+        dedupeKey: `checkin:${tracker.id}:${date}`,
+      })
+      return true
+    } catch {
+      notify({ kind: 'error', title: wasSaved ? 'Couldn’t update check-in' : 'Couldn’t save check-in', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${date}` })
+      return false
     }
   }
 
-  async function clear(tracker: StoredTrackerDefinition, date: CalendarDate) {
+  async function clear(tracker: StoredTrackerDefinition, date: CalendarDate): Promise<boolean> {
     try {
       await localRepository.deleteTrackerEntry(tracker.id, date)
       await refresh()
+      notify({ kind: 'success', title: 'Check-in cleared', description: 'The saved entry was removed from this device.', dedupeKey: `checkin:${tracker.id}:${date}` })
+      return true
     } catch {
-      setError('This check-in could not be cleared.')
+      notify({ kind: 'error', title: 'Couldn’t clear check-in', description: 'Your saved entry is unchanged. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${date}` })
+      return false
     }
   }
 
@@ -183,7 +196,6 @@ export function TodayPage() {
           return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Updated pace today: {formatTrackerNumber(recommendation)}{unit} · {formatTrackerNumber(remaining ?? 0)}{unit} remaining</span>}{savedAllocation !== undefined && savedAllocation !== recommendation && <small>Saved plan: {formatTrackerNumber(savedAllocation)}{unit} · planner can rebalance it</small>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
         })}</div>
       </section>}
-      {error && <div role="alert" className="form-alert">{error}</div>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : activityTrackers.length === 0 ? (
         <Surface>
@@ -249,8 +261,8 @@ function CheckinCard({ tracker, entry, today, entries, holidays, status, histori
 type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
   canEdit: boolean
   historical: boolean
-  onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<void>
-  onClear: (tracker: StoredTrackerDefinition, date: CalendarDate) => Promise<void>
+  onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<boolean>
+  onClear: (tracker: StoredTrackerDefinition, date: CalendarDate) => Promise<boolean>
   onClose: () => void
 }
 
@@ -299,10 +311,11 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
     const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: entry?.values }) : undefined
     if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
     setIssue(''); setSaving(true)
-    await onSave(tracker, today, payload, note, outcome)
+    const saved = await onSave(tracker, today, payload, note, outcome)
+    if (!saved) return
     setSaving(false)
   }
-  async function clear() { setSaving(true); await onClear(tracker, today); setSaving(false); onClose() }
+  async function clear() { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose() }
 
   return createPortal(<div ref={backdropRef} className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
