@@ -90,7 +90,7 @@ describe('workspace rendering isolation', () => {
   it('does not expose guest rows while authentication is unresolved, including a pre-initialization auth event', async () => {
     renderTrackers()
     emit('SIGNED_IN', 'account-a')
-    expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Test account-a')).not.toBeInTheDocument()
     expect(screen.queryByText('Guest tracker')).not.toBeInTheDocument()
     expect(isolationMocks.activateWorkspace).not.toHaveBeenCalled()
@@ -109,7 +109,7 @@ describe('workspace rendering isolation', () => {
     renderTrackers()
     emit('INITIAL_SESSION', 'account-a')
 
-    expect(await screen.findByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Test account-a')).not.toBeInTheDocument()
     expect(isolationMocks.listTrackers).not.toHaveBeenCalled()
     opening.resolve()
@@ -129,7 +129,7 @@ describe('workspace rendering isolation', () => {
     expect(await screen.findByText('Test account-a')).toBeInTheDocument()
 
     emit('SIGNED_OUT')
-    expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Test account-a')).not.toBeInTheDocument()
     guestOpening.resolve()
     expect(await screen.findByText('Guest tracker')).toBeInTheDocument()
@@ -144,7 +144,7 @@ describe('workspace rendering isolation', () => {
     expect(await screen.findByText('Test account-a')).toBeInTheDocument()
 
     act(() => screen.getByRole('button', { name: 'request-signout' }).click())
-    expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Test account-a')).not.toBeInTheDocument()
     request.resolve({ error: null })
     expect(await screen.findByText('Guest tracker')).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('workspace rendering isolation', () => {
     expect(await screen.findByText('Test account-a')).toBeInTheDocument()
 
     emit('SIGNED_IN', 'account-b')
-    expect(screen.getByRole('heading', { name: 'Opening your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Test account-a')).not.toBeInTheDocument()
     expect(screen.queryByText('Test account-b')).not.toBeInTheDocument()
     accountBOpening.resolve()

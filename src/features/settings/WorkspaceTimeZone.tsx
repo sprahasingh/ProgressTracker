@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { updateAccountName, requestAccountEmailChange } from '../auth/authService'
 import { AuthPage } from '../auth/AuthPage'
 import { AccountDeletion } from './AccountDeletion'
+import { WorkspaceLoadingState } from '../../components/ui/WorkspaceLoadingState'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -19,6 +20,7 @@ const WorkspaceTimeZoneContext = createContext<WorkspaceTimeZoneState | null>(nu
 export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUserId: string | null; children: ReactNode }) {
   const [loaded, setLoaded] = useState<{ ownerUserId: string | null; timeZone: string; appearance: WorkspaceTimeZoneState['appearance'] } | null>(null)
   const [error, setError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
     let current = true
@@ -30,7 +32,7 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
       if (current) setError('Your workspace settings could not be loaded.')
     })
     return () => { current = false }
-  }, [ownerUserId])
+  }, [ownerUserId, loadAttempt])
 
   const value = useMemo<WorkspaceTimeZoneState | null>(() => {
     if (!loaded || loaded.ownerUserId !== ownerUserId) return null
@@ -62,8 +64,8 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
     }
   }, [loaded, ownerUserId])
 
-  if (error) return <section className="workspace-gate" role="alert"><h1>Settings unavailable</h1><p>{error}</p></section>
-  if (!value) return <section className="workspace-gate" role="status"><h1>Opening your preferences</h1><p>Loading settings for this workspace.</p></section>
+  if (error) return <section className="workspace-gate" role="alert"><h1>Workspace settings unavailable</h1><p>{error} Your local progress is still saved on this device.</p><button className="button button-secondary button-medium" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Try again</button></section>
+  if (!value) return <WorkspaceLoadingState />
   return <WorkspaceTimeZoneContext.Provider value={value}>{children}</WorkspaceTimeZoneContext.Provider>
 }
 
