@@ -1,4 +1,5 @@
 import { getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
+import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import type { TrackerDefinition } from '../../domain/trackers/types'
 import type { CalendarDate, StoredTrackerEntry } from '../../db/models'
 import { shiftCalendarDate } from '../shared/localDates'
@@ -31,7 +32,10 @@ export function buildReminderCandidate(input: {
 }): ReminderCandidate | null {
   const trackerIds = input.trackers.filter((tracker) => {
     const entry = input.entries.find((row) => row.trackerId === tracker.id && row.date === input.date)
-    const status = getTrackerActivityStatus({ tracker, entry, date: input.date, today: input.date, holidays: input.holidays })
+    const activityStatus = getTrackerActivityStatus({ tracker, entry, date: input.date, today: input.date, holidays: input.holidays })
+    // The shared UI now calls an unqualified current-day entry Pending until
+    // day end. Keep reminder opt-in for partial progress as configured before.
+    const status = entry?.outcome === 'recorded' && !evaluateTrackerEntry(tracker, entry).qualified ? 'partial' : activityStatus
     return status === 'pending' || (input.includePartial && status === 'partial')
   }).map((tracker) => tracker.id)
   if (!trackerIds.length) return null

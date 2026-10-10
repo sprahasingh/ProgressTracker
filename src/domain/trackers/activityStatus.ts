@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { evaluateTrackerEntry, isTrackerScheduledOccurrence } from './planning'
 
-export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'missed' | 'holiday' | 'unscheduled' | 'skipped'
+export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'missed' | 'holiday' | 'unscheduled'
 
 /** Shared words and marks for activity status across calendars and day summaries. */
 export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: string; colorToken: string }> = {
@@ -11,13 +11,12 @@ export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: strin
   missed: { label: 'Missed', colorToken: '--status-missed' },
   holiday: { label: 'Holiday', colorToken: '--status-holiday' },
   unscheduled: { label: 'Rest day', colorToken: '--status-rest' },
-  skipped: { label: 'Skipped', colorToken: '--status-neutral' },
 }
 
 /**
  * Precedence: an explicit holiday masks scheduled status; deleted entries are
- * treated as absent; a same-day skip stays neutral (an old skipped opportunity
- * is missed); valid recorded entries are evaluated; inactive or unscheduled
+ * treated as absent; a deliberately skipped scheduled opportunity is missed;
+ * valid recorded entries are evaluated; inactive or unscheduled
  * dates are neutral; other active opportunities are pending today/future and
  * missed in the past. Recorded history remains visible if its tracker is now
  * paused or archived.
@@ -35,9 +34,12 @@ export function getTrackerActivityStatus(input: {
     if (tracker.status !== 'active' || !isTrackerScheduledOccurrence(tracker, date)) return 'unscheduled'
     return date < today ? 'missed' : 'pending'
   }
-  if (entry?.outcome === 'skipped') return date < today ? 'missed' : 'skipped'
-  if (entry?.outcome === 'recorded') return evaluateTrackerEntry(tracker, entry).qualified ? 'completed' : 'partial'
-  if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'unscheduled'
+  if (entry?.outcome === 'recorded') {
+    if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
+    return date === today ? 'pending' : 'partial'
+  }
   if (!isTrackerScheduledOccurrence(tracker, date)) return 'unscheduled'
+  if (entry?.outcome === 'skipped') return date > today ? 'pending' : 'missed'
+  if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'unscheduled'
   return date < today ? 'missed' : 'pending'
 }

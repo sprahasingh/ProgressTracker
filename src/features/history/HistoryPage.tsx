@@ -12,6 +12,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { assertDateRange } from '../../db/calendarDate'
@@ -123,7 +124,8 @@ export function HistoryPage() {
           const tracker = trackerMap.get(entry.trackerId)
           if (!tracker) return null
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} onSaved={refresh} />
+          const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)) })
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} onSaved={refresh} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
@@ -137,7 +139,7 @@ function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTracke
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; onSaved: () => Promise<void> }) {
+function HistoryEntry({ tracker, entry, qualifies, status, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; onSaved: () => Promise<void> }) {
   const { notify } = useToast()
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
@@ -183,13 +185,13 @@ function HistoryEntry({ tracker, entry, qualifies, onSaved }: { tracker: StoredT
       setSaving(false)
     }
   }
-  const outcomeLabel = entry.outcome === 'skipped' ? 'Skipped' : qualifies ? 'Completed · success rule met' : 'Partial progress logged'
-  const statusClass = entry.outcome === 'skipped' ? 'skipped' : qualifies ? 'completed' : 'partial'
+  const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · marked intentionally' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
+  const statusClass = status === 'unscheduled' ? 'rest' : status
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
     {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setInvalidInputs(new Set()); setEditing(true) }}>Edit check-in</button>}
     {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
     {editing && <div className="history-edit-form">
-      <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Recorded</option><option value="skipped">Skipped</option></select></label>
+      <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Progress recorded</option><option value="skipped">Missed · marked intentionally (breaks streak)</option></select></label>
       {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={entry.date} today={entry.date} onInputValidityChange={setInputValidity} />}
       <label className="form-field form-field-wide"><span>Note <em>· optional</em></span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} /></label>
       {issue && <p className="today-validation" role="alert">{issue}</p>}

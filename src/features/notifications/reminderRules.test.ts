@@ -34,4 +34,9 @@ describe('notification reminder rules', () => {
     expect(buildReminderCandidate({ trackers: [tracker], entries: [entry('skipped')], holidays: new Set(), date: '2026-10-10', kind: 'overdue', slot: '10:00' })).toBeNull()
     expect(buildReminderCandidate({ trackers: [{ ...tracker, deletedAt: '2026-10-10' }], entries: [], holidays: new Set(), date: '2026-10-10', kind: 'pending', slot: '16:00' })).toBeNull()
   })
+  it('keeps partial progress reminders controlled by the existing include-partial setting', () => {
+    const partial = entry('recorded')
+    expect(buildReminderCandidate({ trackers: [tracker], entries: [partial], holidays: new Set(), date: '2026-10-10', kind: 'pending', slot: '16:00' })).toBeNull()
+    expect(buildReminderCandidate({ trackers: [tracker], entries: [partial], holidays: new Set(), date: '2026-10-10', kind: 'pending', includePartial: true, slot: '16:00' })).toMatchObject({ trackerIds: [tracker.id] })
+  })
 })

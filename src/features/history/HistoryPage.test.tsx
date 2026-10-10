@@ -54,7 +54,7 @@ describe('local check-in history', () => {
     expect(screen.getByText('4 km')).toBeInTheDocument()
     expect(screen.getByText('Park loop')).toBeInTheDocument()
     expect(screen.getAllByText('Completed · success rule met')).toHaveLength(2)
-    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText('Missed · marked intentionally')).toBeInTheDocument()
     expect(screen.getByText('Rested today')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Tracker'), yoga.id)

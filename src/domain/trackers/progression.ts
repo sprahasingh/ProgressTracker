@@ -51,10 +51,16 @@ function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): bo
   const metricQualifies = (metric: TrackerMetricDefinition): boolean => {
     const value = entry.values[metric.id]
     if (metric.valueType === 'boolean') return value === true
-  const qualification = metric.thresholds?.streakQualification ?? 'any-recorded-value'
-    if (qualification === 'any-recorded-value') return metricHasQualifyingValue(metric, value)
-  const achieved = classifyAchievement(metric, value)
-  const ranks = { none: 0, minimum: 1, target: 2, stretch: 3 }
+    const qualification = metric.thresholds?.streakQualification
+    if (qualification === 'any-recorded-value' || !qualification) {
+      // Preserve the established completion fallback: thresholded metrics need
+      // at least their first achievement level; unthresholded metrics need a value.
+      return metric.thresholds?.minimum !== undefined || metric.thresholds?.target !== undefined || metric.thresholds?.stretch !== undefined
+        ? classifyAchievement(metric, value) !== 'none'
+        : metricHasQualifyingValue(metric, value)
+    }
+    const achieved = classifyAchievement(metric, value)
+    const ranks = { none: 0, minimum: 1, target: 2, stretch: 3 }
     return ranks[achieved] >= (qualification === 'target' ? ranks.target : ranks.minimum)
   }
   if (!tracker.qualificationRule) return tracker.metrics[0] ? metricQualifies(tracker.metrics[0]) : false
@@ -63,8 +69,15 @@ function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): bo
     if (rule.kind === 'all') return rule.operands.every(evaluate)
     if (rule.kind === 'any') return rule.operands.some(evaluate)
     if (rule.kind === 'at-least') return rule.operands.filter(evaluate).length >= rule.required
-    if (rule.kind === 'threshold') return metrics.has(rule.metricId) ? metricQualifies(metrics.get(rule.metricId)!) : false
-    if (rule.kind === 'comparison') return evaluateTrackerEntry(tracker, entry).achievedMetricIds.includes(rule.metricId)
+    if (rule.kind === 'threshold') {
+      const metric = metrics.get(rule.metricId)
+      return metric ? metricQualifies(metric) : false
+    }
+    if (rule.kind === 'comparison') {
+      const metric = metrics.get(rule.metricId)
+      const hasMinimum = metric?.thresholds?.minimum !== undefined
+      return (!hasMinimum || metricQualifies(metric!)) && evaluateTrackerEntry(tracker, entry).achievedMetricIds.includes(rule.metricId)
+    }
     return false
   }
   return evaluate(tracker.qualificationRule)
@@ -88,7 +101,8 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
     const date = dateText(time)
     if (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date)) continue
     const entry = byDate.get(date)
-    occurrences.push({ date, qualified: entry ? qualifiesForStreak(tracker, entry) : false, open: date === asOfDate && !entry })
+    const qualified = entry ? qualifiesForStreak(tracker, entry) : false
+    occurrences.push({ date, qualified, open: date === asOfDate && (!entry || (entry.outcome === 'recorded' && !qualified)) })
   }
   return occurrences
 }

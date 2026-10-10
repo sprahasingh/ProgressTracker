@@ -22,6 +22,31 @@ async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: 
 }
 
 describe('Goals page allocation preview', () => {
+  it('gives goal-plan dates distinct accessible markers for rest days and holidays', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const holidayDate = shiftCalendarDate(today, 1)
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 4, id: 'daily-goal-status-markers', name: 'Daily writing plan', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' }, startDate: shiftCalendarDate(today, -7),
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
+      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 5 }, cumulativeTargets: {}, planningTimeZone: 'UTC' },
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveAccountHolidays([holidayDate], null)
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: /Daily writing plan/ }))
+    await user.click(await screen.findByText('View daily plan'))
+
+    const plan = await screen.findByRole('region', { name: 'Daily writing plan daily-recurring plan' })
+    const dates = plan.querySelector('.goal-plan-days')!
+    expect(dates.querySelector('.goal-plan-day.holiday [data-icon="status-holiday"]')).toBeInTheDocument()
+    expect(dates.querySelector('.goal-plan-day.rest [data-icon="status-unscheduled"]')).toBeInTheDocument()
+    expect(dates.querySelector('[aria-label*="Rest day"]')).toBeInTheDocument()
+    expect(dates.querySelector('[aria-label*="Holiday"]')).toBeInTheDocument()
+  })
+
   it('uses one shared compact information control for all goal summary cards', async () => {
     const today = localCalendarDate(new Date(), 'UTC')
     await localRepository.saveTracker({

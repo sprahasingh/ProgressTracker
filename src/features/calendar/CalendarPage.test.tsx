@@ -42,6 +42,16 @@ describe('Calendar page', () => {
     expect(manageHolidays).toHaveAttribute('href', '/holidays')
     expect(screen.getByRole('link', { name: 'Today' })).toHaveAttribute('href', `/calendar?date=${today}`)
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
+    const legend = screen.getByLabelText('Activity status legend')
+    expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Pending', 'Completed', 'Partially completed', 'Missed', 'Holiday', 'Rest day',
+    ])
+    expect(legend.querySelector('.calendar-dot.holiday [data-icon="status-holiday"]')).toBeInTheDocument()
+    expect(legend.querySelector('.calendar-dot.unscheduled [data-icon="status-unscheduled"]')).toBeInTheDocument()
+    expect(Array.from(legend.querySelectorAll('.calendar-dot svg')).map((icon) => icon.getAttribute('data-icon'))).toEqual([
+      'status-pending', 'status-completed', 'status-partial', 'status-missed', 'status-holiday', 'status-unscheduled',
+    ])
+    expect(legend.querySelector('.calendar-dot.partial path[fill="currentColor"]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
@@ -72,5 +82,18 @@ describe('Calendar page', () => {
 
     expect(await screen.findByText('Pending')).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
+  })
+
+  it('keeps a mixed completed and pending date pending instead of calling it partially completed', async () => {
+    const secondTracker = { ...tracker, id: 'calendar-habit-two', name: 'Read a book' }
+    mocks.listTrackers.mockResolvedValue([tracker, secondTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    await screen.findByText('Morning walk')
+    const cell = container.querySelector('.calendar-day-today .calendar-cell-status')
+    expect(cell).toHaveClass('pending')
+    expect(cell).not.toHaveClass('partial')
   })
 })

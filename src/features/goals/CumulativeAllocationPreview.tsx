@@ -140,10 +140,10 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       <thead><tr><th scope="col">Date</th><th scope="col">Actual recorded</th><th scope="col">{savedPlanExists && !dirty ? 'Saved allocation' : dirty ? 'Your draft allocation' : 'Preview allocation'}</th><th scope="col">Suggested now</th></tr></thead>
       <tbody>{pageDays.map((day) => {
         const entry = latestEntries.get(day.date)
-          const actual = entry?.outcome === 'skipped' ? 'Skipped' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
+          const actual = entry?.outcome === 'skipped' ? 'Missed · marked intentionally' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
         return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
           <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{!day.eligible && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : day.closed ? 'Logged' : 'Rest day'}</span>}</th>
-          <td>{actual === null ? '—' : actual === 'Skipped' ? 'Skipped' : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
+          <td>{actual === null ? '—' : actual === 'Missed · marked intentionally' ? actual : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
           <td>{day.eligible ? <label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">{dirty ? 'Unsaved allocation' : savedPlanExists ? 'Saved allocation' : 'Allocation'} for {day.date}</span><input className="auth-input" aria-label={`${dirty ? 'Unsaved allocation' : savedPlanExists ? 'Saved allocation' : 'Allocation'} for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount ?? 0} onChange={(event) => changeAllocation(day.date, event.target.value)} />{unit && <span>{unit.trim()}</span>}</label> : day.closed && saved[day.date] !== undefined ? <span aria-label={`Saved allocation for ${day.date}`}>{format(saved[day.date] ?? 0)}</span> : <span className="allocation-rest-value">{day.closed ? 'Logged' : 'Not scheduled'}</span>}</td>
           <td>{day.eligible ? <span aria-label={`Suggested allocation for ${day.date}`}>{format(day.amount ?? 0)}</span> : <span className="allocation-rest-value">—</span>}</td>
         </tr>

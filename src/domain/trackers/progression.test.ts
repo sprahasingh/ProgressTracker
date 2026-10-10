@@ -54,6 +54,46 @@ describe('streak calculation', () => {
     expect(result).toMatchObject({ current: 0, longest: 1, qualifyingCount: 1, missedCount: 1 })
   })
 
+  it('requires the configured minimum, preserves today while progress is still open, and breaks past below-minimum runs', () => {
+    const belowMinimum = tracker({ qualificationRule: undefined })
+    const day1 = entry('2026-01-01', { pages: 2 })
+    const partialBelow = entry('2026-01-02', { pages: 1 })
+    expect(calculateStreak(belowMinimum, [day1, partialBelow], '2026-01-03')).toMatchObject({ current: 0, longest: 1, missedCount: 1 })
+    expect(calculateStreak(belowMinimum, [day1, entry('2026-01-02', { pages: 2 })], '2026-01-02')).toMatchObject({ current: 2, qualifyingCount: 2, missedCount: 0 })
+    expect(calculateStreak(belowMinimum, [day1, entry('2026-01-02', { pages: 1 })], '2026-01-02')).toMatchObject({ current: 1, qualifyingCount: 1, missedCount: 0 })
+  })
+
+  it('keeps an incomplete current-day value open without extending the streak until it qualifies', () => {
+    const configured = tracker({ qualificationRule: undefined })
+    const result = calculateStreak(configured, [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-03', { pages: 1 })], '2026-01-03')
+    expect(result).toMatchObject({ current: 2, longest: 2, qualifyingCount: 2, missedCount: 0 })
+  })
+
+  it('retains boolean success rules and does not create a streak from exempt days alone', () => {
+    const yesNo = tracker({
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+    })
+    const booleanEntry = (date: string, done: boolean): TrackerEntry => ({ ...entry(date, { pages: 0 }), values: { done } })
+    expect(calculateStreak(yesNo, [booleanEntry('2026-01-01', true)], '2026-01-02', new Set(['2026-01-02']))).toMatchObject({ current: 1, longest: 1, qualifyingCount: 1 })
+    expect(calculateStreak(yesNo, [], '2026-01-03', new Set(['2026-01-01', '2026-01-02', '2026-01-03']))).toMatchObject({ current: 0, longest: 0, qualifyingCount: 0, missedCount: 0 })
+    expect(calculateStreak(yesNo, [booleanEntry('2026-01-01', false)], '2026-01-01')).toMatchObject({ current: 0, missedCount: 0 })
+  })
+
+  it('starts a new run after intentional legacy skips and handles year boundaries', () => {
+    const definition = tracker({ startDate: '2026-12-30' })
+    const skip = { ...entry('2026-12-31'), outcome: 'skipped' as const, values: {} }
+    expect(calculateStreak(definition, [entry('2026-12-30'), skip, entry('2027-01-01')], '2027-01-01')).toMatchObject({ current: 1, longest: 1, qualifyingCount: 2, missedCount: 1 })
+  })
+
+  it('honors tracker start and deadline dates and advances dates safely across DST boundaries', () => {
+    const bounded = tracker({ startDate: '2026-03-07', deadline: '2026-03-09' })
+    const springDates = ['2026-03-07', '2026-03-08', '2026-03-09']
+    const result = calculateStreak(bounded, springDates.map((date) => entry(date)), '2026-03-10')
+    expect(result).toMatchObject({ current: 3, longest: 3, qualifyingCount: 3, scheduledCount: 3, missedCount: 0 })
+    expect(calculateStreak(bounded, [entry('2026-03-07')], '2026-03-10')).toMatchObject({ scheduledCount: 3, missedCount: 2, current: 0 })
+  })
+
   it('can evaluate retained history after a tracker is completed or archived', () => {
     const completed = tracker({ status: 'completed', archivedAt: '2026-01-03T00:00:00.000Z' })
     expect(calculateStreak(completed, [entry('2026-01-01')], '2026-01-01').current).toBe(1)
