@@ -1249,7 +1249,6 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
   .mobile-nav { min-height: 64px; padding-top: 5px; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
   .mobile-nav-link, .mobile-more > summary { min-width: 0; min-height: 46px; flex: 1 1 0; gap: 2px; font-size: 16px; }
   .mobile-nav-link small, .mobile-more > summary small { max-width: 100%; font-size: 8px; line-height: 1.1; white-space: nowrap; }
-  .main-area { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .topbar { height: calc(60px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
   .calendar-toolbar { align-items: end; }
   .calendar-legend { gap: 8px 11px; font-size: 11px; }
@@ -1522,7 +1521,6 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
   .mobile-more-trigger { font: inherit; }
   .mobile-more.is-open .mobile-more-trigger { color: var(--accent-strong); }
   .mobile-more-menu { z-index: 20; bottom: calc(100% + 8px); }
-  .main-area { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
   .mobile-nav { padding-right: 4px; padding-left: 4px; }
@@ -1554,7 +1552,10 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 @media (max-width: 760px) {
   /* Chrome recommends a 36px fallback for browsers without the maximum inset
      variable so fixed bottom UI still paints behind the retracted gesture area. */
-  :root { --safe-area-max-inset-bottom: env(safe-area-max-inset-bottom, 36px); }
+  :root {
+    --mobile-nav-visible-height: 64px;
+    --safe-area-max-inset-bottom: env(safe-area-max-inset-bottom, 36px);
+  }
   .main-area,
   .topbar { background: var(--canvas); }
   [data-theme='dark'] .topbar { background: var(--canvas); }
@@ -1566,7 +1567,8 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
     padding-top: 5px;
     padding-bottom: var(--safe-area-max-inset-bottom);
   }
-  .main-area { padding-bottom: calc(64px + var(--safe-area-max-inset-bottom)); }
+  .main-area { padding-bottom: calc(var(--mobile-nav-visible-height) + var(--safe-area-max-inset-bottom)); }
+  .page-content { scroll-padding-bottom: calc(var(--mobile-nav-visible-height) + var(--safe-area-max-inset-bottom)); }
 }
 .info-popover h2 { margin: 0 0 10px; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 650; }
 .info-dialog-description { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.75; white-space: pre-line; }
@@ -1772,6 +1774,9 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 @media (max-width: 760px) {
   .today-checkin-card.status-card { padding: 15px; }
   .calendar-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+  .calendar-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
   .calendar-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -2262,36 +2267,39 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .insights-filter-toolbar { display: flex; justify-content: flex-end; margin: 18px 0 12px; }
 .tracker-filter { min-width: 190px; }
 .tracker-filter select { min-width: 0; max-width: 100%; }
-.activity-heatmap-section { min-width: 0; margin: 14px 0 22px; padding: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.activity-heatmap-section { min-width: 0; margin: 14px 0 22px; padding: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
 .activity-heatmap-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.activity-heatmap-heading > div { min-width: 0; }
 .activity-heatmap-heading h2 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 600; }
 .activity-heatmap-heading p { margin: 4px 0 0; color: var(--ink-subtle); font-size: 12px; }
-.activity-heatmap-scroll { max-width: 100%; margin-top: 15px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-color: var(--line) transparent; }
+.activity-heatmap-scroll { width: 100%; min-width: 0; max-width: 100%; margin-top: 9px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-color: var(--line) transparent; }
 .activity-heatmap-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .activity-heatmap { width: max-content; min-width: 100%; }
-.heatmap-months { display: grid; grid-template-columns: repeat(var(--heatmap-columns), 38px); gap: 3px; margin: 0 0 5px 37px; color: var(--ink-subtle); font-size: 10px; }
-.heatmap-months span { white-space: nowrap; }
-.heatmap-body { display: flex; gap: 6px; }
-.heatmap-weekdays { display: grid; grid-template-rows: repeat(7, 38px); align-items: center; color: var(--ink-subtle); font-size: 9px; }
+.heatmap-months { display: grid; grid-template-columns: repeat(var(--heatmap-columns), 24px); gap: 3px; margin: 0 0 4px 27px; color: var(--ink-subtle); font-size: 9px; line-height: 1; }
+.heatmap-months span { min-width: 0; white-space: nowrap; }
+.heatmap-body { display: flex; gap: 3px; }
+.heatmap-weekdays { display: grid; width: 24px; flex: 0 0 24px; grid-template-rows: repeat(7, 24px); align-items: center; color: var(--ink-subtle); font-size: 8px; }
 .heatmap-weekdays span { visibility: hidden; }
 .heatmap-weekdays span:first-child, .heatmap-weekdays span:nth-child(4), .heatmap-weekdays span:last-child { visibility: visible; }
-.heatmap-cells { display: grid; grid-template-columns: repeat(var(--heatmap-columns), 38px); grid-template-rows: repeat(7, 38px); gap: 3px; }
-.heatmap-cell { display: block; width: 32px; height: 32px; align-self: center; justify-self: center; padding: 0; border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: 8px; background: var(--heatmap-empty); }
+.heatmap-cells { display: grid; grid-template-columns: repeat(var(--heatmap-columns), 24px); grid-template-rows: repeat(7, 24px); gap: 3px; }
+.heatmap-cell { display: block; width: 24px; height: 24px; align-self: center; justify-self: center; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.heatmap-cells .heatmap-cell::before { display: block; width: 14px; height: 14px; margin: auto; border: 1px solid var(--heatmap-cell-border, color-mix(in srgb, var(--line) 70%, transparent)); border-radius: 3px; background: var(--heatmap-cell-color, var(--heatmap-empty)); content: ""; }
 button.heatmap-cell { cursor: pointer; touch-action: manipulation; }
 button.heatmap-cell:hover { outline: 2px solid var(--ink-subtle); outline-offset: 1px; }
 button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .heatmap-cell-empty { visibility: hidden; }
-.heatmap-level-0 { background: var(--heatmap-empty); border-color: transparent; }
-.heatmap-level-1 { background: var(--heatmap-zero); }
-.heatmap-level-2 { background: var(--heatmap-level-2); }
-.heatmap-level-3 { background: var(--heatmap-level-3); }
-.heatmap-level-4 { background: var(--heatmap-level-4); }
-.heatmap-level-5 { background: var(--heatmap-level-5); }
-.heatmap-level-6 { background: var(--heatmap-level-6); }
-.heatmap-holiday { border-style: dashed; border-color: var(--warning); }
-.heatmap-legend { display: flex; align-items: center; gap: 4px; margin: 12px 0 0 37px; color: var(--ink-subtle); font-size: 10px; }
-.heatmap-legend .heatmap-cell { width: 15px; height: 15px; border-radius: 4px; }
-.heatmap-legend small { margin-left: auto; font-size: 10px; }
+.heatmap-level-0 { --heatmap-cell-color: var(--heatmap-empty); --heatmap-cell-border: transparent; }
+.heatmap-level-1 { --heatmap-cell-color: var(--heatmap-zero); }
+.heatmap-level-2 { --heatmap-cell-color: var(--heatmap-level-2); }
+.heatmap-level-3 { --heatmap-cell-color: var(--heatmap-level-3); }
+.heatmap-level-4 { --heatmap-cell-color: var(--heatmap-level-4); }
+.heatmap-level-5 { --heatmap-cell-color: var(--heatmap-level-5); }
+.heatmap-level-6 { --heatmap-cell-color: var(--heatmap-level-6); }
+.heatmap-holiday::before { border-style: dashed !important; border-color: var(--warning) !important; }
+.heatmap-legend { display: flex; align-items: center; gap: 4px; margin: 8px 0 0 27px; color: var(--ink-subtle); font-size: 9px; }
+.heatmap-legend .heatmap-cell { width: 12px; height: 12px; flex: 0 0 12px; border: 1px solid var(--heatmap-cell-border, color-mix(in srgb, var(--line) 70%, transparent)); border-radius: 3px; background: var(--heatmap-cell-color, var(--heatmap-empty)); }
+.heatmap-legend .heatmap-level-0 { border-color: transparent; }
+.heatmap-legend small { margin-left: auto; font-size: 9px; }
 .heatmap-detail { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--ink-muted); font-size: 12px; line-height: 1.45; }
 .heatmap-detail > span { flex: 1; }
 .heatmap-detail-close { flex: 0 0 32px; width: 32px; height: 32px; margin: -5px -5px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 22px; cursor: pointer; }
@@ -2300,9 +2308,10 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .dashboard-stat-label { display: flex; align-items: center; gap: 2px; }
 .achievement-stats-row span { display: inline-flex; align-items: center; }
 @media (max-width: 430px) {
-  .activity-heatmap-section { padding: 14px 12px; }
+  .activity-heatmap-section { padding: 12px; }
+  .heatmap-cells .heatmap-cell::before { width: 11px; height: 11px; border-radius: 2.5px; }
   .heatmap-legend { flex-wrap: wrap; margin-left: 0; }
-  .heatmap-legend small { flex-basis: 100%; margin: 3px 0 0; }
+  .heatmap-legend small { flex-basis: 100%; margin: 2px 0 0; }
   .insights-filter-toolbar { justify-content: stretch; }
   .insights-filter-toolbar .tracker-filter { width: 100%; }
 }
@@ -2383,3 +2392,32 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .goal-card-expand-icon { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .goal-milestone-marker svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .settings-profile-avatar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+
+/* Keep the Calendar filters readable on narrow phones. */
+@media (max-width: 560px) {
+  .calendar-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+  }
+  .calendar-toolbar > .tracker-filter {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .calendar-toolbar > .tracker-filter select { width: 100%; }
+  .calendar-toolbar > .history-filter {
+    grid-column: 1;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .calendar-toolbar > .button-quiet {
+    grid-column: 2;
+    justify-self: end;
+    min-height: 44px;
+    align-self: end;
+  }
+  .calendar-toolbar .history-filter input { width: 100%; min-width: 0; }
+}

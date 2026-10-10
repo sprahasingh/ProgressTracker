@@ -22,7 +22,7 @@ describe('mobile system-bar safe areas', () => {
     expect(styles).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) - var(--safe-area-max-inset-bottom))')
     expect(styles).toContain('height: calc(64px + var(--safe-area-max-inset-bottom))')
     expect(styles).toContain('padding-bottom: var(--safe-area-max-inset-bottom)')
-    expect(styles).toContain('padding-bottom: calc(64px + var(--safe-area-max-inset-bottom))')
+    expect(styles).toContain('padding-bottom: calc(var(--mobile-nav-visible-height) + var(--safe-area-max-inset-bottom))')
     expect(styles).toContain('height: calc(60px + env(safe-area-inset-top))')
     expect(styles).toContain('padding-top: env(safe-area-inset-top)')
     expect(styles).toContain('background: var(--canvas)')
