@@ -67,7 +67,7 @@ describe('shared activity status rules', () => {
     expect(ACTIVITY_STATUS_PRESENTATION.holiday.colorToken).toBe('--status-holiday')
     expect(ACTIVITY_STATUS_PRESENTATION.missed.colorToken).toBe('--status-missed')
     const expectedLight = {
-      pending: ['#64748b', '#e8eef5'], completed: ['#16a34a', '#dcfce7'], partial: ['#b45309', '#fef3c7'],
+      pending: ['#6b7280', '#f3f4f6'], completed: ['#16a34a', '#dcfce7'], partial: ['#b45309', '#fef3c7'],
       missed: ['#dc2626', '#fee2e2'], holiday: ['#7c3aed', '#ede9fe'], rest: ['#6366f1', '#e0e7ff'], neutral: ['#78716c', '#f5f5f4'],
     }
     for (const [name, [foreground, surface]] of Object.entries(expectedLight)) {
@@ -92,6 +92,12 @@ describe('shared activity status rules', () => {
     }
     expect(tokens).toContain('--status-rest-surface: #e0e7ff')
     expect(tokens).toContain('--status-neutral-surface: #f5f5f4')
+    expect(lightTokenBlock).toContain('--status-pending-border: #e5e7eb')
+    expect(lightTokenBlock).toContain('--status-pending-ink: #646b75')
+    expect(darkTokenBlock).toContain('--status-pending: #a1a1aa')
+    expect(darkTokenBlock).toContain('--status-pending-surface: #27272a')
+    expect(darkTokenBlock).toContain('--status-pending-border: #3f3f46')
+    expect(darkTokenBlock).toContain('--status-pending-ink: #a1a1aa')
     expect(styles).toMatch(/\.status-pending\s*\{[^}]*--status-bg:\s*var\(--status-pending-surface\)[^}]*--status-stroke:\s*var\(--status-pending-border\)/s)
     expect(styles).toMatch(/\.week-rhythm-day\.holiday\s*\{[^}]*var\(--status-holiday-surface\)/s)
     expect(styles).toMatch(/\.week-rhythm-day\.rest\s*\{[^}]*var\(--status-rest-surface\)/s)
