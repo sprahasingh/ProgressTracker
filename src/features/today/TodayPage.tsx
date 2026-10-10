@@ -257,6 +257,7 @@ type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
 function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdit, historical, onSave, onClear, onClose }: CheckinSheetProps) {
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
   const [note, setNote] = useState(entry?.note ?? '')
+  const [noteExpanded, setNoteExpanded] = useState(false)
   const [issue, setIssue] = useState('')
   const [saving, setSaving] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -302,7 +303,7 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
         {!canEdit ? <p className="today-detail-notice">{holidays.has(today) ? 'Today is a holiday, so this activity cannot be checked in.' : 'Today is not a scheduled day for this activity.'} Existing recorded activity remains available to view.</p> : <>
           {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was skipped. Recording progress will replace the skipped state.</p>}
           {!quickBoolean && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} />}
-          <details className="today-note-details"><summary>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
+          <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
         </>}

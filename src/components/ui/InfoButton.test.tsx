@@ -67,6 +67,15 @@ describe('InfoButton', () => {
     render(<InfoButton title="Schedule" summary="Summary." description="Details." />)
     expect(screen.getByRole('button', { name: 'More about Schedule' })).toHaveClass('info-button')
     expect(styles).toMatch(/\.info-button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)
-    expect(styles).toMatch(/\.info-button::before\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s)
+    expect(styles).toMatch(/\.info-button::before\s*\{[^}]*width:\s*30px[^}]*height:\s*30px/s)
+    expect(styles).toMatch(/\.info-button\s*\{[^}]*font:\s*700 16px\/1/s)
+  })
+
+  it('stops an information click from activating a containing card', () => {
+    const activateCard = vi.fn()
+    render(<div onClick={activateCard}><InfoButton title="Daily target" summary="Summary." description="Details." /></div>)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Daily target' }))
+    expect(activateCard).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Daily target' })).toBeInTheDocument()
   })
 })
