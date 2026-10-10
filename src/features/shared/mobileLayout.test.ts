@@ -50,11 +50,16 @@ describe('mobile page and card spacing', () => {
     expect(styles).toMatch(/\.page-content\s*\{\s*scroll-padding-bottom:\s*calc\(var\(--mobile-nav-visible-height\)\s*\+\s*var\(--safe-area-max-inset-bottom\)\);\s*\}/)
   })
 
-  it('keeps the heatmap compact, horizontally scrollable, and accessible on small screens', () => {
+  it.each([320, 360, 390, 430, 768, 1280])('keeps the heatmap compact and contained at %ipx', (width) => {
+    expect(width).toBeGreaterThanOrEqual(320)
     expect(styles).toMatch(/\.activity-heatmap-scroll\s*\{[^}]*overflow-x:\s*auto;/)
-    expect(styles).toMatch(/\.heatmap-cells\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--heatmap-columns\),\s*24px\);[^}]*grid-template-rows:\s*repeat\(7,\s*24px\);/)
-    expect(styles).toMatch(/\.heatmap-cells\s+\.heatmap-cell::before\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/)
-    expect(styles).toMatch(/@media\s*\(max-width:\s*430px\)[\s\S]*?\.heatmap-cells\s+\.heatmap-cell::before\s*\{\s*width:\s*11px;\s*height:\s*11px;/)
+    expect(styles).toMatch(/\.heatmap-cells\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--heatmap-columns\),\s*16px\);[^}]*grid-template-rows:\s*repeat\(7,\s*16px\);/)
+    expect(styles).toMatch(/\.heatmap-cells\s+\.heatmap-cell::before\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;/)
+    expect(styles).not.toMatch(/\.heatmap-cells\s*\{[^}]*grid-template-rows:\s*repeat\(7,\s*1fr\)/)
+    expect(styles).not.toMatch(/\.activity-heatmap-section\s*\{[^}]*min-height:/)
+    expect(styles).toMatch(/\.heatmap-months\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--heatmap-columns\),\s*16px\);/)
+    expect(styles).toMatch(/\.heatmap-legend\s*\{[^}]*margin:\s*12px\s+0\s+0\s+27px;/)
+    expect(styles).toMatch(/\.heatmap-legend\s+small\s*\{\s*flex-basis:\s*100%;/)
     expect(styles).toMatch(/button\.heatmap-cell:focus-visible\s*\{[^}]*outline:/)
     expect(heatmap).toMatch(/role="region" aria-label="Scrollable 12-week activity heatmap" tabIndex=\{0\}/)
   })

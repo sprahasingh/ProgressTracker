@@ -25,10 +25,15 @@ export function ActivityHeatmap({ days, trackerName }: { days: readonly HeatmapD
   const cells: Array<HeatmapDay | null> = [...Array.from({ length: firstWeekday }, () => null), ...days]
   const columns = Math.ceil(cells.length / 7)
   while (cells.length < columns * 7) cells.push(null)
+  const seenMonths = new Set<string>()
   const monthLabels = Array.from({ length: columns }, (_, column) => {
-    const current = cells.slice(column * 7, column * 7 + 7).find((day): day is HeatmapDay => day !== null)
-    const previous = column ? cells.slice((column - 1) * 7, column * 7 + 7).filter((day): day is HeatmapDay => day !== null).at(-1) : null
-    return current && (!previous || current.date.slice(0, 7) !== previous.date.slice(0, 7)) ? calendarDateLabel(current.date, { month: 'short' }) : ''
+    const week = cells.slice(column * 7, column * 7 + 7).filter((day): day is HeatmapDay => day !== null)
+    if (!week.length) return ''
+    const monthStart = week.find((day) => day.date.slice(-2) === '01')
+    const month = monthStart?.date.slice(0, 7) ?? (column === 0 ? week[0]!.date.slice(0, 7) : null)
+    if (!month || seenMonths.has(month)) return ''
+    seenMonths.add(month)
+    return calendarDateLabel(`${month}-01`, { month: 'short' })
   })
   return <section ref={sectionRef} className="activity-heatmap-section" aria-labelledby="activity-heatmap-title">
     <div className="activity-heatmap-heading"><div><h2 id="activity-heatmap-title">Activity Heatmap</h2><p>{trackerName ? `${trackerName} · last 12 weeks` : 'All Trackers · last 12 weeks'}</p></div><InfoButton title="Activity Heatmap" summary="Each day shows qualifying activity divided by that day’s eligible tracker opportunities." description="In All Trackers, each tracker follows its own schedule and Strict Mode policy; the cell percentage is qualified opportunities divided by eligible opportunities. For one tracker, the same rule applies to that tracker’s streak qualification. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Neutral cells mean no eligible opportunities; gray means 0%; green shades mean 1–25%, 26–50%, 51–75%, 76–99%, and 100%. Each cell can be tapped or focused for its counts and holiday/rest context." /></div>
