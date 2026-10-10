@@ -2283,8 +2283,6 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .heatmap-months span { min-width: 0; white-space: nowrap; }
 .heatmap-body { display: flex; gap: 3px; }
 .heatmap-weekdays { display: grid; width: 24px; flex: 0 0 24px; grid-template-rows: repeat(7, 16px); align-items: center; color: var(--ink-subtle); font-size: 8px; line-height: 1; }
-.heatmap-weekdays span { visibility: hidden; }
-.heatmap-weekdays span:first-child, .heatmap-weekdays span:nth-child(4), .heatmap-weekdays span:last-child { visibility: visible; }
 .heatmap-cells { display: grid; grid-template-columns: repeat(var(--heatmap-columns), 16px); grid-template-rows: repeat(7, 16px); }
 .heatmap-cell { display: block; width: 16px; height: 16px; align-self: center; justify-self: center; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .heatmap-cells .heatmap-cell::before { display: block; width: 12px; height: 12px; margin: auto; border: 1px solid var(--heatmap-cell-border, color-mix(in srgb, var(--line) 70%, transparent)); border-radius: 3px; background: var(--heatmap-cell-color, var(--heatmap-empty)); content: ""; }
