@@ -23,6 +23,18 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('keeps notification preferences and custom messages isolated per account workspace', async () => {
+    await activateWorkspace('notification-prefs-a')
+    await localRepository.saveNotificationPreferences({ enabled: true, daily_enabled: true, daily_times: ['09:00'], overdue_enabled: false, overdue_times: ['10:00'], remind_partial: false, motivation_mode: 'off', motivation_times: ['18:00'], motivation_weekdays: [1], timezone: 'Asia/Kolkata', quiet_start: null, quiet_end: null, allow_overdue_during_quiet: false, daily_limit: 4, motivation_daily_limit: 1, tracker_ids: null })
+    await localRepository.saveCustomMotivationMessage({ id: 'message-a', message: 'Keep going', enabled: true, deleted: false })
+    await activateWorkspace('notification-prefs-b')
+    await expect(localRepository.getNotificationPreferences()).resolves.toBeUndefined()
+    await expect(localRepository.listCustomMotivationMessages()).resolves.toEqual([])
+    await activateWorkspace('notification-prefs-a')
+    await expect(localRepository.getNotificationPreferences()).resolves.toMatchObject({ enabled: true, timezone: 'Asia/Kolkata' })
+    await expect(localRepository.listCustomMotivationMessages()).resolves.toMatchObject([{ id: 'message-a', message: 'Keep going' }])
+  })
+
   it('upserts notification identities and preserves unread state on replacement', async () => {
     await activateWorkspace('notification-owner')
     const original = await localRepository.putAppNotification({ identity: 'daily-reminder:2026-10-10:16:00', kind: 'pending', title: '2 check-ins waiting', body: 'Review today', href: '/' })

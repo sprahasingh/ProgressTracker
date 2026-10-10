@@ -1,7 +1,7 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAuth } from '../auth/AuthProvider'
-import { getSupabaseClient } from '../../services/supabase/client'
 import { localRepository } from '../../db/localRepository'
+import { getSupabaseClient } from '../../services/supabase/client'
 import { localCalendarDate } from '../shared/localDates'
 import { buildReminderCandidate, dueLocalSlot, isWithinQuietHours, previousLocalDate, type ReminderCandidate } from './reminderRules'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -12,12 +12,46 @@ import { chooseMotivation } from './motivation'
 export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
   const { status, user } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
+  const reconcileRunning = useRef(false)
   const reconcile = useCallback(async () => {
     if (!enabled || status !== 'signed-in' || !user) return
+    if (reconcileRunning.current) return
+    reconcileRunning.current = true
+    try {
+    let prefs = await localRepository.getNotificationPreferences()
     const client = getSupabaseClient()
-    if (!client || typeof client.from !== 'function') return
-    const { data: prefs, error } = await client.from('notification_preferences').select('*').eq('user_id', user.id).maybeSingle()
-    if (error || !prefs?.enabled) return
+    if (!prefs && client) {
+      const result = await client.from('notification_preferences').select('*').eq('user_id', user.id).maybeSingle()
+      if (!result.error && result.data) {
+        const { id: _id, updatedAt: _updatedAt, user_id: _userId, ...values } = result.data
+        prefs = await localRepository.saveNotificationPreferences(values)
+      }
+    }
+    if (prefs?.syncPending && client) {
+      const { id: _id, updatedAt: _updatedAt, syncPending: _syncPending, ...preferenceValues } = prefs
+      const { error } = await client.from('notification_preferences').upsert({ ...preferenceValues, user_id: user.id }, { onConflict: 'user_id' })
+      if (!error) await localRepository.markNotificationPreferencesSynced()
+    }
+    if (client) {
+      for (const message of await localRepository.listCustomMotivationMessages()) {
+        if (!message.syncPending) continue
+        const result = message.deleted
+          ? await client.from('custom_motivation_messages').delete().eq('id', message.id).eq('user_id', user.id)
+          : await client.from('custom_motivation_messages').upsert({ id: message.id, user_id: user.id, message: message.message, enabled: message.enabled }, { onConflict: 'id' })
+        if (!result.error && message.deleted) await localRepository.deleteSyncedCustomMotivationMessage(message.id)
+        else if (!result.error) await localRepository.markCustomMotivationMessageSynced(message.id)
+      }
+    }
+    if (!prefs?.enabled) {
+      const today = localCalendarDate(new Date(), timeZone)
+      const stale = await localRepository.removeUnreadReminderNotifications([today, previousLocalDate(today)], new Set())
+      if (stale.length && 'serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration()
+        const tags = new Set(stale.map((identity) => `progress-tracker:${identity}`))
+        for (const notification of await registration?.getNotifications() ?? []) if (notification.tag && tags.has(notification.tag)) notification.close()
+      }
+      return
+    }
     const now = new Date()
     const today = localCalendarDate(now, timeZone)
     const yesterday = previousLocalDate(today)
@@ -26,7 +60,8 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
     ])
     const holidaySet = new Set(holidays.map((holiday) => holiday.date))
     const candidates: ReminderCandidate[] = []
-    const eligibleTrackers = prefs.tracker_ids ? trackers.filter((tracker) => prefs.tracker_ids.includes(tracker.id)) : trackers
+    const trackerIds = prefs.tracker_ids
+    const eligibleTrackers = trackerIds ? trackers.filter((tracker) => trackerIds.includes(tracker.id)) : trackers
     const quiet = isWithinQuietHours(now, timeZone, prefs.quiet_start?.slice(0, 5), prefs.quiet_end?.slice(0, 5))
     const dueDaily = prefs.daily_enabled && !quiet ? dueLocalSlot(now, timeZone, (prefs.daily_times ?? []).map((time: string) => time.slice(0, 5))) : null
     if (dueDaily) {
@@ -46,8 +81,14 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
     const cap = Math.max(1, Number(prefs.daily_limit) || 4)
     if (motivationSlot && (prefs.motivation_weekdays ?? []).includes(weekdayNumber)
       && notificationsToday.filter((row) => row.kind === 'motivation').length < (Number.isFinite(Number(prefs.motivation_daily_limit)) ? Math.max(0, Number(prefs.motivation_daily_limit)) : 1)) {
-      const { data: customRows } = await client.from('custom_motivation_messages').select('message').eq('user_id', user.id).eq('enabled', true)
-      const customMessages = (customRows ?? []).map((row: { message: string }) => row.message)
+      let customRows = await localRepository.listCustomMotivationMessages()
+      if (!customRows.length && client) {
+        const result = await client.from('custom_motivation_messages').select('id,message,enabled').eq('user_id', user.id).eq('enabled', true)
+        if (!result.error && result.data) {
+          customRows = await Promise.all(result.data.map((row: { id: string; message: string; enabled: boolean }) => localRepository.saveCustomMotivationMessage({ ...row, deleted: false })))
+        }
+      }
+      const customMessages = customRows.filter((row) => row.enabled && !row.deleted).map((row) => row.message)
       const recentMotivation = dailyRecords.filter((row) => row.kind === 'motivation').slice(0, 3).map((row) => row.body)
       const lastSource = dailyRecords.find((row) => row.kind === 'motivation')?.body && customMessages.includes(dailyRecords.find((row) => row.kind === 'motivation')!.body) ? 'custom' : 'general'
       const chosen = chooseMotivation({ mode: prefs.motivation_mode, customMessages, recentMessages: recentMotivation, sequence: notificationsToday.filter((row) => row.kind === 'motivation').length, lastSource })
@@ -88,6 +129,9 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
       }
       void row
     }
+    } finally {
+      reconcileRunning.current = false
+    }
   }, [enabled, status, user?.id, timeZone])
   useEffect(() => {
     if (!enabled || status !== 'signed-in') return
@@ -97,7 +141,8 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
     const unsubscribe = subscribeToWorkspaceMutations(() => { void reconcile().catch(() => undefined) })
-    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); unsubscribe() }
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void reconcile().catch(() => undefined) }, 30_000)
+    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); window.clearInterval(interval); unsubscribe() }
   }, [enabled, reconcile, status])
   return null
 }

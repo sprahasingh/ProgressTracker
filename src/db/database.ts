@@ -17,6 +17,8 @@ import type {
   PermanentDeletionLedgerEntry,
   TrackerVerification,
   AppNotification,
+  LocalNotificationPreferences,
+  LocalMotivationMessage,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
@@ -55,6 +57,8 @@ export class ProgressTrackerDatabase extends Dexie {
   permanentDeletionLedger!: Table<PermanentDeletionLedgerEntry, string>
   trackerVerification!: Table<TrackerVerification, string>
   appNotifications!: Table<AppNotification, string>
+  notificationPreferences!: Table<LocalNotificationPreferences, string>
+  customMotivationMessages!: Table<LocalMotivationMessage, string>
 
   constructor(name = 'ProgressTracker') {
     super(name)
@@ -180,6 +184,24 @@ export class ProgressTrackerDatabase extends Dexie {
       trackerVerification: '&trackerId, status',
       appNotifications: 'id, &identity, kind, createdAt, readAt',
     })
+
+    this.version(9).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      accountHolidays: 'id, &date, updatedAt, deletedAt',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      trackerVerification: '&trackerId, status',
+      appNotifications: 'id, &identity, kind, createdAt, readAt',
+      notificationPreferences: '&id, updatedAt',
+      customMotivationMessages: '&id, updatedAt',
+    })
   }
 }
 
@@ -187,7 +209,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 8
+export const DATABASE_SCHEMA_VERSION = 9
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 

@@ -1,6 +1,6 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, LocalMotivationMessage, LocalNotificationPreferences, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
@@ -29,6 +29,52 @@ function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
 }
 
 export const localRepository = {
+  async getNotificationPreferences(): Promise<LocalNotificationPreferences | undefined> {
+    const database = await openDatabase()
+    return database.notificationPreferences.get('account')
+  },
+
+  async saveNotificationPreferences(preferences: Omit<LocalNotificationPreferences, 'id' | 'updatedAt' | 'syncPending'>, syncPending = true): Promise<LocalNotificationPreferences> {
+    const database = await openDatabase()
+    const row: LocalNotificationPreferences = { ...preferences, id: 'account', updatedAt: new Date().toISOString(), syncPending }
+    await database.notificationPreferences.put(row)
+    return row
+  },
+
+  async markNotificationPreferencesSynced(): Promise<void> {
+    const database = await openDatabase()
+    await database.notificationPreferences.update('account', { syncPending: false })
+  },
+
+  async listCustomMotivationMessages(): Promise<LocalMotivationMessage[]> {
+    const database = await openDatabase()
+    return database.customMotivationMessages.orderBy('updatedAt').toArray()
+  },
+
+  async saveCustomMotivationMessage(message: Omit<LocalMotivationMessage, 'updatedAt' | 'syncPending'>, syncPending = true): Promise<LocalMotivationMessage> {
+    const database = await openDatabase()
+    const row = { ...message, updatedAt: new Date().toISOString(), syncPending }
+    await database.customMotivationMessages.put(row)
+    return row
+  },
+
+  async markCustomMotivationMessageSynced(id: string): Promise<void> {
+    const database = await openDatabase()
+    await database.customMotivationMessages.update(id, { syncPending: false })
+  },
+
+  async deleteCustomMotivationMessage(id: string): Promise<void> {
+    const database = await openDatabase()
+    const existing = await database.customMotivationMessages.get(id)
+    if (existing) await database.customMotivationMessages.put({ ...existing, deleted: true, syncPending: true, updatedAt: new Date().toISOString() })
+  },
+
+  async deleteSyncedCustomMotivationMessage(id: string): Promise<void> {
+    const database = await openDatabase()
+    const existing = await database.customMotivationMessages.get(id)
+    if (existing?.deleted) await database.customMotivationMessages.delete(id)
+  },
+
   async listAppNotifications(): Promise<AppNotification[]> {
     const database = await openDatabase()
     return (await database.appNotifications.orderBy('createdAt').reverse().limit(100).toArray())

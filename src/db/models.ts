@@ -2,6 +2,17 @@ import type { TrackerDefinition, TrackerEntry } from '../domain/trackers/types'
 
 export type CalendarDate = `${number}-${number}-${number}`
 
+export type LocalNotificationPreferences = {
+  id: 'account'
+  enabled: boolean; daily_enabled: boolean; daily_times: string[]; overdue_enabled: boolean; overdue_times: string[]
+  remind_partial: boolean; motivation_mode: 'off' | 'general' | 'custom' | 'both'; motivation_times: string[]
+  motivation_weekdays: number[]; timezone: string; quiet_start: string | null; quiet_end: string | null
+  allow_overdue_during_quiet: boolean; daily_limit: number; motivation_daily_limit: number; tracker_ids: string[] | null
+  updatedAt: string; syncPending: boolean
+}
+
+export type LocalMotivationMessage = { id: string; message: string; enabled: boolean; deleted: boolean; updatedAt: string; syncPending: boolean }
+
 /** Persisted generic domain rows introduced by the non-destructive Dexie v3 upgrade. */
 export type StoredTrackerDefinition = TrackerDefinition
 export type StoredTrackerEntry = TrackerEntry
