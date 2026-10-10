@@ -15,7 +15,6 @@ const mobileMoreNavigation = [
   { to: '/holidays', label: 'Holidays & breaks' },
   { to: '/bin', label: 'Bin' },
   { to: '/settings', label: 'Settings' },
-  { to: '/auth', label: 'Account & sync' },
 ]
 
 function routeMatches(pathname: string, destinations: readonly string[]) {
@@ -45,6 +44,8 @@ export function AppShell() {
                 : 'Account ready'
   const syncTone = syncStatus === 'error' ? 'error' : syncStatus === 'offline' || isOnline === false ? 'offline' : syncStatus === 'syncing' ? 'syncing' : syncStatus === 'complete' ? 'complete' : 'local'
   const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
+  const accountSettingsHref = status === 'signed-in' ? '/settings#personal-information' : '/auth'
+  const syncSettingsHref = status === 'signed-in' ? '/settings#sync-data' : '/auth'
   const workspaceOwnerVerified = workspaceUserId === expectedWorkspaceUserId
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceOwnerVerified
   const guestChoiceReady = !sessionTransitionPending && status === 'signed-in' && workspaceStatus === 'needs-guest-choice' && workspaceOwnerVerified
@@ -76,9 +77,9 @@ export function AppShell() {
             <NavLink to="/holidays" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">☀</span>Holidays & breaks</NavLink>
             <NavLink to="/settings" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">⚙</span>Settings</NavLink>
             <NavLink to="/bin" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">▤</span>Bin</NavLink>
-            <NavLink to="/auth" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">◉</span>Account & sync</NavLink>
+            {status !== 'signed-in' && <NavLink to="/auth" className="nav-link secondary-link"><span className="nav-icon" aria-hidden="true">◉</span>Account & sync</NavLink>}
           </div>
-          <Link className={`sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
+          <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
         </div>
       </aside>
 
@@ -88,8 +89,8 @@ export function AppShell() {
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
-          <Link className={`topbar-sync-state ${syncTone}`} to="/auth"><span className="sync-dot" /><span>{syncLabel}</span></Link>
-          <Link className="avatar" to="/auth" aria-label="Open account and sign-in">
+          <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span></Link>
+          <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
           </Link>
         </header>
@@ -125,7 +126,7 @@ export function AppShell() {
           <details className="mobile-more">
             <summary aria-label="More destinations">•••<small>More</small></summary>
             <div className="mobile-more-menu">
-              {mobileMoreNavigation.map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
+              {[...mobileMoreNavigation, ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
                 const details = event.currentTarget.closest('details')
                 if (details) details.open = false
               }}>{label}</NavLink>)}
