@@ -46,7 +46,7 @@ function metricHasQualifyingValue(metric: TrackerMetricDefinition, value: Tracke
   return Array.isArray(value) || (typeof value === 'object' && value !== null)
 }
 
-function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
+export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
   if (entry.outcome !== 'recorded') return false
   const metricQualifies = (metric: TrackerMetricDefinition): boolean => {
     const value = entry.values[metric.id]
@@ -55,9 +55,7 @@ function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): bo
     if (qualification === 'any-recorded-value' || !qualification) {
       // Preserve the established completion fallback: thresholded metrics need
       // at least their first achievement level; unthresholded metrics need a value.
-      return metric.thresholds?.minimum !== undefined || metric.thresholds?.target !== undefined || metric.thresholds?.stretch !== undefined
-        ? classifyAchievement(metric, value) !== 'none'
-        : metricHasQualifyingValue(metric, value)
+      return metricHasQualifyingValue(metric, value)
     }
     const achieved = classifyAchievement(metric, value)
     const ranks = { none: 0, minimum: 1, target: 2, stretch: 3 }
@@ -84,22 +82,25 @@ function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): bo
 }
 
 function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>): Occurrence[] {
-  const end = parseDate(asOfDate)
+  const boundedEnd = tracker.deadline && tracker.deadline < asOfDate ? tracker.deadline : asOfDate
+  const end = parseDate(boundedEnd)
   const byDate = new Map<string, TrackerEntry>()
   for (const entry of entries) {
     parseDate(entry.date)
     if (entry.trackerId !== tracker.id) throw new RangeError(`Entry ${entry.id} belongs to a different tracker.`)
-    if (entry.date > asOfDate || entry.deletedAt !== null) continue
+    if (entry.date > boundedEnd || entry.deletedAt !== null) continue
     if (byDate.has(entry.date)) throw new RangeError(`More than one live entry exists for ${entry.date}.`)
     byDate.set(entry.date, entry)
   }
 
-  const anchor = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+  const createdDate = tracker.createdAt.slice(0, 10)
+  const anchor = tracker.startDate && tracker.startDate > createdDate ? tracker.startDate : createdDate
   const start = parseDate(anchor)
   const occurrences: Occurrence[] = []
   for (let time = start; time <= end; time += DAY_MS) {
     const date = dateText(time)
-    if (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date)) continue
+    const strict = tracker.strictMode === true
+    if (!strict && (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date))) continue
     const entry = byDate.get(date)
     const qualified = entry ? qualifiesForStreak(tracker, entry) : false
     occurrences.push({ date, qualified, open: date === asOfDate && (!entry || (entry.outcome === 'recorded' && !qualified)) })

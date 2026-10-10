@@ -14,6 +14,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { isScheduledDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { InfoButton } from '../../components/ui/InfoButton'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
@@ -136,7 +137,7 @@ export function TrackerLibraryPage() {
         <div className="tracker-card-grid">
           {visibleTrackers.map((tracker) => (
             <Surface key={tracker.id} className="tracker-card">
-              <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
+              <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span><span className="tracker-card-policy">{tracker.strictMode ? <>Strict Mode <InfoButton title="Strict Mode" summary="This tracker requires qualifying progress every calendar day." description="Holidays, weekends, and unscheduled rest days count as streak opportunities. A qualifying voluntary check-in can preserve the streak without changing this tracker’s schedule or the holiday." /></> : 'Standard Mode'}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
               {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
               <TrackerCardTargets tracker={tracker} />
@@ -145,7 +146,7 @@ export function TrackerLibraryPage() {
                 {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}
               </div>
               <div className="tracker-card-actions">
-                {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : 'Check in today'}</Link>}
+                {tracker.status === 'active' && (isScheduledDate(tracker, today) || tracker.strictMode) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : tracker.strictMode && !isScheduledDate(tracker, today) ? 'Voluntary check-in' : 'Check in today'}</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
                 <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => moveToBin(tracker)} />
               </div>

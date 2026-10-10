@@ -10,7 +10,7 @@ import { DashboardPage } from './DashboardPage'
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
+afterEach(async () => { cleanup(); window.sessionStorage.clear(); vi.restoreAllMocks(); await db.delete() })
 
 function tracker(): StoredTrackerDefinition {
   return {
@@ -40,6 +40,30 @@ describe('local progress dashboard', () => {
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
+  })
+
+  it('filters tracker cards and heatmap by stable tracker ID and exposes tap details', async () => {
+    const user = userEvent.setup()
+    const first = tracker()
+    const second = { ...tracker(), id: 'dashboard-water', name: 'Drink water', strictMode: true }
+    await localRepository.saveTracker(first)
+    await localRepository.saveTracker(second)
+    const yesterday = shiftCalendarDate(localCalendarDate(), -1)
+    await localRepository.saveTrackerEntry({ trackerId: first.id, date: yesterday, outcome: 'recorded', values: { pages: 5 }, note: '' })
+    await localRepository.saveTrackerEntry({ trackerId: second.id, date: yesterday, outcome: 'recorded', values: { pages: 5 }, note: '' })
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Activity Heatmap' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Drink water' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Show activity for' }), first.id)
+    expect(screen.getByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Drink water' })).not.toBeInTheDocument()
+    expect(screen.getByText('Read a book · last 12 weeks')).toBeInTheDocument()
+    const info = screen.getByRole('button', { name: 'More about Activity Heatmap' })
+    await user.click(info)
+    expect(screen.getByRole('dialog', { name: 'Activity Heatmap' })).toHaveTextContent('qualified opportunities divided by eligible opportunities')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Activity Heatmap' })).not.toBeInTheDocument()
   })
 
   it('refreshes displayed weekly statistics when a check-in changes while the dashboard is mounted', async () => {

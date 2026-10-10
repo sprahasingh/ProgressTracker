@@ -1,6 +1,7 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from './types'
 import { assertDateRange } from '../../db/calendarDate'
-import { evaluateTrackerEntry, isTrackerScheduledOccurrence } from './planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { qualifiesForStreak } from './progression'
 
 export type MetricObservation = { date: string; value: number }
 export type MetricAnalytics = {
@@ -63,16 +64,19 @@ export function calculateTrackerAnalytics(
   let scheduledQualifiedCount = 0
   if (activeSchedule) {
     const createdDay = tracker.createdAt.slice(0, 10)
-    const firstDate = tracker.startDate && tracker.startDate > createdDay ? tracker.startDate : createdDay > startDate ? createdDay : startDate
+    const trackerFirst = tracker.startDate && tracker.startDate > createdDay ? tracker.startDate : createdDay
+    const firstDate = trackerFirst > startDate ? trackerFirst : startDate
     const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
-    for (let time = dateNumber(firstDate); time <= dateNumber(endDate); time += DAY_MS) {
+    const boundedEnd = tracker.deadline && tracker.deadline < endDate ? tracker.deadline : endDate
+    for (let time = dateNumber(firstDate); time <= dateNumber(boundedEnd); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      if (!isTrackerScheduledOccurrence(tracker, date) || holidays.has(date)) continue
+      const opportunity = tracker.strictMode === true ? isTrackerInActivePeriod(tracker, date) : isTrackerInActivePeriod(tracker, date) && isTrackerScheduledOccurrence(tracker, date) && !holidays.has(date)
+      if (!opportunity) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.
       if (date === endDate && !entry) continue
       scheduledCount += 1
-      if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) scheduledQualifiedCount += 1
+      if (entry && (tracker.strictMode ? qualifiesForStreak(tracker, entry) : entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified)) scheduledQualifiedCount += 1
     }
   }
   const metrics = tracker.metrics.map((metric): MetricAnalytics => {

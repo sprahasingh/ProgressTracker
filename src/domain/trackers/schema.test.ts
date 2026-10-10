@@ -25,6 +25,12 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse(tracker).success).toBe(true)
   })
 
+  it('keeps older definitions valid and round-trips the optional Strict Mode field without a schema bump', () => {
+    expect(trackerDefinitionSchema.parse(tracker).strictMode).toBeUndefined()
+    expect(trackerDefinitionSchema.parse({ ...tracker, strictMode: true })).toMatchObject({ schemaVersion: 1, strictMode: true })
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, strictMode: 'strict' }).success).toBe(false)
+  })
+
   it('keeps version 1 definitions valid and accepts version 2 plans without changing thresholds', () => {
     const planned: TrackerDefinition = {
       ...tracker, schemaVersion: 2, kind: 'goal', goalPlanning: {

@@ -19,7 +19,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import type { CalendarDate } from '../../db/models'
 
-type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string }
+type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string; strictMode: boolean }
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
 const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
@@ -75,7 +75,7 @@ function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeForm
         : tracker && tracker.schedule.kind !== 'every-day' ? 'custom' : 'every-day'
   return {
     name: tracker?.name ?? '', description: tracker?.description ?? '', kind: tracker?.kind ?? 'habit', schedule,
-    startDate: tracker?.startDate ?? todayLocal(timeZone), deadline: tracker?.deadline ?? '',
+    startDate: tracker?.startDate ?? todayLocal(timeZone), deadline: tracker?.deadline ?? '', strictMode: tracker?.strictMode ?? false,
   }
 }
 
@@ -125,7 +125,7 @@ export function TrackerSetupPage() {
     return () => { current = false }
   }, [trackerId])
 
-  function update(field: keyof FormValues, value: string) {
+  function update(field: keyof FormValues, value: FormValues[keyof FormValues]) {
     setValues((current) => ({ ...current, [field]: value }))
     setFieldErrors((current) => ({ ...current, [field]: '' }))
   }
@@ -211,6 +211,12 @@ export function TrackerSetupPage() {
       setFieldErrors(Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])))
       return
     }
+    if (existing && (existing.strictMode ?? false) !== parsed.data.strictMode) {
+      const message = parsed.data.strictMode
+        ? 'Enabling Strict Mode will recalculate this tracker’s streak using every calendar day, including past holidays and rest days. Your recorded progress will not be deleted.'
+        : 'Switching to Standard Mode will recalculate this tracker’s streak using scheduled days, with holidays and rest days preserving continuity. Your recorded progress will not be deleted.'
+      if (!window.confirm(message)) return
+    }
     const isNewPlannedGoal = !existing && values.kind === 'goal' && Boolean(goalAmount) && configuration.metrics[0]?.valueType !== 'boolean'
     const enteredGoalAmount = goalAmount === '' ? undefined : Number(goalAmount)
     const goalAmountInvalid = enteredGoalAmount === undefined || !Number.isFinite(enteredGoalAmount) || enteredGoalAmount <= 0 || enteredGoalAmount > Number.MAX_SAFE_INTEGER
@@ -263,6 +269,7 @@ export function TrackerSetupPage() {
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,
         metrics: submittedMetrics,
+        strictMode: form.strictMode,
         qualificationRule: configuration.rule,
         customFields: configuration.customFields,
         milestones: configuration.milestones,
@@ -363,6 +370,7 @@ export function TrackerSetupPage() {
               <details className="advanced-subsection"><summary>Schedule & holidays</summary><div className="form-grid advanced-dates"><label className="form-field"><span>{selectedKind === 'habit' ? 'How often?' : 'Work days'}</span><select aria-label={selectedKind === 'habit' ? 'How often?' : 'Work days'} className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)}><option value="every-day">Every day</option><option value="weekdays">Weekdays</option><option value="three-times-weekly">3 times a week</option><option value="none">No set days</option>{values.schedule === 'custom' && <option value="custom">Keep current schedule</option>}</select></label>
                 {!existing && selectedKind === 'challenge' && <label className="form-field"><span>Finish by <em>optional</em></span><input aria-label="Finish by" className="auth-input" type="date" value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
                 {!existing && selectedKind === 'project' && <label className="form-field"><span>Project deadline <em>optional</em></span><input aria-label="Project deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
+                <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
                 <p className="field-hint form-field-wide">Workspace holidays and excluded days are applied automatically.</p>
               </div></details>
               <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>

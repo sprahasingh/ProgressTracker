@@ -26,7 +26,7 @@ const entry = {
   createdAt: `${today}T09:00:00.000Z`, updatedAt: `${today}T09:00:00.000Z`, deletedAt: null,
 } as StoredTrackerEntry
 
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks() })
 
 describe('Calendar page', () => {
   it('shows an accessible status legend and opens selected date details', async () => {
@@ -35,7 +35,7 @@ describe('Calendar page', () => {
     mocks.listAccountHolidays.mockResolvedValue([])
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
-    expect(await screen.findByText('Morning walk')).toBeInTheDocument()
+    expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
     const manageHolidays = screen.getByRole('link', { name: 'Manage holidays' })
     expect(manageHolidays).toHaveClass('button-primary')
@@ -62,16 +62,31 @@ describe('Calendar page', () => {
     expect(await screen.findAllByText('Missed')).toHaveLength(2)
   })
 
+  it('filters date status counts and tracker details to the selected tracker', async () => {
+    const user = userEvent.setup()
+    const second = { ...tracker, id: 'calendar-second', name: 'Evening walk' }
+    const secondEntry = { ...entry, id: 'calendar-entry-second', trackerId: second.id }
+    mocks.listTrackers.mockResolvedValue([tracker, second])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry, secondEntry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/2 completed · 0 partial/)).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Tracker' }), second.id)
+    expect(await screen.findAllByText('Evening walk', { selector: 'strong' })).toHaveLength(2)
+    expect(screen.queryByText('Morning walk', { selector: 'strong' })).not.toBeInTheDocument()
+    expect(screen.getByText(/1 completed · 0 partial/)).toBeInTheDocument()
+  })
+
   it('colors a holiday date tile and keeps its recorded check-in visible', async () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
     mocks.listAccountHolidays.mockResolvedValue([{ id: 'holiday-today', date: today, reason: 'personal', createdAt: '', updatedAt: '', deletedAt: null }])
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
-    expect(await screen.findByText('Morning walk')).toBeInTheDocument()
+    expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
     expect(screen.getByText(/Holiday · scheduled expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
-    expect(screen.getByText(/Holiday · Done/)).toBeInTheDocument()
+    expect(screen.getByText(/Holiday · Progress recorded: Done/)).toBeInTheDocument()
   })
 
   it('marks an unrecorded scheduled date as pending, rather than rest or missed', async () => {
@@ -91,7 +106,7 @@ describe('Calendar page', () => {
     mocks.listAccountHolidays.mockResolvedValue([])
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
-    await screen.findByText('Morning walk')
+    await screen.findByText('Morning walk', { selector: 'strong' })
     const cell = container.querySelector('.calendar-day-today .calendar-cell-status')
     expect(cell).toHaveClass('pending')
     expect(cell).not.toHaveClass('partial')

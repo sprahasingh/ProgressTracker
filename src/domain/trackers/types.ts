@@ -114,6 +114,8 @@ export type TrackerDefinition = {
   customFields: CustomFieldDefinition[]
   milestones: TrackerMilestoneDefinition[]
   goalPlanning?: GoalPlanningConfiguration
+  /** When true, each calendar date through the active period is a streak opportunity. */
+  strictMode?: boolean
   createdAt: string
   updatedAt: string
   archivedAt: string | null

@@ -15,6 +15,10 @@ import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { mondayFirstWeekday } from '../../db/calendarDate'
+import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
+import { calculateStreak } from '../../domain/trackers/progression'
+import { InfoButton } from '../../components/ui/InfoButton'
+import { isTrackerInActivePeriod } from '../../domain/trackers/planning'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; missed: number; pending: number; entries: number; holiday: boolean; visualStatus: ActivityStatus }
@@ -49,6 +53,11 @@ export function CalendarPage() {
   }, [searchParams, today])
   const visibleData = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot : null
   const loadingVisible = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
+  const trackerFilter = useTrackerFilter(expectedOwner, visibleData?.trackers ?? [], !loadingVisible)
+  const selectedTracker = visibleData?.trackers.find((tracker) => tracker.id === trackerFilter.selectedId) ?? null
+  const displayedTrackers = selectedTracker ? [selectedTracker] : visibleData?.trackers ?? []
+  const displayedTrackerIds = new Set(displayedTrackers.map((tracker) => tracker.id))
+  const displayedEntries = (visibleData?.entries ?? []).filter((entry) => displayedTrackerIds.has(entry.trackerId))
 
   const refresh = useCallback(async () => {
     const context = contextRef.current
@@ -60,10 +69,14 @@ export function CalendarPage() {
     setLoading(true)
     setError('')
     try {
-      const [trackers, entries, holidays] = await Promise.all([
-        localRepository.listTrackers(true),
-        start <= end ? localRepository.listTrackerEntriesBetween(start, end) : Promise.resolve([]),
-        localRepository.listAccountHolidays(start, monthLast),
+      const trackers = await localRepository.listTrackers(true)
+      const earliest = trackers.reduce<CalendarDate>((minimum, tracker) => {
+        const first = tracker.startDate && tracker.startDate > tracker.createdAt.slice(0, 10) ? tracker.startDate : tracker.createdAt.slice(0, 10)
+        return first < minimum ? first as CalendarDate : minimum
+      }, start)
+      const [entries, holidays] = await Promise.all([
+        earliest <= end ? localRepository.listTrackerEntriesBetween(earliest, end) : Promise.resolve([]),
+        localRepository.listAccountHolidays(earliest, monthLast),
       ])
       if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) {
         setSnapshot({ workspaceKey: context.workspaceKey, trackers, entries, holidays: holidays.map((holiday) => holiday.date) })
@@ -88,8 +101,8 @@ export function CalendarPage() {
   const summaries = useMemo(() => {
     const [year, monthNumber] = month.split('-').map(Number)
     const daysInMonth = new Date(Date.UTC(year!, monthNumber!, 0)).getUTCDate()
-    const entries = visibleData?.entries ?? []
-    const trackers = visibleData?.trackers ?? []
+    const entries = (visibleData?.entries ?? []).filter((entry) => !selectedTracker || entry.trackerId === selectedTracker.id)
+    const trackers = selectedTracker ? [selectedTracker] : visibleData?.trackers ?? []
     const holidays = new Set(visibleData?.holidays ?? [])
     return Array.from({ length: daysInMonth }, (_, index) => {
       const date = `${month}-${String(index + 1).padStart(2, '0')}` as CalendarDate
@@ -113,11 +126,12 @@ export function CalendarPage() {
                 : 'completed'
       return { date, completed, partial, missed, pending, entries: entries.filter((entry) => entry.date === date).length, holiday, visualStatus }
     })
-  }, [month, today, visibleData])
+  }, [month, today, visibleData, selectedTracker])
   const selectedSummary = summaries.find((day) => day.date === selectedDate)
-  const selectedEntries = (visibleData?.entries ?? []).filter((entry) => entry.date === selectedDate)
+  const selectedEntries = displayedEntries.filter((entry) => entry.date === selectedDate)
   const selectedHoliday = visibleData?.holidays.includes(selectedDate) ?? false
-  const selectedTrackers = (visibleData?.trackers ?? []).filter((tracker) => tracker.deletedAt === null && (
+  const selectedStreak = selectedTracker ? calculateStreak(selectedTracker, (visibleData?.entries ?? []).filter((entry) => entry.trackerId === selectedTracker.id), today, new Set(visibleData?.holidays ?? [])) : null
+  const selectedTrackers = displayedTrackers.filter((tracker) => tracker.deletedAt === null && (
     selectedEntries.some((entry) => entry.trackerId === tracker.id) || tracker.status === 'active'
   )).map((tracker) => {
     const entry = selectedEntries.find((item) => item.trackerId === tracker.id)
@@ -136,8 +150,8 @@ export function CalendarPage() {
   }
 
   return <section className="tracker-page calendar-page" aria-labelledby="calendar-title">
-    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." action={<Link className="button button-primary button-medium" to="/holidays">Manage holidays</Link>} />
-    <div className="calendar-toolbar"><label className="history-filter"><span>Month</span><input className="auth-input" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => changeMonth(event.target.value)} /></label><Link className="button button-quiet button-small" to={`/calendar?date=${today}`}>Today</Link></div>
+    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." help={{ title: 'Calendar activity', summary: 'All Trackers shows a combined status and per-tracker counts for each day.', description: 'Select one tracker to see only its activity and streak. Holidays keep their Holiday status across trackers; rest days are based on each tracker’s recurrence. A saved voluntary check-in remains visible on holidays and rest days without changing either classification.' }} action={<Link className="button button-primary button-medium" to="/holidays">Manage holidays</Link>} />
+    <div className="calendar-toolbar"><TrackerFilter trackers={visibleData?.trackers ?? []} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Tracker" /><label className="history-filter"><span>Month</span><input className="auth-input" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => changeMonth(event.target.value)} /></label><Link className="button button-quiet button-small" to={`/calendar?date=${today}`}>Today</Link></div>
     <div className="calendar-legend" aria-label="Activity status legend">{(['pending', 'completed', 'partial', 'missed', 'holiday', 'unscheduled'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div>
     {error && <div role="alert" className="form-alert">{error}</div>}
     {loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : error ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open the calendar." action={<button className="button button-secondary button-medium" onClick={() => void refresh()}>Try again</button>} /></Surface> : <div className="calendar-layout">
@@ -146,10 +160,11 @@ export function CalendarPage() {
         <SectionHeader className="calendar-day-heading" eyebrow="SELECTED DAY" title={calendarDateLabel(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })} action={<Link className="button button-quiet button-small" to={`/holidays?date=${selectedDate}`}>{selectedHoliday ? 'Edit holiday' : 'Mark holiday'}</Link>} />
         {selectedHoliday && <p className="calendar-holiday-note"><span className="status-mark holiday"><ActivityStatusIcon status="holiday" /></span> Holiday · scheduled expectations paused{selectedEntries.length ? ` · ${selectedEntries.length} saved check-in${selectedEntries.length === 1 ? '' : 's'} retained` : ''}</p>}
         {!selectedHoliday && selectedSummary && <p className="calendar-day-summary">{selectedSummary.completed} completed · {selectedSummary.partial} partial · {selectedSummary.pending} pending · {selectedSummary.missed} missed · {selectedSummary.entries} saved check-ins</p>}
+        {selectedTracker && selectedStreak && <p className="calendar-selected-streak"><strong>{selectedTracker.name}</strong>: {selectedStreak.current} current · {selectedStreak.longest} longest streak <InfoButton title={`${selectedTracker.name} streaks`} summary="Current and longest streaks are recalculated from saved check-ins." description={selectedTracker.strictMode ? 'Strict Mode requires a qualifying check-in on every calendar day within the tracker period, including holidays and rest days. Today stays open until it ends.' : 'Standard Mode counts qualifying scheduled opportunities. Holidays and rest days preserve continuity without adding to the streak; missed scheduled days break it.'} /></p>}
         {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status }) => <li key={tracker.id}>
           <span className={`calendar-status-mark ${status}`} aria-label={ACTIVITY_STATUS_PRESENTATION[status].label}><ActivityStatusIcon status={status} /></span>
-          <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{entry?.outcome === 'skipped' ? ' · marked intentionally' : entry ? ` · ${formatEntry(tracker, entry)}` : ''}</span>{entry?.note && <small>{entry.note}</small>}</div>
-          <Link className="button button-quiet button-small" to={entry ? `/history?date=${selectedDate}` : '/'}>{entry ? 'View history' : 'Open Today'}</Link>
+          <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{entry?.outcome === 'skipped' ? ' · marked intentionally' : entry ? ` · ${selectedHoliday || status === 'unscheduled' ? 'Progress recorded: ' : ''}${formatEntry(tracker, entry)}` : ''}</span>{entry?.note && <small>{entry.note}</small>}</div>
+          {entry ? <Link className="button button-quiet button-small" to={`/history?date=${selectedDate}`}>View history</Link> : tracker.status === 'active' && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate) ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{status === 'unscheduled' || selectedHoliday ? 'Voluntary check-in' : 'Open check-in'}</Link> : <Link className="button button-quiet button-small" to="/">Open Today</Link>}
         </li>)}</ul>}
       </Surface>
     </div>}

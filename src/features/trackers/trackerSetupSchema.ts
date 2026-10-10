@@ -7,6 +7,7 @@ export const trackerSetupSchema = z.object({
   schedule: z.enum(['every-day', 'weekdays', 'none', 'three-times-weekly', 'custom']),
   startDate: z.union([z.literal(''), z.iso.date()]),
   deadline: z.union([z.literal(''), z.iso.date()]),
+  strictMode: z.boolean().default(false),
 }).superRefine((value, context) => {
   if (value.startDate && value.deadline && value.deadline < value.startDate) {
     context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline must be on or after the start date.' })
