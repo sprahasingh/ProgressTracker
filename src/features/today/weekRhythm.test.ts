@@ -19,4 +19,10 @@ describe('week rhythm day state', () => {
     expect(getWeekRhythmState({ ...futureOpportunity, done: 2 })).toBe('complete')
     expect(getWeekRhythmState({ ...futureOpportunity, done: 1 })).toBe('partial')
   })
+
+  it('renders an explicit intentional miss as missed, while future legacy marks remain pending', () => {
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true })).toBe('pending')
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isFuture: false })).toBe('missed')
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isToday: true, isFuture: false })).toBe('missed')
+  })
 })

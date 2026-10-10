@@ -100,7 +100,7 @@ export function AnalyticsPage() {
       </div>
       <div className="analytics-trackers">
         {summaries.map((summary) => <Surface className="analytics-tracker" key={summary.tracker.id}>
-          <header className="analytics-tracker-heading"><div><span className="tracker-kind-chip">{summary.tracker.status}</span><h2>{summary.tracker.name}</h2></div><span>{summary.recordedCount} recorded · {summary.skippedCount} skipped</span></header>
+          <header className="analytics-tracker-heading"><div><span className="tracker-kind-chip">{summary.tracker.status}</span><h2>{summary.tracker.name}</h2></div><span>{summary.recordedCount} recorded · {summary.skippedCount} marked missed intentionally</span></header>
           {summary.scheduledCount !== null && <p className="analytics-consistency">{summary.consistencyPercent === null ? 'No scheduled dates in this period.' : `${summary.scheduledQualifiedCount} of ${summary.scheduledCount} scheduled days met the success rule · ${summary.consistencyPercent}% consistency.`}</p>}
           {summary.metrics.length > 0 && <div className="analytics-metrics">
             {summary.metrics.map((metricSummary) => {

@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'chevron-down' | 'status-pending' | 'status-completed' | 'status-partial' | 'status-missed' | 'status-holiday' | 'status-unscheduled' | 'status-skipped'
+export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'chevron-down' | 'status-pending' | 'status-completed' | 'status-partial' | 'status-missed' | 'status-holiday' | 'status-unscheduled'
 
 const paths: Record<AppIconName, ReactNode> = {
   today: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14l2.2 2.2L16 11" /></>,
@@ -26,11 +26,10 @@ const paths: Record<AppIconName, ReactNode> = {
   'chevron-down': <><path d="m6 9 6 6 6-6" /></>,
   'status-pending': <><circle cx="12" cy="12" r="7.5" /></>,
   'status-completed': <><path d="m5 12.5 4.5 4L19 7" /></>,
-  'status-partial': <><path d="M12 4.5a7.5 7.5 0 1 0 0 15V4.5Z" /><circle cx="12" cy="12" r="7.5" /></>,
+  'status-partial': <><path d="M12 4.5a7.5 7.5 0 1 0 0 15V4.5Z" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="7.5" /></>,
   'status-missed': <><path d="M12 4v9M12 17.5v.5" /></>,
   'status-holiday': <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.7 4.7l1.4 1.4m11.8 11.8 1.4 1.4M2.5 12h2m15 0h2M4.7 19.3l1.4-1.4M17.9 6.1l1.4-1.4" /></>,
   'status-unscheduled': <><path d="M6 12h12" /></>,
-  'status-skipped': <><path d="M6 12h12" /></>,
   spark: <><path d="m12 3 1.8 6.2L20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8L12 3Z" /><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
 }
 

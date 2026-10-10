@@ -236,7 +236,7 @@ describe('Today check-ins', () => {
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
     expect(await screen.findByRole('status', { name: /Check-in updated/ })).toHaveTextContent('Your progress has been saved on this device.')
-    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-pending'))
   })
 
   it('blocks saving an unfinished numeric draft and leaves the stored check-in unchanged', async () => {
@@ -307,7 +307,10 @@ describe('Today check-ins', () => {
     expect(disclosure).not.toHaveAttribute('open')
     await user.click(summary)
     expect(disclosure).toHaveAttribute('open')
-    expect(screen.getByRole('list', { name: 'Check-in pattern for the last seven days' })).toBeInTheDocument()
+    const pattern = screen.getByRole('list', { name: 'Check-in pattern for the last seven days' })
+    const currentDay = Array.from(pattern.querySelectorAll('[role="listitem"]')).find((item) => item.getAttribute('aria-label')?.endsWith(', today'))
+    expect(currentDay).toHaveClass('today', 'today-date')
+    expect(currentDay?.querySelector('[data-icon="status-pending"]')).toBeInTheDocument()
   })
 
   it('refreshes visible check-in status when another device syncs an entry', async () => {
@@ -541,7 +544,7 @@ describe('Today check-ins', () => {
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
   })
 
-  it('filters trackers that are not scheduled today and records a skip for scheduled trackers', async () => {
+  it('filters unscheduled trackers and marks a scheduled commitment missed without breaking stored-outcome compatibility', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [] })
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
@@ -552,14 +555,15 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await screen.findByRole('heading', { name: 'Daily reading' })
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
-    await user.click(await screen.findByRole('button', { name: 'Skip today' }))
-    await waitFor(() => expect(screen.getByText('Skipped')).toBeInTheDocument())
-    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 skipped')
-    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Skipped' }))
-    expect(screen.getByText(/This activity was skipped/)).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /Mark as missed/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Missed' })).toBeInTheDocument())
+    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 marked missed')
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'skipped' })
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Missed' }))
+    expect(screen.getByText(/marked missed intentionally/)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Pages'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Partially completed' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Pending' })).toBeInTheDocument())
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 3 } })
   })
 

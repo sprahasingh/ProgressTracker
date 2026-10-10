@@ -13,12 +13,12 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
-import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
@@ -65,16 +65,19 @@ export function GoalsPage() {
       const goalTrackers = trackers.filter((tracker) => tracker.kind === 'goal' && tracker.deletedAt === null)
       let earliest: CalendarDate = today
       let latest: CalendarDate = today
+      let holidayLatest: CalendarDate = shiftCalendarDate(today, 14)
       for (const tracker of goalTrackers) {
         const trackerZone = tracker.schemaVersion >= 3 ? tracker.goalPlanning?.planningTimeZone ?? timeZone : timeZone
         const start = (tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), trackerZone)) as CalendarDate
         const trackerToday = localCalendarDate(new Date(), trackerZone) as CalendarDate
         if (start < earliest) earliest = start
         if (trackerToday > latest) latest = trackerToday
+        const trackerHorizon = (tracker.deadline && tracker.deadline > shiftCalendarDate(trackerToday, 14) ? tracker.deadline : shiftCalendarDate(trackerToday, 14)) as CalendarDate
+        if (trackerHorizon > holidayLatest) holidayLatest = trackerHorizon
       }
       const [entries, holidays] = await Promise.all([
         goalTrackers.length ? localRepository.listTrackerEntriesBetween(earliest, latest) : Promise.resolve([]),
-        localRepository.listAccountHolidays(earliest, latest),
+        localRepository.listAccountHolidays(earliest, holidayLatest),
       ])
       const goals = goalTrackers.map((tracker) => ({
         tracker,
@@ -159,7 +162,7 @@ export function GoalsPage() {
               })}
             </ul>}
             {tracker.schemaVersion >= 2 && tracker.goalPlanning && <LazyDisclosure className="goal-plan-disclosure" summary="View daily plan"><section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
-              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, skipped, missed, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
+              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, missed, rest, and upcoming dates have distinct markers. Intentional missed marks are included with missed days. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
@@ -303,7 +306,7 @@ function goalDayStatusLabel(status: string): string {
   if (status === 'holiday') return 'holiday'
   if (status === 'rest') return 'rest day'
   if (status === 'pending' || status === 'future') return 'pending'
-  return 'skipped; no miss counted'
+  return 'missed · marked intentionally'
 }
 
 function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {
@@ -326,6 +329,20 @@ function GoalPlanDayList({ days, metricName }: { days: ReturnType<typeof calcula
   const pageDays = days.slice(pageStart, pageStart + 14)
   return <>
     {days.length > 14 && <nav className="allocation-page-controls" aria-label={`${metricName} daily history pages`}><button className="button button-secondary button-small" type="button" disabled={pageStart === 0} onClick={() => setPageStart((current) => Math.max(0, current - 14))}>Earlier dates</button><span>Dates {pageStart + 1}–{Math.min(days.length, pageStart + pageDays.length)} of {days.length}</span><button className="button button-secondary button-small" type="button" disabled={pageStart + pageDays.length >= days.length} onClick={() => setPageStart((current) => Math.min(days.length - 14, current + 14))}>Later dates</button></nav>}
-    <ol className="goal-plan-days">{pageDays.map((day) => <li key={day.date} className={`goal-plan-day ${day.state === 'met' ? 'completed' : day.state === 'below-target' ? 'partial' : day.state === 'missed' ? 'missed' : day.state === 'holiday' || day.state === 'rest' ? 'holiday' : day.state === 'pending' || day.state === 'future' ? 'pending' : 'skipped'}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${goalDayStatusLabel(day.state)}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${goalDayStatusLabel(day.state)}`}><span>{Number(day.date.slice(8, 10))}</span></li>)}</ol>
+    <ol className="goal-plan-days">{pageDays.map((day) => {
+      const status = goalPlanActivityStatus(day.state)
+      const statusClass = status === 'completed' ? 'completed' : status === 'partial' ? 'partial' : status === 'unscheduled' ? 'rest' : status
+      return <li key={day.date} className={`goal-plan-day ${statusClass}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${goalDayStatusLabel(day.state)}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${goalDayStatusLabel(day.state)}`}><span>{Number(day.date.slice(8, 10))}</span><ActivityStatusIcon status={status} /></li>
+    })}</ol>
   </>
+}
+
+function goalPlanActivityStatus(state: GoalPlanDayState) {
+  if (state === 'met') return 'completed'
+  if (state === 'below-target') return 'partial'
+  if (state === 'holiday') return 'holiday'
+  if (state === 'rest') return 'unscheduled'
+  if (state === 'future' || state === 'pending') return 'pending'
+  if (state === 'skipped') return 'missed'
+  return state
 }

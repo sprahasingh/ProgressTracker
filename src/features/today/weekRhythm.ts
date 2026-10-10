@@ -1,4 +1,4 @@
-export type WeekRhythmState = 'holiday' | 'rest' | 'complete' | 'partial' | 'skipped' | 'today' | 'pending' | 'missed'
+export type WeekRhythmState = 'holiday' | 'rest' | 'complete' | 'partial' | 'today' | 'pending' | 'missed'
 
 /** Keep future opportunities pending; only elapsed, incomplete opportunities are missed. */
 export function getWeekRhythmState(input: {
@@ -14,7 +14,7 @@ export function getWeekRhythmState(input: {
   if (input.scheduled === 0) return 'rest'
   if (input.done === input.scheduled) return 'complete'
   if (input.done > 0 || input.hasPartial) return 'partial'
-  if (input.hasSkipped) return 'skipped'
+  if (input.hasSkipped) return input.isFuture ? 'pending' : 'missed'
   if (input.isToday) return 'today'
   return input.isFuture ? 'pending' : 'missed'
 }
