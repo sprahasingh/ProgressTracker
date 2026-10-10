@@ -276,6 +276,23 @@ export const localRepository = {
     return archived
   },
 
+  async unarchiveTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    const restored = await database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
+      const existing = await database.trackers.get(id)
+      if (!existing || existing.deletedAt !== null || existing.status !== 'archived') return undefined
+      const next: StoredTrackerDefinition = { ...existing, status: 'active', archivedAt: null, updatedAt: new Date().toISOString() }
+      await database.trackers.put(next)
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      await queueSyncMutation(database, ownerUserId, 'tracker', next)
+      return next
+    })
+    publishWorkspaceMutation(ownerUserId)
+    return restored
+  },
+
   async deleteTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
     const database = await openDatabase()
     let ownerUserId: string | null = null

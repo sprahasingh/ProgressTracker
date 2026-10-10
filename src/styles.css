@@ -1823,6 +1823,62 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .goal-today-plan-summary dt { color: var(--ink-muted); font-size: 10px; }
 .goal-today-plan-summary dd { margin: 3px 0 0; color: var(--ink); font-size: 12px; font-weight: 680; overflow-wrap: anywhere; }
 
+/* Tracker library actions stay visible without letting secondary actions crowd cards. */
+.tracker-page .page-header { gap: 16px; }
+.tracker-page .page-title { margin-top: 16px; font-size: clamp(36px, 5vw, 54px); letter-spacing: -1.8px; }
+.tracker-page .page-description { margin-top: 10px; line-height: 1.55; }
+.tracker-page .page-header-action { margin-bottom: 0; }
+.tracker-library-toolbar { margin: 18px 0 12px; }
+.tracker-library-toolbar .button { min-height: 44px; }
+.tracker-kind-filters { gap: 7px; margin-bottom: 9px; }
+.filter-chip { min-height: 40px; padding-inline: 12px; }
+.section-tabs { margin: 3px 0 12px; gap: 4px; padding: 3px; }
+.section-tab { min-height: 40px; }
+.tracker-card { padding: 16px; }
+.tracker-card h2 { margin-top: 10px; font-size: clamp(19px, 2vw, 23px); line-height: 1.25; }
+.tracker-card-description { min-height: 0; margin-top: 6px; }
+.tracker-card-meta { gap: 6px 12px; margin-top: 12px; }
+.tracker-card-actions { position: relative; gap: 8px; margin: 14px 0 0; padding-top: 11px; }
+.tracker-card-actions .button-primary { margin-right: 0; }
+.tracker-card-actions > .button, .tracker-card-actions > a { min-height: 44px; }
+.tracker-actions-menu { position: relative; flex: 0 0 auto; margin-left: auto; }
+.tracker-actions-trigger { width: 42px; min-width: 42px; padding: 0; font-size: 22px; line-height: 1; }
+.tracker-actions-popover { position: absolute; z-index: 30; right: 0; bottom: calc(100% + 6px); display: grid; min-width: 176px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); box-shadow: var(--shadow-card); }
+.tracker-actions-popover [role="menuitem"] { min-height: 44px; padding: 8px 11px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.tracker-actions-popover [role="menuitem"]:hover, .tracker-actions-popover [role="menuitem"]:focus-visible { background: var(--accent-soft); outline: none; }
+.tracker-actions-popover [role="menuitem"].destructive { color: var(--danger); }
+.calendar-toolbar { align-items: end; gap: 8px; margin: 12px 0 14px; }
+.calendar-toolbar .history-filter { max-width: 240px; }
+.calendar-toolbar .button-quiet { min-height: 44px; padding-inline: 14px; }
+.page-header { gap: 16px; }
+.page-header .page-title { margin-top: 18px; }
+.page-header .page-description { margin-top: 10px; }
+@media (max-width: 760px) {
+  .page-content { padding-top: 20px; }
+  .page-header { gap: 12px; }
+  .page-header .page-title { margin-top: 10px; }
+  .tracker-page .page-header { gap: 10px; }
+  .tracker-page .page-title { margin-top: 10px; font-size: 38px; }
+  .tracker-page .page-header-action { align-self: flex-start; }
+  .tracker-page .page-header-action .button { min-height: 44px; }
+  .tracker-library-toolbar { margin-top: 12px; }
+  .tracker-card { padding: 14px; }
+  .tracker-card-actions { gap: 7px; }
+  .tracker-card-actions > a { flex: 0 1 auto; }
+  .tracker-actions-menu { margin-left: auto; }
+  .calendar-page .page-header-action { align-self: flex-start; }
+  .calendar-toolbar { align-items: end; }
+  .calendar-toolbar .history-filter { flex: 1 1 auto; min-width: 0; max-width: 240px; }
+}
+@media (max-width: 360px) {
+  .tracker-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 42px; }
+  .tracker-card-actions > a { min-width: 0; padding-inline: 8px; }
+  .tracker-actions-menu { margin-left: 0; }
+  .calendar-toolbar { gap: 6px; }
+  .calendar-toolbar .history-filter { max-width: none; }
+  .calendar-toolbar .button-quiet { padding-inline: 10px; }
+}
+
 /* Shared spacing for action groups across cards, forms, and sheets. */
 .tracker-card-actions,
 .goal-expanded-details .tracker-card-actions,

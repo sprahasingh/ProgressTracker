@@ -10,7 +10,7 @@ const isolationMocks = vi.hoisted(() => ({
   authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string } } | null) => void),
   activeOwner: null as string | null,
   activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(),
-  getAppSettings: vi.fn(), listTrackers: vi.fn(), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
+  getAppSettings: vi.fn(), listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
 }))
 
 vi.mock('../db/database', () => ({
@@ -23,6 +23,7 @@ vi.mock('../db/localRepository', () => ({
   localRepository: {
     getAppSettings: isolationMocks.getAppSettings,
     listTrackers: isolationMocks.listTrackers,
+    listTrackerEntriesBetween: isolationMocks.listTrackerEntriesBetween,
     archiveTracker: vi.fn(),
   },
 }))
@@ -80,6 +81,7 @@ describe('workspace rendering isolation', () => {
       updatedAt: '2026-10-09T00:00:00.000Z',
     })
     isolationMocks.listTrackers.mockReset().mockImplementation(async () => isolationMocks.activeOwner === null ? [savedTracker('Guest tracker')] : [savedTracker(`Test ${isolationMocks.activeOwner}`)])
+    isolationMocks.listTrackerEntriesBetween.mockReset().mockResolvedValue([])
     isolationMocks.synchronizeWorkspace.mockReset().mockResolvedValue({ uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 })
     isolationMocks.signOut.mockReset().mockResolvedValue({ error: null })
   })
