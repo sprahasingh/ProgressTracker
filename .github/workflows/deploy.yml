@@ -52,6 +52,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
           VITE_ENABLE_TRACKER_SCHEMA_V3: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V3 }}
           VITE_ENABLE_TRACKER_SCHEMA_V4: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V4 }}
           VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
@@ -62,6 +63,10 @@ jobs:
           fi
           if [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
             echo "::error::Missing repository variable VITE_SUPABASE_PUBLISHABLE_KEY."
+            exit 1
+          fi
+          if [[ ! "$VITE_VAPID_PUBLIC_KEY" =~ ^[A-Za-z0-9_-]{87}$ ]]; then
+            echo "::error::Set repository variable VITE_VAPID_PUBLIC_KEY to the 87-character base64url public VAPID key."
             exit 1
           fi
           if [ "$VITE_ENABLE_TRACKER_SCHEMA_V4" != "true" ]; then

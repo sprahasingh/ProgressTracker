@@ -1,15 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NotificationsSettings } from './NotificationsSettings'
 import { localRepository } from '../../db/localRepository'
 import { db } from '../../db/database'
 
-const mocks = vi.hoisted(() => ({ auth: { status: 'signed-in', user: { id: 'notification-account' } }, client: null as unknown }))
+const mocks = vi.hoisted(() => ({ auth: { status: 'signed-in', user: { id: 'notification-account' }, pushOwnershipStatus: 'ready', pushOwnershipMessage: '' }, client: null as unknown }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => mocks.auth }))
 vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({ timeZone: 'UTC' }) }))
 vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => mocks.client }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.client = null; await db.delete() })
+beforeEach(() => { Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: (_name: string, _options: unknown, callback: () => Promise<unknown>) => callback() } }) })
+afterEach(async () => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.client = null; mocks.auth.status = 'signed-in'; mocks.auth.user = { id: 'notification-account' }; mocks.auth.pushOwnershipStatus = 'ready'; mocks.auth.pushOwnershipMessage = ''; localStorage.removeItem('progress-tracker:push-owner'); Reflect.deleteProperty(navigator, 'serviceWorker'); Reflect.deleteProperty(navigator, 'locks'); await db.delete() })
 
 describe('notification settings', () => {
   it('enables preference controls without Supabase and persists edits locally', async () => {
@@ -49,5 +50,61 @@ describe('notification settings', () => {
     await waitFor(() => expect(document.querySelector('fieldset')).toBeEnabled())
     expect(screen.getByText(/Permission is denied/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Enable reminders in this account/ })).toBeEnabled()
+  })
+
+  it('registers an existing browser subscription through the authenticated function without sending user_id', async () => {
+    const current = {
+      endpoint: 'https://push.example.test/settings-device',
+      expirationTime: null,
+      toJSON: () => ({ endpoint: 'https://push.example.test/settings-device', expirationTime: null, keys: { p256dh: `BA${'A'.repeat(85)}`, auth: 'A'.repeat(22) } }),
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    }
+    const worker = { scope: `${location.origin}/ProgressTracker/`, active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(current), subscribe: vi.fn() } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker), ready: Promise.resolve(worker), addEventListener: vi.fn(), removeEventListener: vi.fn() } })
+    vi.stubGlobal('isSecureContext', true)
+    vi.stubGlobal('PushManager', {})
+    vi.stubGlobal('Notification', { permission: 'granted' })
+    const query = { select() { return this }, eq() { return this }, maybeSingle: async () => ({ data: null, error: null }), order: async () => ({ data: [], error: null }) }
+    const invoke = vi.fn().mockResolvedValue({ data: { status: 'registered' }, error: null })
+    mocks.client = { from: () => query, functions: { invoke } }
+
+    render(<NotificationsSettings />)
+
+    expect(await screen.findByText('Device registered')).toBeInTheDocument()
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('manage-push-subscription', {
+      body: { action: 'register', subscription: expect.objectContaining({ endpoint: current.endpoint }) },
+    }))
+    expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('user_id')
+    expect(worker.pushManager.subscribe).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Disable this device' }))
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('manage-push-subscription', { body: { action: 'revoke', subscription: { endpoint: current.endpoint } } }))
+    expect(current.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not offer account subscription registration to guests', () => {
+    mocks.auth.status = 'local-only'
+    mocks.auth.user = null as unknown as { id: string }
+    render(<NotificationsSettings />)
+    expect(screen.getByText(/Account reminder preferences require sign-in/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /register this device/i })).not.toBeInTheDocument()
+  })
+
+  it('blocks registration while previous-account cleanup is unresolved', async () => {
+    mocks.auth.pushOwnershipStatus = 'cleanup-required'
+    mocks.auth.pushOwnershipMessage = 'Sign in to the previous account to finish removing this device subscription.'
+    const worker = { scope: `${location.origin}/ProgressTracker/`, active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValue(null), subscribe: vi.fn() } }
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn().mockResolvedValue(worker), ready: Promise.resolve(worker), addEventListener: vi.fn(), removeEventListener: vi.fn() } })
+    vi.stubGlobal('isSecureContext', true)
+    vi.stubGlobal('PushManager', {})
+    vi.stubGlobal('Notification', { permission: 'granted' })
+    const invoke = vi.fn().mockResolvedValue({ data: { status: 'registered' }, error: null })
+    const query = { select() { return this }, eq() { return this }, maybeSingle: async () => ({ data: null, error: null }), order: async () => ({ data: [], error: null }) }
+    mocks.client = { from: () => query, functions: { invoke } }
+    render(<NotificationsSettings />)
+    const retry = await screen.findByRole('button', { name: 'Retry registration' })
+    fireEvent.click(retry)
+    expect((await screen.findAllByText(/Sign in to the previous account/)).length).toBeGreaterThan(0)
+    expect(invoke).not.toHaveBeenCalled()
+    expect(worker.pushManager.subscribe).not.toHaveBeenCalled()
   })
 })

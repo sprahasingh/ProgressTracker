@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { User } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestDecision, getGuestWorkspaceSummary, type GuestDataDecision, type GuestWorkspaceSummary } from '../../db/database'
 import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
 import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
+import { clearPushCleanup, getPendingPushCleanups, getStoredPushOwner, managePushSubscriptionWithSupabase, queuePushCleanup, revokePushBeforeSignOut, setStoredPushOwner, setWorkerPushOwner, withPushOwnershipLock } from '../notifications/pushSubscriptionService'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -38,6 +39,8 @@ type AuthState = {
   workspaceStatus: 'loading' | 'ready' | 'needs-guest-choice' | 'error'
   workspaceUserId: string | null
   sessionTransitionPending: boolean
+  pushOwnershipStatus: 'ready' | 'pending' | 'cleanup-required'
+  pushOwnershipMessage: string
   guestSummary: GuestWorkspaceSummary | null
   workspaceError: string | null
   chooseGuestData: (decision: GuestDataDecision) => Promise<void>
@@ -65,6 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaceStatus, setWorkspaceStatus] = useState<AuthState['workspaceStatus']>('loading')
   const [workspaceUserId, setWorkspaceUserId] = useState<string | null>(null)
   const [sessionTransitionPending, setSessionTransitionPending] = useState(false)
+  const [pushOwnershipStatus, setPushOwnershipStatus] = useState<'ready' | 'pending' | 'cleanup-required'>('pending')
+  const [pushOwnershipMessage, setPushOwnershipMessage] = useState('Checking this device’s subscription owner…')
   const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceRetry, setWorkspaceRetry] = useState(0)
@@ -86,6 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastAutomaticAttemptRef = useRef<string | null>(null)
   const onlineEventSequenceRef = useRef(0)
   const [onlineEventSequence, setOnlineEventSequence] = useState(0)
+  const pushSessionRef = useRef<Session | null>(null)
+  const pushTransitionSequenceRef = useRef(0)
+  const pushTransitionChainRef = useRef<Promise<void>>(Promise.resolve())
   authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
   workspaceReadyRef.current = status === 'signed-in' && workspaceStatus === 'ready' && workspaceUserId === user?.id
 
@@ -122,6 +130,147 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // none of them is sufficient to select a local database on its own.
       if (event === 'INITIAL_SESSION') authInitializedRef.current = true
       else if (!authInitializedRef.current) return
+      const previousSession = pushSessionRef.current
+      const previousUserId = previousSession?.user.id ?? getStoredPushOwner()
+      const nextUserId = session?.user.id ?? null
+      const transitionSequence = ++pushTransitionSequenceRef.current
+      if (previousUserId && previousUserId !== nextUserId) {
+        setPushOwnershipStatus('pending')
+        setPushOwnershipMessage('Securing the previous account’s device subscription…')
+        pushTransitionChainRef.current = pushTransitionChainRef.current.then(() => withPushOwnershipLock(async () => {
+          const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+            ? await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+            : null
+          const currentSubscription = await registration?.pushManager?.getSubscription()
+          if (currentSubscription) await queuePushCleanup(previousUserId, currentSubscription.endpoint)
+
+          const pendingCleanups = await getPendingPushCleanups()
+          const ownedCleanups = pendingCleanups.filter((cleanup) => cleanup.ownerId === previousUserId)
+          if (ownedCleanups.length && previousSession?.access_token) {
+            try {
+              for (const cleanup of ownedCleanups) {
+                await managePushSubscriptionWithSupabase(client, 'revoke', { endpoint: cleanup.endpoint }, previousSession.access_token)
+                await clearPushCleanup(cleanup.ownerId)
+              }
+            } catch (error) {
+              if (currentSubscription) await currentSubscription.unsubscribe()
+              throw error
+            }
+            if (currentSubscription) await currentSubscription.unsubscribe()
+            if (getStoredPushOwner() === previousUserId) setStoredPushOwner(null)
+            setWorkerPushOwner(registration ?? null, null)
+          } else if (ownedCleanups.length) {
+            // The previous identity is no longer available. Keep its endpoint
+            // queued for that account; never ask the replacement account to revoke it.
+            if (currentSubscription) await currentSubscription.unsubscribe()
+            throw new Error('Sign in to the previous account to finish removing this device subscription.')
+          } else if (currentSubscription && previousSession?.access_token) {
+            // Queue before the network request so an offline transition remains recoverable.
+            await queuePushCleanup(previousUserId, currentSubscription.endpoint)
+            await managePushSubscriptionWithSupabase(client, 'revoke', { endpoint: currentSubscription.endpoint }, previousSession.access_token)
+            await currentSubscription.unsubscribe()
+            await clearPushCleanup(previousUserId)
+            if (getStoredPushOwner() === previousUserId) setStoredPushOwner(null)
+            setWorkerPushOwner(registration ?? null, null)
+          } else if (currentSubscription) {
+            await currentSubscription.unsubscribe()
+            throw new Error('Sign in to the previous account to remove this device subscription safely.')
+          }
+
+          // A restored prior account can authorize cleanup left by an earlier
+          // offline switch. A different account cannot.
+          if (nextUserId) {
+            const pendingForNext = (await getPendingPushCleanups()).filter((cleanup) => cleanup.ownerId === nextUserId)
+            for (const cleanup of pendingForNext) {
+              await managePushSubscriptionWithSupabase(client, 'revoke', { endpoint: cleanup.endpoint }, session?.access_token)
+              await clearPushCleanup(cleanup.ownerId)
+            }
+            if (pendingForNext.length) {
+              setStoredPushOwner(null)
+              const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+                ? await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+                : null
+              setWorkerPushOwner(registration ?? null, null)
+            }
+          }
+        })).then(() => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('ready')
+            setPushOwnershipMessage('This device is ready for the active account.')
+          }
+        }).catch((error: unknown) => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('cleanup-required')
+            setPushOwnershipMessage(error instanceof Error ? error.message : 'The previous device subscription could not be cleared. Registration is paused.')
+          }
+        })
+      } else if (event === 'INITIAL_SESSION' && nextUserId) {
+        pushTransitionChainRef.current = pushTransitionChainRef.current.then(() => withPushOwnershipLock(async () => {
+          const previousOwner = getStoredPushOwner()
+          if (previousOwner && previousOwner !== nextUserId) {
+            const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+              ? await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+              : null
+            const currentSubscription = await registration?.pushManager?.getSubscription()
+            if (currentSubscription) {
+              await queuePushCleanup(previousOwner, currentSubscription.endpoint)
+              await currentSubscription.unsubscribe()
+            }
+            throw new Error('This device subscription belongs to another account. Sign in to that account to finish cleanup before registering it here.')
+          }
+          const pendingForNext = (await getPendingPushCleanups()).filter((cleanup) => cleanup.ownerId === nextUserId)
+          for (const cleanup of pendingForNext) {
+            await managePushSubscriptionWithSupabase(client, 'revoke', { endpoint: cleanup.endpoint }, session?.access_token)
+            await clearPushCleanup(cleanup.ownerId)
+          }
+          if (pendingForNext.length) {
+            setStoredPushOwner(null)
+            const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+              ? await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+              : null
+            setWorkerPushOwner(registration ?? null, null)
+          }
+        })).then(() => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('ready')
+            setPushOwnershipMessage('This device is ready for the active account.')
+          }
+        }).catch((error: unknown) => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('cleanup-required')
+            setPushOwnershipMessage(error instanceof Error ? error.message : 'This device subscription needs cleanup before registration.')
+          }
+        })
+      } else if (nextUserId) {
+        pushTransitionChainRef.current = pushTransitionChainRef.current.then(() => withPushOwnershipLock(async () => {
+          const pendingForNext = (await getPendingPushCleanups()).filter((cleanup) => cleanup.ownerId === nextUserId)
+          for (const cleanup of pendingForNext) {
+            await managePushSubscriptionWithSupabase(client, 'revoke', { endpoint: cleanup.endpoint }, session?.access_token)
+            await clearPushCleanup(cleanup.ownerId)
+          }
+          if (pendingForNext.length) {
+            setStoredPushOwner(null)
+            const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+              ? await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+              : null
+              setWorkerPushOwner(registration ?? null, null)
+          }
+        })).then(() => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('ready')
+            setPushOwnershipMessage('This device is ready for the active account.')
+          }
+        }).catch((error: unknown) => {
+          if (transitionSequence === pushTransitionSequenceRef.current) {
+            setPushOwnershipStatus('cleanup-required')
+            setPushOwnershipMessage(error instanceof Error ? error.message : 'This device subscription needs cleanup before registration.')
+          }
+        })
+      } else if (event === 'INITIAL_SESSION') {
+        setPushOwnershipStatus('ready')
+        setPushOwnershipMessage('No signed-in account owns a device subscription.')
+      }
+      pushSessionRef.current = session
       setUser(session?.user ?? null)
       setStatus(session ? 'signed-in' : 'signed-out')
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') setSessionTransitionPending(false)
@@ -246,6 +395,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!client) return null
     setSessionTransitionPending(true)
     try {
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        try {
+          await withPushOwnershipLock(async () => {
+            const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+            if (registration) {
+              const subscription = await registration.pushManager?.getSubscription()
+              if (subscription && user?.id) await queuePushCleanup(user.id, subscription.endpoint)
+              await revokePushBeforeSignOut(registration, (action, value) => managePushSubscriptionWithSupabase(client, action, value))
+              if (user?.id) await clearPushCleanup(user.id)
+              setStoredPushOwner(null)
+              setWorkerPushOwner(registration, null)
+            }
+          })
+        } catch (cause) {
+          setPushOwnershipStatus('cleanup-required')
+          setPushOwnershipMessage(cause instanceof Error ? cause.message : 'Device cleanup is pending. Registration will remain blocked.')
+        }
+      }
       const { error } = await client.auth.signOut()
       if (error) {
         setSessionTransitionPending(false)
@@ -322,6 +489,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { await clearDeletedAccountWorkspace(ownerId) }
     catch (cause) { cleanupError = cause instanceof Error ? cause.message : 'Local account data could not be cleared.' }
     const client = getSupabaseClient()
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+        await registration?.pushManager?.getSubscription().then((subscription) => subscription?.unsubscribe())
+        setWorkerPushOwner(registration ?? null, null)
+        await clearPushCleanup(ownerId)
+      } catch { /* Auth account deletion cascades its server-side subscription rows. */ }
+    }
+    if (getStoredPushOwner() === ownerId) setStoredPushOwner(null)
     if (client) {
       try {
         const { error } = await client.auth.signOut({ scope: 'local' })
@@ -340,7 +516,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, pushOwnershipStatus, pushOwnershipMessage, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {

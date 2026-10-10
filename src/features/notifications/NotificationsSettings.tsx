@@ -6,6 +6,19 @@ import { getSupabaseClient } from '../../services/supabase/client'
 import { detectNotificationCapabilities } from './capabilities'
 import { localRepository } from '../../db/localRepository'
 import type { LocalMotivationMessage, LocalNotificationPreferences } from '../../db/models'
+import { getStoredPushOwner, managePushSubscriptionWithSupabase, registerCurrentPushSubscription, revokeCurrentPushSubscription, revokePushEndpoint, setStoredPushOwner, setWorkerPushOwner, withPushOwnershipLock } from './pushSubscriptionService'
+import { validatePushSubscription } from '../../../supabase/functions/_shared/pushSubscriptionValidation'
+
+type PushRegistrationState = 'unsupported' | 'permission-not-granted' | 'permission-denied' | 'not-registered' | 'pending' | 'registered' | 'failed'
+const pushStateLabels: Record<PushRegistrationState, string> = {
+  unsupported: 'Notifications unsupported',
+  'permission-not-granted': 'Permission not granted',
+  'permission-denied': 'Permission denied',
+  'not-registered': 'Permission granted; device not registered',
+  pending: 'Registration pending',
+  registered: 'Device registered',
+  failed: 'Registration failed',
+}
 
 type NotificationPreferences = Omit<LocalNotificationPreferences, 'id' | 'updatedAt' | 'syncPending'>
 const defaults = (timezone: string): NotificationPreferences => ({ enabled: false, daily_enabled: true, daily_times: ['16:00','22:00'], overdue_enabled: true, overdue_times: ['00:00','10:00'], remind_partial: false, motivation_mode: 'off', motivation_times: ['18:00'], motivation_weekdays: [0,1,2,3,4,5,6], timezone, quiet_start: null, quiet_end: null, allow_overdue_during_quiet: false, daily_limit: 4, motivation_daily_limit: 1, tracker_ids: null })
@@ -21,7 +34,7 @@ function cloudShape(preferences: NotificationPreferences) {
 }
 
 export function NotificationsSettings() {
-  const { status, user } = useAuth()
+  const { status, user, pushOwnershipStatus, pushOwnershipMessage } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const capabilities = detectNotificationCapabilities({ isSecureContext: globalThis.isSecureContext, serviceWorker: 'serviceWorker' in navigator, Notification: 'Notification' in globalThis ? Notification : undefined, PushManager: 'PushManager' in globalThis ? PushManager : undefined, standalone: window.matchMedia?.('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone), userAgent: navigator.userAgent, platform: navigator.platform, maxTouchPoints: navigator.maxTouchPoints })
   const [preferences, setPreferences] = useState(() => defaults(timeZone))
@@ -33,8 +46,221 @@ export function NotificationsSettings() {
   const [statusText, setStatusText] = useState('Loading notification settings…')
   const [saving, setSaving] = useState(false)
   const [preferencesReady, setPreferencesReady] = useState(false)
+  const [pushState, setPushState] = useState<PushRegistrationState>('permission-not-granted')
+  const [pushError, setPushError] = useState('')
+  const [pushBusy, setPushBusy] = useState(false)
   const preferenceSaveQueue = useRef<Promise<void>>(Promise.resolve())
   const client = getSupabaseClient()
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY ?? ''
+
+  async function managePush(action: 'register' | 'revoke', subscription: Parameters<typeof managePushSubscriptionWithSupabase>[2]) {
+    if (!client) throw new Error('Account subscription management is not configured.')
+    await managePushSubscriptionWithSupabase(client, action, subscription)
+  }
+
+  async function registrationForPush(): Promise<ServiceWorkerRegistration> {
+    if (!('serviceWorker' in navigator)) throw new Error('This browser does not support service workers.')
+    const existing = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+    if (existing?.active) return existing
+    if (!existing && !import.meta.env.PROD) throw new Error('Push registration is available on the production service worker, not the development server.')
+    const ready = await navigator.serviceWorker.ready
+    if (!ready.scope.startsWith(new URL(import.meta.env.BASE_URL, location.origin).href)) throw new Error('ProgressTracker service worker is unavailable.')
+    return ready
+  }
+
+  async function registerDevice(explicit = true) {
+    if (!user || status !== 'signed-in') return
+    if (pushOwnershipStatus !== 'ready') {
+      setPushState('failed')
+      setPushError(pushOwnershipMessage || 'Resolve the previous account’s device subscription before registering this device.')
+      return
+    }
+    if (!capabilities.secureContext || !capabilities.serviceWorker || !capabilities.pushApi || !capabilities.notificationApi) {
+      setPushState('unsupported')
+      setPushError(capabilities.reason)
+      return
+    }
+    setPushBusy(true)
+    setPushState('pending')
+    setPushError('')
+    try {
+      let permission = Notification.permission
+      if (permission === 'default' && explicit) permission = await Notification.requestPermission()
+      if (permission === 'denied') {
+        setPushState('permission-denied')
+        setPushError('Change notification permission in your browser or device settings.')
+        return
+      }
+      if (permission !== 'granted') {
+        setPushState('permission-not-granted')
+        setPushError('Allow device notifications before registering this device.')
+        return
+      }
+      if (!client) throw new Error('Supabase account services are not configured on this deployment.')
+      const result = await withPushOwnershipLock(async () => {
+        if (client && typeof client.auth?.getSession === 'function') {
+          const { data } = await client.auth.getSession()
+          if (data.session?.user.id !== user.id) throw new Error('The active account changed. Reload notification settings before registering this device.')
+        }
+        const registration = await registrationForPush()
+        const result = await registerCurrentPushSubscription(registration, vapidPublicKey, managePush, explicit)
+        if (result === 'registered') {
+          setStoredPushOwner(user.id)
+          setWorkerPushOwner(registration, user.id)
+        }
+        return result
+      })
+      setPushState(result === 'registered' ? 'registered' : 'not-registered')
+      if (result === 'not-subscribed') setPushError('Use Register this device to create its first subscription.')
+    } catch (error) {
+      setPushState('failed')
+      setPushError(error instanceof Error ? error.message : 'Device registration could not be completed.')
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  async function disableDevice() {
+    if (!client) return
+    setPushBusy(true)
+    setPushState('pending')
+    setPushError('')
+    try {
+      await withPushOwnershipLock(async () => {
+        if (client && typeof client.auth?.getSession === 'function') {
+          const { data } = await client.auth.getSession()
+          if (data.session?.user.id !== user?.id) throw new Error('The active account changed. Reload notification settings before disabling this device.')
+        }
+        const registration = await registrationForPush()
+        await revokeCurrentPushSubscription(registration, managePush)
+        setStoredPushOwner(null)
+        setWorkerPushOwner(registration, null)
+      })
+      setPushState('not-registered')
+      setPushError('This device is no longer registered for account push notifications.')
+    } catch (error) {
+      setPushState('failed')
+      setPushError(error instanceof Error ? error.message : 'This device could not be disabled. Retry when online.')
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    let live = true
+    if (status !== 'signed-in' || !user) {
+      setPushState('permission-not-granted')
+      setPushError('Sign in to register this device to an account.')
+      return
+    }
+    if (pushOwnershipStatus !== 'ready') {
+      setPushState('failed')
+      setPushError(pushOwnershipMessage || 'Device registration is paused until previous-account cleanup is complete.')
+      return
+    }
+    if (!capabilities.secureContext || !capabilities.serviceWorker || !capabilities.pushApi || !capabilities.notificationApi) {
+      setPushState('unsupported')
+      setPushError(capabilities.reason)
+      return
+    }
+    if (capabilities.permission === 'denied') {
+      setPushState('permission-denied')
+      setPushError('Change notification permission in your browser or device settings.')
+      return
+    }
+    if (capabilities.permission !== 'granted') {
+      setPushState('permission-not-granted')
+      setPushError('Choose Enable device registration to grant permission and register this device.')
+      return
+    }
+    setPushState('pending')
+    void (async () => {
+      try {
+        if (!client) throw new Error('Supabase account services are not configured on this deployment.')
+        const result = await withPushOwnershipLock(async () => {
+          if (client && typeof client.auth?.getSession === 'function') {
+            const { data } = await client.auth.getSession()
+            if (data.session?.user.id !== user.id) throw new Error('The active account changed. Reload notification settings before checking this device.')
+          }
+          const registration = await registrationForPush()
+          const result = await registerCurrentPushSubscription(registration, vapidPublicKey, managePush, false)
+          if (result === 'registered') {
+            setStoredPushOwner(user.id)
+            setWorkerPushOwner(registration, user.id)
+          }
+          return result
+        })
+        if (live) setPushState(result === 'registered' ? 'registered' : 'not-registered')
+      } catch (error) {
+        if (live) {
+          setPushState('failed')
+          setPushError(error instanceof Error ? error.message : 'Device registration could not be checked.')
+        }
+      }
+    })()
+    return () => { live = false }
+  }, [status, user?.id, pushOwnershipStatus, pushOwnershipMessage, capabilities.secureContext, capabilities.serviceWorker, capabilities.pushApi, capabilities.notificationApi, capabilities.permission, client, vapidPublicKey])
+
+  useEffect(() => {
+    if (status !== 'signed-in' || !user || !('serviceWorker' in navigator)) return
+    const onWorkerMessage = (event: MessageEvent<unknown>) => {
+      if (pushOwnershipStatus !== 'ready') return
+      const data = event.data
+      if (!data || typeof data !== 'object') return
+      const message = data as { type?: unknown; changes?: unknown }
+      const changes = message.type === 'PROGRESS_TRACKER_PENDING_PUSH_SUBSCRIPTION_CHANGE'
+        ? Array.isArray(message.changes) ? message.changes : []
+        : message.type === 'PROGRESS_TRACKER_PUSH_SUBSCRIPTION_CHANGED' ? [data] : []
+      if (!changes.length) return
+      setPushState('pending')
+      void withPushOwnershipLock(async () => {
+        try {
+          if (!client) throw new Error('Supabase account services are not configured on this deployment.')
+          if (typeof client.auth?.getSession === 'function') {
+            const { data } = await client.auth.getSession()
+            if (data.session?.user.id !== user.id) throw new Error('The active account changed. This queued subscription change was left untouched.')
+          }
+          let hasSubscription = false
+          for (const rawChange of changes) {
+            if (!rawChange || typeof rawChange !== 'object') continue
+            const change = rawChange as { changeId?: unknown; id?: unknown; ownerUserId?: unknown; oldEndpoint?: unknown; newSubscription?: unknown }
+            if (change.ownerUserId !== user.id) {
+              throw new Error('A queued subscription change belongs to another account. Sign in to that account to finish device cleanup.')
+            }
+            const rememberedOwner = getStoredPushOwner()
+            if (rememberedOwner && rememberedOwner !== user.id) {
+              throw new Error('This browser subscription now belongs to another account. The stale renewal was left untouched.')
+            }
+            const newSubscription = validatePushSubscription(change.newSubscription)
+            const activeRegistration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+            const browserSubscription = await activeRegistration?.pushManager?.getSubscription()
+            if (typeof change.oldEndpoint === 'string' && (!newSubscription || newSubscription.endpoint !== change.oldEndpoint)) {
+              await revokePushEndpoint(change.oldEndpoint, managePush)
+            }
+            if (newSubscription && browserSubscription?.endpoint === newSubscription.endpoint) {
+              await managePush('register', newSubscription)
+              setStoredPushOwner(user.id)
+              setWorkerPushOwner(activeRegistration ?? null, user.id)
+              hasSubscription = true
+            }
+            const changeId = typeof change.changeId === 'string' ? change.changeId : change.id
+            if (typeof changeId === 'string') {
+              const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL)
+              registration?.active?.postMessage({ type: 'PROGRESS_TRACKER_ACK_PUSH_SUBSCRIPTION_CHANGE', changeId })
+            }
+          }
+          setPushState(hasSubscription ? 'registered' : 'not-registered')
+          setPushError(hasSubscription ? '' : 'The browser removed this subscription. Register this device again if you want push support.')
+        } catch (error) {
+          setPushState('failed')
+          setPushError(error instanceof Error ? error.message : 'The renewed subscription could not be saved.')
+        }
+      })
+    }
+    navigator.serviceWorker.addEventListener('message', onWorkerMessage)
+    void navigator.serviceWorker.ready.then((registration) => registration.active?.postMessage({ type: 'PROGRESS_TRACKER_GET_PUSH_SUBSCRIPTION_CHANGES' }))
+    return () => navigator.serviceWorker.removeEventListener('message', onWorkerMessage)
+  }, [status, user?.id, client, pushOwnershipStatus])
 
   useEffect(() => {
     let live = true
@@ -183,24 +409,33 @@ export function NotificationsSettings() {
       } catch { setStatusText('Message edit saved on this device. Account sync is unavailable.') }
     }
   }
-  async function enableOnDevice() {
-    if (!('Notification' in globalThis)) return
-    const permission = await Notification.requestPermission()
-    setStatusText(permission === 'granted' ? 'Device notifications: Enabled. Background reminders still require server push setup.' : permission === 'denied' ? 'Permission is blocked. Change it in your browser or device settings.' : 'Permission was not granted.')
-  }
   async function sendTest() {
     if (Notification.permission !== 'granted') return
     const registration = await navigator.serviceWorker?.getRegistration()
     if (registration?.showNotification) await registration.showNotification('ProgressTracker test', { body: 'This confirms device display only; it does not test reminder scheduling or background delivery.', icon: `${import.meta.env.BASE_URL}icons/progress-tracker.svg`, tag: 'progress-tracker:test' })
     else new Notification('ProgressTracker test', { body: 'This confirms device display only; it does not test reminder scheduling or background delivery.' })
   }
+  async function requestDevicePermission() {
+    if (!capabilities.secureContext || !capabilities.notificationApi) return
+    const permission = await Notification.requestPermission()
+    if (permission === 'denied') {
+      setPushState('permission-denied')
+      setPushError('Change notification permission in your browser or device settings.')
+    } else if (permission === 'granted') {
+      setPushState(capabilities.pushApi && capabilities.serviceWorker ? 'not-registered' : 'unsupported')
+      setPushError(capabilities.pushApi && capabilities.serviceWorker ? 'Permission granted. Register this device to your account to enable push delivery.' : capabilities.reason)
+    } else {
+      setPushState('permission-not-granted')
+      setPushError('Permission was not granted.')
+    }
+  }
 
   if (status !== 'signed-in') return <section className="settings-section notification-settings" aria-label="Notifications"><h2>Notifications</h2><p>Account reminder preferences require sign-in. Guest tracking remains local and unchanged.</p></section>
   return <section className="settings-section notification-settings" id="notifications" aria-labelledby="notifications-heading">
     <h2 id="notifications-heading">Notifications</h2>
     <p id="notification-settings-status" aria-live="polite">{saving ? 'Saving notification preferences…' : statusText}</p>
-    <div className="notification-capability"><p><strong>Device notifications:</strong> {capabilities.permission === 'granted' ? 'Enabled' : capabilities.permission === 'denied' ? 'Blocked in device settings' : 'Not enabled'}</p><p><strong>In-app reminders:</strong> {preferences.enabled ? 'Enabled while the app is open' : 'Off'}</p><p><strong>Background reminders:</strong> Setup required</p><span>Closed-app delivery requires an operational server scheduler, secure push subscription handling, and delivery worker. A device test notification does not verify those services.</span>{capabilities.standalone && <small>Installed app display detected.</small>}</div>
-    {capabilities.secureContext && capabilities.notificationApi && capabilities.permission !== 'denied' && <div className="notification-actions"><button className="button button-secondary button-small" onClick={() => void enableOnDevice()}>Enable on this device</button>{capabilities.permission === 'granted' && <button className="button button-secondary button-small" onClick={() => void sendTest()}>Send test notification</button>}</div>}
+    <div className="notification-capability"><p><strong>Device notifications:</strong> {capabilities.permission === 'granted' ? 'Enabled' : capabilities.permission === 'denied' ? 'Blocked in device settings' : 'Not enabled'}</p><p><strong>Push subscription:</strong> {pushStateLabels[pushState]}</p>{pushError && <span role="status">{pushError}</span>}{pushOwnershipStatus !== 'ready' && <p role="status">{pushOwnershipMessage} {pushOwnershipStatus === 'cleanup-required' && 'Device registration remains paused until cleanup succeeds.'}</p>}<p><strong>In-app reminders:</strong> {preferences.enabled ? 'Enabled while the app is open' : 'Off'}</p><p><strong>Background reminders:</strong> Setup required</p><span>Device registration does not send reminders. Closed-app delivery still requires a deployed sender and scheduler. A device test notification does not verify those services.</span>{capabilities.standalone && <small>Installed app display detected.</small>}</div>
+    {(pushState !== 'unsupported' && pushState !== 'permission-denied' || (capabilities.notificationApi && capabilities.permission === 'default') || capabilities.permission === 'granted') && <div className="notification-actions">{pushState !== 'unsupported' && pushState !== 'permission-denied' && <button className="button button-secondary button-small" disabled={pushBusy} onClick={() => void registerDevice(true)}>{pushBusy ? 'Registering…' : pushState === 'failed' ? 'Retry registration' : capabilities.permission === 'granted' ? 'Register this device' : 'Enable device registration'}</button>}{pushState === 'unsupported' && capabilities.notificationApi && capabilities.permission === 'default' && <button className="button button-secondary button-small" onClick={() => void requestDevicePermission()}>Enable on this device</button>}{pushState === 'registered' && <button className="button button-secondary button-small" disabled={pushBusy} onClick={() => void disableDevice()}>Disable this device</button>}{capabilities.permission === 'granted' && capabilities.notificationApi && <button className="button button-secondary button-small" onClick={() => void sendTest()}>Send test notification</button>}</div>}
     {capabilities.permission === 'denied' && <p role="status">Permission is denied. Change notification permission in your browser or operating-system settings; ProgressTracker will not prompt again automatically.</p>}
     <fieldset className="notification-preferences-fieldset" disabled={!preferencesReady} aria-describedby="notification-settings-status"><label className="notification-switch"><input type="checkbox" disabled={saving} checked={preferences.enabled} onChange={(event) => update('enabled', event.target.checked)} /><span><strong>Enable reminders in this account</strong><small>Evaluated while the authenticated app is open using local progress. Background delivery is separate and currently unavailable.</small></span></label>
     <details className="notification-preferences" open><summary>Daily check-in reminders</summary><label><input type="checkbox" checked={preferences.daily_enabled} onChange={(event) => update('daily_enabled', event.target.checked)} /> Remind me about unmarked activities</label><TimeSlots values={preferences.daily_times} onChange={(times) => update('daily_times', times)} /><label><input type="checkbox" checked={preferences.remind_partial} onChange={(event) => update('remind_partial', event.target.checked)} /> Also remind about partially completed targets</label><div className="notification-tracker-filter"><strong>Trackers</strong><label><input type="radio" name="notification-tracker-scope" checked={preferences.tracker_ids === null} onChange={() => update('tracker_ids', null)} /> All eligible trackers</label><label><input type="radio" name="notification-tracker-scope" checked={preferences.tracker_ids !== null} onChange={() => update('tracker_ids', [])} /> Choose trackers</label>{preferences.tracker_ids !== null && trackers.map((tracker) => <label key={tracker.id}><input type="checkbox" checked={preferences.tracker_ids?.includes(tracker.id) ?? false} onChange={(event) => update('tracker_ids', event.target.checked ? [...(preferences.tracker_ids ?? []), tracker.id] : (preferences.tracker_ids ?? []).filter((id) => id !== tracker.id))} /> {tracker.name}</label>)}</div></details>

@@ -8,3 +8,5 @@ coverage/
 *.tsbuildinfo
 supabase/.temp/
 supabase/.branches/
+
+/backups/
