@@ -32,7 +32,7 @@ export const router = createHashRouter([
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
       { path: 'achievements', element: <AchievementsPage /> },
       { path: 'settings', element: <SettingsPage /> },
-      { path: 'auth', element: <AuthPage /> },
+      { path: 'auth', element: <AuthPage redirectSignedIn /> },
     ],
   },
 ])

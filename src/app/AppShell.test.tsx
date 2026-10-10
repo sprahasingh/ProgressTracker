@@ -27,13 +27,13 @@ describe('app navigation quality', () => {
   it('renders the current account initial or an accessible generic icon', () => {
     authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com', user_metadata: { display_name: ' Alex ' } } } as never
     const view = render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
-    const avatar = screen.getByRole('link', { name: 'Open account and sign-in' })
+    const avatar = screen.getByRole('link', { name: 'Open profile settings' })
     expect(avatar).toHaveTextContent('A')
     expect(avatar.querySelector('svg')).toBeNull()
 
     authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-b', email: ' b@example.com ' } } as never
     view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Open account and sign-in' })).toHaveTextContent('B')
+    expect(screen.getByRole('link', { name: 'Open profile settings' })).toHaveTextContent('B')
 
     authState.value = guestReadyState
     view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
@@ -44,15 +44,15 @@ describe('app navigation quality', () => {
   it('keeps the avatar keyboard accessible and aligned in the header after sync status', async () => {
     authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, syncStatus: 'complete' } as never
     const user = userEvent.setup()
-    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
-    const avatar = screen.getByRole('link', { name: 'Open account and sign-in' })
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/settings" element={<p>Settings</p>} /></Routes></MemoryRouter>)
+    const avatar = screen.getByRole('link', { name: 'Open profile settings' })
     expect(avatar.previousElementSibling).toHaveClass('topbar-sync-state')
-    expect(avatar).toHaveAttribute('href', '/auth')
+    expect(avatar).toHaveAttribute('href', '/settings#personal-information')
     expect(avatar.tabIndex).toBe(0)
     avatar.focus()
     expect(avatar).toHaveFocus()
     await user.keyboard('{Enter}')
-    expect(await screen.findByText('Account')).toBeInTheDocument()
+    expect(await screen.findByText('Settings')).toBeInTheDocument()
     authState.value = guestReadyState
   })
 
@@ -82,7 +82,7 @@ describe('app navigation quality', () => {
 
     const syncLinks = screen.getAllByRole('link', { name: /Sync needs attention/ })
     expect(syncLinks).toHaveLength(2)
-    for (const link of syncLinks) expect(link).toHaveAttribute('href', '/auth')
+    for (const link of syncLinks) expect(link).toHaveAttribute('href', '/settings#sync-data')
     authState.value = guestReadyState
   })
 
