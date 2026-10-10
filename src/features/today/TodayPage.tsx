@@ -26,6 +26,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
+import { mondayFirstWeekday } from '../../db/calendarDate'
 
 function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncStatus: string): string {
   if (authStatus !== 'signed-in') return authStatus === 'signed-out'
@@ -70,8 +71,8 @@ export function TodayPage() {
       const [allTrackers, deletedTrackers, recentEntries, holidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listDeletedTrackers(),
-        localRepository.listTrackerEntriesBetween(shiftCalendarDate(today, -6), today),
-        localRepository.listAccountHolidays(shiftCalendarDate(today, -6), today),
+        localRepository.listTrackerEntriesBetween(shiftCalendarDate(today, -6), shiftCalendarDate(today, 6)),
+        localRepository.listAccountHolidays(shiftCalendarDate(today, -6), shiftCalendarDate(today, 6)),
       ])
       if (refreshGeneration.current !== generation || ownerRef.current !== requestOwner) return
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
@@ -127,8 +128,9 @@ export function TodayPage() {
     .flatMap((date) => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null && isScheduledDate(tracker, date))
       .filter((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: holidaySet }) === 'missed')
       .map((tracker) => ({ tracker, date }))), [today, allTrackers, weekEntries, holidaySet])
+  const weekStart = shiftCalendarDate(today, -mondayFirstWeekday(today))
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
-    const date = shiftCalendarDate(today, index - 6)
+    const date = shiftCalendarDate(weekStart, index)
     const scheduled = allTrackers.filter((tracker) => isScheduledDate(tracker, date))
     const isToday = date === today
     const isHoliday = holidayDates.includes(date)
@@ -138,7 +140,7 @@ export function TodayPage() {
     const state = isHoliday ? 'holiday' : scheduled.length === 0 ? 'rest' : done === scheduled.length ? 'complete' : done > 0 || partial ? 'partial' : statuses.includes('skipped') && isToday ? 'skipped' : isToday ? 'today' : 'missed'
     const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : state === 'skipped' ? 'skipped; neutral' : 'pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, done, isToday, isHoliday, state, statusLabel }
-  }), [today, allTrackers, weekEntries, holidayDates])
+  }), [today, weekStart, allTrackers, weekEntries, holidayDates])
 
   async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
     const wasSaved = weekEntries.some((item) => item.trackerId === tracker.id && item.date === date && item.deletedAt === null)

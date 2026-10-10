@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { localRepository } from '../db/localRepository'
 import type { AppNotification } from '../db/models'
 import { getSupabaseClient } from '../services/supabase/client'
@@ -12,6 +12,25 @@ export function NotificationCenter({ ownerUserId, ready }: { ownerUserId: string
   const [items, setItems] = useState<CenterItem[]>([])
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { setOpen(false) }, [location.key, location.pathname, location.search, location.hash])
+  useEffect(() => {
+    if (!open) return
+    const dismissOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() }
+    }
+    document.addEventListener('pointerdown', dismissOutside)
+    document.addEventListener('keydown', dismissEscape)
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside)
+      document.removeEventListener('keydown', dismissEscape)
+    }
+  }, [open])
   useEffect(() => {
     let current = true
     setItems([])
@@ -47,8 +66,8 @@ export function NotificationCenter({ ownerUserId, ready }: { ownerUserId: string
     setOpen(false)
     if (item.href.startsWith('/') && !item.href.startsWith('//') && !item.href.includes('://')) navigate(item.href)
   }
-  return <div className="notification-center">
-    <button className="notification-center-trigger" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+  return <div className="notification-center" ref={rootRef}>
+    <button ref={triggerRef} type="button" className="notification-center-trigger" aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>{unread > 0 && <span>{unread > 99 ? '99+' : unread}</span>}
     </button>
     {open && <section className="notification-center-panel" aria-label="Notification center"><header><strong>Notifications</strong>{unread > 0 && <button className="button button-secondary button-small" onClick={() => void markAll()}>Mark all read</button>}<button className="notification-center-close" aria-label="Close notifications" onClick={() => setOpen(false)}><AppIcon name="close" /></button></header>

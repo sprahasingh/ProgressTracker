@@ -14,6 +14,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
+import { mondayFirstWeekday } from '../../db/calendarDate'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; missed: number; pending: number; skipped: number; entries: number; holiday: boolean; visualStatus: ActivityStatus }
@@ -158,11 +159,11 @@ export function CalendarPage() {
 }
 
 function MonthCalendar({ days, selected, today, onSelect }: { days: DaySummary[]; selected: string; today: string; onSelect: (date: CalendarDate) => void }) {
-  const firstWeekday = new Date(`${days[0]?.date}T00:00:00.000Z`).getUTCDay()
+  const firstWeekday = mondayFirstWeekday(days[0]!.date)
   const cells: Array<DaySummary | null> = [...Array.from({ length: firstWeekday }, () => null), ...days]
   while (cells.length % 7) cells.push(null)
   const weeks = Array.from({ length: cells.length / 7 }, (_, index) => cells.slice(index * 7, index * 7 + 7))
-  return <table className="activity-calendar" aria-label="Daily activity calendar"><thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <th scope="col" key={day}>{day}</th>)}</tr></thead><tbody>{weeks.map((week, weekIndex) => <tr key={weekIndex}>{week.map((day, index) => day ? <td key={day.date} className={`calendar-day${day.date === selected ? ' calendar-day-selected' : ''}${day.date === today ? ' calendar-day-today' : ''}${day.holiday ? ' calendar-day-holiday' : ''}`}><button type="button" className={`calendar-cell-status ${day.visualStatus}`} aria-pressed={day.date === selected} aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${ACTIVITY_STATUS_PRESENTATION[day.visualStatus].label}${day.holiday ? '' : `; ${day.completed} completed, ${day.partial} partial, ${day.pending} pending, ${day.missed} missed, ${day.skipped} skipped`}${day.entries ? `, ${day.entries} saved check-ins` : ''}`} onClick={() => onSelect(day.date)}><span>{Number(day.date.slice(8, 10))}</span><i className="calendar-cell-mark" aria-hidden="true"><ActivityStatusIcon status={day.visualStatus} /></i></button></td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody></table>
+  return <table className="activity-calendar" aria-label="Daily activity calendar"><thead><tr>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <th scope="col" key={day}>{day}</th>)}</tr></thead><tbody>{weeks.map((week, weekIndex) => <tr key={weekIndex}>{week.map((day, index) => day ? <td key={day.date} className={`calendar-day${day.date === selected ? ' calendar-day-selected' : ''}${day.date === today ? ' calendar-day-today' : ''}${day.holiday ? ' calendar-day-holiday' : ''}`}><button type="button" className={`calendar-cell-status ${day.visualStatus}`} aria-pressed={day.date === selected} aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${ACTIVITY_STATUS_PRESENTATION[day.visualStatus].label}${day.holiday ? '' : `; ${day.completed} completed, ${day.partial} partial, ${day.pending} pending, ${day.missed} missed, ${day.skipped} skipped`}${day.entries ? `, ${day.entries} saved check-ins` : ''}`} onClick={() => onSelect(day.date)}><span>{Number(day.date.slice(8, 10))}</span><i className="calendar-cell-mark" aria-hidden="true"><ActivityStatusIcon status={day.visualStatus} /></i></button></td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody></table>
 }
 
 function formatEntry(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry): string {

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { CalendarPage } from './CalendarPage'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import { calendarDateLabel } from '../shared/localDates'
 
 const mocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), listAccountHolidays: vi.fn() }))
 const auth = vi.hoisted(() => ({ value: { status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false } }))
@@ -43,6 +44,8 @@ describe('Calendar page', () => {
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
+    expect(screen.getByRole('button', { name: new RegExp(calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })) })).toHaveClass('completed')
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))

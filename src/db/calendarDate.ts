@@ -26,3 +26,10 @@ export function assertDateRange(startDate: string, endDate: string): void {
   assertCalendarDate(endDate)
   if (startDate > endDate) throw new Error('The start date must be on or before the end date.')
 }
+
+/** Monday-based weekday index for a calendar date: Monday=0 … Sunday=6. */
+export function mondayFirstWeekday(value: string): number {
+  assertCalendarDate(value)
+  const weekday = new Date(`${value}T00:00:00.000Z`).getUTCDay()
+  return (weekday + 6) % 7
+}
