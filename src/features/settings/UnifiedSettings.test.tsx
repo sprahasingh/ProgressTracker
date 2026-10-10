@@ -24,6 +24,8 @@ describe('unified Settings authentication states', () => {
     expect(screen.getByLabelText(/Appearance/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change email' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Personal Information' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Account Actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete Account' })).not.toBeInTheDocument()
   })
 
   it('shows signed-in profile, allows name edits, and consolidates sync controls', async () => {
@@ -33,6 +35,8 @@ describe('unified Settings authentication states', () => {
     expect(screen.getAllByText('Spraha Singh')).toHaveLength(2)
     expect(screen.getByText('S', { selector: '.settings-profile-avatar' })).toBeInTheDocument()
     expect(screen.getByText('Cloud synchronization controls')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Account Actions' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete Account' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await user.clear(screen.getByLabelText('Full name'))
     await user.type(screen.getByLabelText('Full name'), '  Alex Rivera  ')

@@ -1,1 +1,4 @@
 project_id = "progress-tracker"
+
+[functions.delete-account]
+verify_jwt = true

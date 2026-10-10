@@ -1,6 +1,6 @@
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ProgressTrackerDatabase, activateWorkspace, decideGuestData, getGuestWorkspaceSummary } from './database'
+import { ProgressTrackerDatabase, activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestWorkspaceSummary } from './database'
 import { db } from './database'
 import type { DailyEntry } from './models'
 
@@ -14,6 +14,25 @@ afterEach(async () => {
 })
 
 describe('ProgressTracker database migrations', () => {
+  it('counts and clears only the confirmed-deleted account workspace', async () => {
+    const ownerId = `delete-account-${crypto.randomUUID()}`
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'guest-remains', name: 'Guest data' } as never)
+    await activateWorkspace(ownerId)
+    openedDatabases.push(db)
+    await db.trackers.put({ id: 'account-is-removed', name: 'Account data' } as never)
+    await db.syncOperations.put({ id: 'pending-delete', ownerUserId: ownerId, entity: 'tracker', entityId: 'account-is-removed', operation: 'upsert', expectedRevision: null, createdAt: new Date().toISOString(), attempts: 0, status: 'pending', lastError: null })
+    await expect(countPendingWorkspaceSyncOperations(ownerId)).resolves.toBe(1)
+    await clearDeletedAccountWorkspace(ownerId)
+    await expect(db.trackers.count()).resolves.toBe(0)
+    await expect(db.syncOperations.count()).resolves.toBe(0)
+    await expect(countPendingWorkspaceSyncOperations('another-account')).rejects.toThrow(/matching account workspace/)
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    await expect(db.trackers.get('guest-remains')).resolves.toMatchObject({ name: 'Guest data' })
+  })
+
   it('preserves existing records and projects them when upgrading schema v1 through v7', async () => {
     const name = `migration-${crypto.randomUUID()}`
     const legacy = new Dexie(name)

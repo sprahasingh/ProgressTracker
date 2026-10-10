@@ -1444,6 +1444,35 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 @media (prefers-reduced-motion: no-preference) {
   .status-card { transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 }
+
+.account-danger-zone { margin-top: 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--danger-soft) 38%, var(--surface)); }
+.account-danger-zone h3 { margin: 0 0 8px; color: var(--danger); font: 700 14px/1.3 var(--font-sans); }
+.account-danger-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.account-danger-row > div { min-width: 0; }
+.account-danger-row strong { font-size: 13px; }
+.account-danger-row p { margin: 3px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.45; }
+.account-danger-row .info-button { flex: 0 0 44px; }
+.account-danger-zone > .button { margin-top: 8px; }
+.account-delete-backdrop { position: fixed; z-index: 1500; inset: 0; display: flex; align-items: flex-end; justify-content: center; min-height: 0; padding: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px)); background: rgb(0 0 0 / 54%); }
+.account-delete-dialog { display: flex; width: min(100%, 620px); max-height: min(850px, calc(var(--modal-visible-height, 100dvh) - max(16px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px)))); min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 20px 20px 12px 12px; background: var(--surface); box-shadow: var(--shadow-card); }
+.account-delete-heading { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+.account-delete-heading h2 { margin: 4px 0 0; font: 700 19px/1.25 var(--font-sans); }
+.account-delete-content { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 14px 18px 18px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.account-delete-content p:first-child { margin-top: 0; }
+.account-delete-content ul { padding-left: 21px; }
+.account-delete-content strong { color: var(--ink); overflow-wrap: anywhere; }
+.account-delete-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line); background: var(--surface); }
+.account-export { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); }
+.account-export > div { display: grid; min-width: 0; gap: 2px; }
+.account-export span { font-size: 11px; }
+.account-pending-warning, .account-pending-clear { padding: 10px; border: 1px solid var(--line); border-radius: 9px; }
+.account-pending-warning { color: var(--danger) !important; }
+.account-pending-clear { color: var(--ink-muted); background: var(--surface-muted); }
+.account-delete-word { margin-top: 12px; }
+.account-delete-word input { max-width: 220px; }
+@media (min-width: 761px) { .account-delete-backdrop { align-items: center; padding: 24px; } .account-delete-dialog { border-radius: 18px; } }
+@media (max-width: 380px) { .account-delete-heading, .account-delete-content { padding-right: 14px; padding-left: 14px; } .account-delete-actions { padding-right: 14px; padding-left: 14px; } .account-export { align-items: flex-start; flex-direction: column; } }
+
 @media (max-width: 760px) {
   .today-checkin-card.status-card { padding: 15px; }
   .calendar-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

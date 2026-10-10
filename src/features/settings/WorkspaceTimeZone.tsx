@@ -6,6 +6,7 @@ import { applyDocumentAppearance, rememberAppearance } from './appearance'
 import { useAuth } from '../auth/AuthProvider'
 import { updateAccountName, requestAccountEmailChange } from '../auth/authService'
 import { AuthPage } from '../auth/AuthPage'
+import { AccountDeletion } from './AccountDeletion'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -163,10 +164,12 @@ export function SettingsPage() {
     <section className="settings-section" aria-labelledby="security-title"><h2 id="security-title">Security</h2><p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p></section>
     <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, saved, error)}</section>
     <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
+    <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
   </section>
 
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
+    {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
     {renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, saved, error)}
   </section>
 }

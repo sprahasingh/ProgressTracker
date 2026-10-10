@@ -208,6 +208,22 @@ export async function activateWorkspace(userId: string | null): Promise<number> 
   return epoch
 }
 
+/** Count queued account-owned writes without opening another user's workspace. */
+export async function countPendingWorkspaceSyncOperations(userId: string): Promise<number> {
+  if (activeWorkspaceKey !== userId) throw new Error('Open the matching account workspace before checking its pending changes.')
+  await openDatabase()
+  return db.syncOperations.where('ownerUserId').equals(userId).and((operation) => operation.status === 'pending').count()
+}
+
+/** Erase only the confirmed-deleted account's local workspace after cloud success. */
+export async function clearDeletedAccountWorkspace(userId: string): Promise<void> {
+  if (activeWorkspaceKey !== userId) throw new Error('The active workspace changed before account cleanup.')
+  const accountDb = db
+  await accountDb.transaction('rw', accountDb.tables, async () => {
+    for (const table of accountDb.tables) await table.clear()
+  })
+}
+
 export async function getGuestWorkspaceSummary(): Promise<GuestWorkspaceSummary> {
   const guest = new ProgressTrackerDatabase(guestDatabaseName)
   await guest.open()
