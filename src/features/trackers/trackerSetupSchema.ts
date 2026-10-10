@@ -10,7 +10,7 @@ export const trackerSetupSchema = z.object({
   strictMode: z.boolean().default(false),
 }).superRefine((value, context) => {
   if (value.startDate && value.deadline && value.deadline < value.startDate) {
-    context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline must be on or after the start date.' })
+    context.addIssue({ code: 'custom', path: ['startDate'], message: 'Start date must be on or before the deadline. Choose an earlier start date or move the deadline to this date.' })
   }
 })
 

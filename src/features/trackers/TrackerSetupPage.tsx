@@ -127,7 +127,9 @@ export function TrackerSetupPage() {
 
   function update(field: keyof FormValues, value: FormValues[keyof FormValues]) {
     setValues((current) => ({ ...current, [field]: value }))
-    setFieldErrors((current) => ({ ...current, [field]: '' }))
+    setFieldErrors((current) => field === 'startDate' || field === 'deadline'
+      ? { ...current, startDate: '', deadline: '' }
+      : { ...current, [field]: '' })
   }
 
   function changeKind(value: string) {
@@ -216,6 +218,25 @@ export function TrackerSetupPage() {
         ? 'Enabling Strict Mode will recalculate this tracker’s streak using every calendar day, including past holidays and rest days. Your recorded progress will not be deleted.'
         : 'Switching to Standard Mode will recalculate this tracker’s streak using scheduled days, with holidays and rest days preserving continuity. Your recorded progress will not be deleted.'
       if (!window.confirm(message)) return
+    }
+    if (existing && parsed.data.startDate) {
+      const createdDate = existing.createdAt.slice(0, 10)
+      const oldActiveStart = existing.startDate && existing.startDate > createdDate ? existing.startDate : createdDate
+      const newActiveStart = parsed.data.startDate > createdDate ? parsed.data.startDate : createdDate
+      if (newActiveStart > oldActiveStart) {
+        const excludedEnd = shiftCalendarDate(newActiveStart as CalendarDate, -1)
+        if (excludedEnd >= oldActiveStart) {
+          let excludedCount: number
+          try {
+            const entries = await localRepository.listTrackerEntriesBetween(oldActiveStart as CalendarDate, excludedEnd)
+            excludedCount = entries.filter((entry) => entry.trackerId === existing.id).length
+          } catch {
+            setError('Could not verify saved check-ins before the new start date. Nothing was saved; please try again.')
+            return
+          }
+          if (excludedCount > 0 && !window.confirm(`Moving the start date forward will leave ${excludedCount} saved check-in record${excludedCount === 1 ? '' : 's'} before the new active date. The records will remain in History, but date-based streak and goal calculations will use the new start date. Continue?`)) return
+        }
+      }
     }
     const isNewPlannedGoal = !existing && values.kind === 'goal' && Boolean(goalAmount) && configuration.metrics[0]?.valueType !== 'boolean'
     const enteredGoalAmount = goalAmount === '' ? undefined : Number(goalAmount)
@@ -349,7 +370,7 @@ export function TrackerSetupPage() {
           <label className="form-field tracker-name-field"><span>{selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'}</span><input aria-label={selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'} className="auth-input" maxLength={200} value={values.name} onChange={(event) => update('name', event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'tracker-name-error' : undefined} placeholder={selectedKind === 'goal' ? 'e.g. Solve 100 DSA problems' : selectedKind === 'habit' ? 'e.g. Read every day' : selectedKind === 'challenge' ? 'e.g. 30-day writing challenge' : 'e.g. Launch my portfolio'} />{fieldErrors.name && <small id="tracker-name-error" className="auth-error">{fieldErrors.name}</small>}</label>
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}
           {!existing && <fieldset className="simple-measure-choice"><legend>How do you want to measure it?</legend><div className="simple-measure-options"><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType === 'boolean'} onChange={() => chooseSimpleMeasure('boolean')} /><span>Done or not yet</span></label><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType !== 'boolean'} onChange={() => chooseSimpleMeasure('quantity')} /><span>Number or amount</span></label></div></fieldset>}
-          <div className="form-grid tracker-quick-fields"><label className="form-field"><span>Start date</span><input aria-label="Start date" className="auth-input" type="date" value={values.startDate} onChange={(event) => update('startDate', event.target.value)} /></label></div>
+          <div className="form-grid tracker-quick-fields"><label className="form-field"><span>Start date</span><input aria-label="Start date" className="auth-input" type="date" max={values.deadline || undefined} value={values.startDate} onChange={(event) => update('startDate', event.target.value)} aria-invalid={Boolean(fieldErrors.startDate)} aria-describedby={fieldErrors.startDate ? 'tracker-start-date-error' : undefined} />{fieldErrors.startDate && <small id="tracker-start-date-error" className="auth-error">{fieldErrors.startDate}</small>}</label></div>
           {!existing && configuration.metrics[0]?.valueType !== 'boolean' && <section className="simple-numeric-settings" aria-label="Numeric measure settings">
             <label className="form-field"><span>Unit <em>optional</em></span><input aria-label="Numeric measure unit" className="auth-input" value={goalUnit || configuration.metrics[0]?.unit || ''} onChange={(event) => { setGoalUnit(event.target.value); setConfiguration((current) => ({ ...current, metrics: current.metrics.map((metric, index) => index === 0 ? { ...metric, unit: event.target.value } : metric) })) }} placeholder="pages, minutes, sessions" /></label>
             <label className="form-field"><span>Target per check-in <em>optional</em></span><input aria-label="Per-check-in target" className="auth-input" type="number" min="0" step={configuration.metrics[0]?.precision?.increment ?? 'any'} value={configuration.metrics[0]?.thresholds?.target ?? ''} onChange={(event) => updateStarterTarget(event.target.value)} placeholder="e.g. 1" /></label>
@@ -368,7 +389,7 @@ export function TrackerSetupPage() {
             <div className="advanced-setup-content">
             {!existing && <label className="form-field advanced-description"><span>Description <em>optional</em> <InfoButton title="Description" summary="Write the context that makes this tracker meaningful." description="This text is for your own reference and does not change how values, success rules, or progress are calculated." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Why does this matter to you?" /></label>}
               <details className="advanced-subsection"><summary>Schedule & holidays</summary><div className="form-grid advanced-dates"><label className="form-field"><span>{selectedKind === 'habit' ? 'How often?' : 'Work days'}</span><select aria-label={selectedKind === 'habit' ? 'How often?' : 'Work days'} className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)}><option value="every-day">Every day</option><option value="weekdays">Weekdays</option><option value="three-times-weekly">3 times a week</option><option value="none">No set days</option>{values.schedule === 'custom' && <option value="custom">Keep current schedule</option>}</select></label>
-                {!existing && selectedKind === 'challenge' && <label className="form-field"><span>Finish by <em>optional</em></span><input aria-label="Finish by" className="auth-input" type="date" value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
+                {!existing && selectedKind === 'challenge' && <label className="form-field"><span>Finish by <em>optional</em></span><input aria-label="Finish by" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
                 {!existing && selectedKind === 'project' && <label className="form-field"><span>Project deadline <em>optional</em></span><input aria-label="Project deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label>}
                 <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
                 <p className="field-hint form-field-wide">Workspace holidays and excluded days are applied automatically.</p>
