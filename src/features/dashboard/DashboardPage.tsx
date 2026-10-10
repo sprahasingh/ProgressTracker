@@ -20,6 +20,7 @@ import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../do
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateActivityHeatmap } from '../../domain/trackers/activityHeatmap'
 import { ActivityHeatmap } from './ActivityHeatmap'
+import { availableHeatmapYears, heatmapDateRange, type HeatmapDateRangeOption, type HeatmapRangeSelection, isHistoricalHeatmapYear } from './heatmapDateRange'
 
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
@@ -35,7 +36,24 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1024 : window.innerWidth)
+  const [rangeSelection, setRangeSelection] = useState<HeatmapRangeSelection>(() => {
+    if (typeof window === 'undefined') return 'auto'
+    const saved = window.sessionStorage.getItem('insights-heatmap-range')
+    return saved === 'last3Months' || saved === 'last6Months' || saved === 'last12Months' || saved === 'year' ? saved : 'auto'
+  })
+  const [selectedYear, setSelectedYear] = useState(() => {
+    if (typeof window === 'undefined') return new Date().getFullYear()
+    const saved = Number(window.sessionStorage.getItem('insights-heatmap-year'))
+    return Number.isInteger(saved) && saved > 0 ? saved : Number(today.slice(0, 4))
+  })
   const refreshGeneration = useRef(0)
+
+  useEffect(() => {
+    const updateWidth = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', updateWidth)
+    return () => window.removeEventListener('resize', updateWidth)
+  }, [])
 
   const refresh = useCallback(async () => {
     if (!workspaceRef.current.ready) return
@@ -73,8 +91,24 @@ export function DashboardPage() {
   const visibleTrackers = selectedTracker ? [selectedTracker] : data.trackers
   const visibleIds = new Set(visibleTrackers.map((tracker) => tracker.id))
   const visibleEntries = data.entries.filter((entry) => visibleIds.has(entry.trackerId))
-  const heatmapStart = shiftCalendarDate(today, -83)
-  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: today, holidays: new Set(data.holidays) }), [visibleTrackers, visibleEntries, heatmapStart, today, data.holidays])
+  const effectiveRange: HeatmapDateRangeOption = rangeSelection === 'auto' ? (viewportWidth < 768 ? 'last6Months' : 'last12Months') : rangeSelection
+  const yearOptions = availableHeatmapYears(data.trackers, today)
+  const effectiveYear = yearOptions.includes(selectedYear) ? selectedYear : Number(today.slice(0, 4))
+  const { startDate: heatmapStart, endDate: heatmapEnd } = heatmapDateRange(today, effectiveRange, effectiveYear)
+  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: heatmapEnd, holidays: new Set(data.holidays) }), [visibleTrackers, visibleEntries, heatmapStart, heatmapEnd, data.holidays])
+  const selectHeatmapRange = (selection: HeatmapDateRangeOption) => {
+    setRangeSelection(selection)
+    window.sessionStorage.setItem('insights-heatmap-range', selection)
+    if (selection === 'year') {
+      const currentYear = Number(today.slice(0, 4))
+      setSelectedYear(currentYear)
+      window.sessionStorage.setItem('insights-heatmap-year', String(currentYear))
+    }
+  }
+  const selectHeatmapYear = (year: number) => {
+    setSelectedYear(year)
+    window.sessionStorage.setItem('insights-heatmap-year', String(year))
+  }
   const entryById = useMemo(() => new Map(visibleTrackers.map((tracker) => [tracker.id, tracker])), [visibleTrackers])
   const streakByTracker = useMemo(() => new Map(visibleTrackers.map((tracker) => {
     const trackerEntries = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
@@ -111,7 +145,7 @@ export function DashboardPage() {
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : error ? <Surface><EmptyState title="Your progress is still here" description="This device could not open local storage. Try loading the overview again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
         <div className="insights-filter-toolbar"><TrackerFilter trackers={data.trackers} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Show activity for" /></div>
-        <ActivityHeatmap days={heatmapDays} trackerName={selectedTracker?.name ?? null} />
+        <ActivityHeatmap days={heatmapDays} trackerName={selectedTracker?.name ?? null} rangeSelection={effectiveRange} year={effectiveYear} years={yearOptions} onRangeChange={selectHeatmapRange} onYearChange={selectHeatmapYear} scrollToStart={effectiveRange === 'year' && isHistoricalHeatmapYear(effectiveYear, today)} />
         <div className="dashboard-stats" role="group" aria-label="Recent progress summary">
           <StatCard label={selectedTracker ? 'Selected tracker' : 'Active trackers'} value={String(visibleTrackers.length)} detail={selectedTracker ? selectedTracker.name : 'ready for your next check-in'} help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
           <StatCard label="Successes · 7 days" value={String(successfulWeek.length)} detail={`${scheduledWeek} elapsed opportunities`} help="Counts recorded check-ins that met their success rule on a day eligible under that tracker’s policy during the last seven calendar days." />

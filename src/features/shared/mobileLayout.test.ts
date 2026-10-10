@@ -50,7 +50,7 @@ describe('mobile page and card spacing', () => {
     expect(styles).toMatch(/\.page-content\s*\{\s*scroll-padding-bottom:\s*calc\(var\(--mobile-nav-visible-height\)\s*\+\s*var\(--safe-area-max-inset-bottom\)\);\s*\}/)
   })
 
-  it.each([320, 360, 390, 430, 768, 1280])('keeps the heatmap compact and contained at %ipx', (width) => {
+  it.each([320, 360, 390, 430, 768, 1024, 1280])('keeps the heatmap compact and contained at %ipx', (width) => {
     expect(width).toBeGreaterThanOrEqual(320)
     expect(styles).toMatch(/\.activity-heatmap-scroll\s*\{[^}]*overflow-x:\s*auto;/)
     expect(styles).toMatch(/\.heatmap-cells\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--heatmap-columns\),\s*16px\);[^}]*grid-template-rows:\s*repeat\(7,\s*16px\);/)
@@ -61,6 +61,6 @@ describe('mobile page and card spacing', () => {
     expect(styles).toMatch(/\.heatmap-legend\s*\{[^}]*margin:\s*12px\s+0\s+0\s+27px;/)
     expect(styles).toMatch(/\.heatmap-legend\s+small\s*\{\s*flex-basis:\s*100%;/)
     expect(styles).toMatch(/button\.heatmap-cell:focus-visible\s*\{[^}]*outline:/)
-    expect(heatmap).toMatch(/role="region" aria-label="Scrollable 12-week activity heatmap" tabIndex=\{0\}/)
+    expect(heatmap).toMatch(/role="region" aria-label=\{`Scrollable \$\{rangeName\} activity heatmap`\} tabIndex=\{0\}/)
   })
 })

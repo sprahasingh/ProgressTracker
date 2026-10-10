@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -58,12 +58,39 @@ describe('local progress dashboard', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Show activity for' }), first.id)
     expect(screen.getByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Drink water' })).not.toBeInTheDocument()
-    expect(screen.getByText('Read a book · last 12 weeks')).toBeInTheDocument()
+    expect(screen.getByText('Read a book · last 12 months')).toBeInTheDocument()
     const info = screen.getByRole('button', { name: 'More about Activity Heatmap' })
     await user.click(info)
     expect(screen.getByRole('dialog', { name: 'Activity Heatmap' })).toHaveTextContent('qualified opportunities divided by eligible opportunities')
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Activity Heatmap' })).not.toBeInTheDocument()
+  })
+
+  it('uses responsive automatic defaults until a range is manually selected', async () => {
+    const definition = { ...tracker(), startDate: '2024-01-01' as const }
+    await localRepository.saveTracker(definition)
+    const originalWidth = window.innerWidth
+    window.sessionStorage.removeItem('insights-heatmap-range')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    const { unmount } = render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const range = await screen.findByRole('combobox', { name: 'Activity date range' })
+    expect(range).toHaveValue('last6Months')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+    fireEvent(window, new Event('resize'))
+    await waitFor(() => expect(range).toHaveValue('last12Months'))
+    fireEvent.change(range, { target: { value: 'last3Months' } })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    fireEvent(window, new Event('resize'))
+    expect(range).toHaveValue('last3Months')
+    expect(screen.getByText('All Trackers · last 3 months')).toBeInTheDocument()
+    fireEvent.change(range, { target: { value: 'year' } })
+    const year = screen.getByRole('combobox', { name: 'Activity year' })
+    expect(year).toHaveValue(String(new Date().getFullYear()))
+    expect(Array.from(year.querySelectorAll('option'), (option) => Number(option.value))).toContain(2024)
+    fireEvent.change(year, { target: { value: '2024' } })
+    expect(year).toHaveValue('2024')
+    unmount()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
 
   it('refreshes displayed weekly statistics when a check-in changes while the dashboard is mounted', async () => {

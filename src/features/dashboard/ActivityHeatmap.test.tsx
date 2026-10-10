@@ -23,13 +23,13 @@ describe('ActivityHeatmap', () => {
     Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { return this.classList.contains('activity-heatmap-scroll') ? 600 : 0 } })
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('activity-heatmap-scroll') ? 300 : 0 } })
     try {
-      const { container } = render(<ActivityHeatmap days={days} trackerName={null} />)
+      const { container } = render(<ActivityHeatmap days={days} trackerName={null} rangeSelection="last12Months" year={2026} years={[2026]} onRangeChange={() => {}} onYearChange={() => {}} scrollToStart={false} />)
       const labels = Array.from(container.querySelectorAll('.heatmap-months span'), (span) => span.textContent).filter(Boolean)
       const shortMonth = (date: string) => new Date(`${date}T12:00:00.000Z`).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' })
 
       expect(labels).toEqual([shortMonth('2026-06-01'), shortMonth('2026-07-01'), shortMonth('2026-08-01')])
       expect(container.querySelectorAll('.heatmap-cells button')).toHaveLength(84)
-      expect(container.querySelector('.activity-heatmap-scroll')).toHaveAttribute('aria-label', 'Scrollable 12-week activity heatmap')
+      expect(container.querySelector('.activity-heatmap-scroll')).toHaveAttribute('aria-label', 'Scrollable last 12 months activity heatmap')
       expect(container.querySelector('.activity-heatmap-scroll')?.scrollLeft).toBe(600)
       cleanup()
     } finally {
