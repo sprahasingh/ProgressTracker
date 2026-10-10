@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -6,6 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
+import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -259,6 +261,7 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   const [saving, setSaving] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
   const closeRequestRef = useRef<() => void>(() => {})
   const originalValues = entry?.values ?? {}
   const dirty = JSON.stringify(values) !== JSON.stringify(originalValues) || note !== (entry?.note ?? '')
@@ -268,6 +271,7 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
 
   useLayoutEffect(() => { if (!dirty) { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') } }, [entry, dirty])
   useModalLayer(true, sheetRef, () => closeRequestRef.current())
+  useVisualViewportBounds(true, backdropRef)
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
@@ -289,7 +293,7 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
   }
   async function clear() { setSaving(true); await onClear(tracker, today); setSaving(false); onClose() }
 
-  return <div className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
+  return createPortal(<div ref={backdropRef} className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
       <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}>×</IconButton></header>
       <div className="today-detail-content">
@@ -305,5 +309,5 @@ function CheckinSheet({ tracker, entry, today, entries, holidays, status, canEdi
       </div>
       {canEdit && <footer className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded', quickBoolean ? { [firstMetric!.id]: true } : values)}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : quickBoolean ? 'Mark complete' : 'Save check-in'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Skip today</button>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
     </section>
-  </div>
+  </div>, document.body)
 }

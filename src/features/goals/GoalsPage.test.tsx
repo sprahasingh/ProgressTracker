@@ -156,6 +156,9 @@ describe('Goals page allocation preview', () => {
     expect(firstToggle).toHaveAttribute('aria-expanded', 'true')
     expect(secondToggle).toHaveAttribute('aria-expanded', 'true')
     await user.click(within(firstToggle.closest('.goal-card')!).getByText('View daily plan'))
+    const planDisclosure = within(firstToggle.closest('.goal-card')!).getByText('Hide daily plan').closest('summary')!
+    expect(planDisclosure).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById(planDisclosure.getAttribute('aria-controls')!)).toBeInTheDocument()
     expect(await screen.findByRole('region', { name: 'Chapters allocation preview' })).toBeInTheDocument()
 
     await localRepository.saveTrackerEntry({ trackerId: first.id, date: today, outcome: 'recorded', values: { chapters: 5, lessons: 10 }, note: 'edited' })

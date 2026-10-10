@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
+import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
@@ -118,6 +119,7 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
   const closeRef = useRef<HTMLButtonElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
   const metrics = getTodayMetricDetails(tracker, entry, today, entries, holidays)
   const hasThresholds = metrics.some((metric) => metric.minimum !== undefined || metric.target !== undefined || metric.stretch !== undefined)
   const hasPlanning = metrics.some((metric) => metric.totalTarget !== undefined || metric.expectedLabel === 'Today’s target')
@@ -126,6 +128,7 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
   const requirementLabel = (label: string) => historical ? label.replace('Today’s', `${selectedDateLabel} ·`).replace('today', selectedDateLabel) : label
 
   useModalLayer(open, sheetRef, () => setOpen(false))
+  useVisualViewportBounds(open, backdropRef)
   useEffect(() => {
     if (!open) return
     closeRef.current?.focus()
@@ -148,7 +151,7 @@ export function TodayRequirements({ tracker, entry, today, entries, holidays, co
       <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></IconButton>
     </div>}
     {compactIconOnly && <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><span aria-hidden="true">i</span></IconButton>}
-    {open && createPortal(<div className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+    {open && createPortal(<div ref={backdropRef} className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section ref={sheetRef} className="today-requirements-sheet" role="dialog" aria-modal="true" aria-labelledby="today-requirements-title">
         <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><IconButton ref={closeRef} className="today-requirements-close" label="Close daily requirements" onClick={() => setOpen(false)}>×</IconButton></header>
         <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -230,10 +230,10 @@ export function GoalsPage() {
                 })}
               </ul>
             </section></details>}
-            <details className="goal-history-disclosure"><summary>History and activity</summary><div className="goal-card-summary">
+            <LazyDisclosure className="goal-history-disclosure" summary="History and activity"><div className="goal-card-summary">
               <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}</span>
               <span>{latest ? `${latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
-            </div></details>
+            </div></LazyDisclosure>
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
@@ -308,9 +308,11 @@ function GoalStat({ label, value, detail, help }: { label: string; value: number
 
 function LazyDisclosure({ className, summary, children }: { className: string; summary: string; children: ReactNode }) {
   const [visited, setVisited] = useState(false)
-  return <details className={className} onToggle={(event) => { if (event.currentTarget.open) setVisited(true) }}>
-    <summary>{summary}</summary>
-    {visited && <div className="goal-disclosure-content">{children}</div>}
+  const [open, setOpen] = useState(false)
+  const contentId = useId()
+  return <details className={className} onToggle={(event) => { setOpen(event.currentTarget.open); if (event.currentTarget.open) setVisited(true) }}>
+    <summary aria-expanded={open} aria-controls={visited ? contentId : undefined}>{open ? `Hide ${summary.replace(/^View /, '').toLowerCase()}` : summary}</summary>
+    {visited && <div className="goal-disclosure-content" id={contentId}>{children}</div>}
   </details>
 }
 

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InfoButton } from './InfoButton'
+import styles from '../../styles.css?raw'
 
 describe('InfoButton', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -60,5 +61,12 @@ describe('InfoButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More about Deadline' }))
     const popover = screen.getByRole('dialog', { name: 'Deadline' })
     expect(popover).toHaveStyle({ top: '562px', left: '210px' })
+  })
+
+  it('keeps information icons visually compact while retaining a 44px touch target', () => {
+    render(<InfoButton title="Schedule" summary="Summary." description="Details." />)
+    expect(screen.getByRole('button', { name: 'More about Schedule' })).toHaveClass('info-button')
+    expect(styles).toMatch(/\.info-button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)
+    expect(styles).toMatch(/\.info-button::before\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s)
   })
 })
