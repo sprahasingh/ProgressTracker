@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
+import styles from '../../styles.css?raw'
 
 const { navigation, routeParams } = vi.hoisted(() => ({ navigation: vi.fn(), routeParams: { trackerId: undefined as string | undefined } }))
 
@@ -48,13 +49,50 @@ describe('tracker setup flow', () => {
   it('creates a habit with a daily default and offers an immediate check-in', async () => {
     const user = userEvent.setup()
     renderSetup()
-    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read every day')
+    const name = screen.getByRole('textbox', { name: 'What habit do you want to build?' })
+    expect(name).not.toHaveFocus()
+    await user.type(name, 'Read every day')
+    expect(screen.getByLabelText('Start date').getAttribute('value') ?? (screen.getByLabelText('Start date') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(screen.getByRole('combobox', { name: /How often/ }).closest('.advanced-setup')).not.toHaveAttribute('open')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Schedule & holidays'))
     expect(screen.getByRole('combobox', { name: /How often/ })).toHaveValue('every-day')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Record my first check-in' })).toHaveAttribute('href', '/')
     expect(await localRepository.listTrackers()).toMatchObject([{ kind: 'habit', name: 'Read every day', schedule: { kind: 'every-day' }, metrics: [{ valueType: 'boolean' }] }])
+  })
+
+  it('offers compact numeric unit, target, and precision controls and saves them', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read pages')
+    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    expect(screen.getByRole('region', { name: 'Numeric measure settings' })).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'pages')
+    await user.clear(screen.getByRole('spinbutton', { name: 'Per-check-in target' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Per-check-in target' }), '5')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Numeric precision' }), '1')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 4, metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
+  })
+
+  it.each([320, 360, 390])('keeps the essential setup controls and compact action footer available at %ipx', async (width) => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    window.dispatchEvent(new Event('resize'))
+    renderSetup()
+    expect(screen.getByRole('textbox', { name: 'What habit do you want to build?' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Done or not yet' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Start date')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create tracker' })).toBeInTheDocument()
+    expect(styles).toContain('@media (max-width: 360px)')
+    expect(styles).toContain('bottom: calc(64px + env(safe-area-inset-bottom, 0px))')
+    cleanup()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
 
   it('creates a cumulative goal when an optional target and deadline are added', async () => {
