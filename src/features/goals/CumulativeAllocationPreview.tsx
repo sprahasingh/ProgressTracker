@@ -39,6 +39,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const [resolveHolidayConflicts, setResolveHolidayConflicts] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [pageStart, setPageStart] = useState(() => Math.max(0, preview.days.findIndex((day) => day.eligible)))
   const allocations = eligibleDays.map((day) => manualValues[day.date] ?? day.amount ?? 0)
   const totals = summarizeAllocations(preview.remainingTarget, allocations)
   const suggestedTotals = summarizeAllocations(preview.remainingTarget, eligibleDays.map((day) => day.amount ?? 0))
@@ -47,10 +48,15 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const format = (value: number) => `${formatTrackerNumber(value)}${unit}`
   const latestEntries = latestEntriesByDate(entries, metricId)
   const holidayConflicts = preview.days.filter((day) => day.holiday && (saved[day.date] ?? 0) > 0)
+  const pageDays = preview.days.slice(pageStart, pageStart + 14)
+  const pageEnd = Math.min(preview.days.length, pageStart + pageDays.length)
 
   useEffect(() => {
     if (!dirty) setManualValues(initial)
   }, [dirty, initial])
+  useEffect(() => {
+    setPageStart((current) => Math.min(current, Math.max(0, preview.days.length - 14)))
+  }, [preview.days.length])
 
   function changeAllocation(date: string, raw: string) {
     const value = raw === '' ? 0 : Number(raw)
@@ -129,9 +135,10 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       <span><small>{totals.shortfall ? 'Shortfall' : totals.overAllocation ? 'Over-allocation' : 'Balance'}</small><strong>{format(totals.shortfall || totals.overAllocation)}</strong></span>
     </div>
     {preview.eligibleDayCount === 0 && preview.remainingTarget > 0 && <p className="allocation-preview-warning" role="status">The goal is behind schedule: {format(preview.remainingTarget)} remains and no eligible scheduled days remain before the deadline.</p>}
+    {preview.days.length > 14 && <nav className="allocation-page-controls" aria-label={`${metric.name} schedule pages`}><button className="button button-secondary button-small" type="button" disabled={pageStart === 0} onClick={() => setPageStart((current) => Math.max(0, current - 14))}>Previous dates</button><span>Dates {pageStart + 1}–{pageEnd} of {preview.days.length}</span><button className="button button-secondary button-small" type="button" disabled={pageEnd >= preview.days.length} onClick={() => setPageStart((current) => Math.min(preview.days.length - 14, current + 14))}>Next dates</button></nav>}
     {eligibleDays.length > 0 && <div className="allocation-preview-table-wrap"><table className="allocation-preview-table">
       <thead><tr><th scope="col">Date</th><th scope="col">Actual recorded</th><th scope="col">{savedPlanExists && !dirty ? 'Saved allocation' : dirty ? 'Your draft allocation' : 'Preview allocation'}</th><th scope="col">Suggested now</th></tr></thead>
-      <tbody>{preview.days.map((day) => {
+      <tbody>{pageDays.map((day) => {
         const entry = latestEntries.get(day.date)
           const actual = entry?.outcome === 'skipped' ? 'Skipped' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
         return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
