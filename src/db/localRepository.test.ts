@@ -23,6 +23,15 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('restores an archived tracker and queues the active state for synchronization', async () => {
+    await activateWorkspace('archive-owner')
+    await localRepository.saveTracker({ ...tracker, status: 'archived', archivedAt: '2026-10-01T12:00:00.000Z' })
+
+    await expect(localRepository.unarchiveTracker(tracker.id)).resolves.toMatchObject({ status: 'active', archivedAt: null })
+    await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ status: 'active', archivedAt: null })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['archive-owner', 'tracker', tracker.id]).first()).resolves.toMatchObject({ payload: { status: 'active', archivedAt: null } })
+  })
+
   it('keeps account holidays isolated and atomically queues upsert, removal, and restoration', async () => {
     await activateWorkspace('holiday-account-a')
     const [holiday] = await localRepository.saveAccountHolidays(['2026-10-10', '2026-10-11'], 'travel')

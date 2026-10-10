@@ -135,7 +135,7 @@ export function CalendarPage() {
   }
 
   return <section className="tracker-page calendar-page" aria-labelledby="calendar-title">
-    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." action={<Link className="button button-secondary button-medium" to="/holidays">Manage holidays</Link>} />
+    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." action={<Link className="button button-primary button-medium" to="/holidays">Manage holidays</Link>} />
     <div className="calendar-toolbar"><label className="history-filter"><span>Month</span><input className="auth-input" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => changeMonth(event.target.value)} /></label><Link className="button button-quiet button-small" to={`/calendar?date=${today}`}>Today</Link></div>
     <div className="calendar-legend" aria-label="Activity status legend">{(['pending', 'completed', 'partial', 'missed', 'holiday', 'unscheduled', 'skipped'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true">{ACTIVITY_STATUS_PRESENTATION[status].icon}</i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div>
     {error && <div role="alert" className="form-alert">{error}</div>}

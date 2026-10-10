@@ -36,6 +36,11 @@ describe('Calendar page', () => {
 
     expect(await screen.findByText('Morning walk')).toBeInTheDocument()
     expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
+    const manageHolidays = screen.getByRole('link', { name: 'Manage holidays' })
+    expect(manageHolidays).toHaveClass('button-primary')
+    expect(manageHolidays).toHaveAttribute('href', '/holidays')
+    expect(screen.getByRole('link', { name: 'Today' })).toHaveAttribute('href', `/calendar?date=${today}`)
+    expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
 

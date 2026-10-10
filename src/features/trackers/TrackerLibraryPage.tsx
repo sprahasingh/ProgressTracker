@@ -26,12 +26,13 @@ export function TrackerLibraryPage() {
   const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
   workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
   const readGenerationRef = useRef(0)
-  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[] } | null>(null)
+  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; checkedInToday: string[] } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
   const trackers = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackers : []
+  const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey)
   const visibleTrackers = kindFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.kind === kindFilter)
@@ -43,9 +44,12 @@ export function TrackerLibraryPage() {
     setLoading(true)
     setErrorState(null)
     try {
-      const result = await localRepository.listTrackers(showArchived)
+      const [result, entries] = await Promise.all([
+        localRepository.listTrackers(showArchived),
+        localRepository.listTrackerEntriesBetween(today, today),
+      ])
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
-        setTrackerSnapshot({ workspaceKey: context.key, trackers: result })
+        setTrackerSnapshot({ workspaceKey: context.key, trackers: result, checkedInToday: entries.filter((entry) => entry.deletedAt === null).map((entry) => entry.trackerId) })
       }
     } catch {
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
@@ -54,7 +58,7 @@ export function TrackerLibraryPage() {
     } finally {
       if (readGenerationRef.current === generation) setLoading(false)
     }
-  }, [showArchived])
+  }, [showArchived, today])
 
   useEffect(() => {
     if (!workspaceReady || !workspaceKey) {
@@ -73,6 +77,16 @@ export function TrackerLibraryPage() {
     } catch {
       const context = workspaceRef.current
       if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be archived. Your saved data is unchanged.' })
+    }
+  }
+
+  async function unarchive(id: string) {
+    try {
+      await localRepository.unarchiveTracker(id)
+      await refresh()
+    } catch {
+      const context = workspaceRef.current
+      if (context.ready && context.key) setErrorState({ workspaceKey: context.key, message: 'This tracker could not be restored. Your saved data is unchanged.' })
     }
   }
 
@@ -129,10 +143,9 @@ export function TrackerLibraryPage() {
                 {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}
               </div>
               <div className="tracker-card-actions">
-                {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">Check in today</Link>}
+                {tracker.status === 'active' && isScheduledDate(tracker, today) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : 'Check in today'}</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
-                {tracker.status !== 'archived' && <Button variant="quiet" size="small" onClick={() => void archive(tracker.id)}>Archive</Button>}
-                <Button variant="destructive" size="small" onClick={() => void moveToBin(tracker)}>Delete</Button>
+                <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => moveToBin(tracker)} />
               </div>
             </Surface>
           ))}
@@ -140,6 +153,60 @@ export function TrackerLibraryPage() {
       )}
     </section>
   )
+}
+
+function TrackerActionsMenu({ tracker, onArchive, onRestore, onDelete }: {
+  tracker: StoredTrackerDefinition
+  onArchive: () => Promise<void>
+  onRestore: () => Promise<void>
+  onDelete: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const dismissOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+        if (!items?.length) return
+        event.preventDefault()
+        const current = [...items].indexOf(document.activeElement as HTMLButtonElement)
+        const next = event.key === 'ArrowDown' ? (current + 1) % items.length : (current <= 0 ? items.length - 1 : current - 1)
+        items[next]?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', dismissOutside)
+    document.addEventListener('keydown', dismissEscape)
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside)
+      document.removeEventListener('keydown', dismissEscape)
+    }
+  }, [open])
+
+  async function run(action: () => Promise<void>) {
+    setOpen(false)
+    await action()
+  }
+
+  return <div className="tracker-actions-menu" ref={rootRef}>
+    <button ref={triggerRef} type="button" className="button button-secondary button-small tracker-actions-trigger" aria-label={`More actions for ${tracker.name}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>⋯</button>
+    {open && <div className="tracker-actions-popover" role="menu" aria-label={`${tracker.name} actions`} ref={menuRef}>
+      {tracker.status === 'archived'
+        ? <button type="button" role="menuitem" onClick={() => void run(onRestore)}>Restore tracker</button>
+        : <button type="button" role="menuitem" onClick={() => void run(onArchive)}>Archive tracker</button>}
+      <button type="button" role="menuitem" className="destructive" onClick={() => void run(onDelete)}>Delete tracker</button>
+    </div>}
+  </div>
 }
 
 function TrackerCardTargets({ tracker }: { tracker: StoredTrackerDefinition }) {
