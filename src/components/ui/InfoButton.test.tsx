@@ -63,6 +63,49 @@ describe('InfoButton', () => {
     expect(popover).toHaveStyle({ top: '562px', left: '210px' })
   })
 
+  it('uses a content-sized mobile sheet only when the anchored explanation cannot fit', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('info-button')) return new DOMRect(180, 380, 44, 44)
+      if (this.classList.contains('info-popover')) return new DOMRect(0, 0, 300, 220)
+      if (this.classList.contains('mobile-nav')) return new DOMRect(0, 760, 390, 84)
+      return new DOMRect(0, 0, 0, 0)
+    })
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('info-popover') ? 620 : 0
+    })
+    const nav = document.createElement('div')
+    nav.className = 'mobile-nav'
+    document.body.append(nav)
+    render(<InfoButton title="Heatmap" summary="A summary." description={'More detail. '.repeat(80)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Heatmap' }))
+    const popover = screen.getByRole('dialog', { name: 'Heatmap' })
+    expect(popover).toHaveAttribute('data-presentation', 'sheet')
+    expect(popover).toHaveAttribute('aria-modal', 'true')
+    expect(popover).toHaveStyle({ left: '12px' })
+    expect(Number.parseFloat(popover.style.top)).toBeGreaterThanOrEqual(12)
+    expect(Number.parseFloat(popover.style.top)).toBeLessThan(760)
+    nav.remove()
+  })
+
+  it.each([320, 360, 390, 430, 768, 1024, 1440])('clamps the popup inside a %ipx viewport near the right edge', (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('info-button')) return new DOMRect(width - 44, 100, 44, 44)
+      if (this.classList.contains('info-popover')) return new DOMRect(0, 0, Math.min(320, width - 24), 180)
+      return new DOMRect(0, 0, 0, 0)
+    })
+    render(<InfoButton title="Responsive" summary="Summary." description="Details." />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Responsive' }))
+    const popover = screen.getByRole('dialog', { name: 'Responsive' })
+    const left = Number.parseFloat(popover.style.left)
+    const panelWidth = Math.min(320, width - 24)
+    expect(left).toBeGreaterThanOrEqual(12)
+    expect(left + panelWidth).toBeLessThanOrEqual(width - 12)
+  })
+
   it('keeps information icons visually compact while retaining a 44px touch target', () => {
     render(<InfoButton title="Schedule" summary="Summary." description="Details." />)
     expect(screen.getByRole('button', { name: 'More about Schedule' })).toHaveClass('info-button')

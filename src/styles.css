@@ -1505,7 +1505,8 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .info-button:focus-visible { outline-color: var(--info-icon); }
 .info-button:focus-visible { outline: 3px solid var(--info-icon); outline-offset: 3px; }
 .info-dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.info-popover { z-index: 1600; display: flex; width: min(360px, calc(100vw - 24px)); max-height: min(70vh, 520px); max-height: min(70dvh, 520px); min-height: 0; flex-direction: column; overflow: hidden; padding: 10px 16px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
+.info-popover { z-index: 1600; display: flex; width: min(320px, calc(100vw - 24px)); max-height: min(70vh, 520px); max-height: min(70dvh, 520px); min-height: 0; flex-direction: column; overflow: hidden; padding: 10px 16px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
+.info-popover[data-presentation='sheet'] { width: min(320px, calc(100vw - 24px)); border-radius: 18px; padding: 10px 16px 16px; }
 .info-popover-heading { display: flex; flex: 0 0 auto; justify-content: flex-end; }
 .info-popover-content { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 6px 6px; }
 .info-dialog-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 20px; line-height: 1; cursor: pointer; }
@@ -1575,7 +1576,8 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .form-field > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tracker-kind-picker legend { display: flex; align-items: center; gap: 7px; }
 @media (max-width: 600px) {
-  .info-popover { padding: 20px 17px; }
+  .info-popover { padding: 10px 12px 12px; }
+  .info-popover[data-presentation='sheet'] { width: calc(100vw - 24px); }
   .dashboard-heading-actions { gap: 8px; }
   .page-title-row { gap: 8px; }
 }
