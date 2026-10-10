@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { fireEvent } from '@testing-library/dom'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -7,6 +8,7 @@ import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { GoalsPage } from './GoalsPage'
+import goalStyles from '../../styles.css?raw'
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({
   status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false,
@@ -14,8 +16,14 @@ vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({
 
 afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 
+async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: string) {
+  await user.click(await screen.findByRole('button', { name: new RegExp(goalName) }))
+  await user.click(await screen.findByText('View daily plan'))
+}
+
 describe('Goals page allocation preview', () => {
   it('exposes an unsaved preview without changing the stored plan or check-ins', async () => {
+    const user = userEvent.setup()
     // The fixture uses the UTC planning zone, so its entry date and the goal
     // page's planning "today" must be derived in that same zone.
     const today = localCalendarDate(new Date(), 'UTC')
@@ -30,6 +38,9 @@ describe('Goals page allocation preview', () => {
     const savedEntry = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { pages: 2 }, note: 'Actual work' })
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
 
+    expect(screen.queryByRole('region', { name: 'Pages allocation preview' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Finish a draft/ })).toHaveAttribute('aria-expanded', 'false')
+    await openGoalPlan(user, 'Finish a draft')
     expect(await screen.findByRole('region', { name: 'Pages allocation preview' })).toBeInTheDocument()
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
     const tomorrow = shiftCalendarDate(today, 1)
@@ -43,6 +54,7 @@ describe('Goals page allocation preview', () => {
   })
 
   it('refreshes actual progress and the cumulative suggestion after a guest check-in is saved', async () => {
+    const user = userEvent.setup()
     const today = localCalendarDate(new Date(), 'UTC')
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'goal-live-progress', name: 'Practice questions', description: '', kind: 'goal', status: 'active', categoryId: null,
@@ -53,6 +65,7 @@ describe('Goals page allocation preview', () => {
     }
     await localRepository.saveTracker(tracker)
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await openGoalPlan(user, 'Practice questions')
     expect(await screen.findByRole('region', { name: 'Questions allocation preview' })).toBeInTheDocument()
     expect(screen.getAllByText('9 problems').length).toBeGreaterThanOrEqual(1)
 
@@ -65,6 +78,7 @@ describe('Goals page allocation preview', () => {
   })
 
   it('recalculates displayed future suggestions after progress is created, edited, and deleted without replacing saved allocations', async () => {
+    const user = userEvent.setup()
     const today = localCalendarDate(new Date(), 'UTC')
     const tomorrow = shiftCalendarDate(today, 1)
     const nextDay = shiftCalendarDate(today, 2)
@@ -77,6 +91,7 @@ describe('Goals page allocation preview', () => {
     }
     await localRepository.saveTracker(tracker)
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await openGoalPlan(user, 'Practice problems')
     expect(await screen.findByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('3 problems')
     expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('3 problems')
 
@@ -92,6 +107,7 @@ describe('Goals page allocation preview', () => {
 
     cleanup()
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await openGoalPlan(user, 'Practice problems')
     await waitFor(() => expect(screen.getByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('4 problems'))
     expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('4 problems')
 
@@ -101,5 +117,96 @@ describe('Goals page allocation preview', () => {
     expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('3 problems')
     await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })
     await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, today]).first()).resolves.toMatchObject({ values: { problems: 2 }, note: 'edited', deletedAt: expect.any(String) })
+  })
+
+  it('keeps goals collapsed by default, supports multiple open cards, and refreshes their summaries in place', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const makeGoal = (id: string, name: string, metrics: StoredTrackerDefinition['metrics'], cumulativeTargets: Record<string, number>): StoredTrackerDefinition => ({
+      schemaVersion: 4, id, name, description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 2),
+      metrics, customFields: [], milestones: [],
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: Object.fromEntries(Object.keys(cumulativeTargets).map((key) => [key, 'incremental' as const])), dailyTargets: {}, cumulativeTargets, planningTimeZone: 'UTC', allocations: {} },
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    })
+    const first = makeGoal('goal-alpha', 'Finish the database course', [
+      { id: 'chapters', name: 'Chapters', valueType: 'quantity', unit: 'chapters', precision: { decimalPlaces: 0, increment: 1 } },
+      { id: 'lessons', name: 'Lessons', valueType: 'quantity', unit: 'lessons', precision: { decimalPlaces: 0, increment: 1 } },
+    ], { chapters: 10, lessons: 20 })
+    const second = makeGoal('goal-beta', 'Complete the portfolio', [
+      { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } },
+    ], { pages: 5 })
+    await localRepository.saveTracker(first)
+    await localRepository.saveTracker(second)
+    await localRepository.saveTrackerEntry({ trackerId: first.id, date: today, outcome: 'recorded', values: { chapters: 2, lessons: 10 }, note: '' })
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+
+    const firstToggle = await screen.findByRole('button', { name: /Finish the database course/ })
+    const secondToggle = screen.getByRole('button', { name: /Complete the portfolio/ })
+    expect(firstToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(secondToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(firstToggle).toHaveTextContent('2 / 10 chapters')
+    expect(firstToggle).toHaveTextContent('10 / 20 lessons')
+    expect(firstToggle.querySelectorAll('.goal-card-progress')).toHaveLength(2)
+    expect(screen.queryByRole('region', { name: 'Chapters allocation preview' })).not.toBeInTheDocument()
+
+    await user.click(firstToggle)
+    expect(firstToggle).toHaveAttribute('aria-expanded', 'true')
+    await user.click(secondToggle)
+    expect(firstToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(secondToggle).toHaveAttribute('aria-expanded', 'true')
+    await user.click(within(firstToggle.closest('.goal-card')!).getByText('View daily plan'))
+    expect(await screen.findByRole('region', { name: 'Chapters allocation preview' })).toBeInTheDocument()
+
+    await localRepository.saveTrackerEntry({ trackerId: first.id, date: today, outcome: 'recorded', values: { chapters: 5, lessons: 10 }, note: 'edited' })
+    await waitFor(() => expect(screen.getByRole('button', { name: /Finish the database course/ })).toHaveTextContent('5 / 10 chapters'))
+    expect(screen.getByRole('button', { name: /Finish the database course/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /Complete the portfolio/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('region', { name: 'Chapters allocation preview' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Finish the database course/ }))
+    expect(screen.getByRole('button', { name: /Finish the database course/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /Complete the portfolio/ })).toHaveAttribute('aria-expanded', 'true')
+    await user.click(screen.getByRole('button', { name: /Finish the database course/ }))
+    expect(screen.getByRole('region', { name: 'Chapters allocation preview' })).toBeInTheDocument()
+  })
+
+  it('paginates long allocation schedules while keeping every date reachable', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const deadline = shiftCalendarDate(today, 45)
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 4, id: 'long-goal-plan', name: 'Long research project', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 50 }, planningTimeZone: 'UTC', allocations: {} },
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    await openGoalPlan(user, tracker.name)
+    expect(await screen.findByText(`Dates 1–14 of 46`)).toBeInTheDocument()
+    expect(screen.getAllByRole('spinbutton')).toHaveLength(14)
+    await user.click(screen.getByRole('button', { name: 'Next dates' }))
+    expect(screen.getByText('Dates 15–28 of 46')).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: `Allocation for ${shiftCalendarDate(today, 14)}` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous dates' })).toBeEnabled()
+  })
+
+  it.each([320, 360, 390, 430, 1280])('keeps long goal summaries responsive at %ipx', async (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    const today = localCalendarDate(new Date(), 'UTC')
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 1, id: `long-goal-${width}`, name: 'Complete the advanced distributed systems capstone course', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'sessions', name: 'Sessions in the advanced lab series', valueType: 'quantity', unit: 'sessions', thresholds: { direction: 'increase', target: 25, streakQualification: 'target' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'sessions', level: 'target' }, customFields: [], milestones: [], createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    const summary = await screen.findByRole('button', { name: /Complete the advanced distributed systems capstone course/ })
+    expect(summary).toHaveAttribute('aria-expanded', 'false')
+    expect(summary).toHaveTextContent('Sessions in the advanced lab series')
+    expect(goalStyles).toMatch(/\.goal-card-summary-name\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+    expect(goalStyles).toMatch(/\.goal-card-summary-metrics\s*\{[^}]*min-width:\s*0/s)
+    expect(goalStyles).toMatch(/@media\s*\(max-width:\s*600px\)[\s\S]*?\.goal-card-trigger/)
   })
 })

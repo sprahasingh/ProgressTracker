@@ -1689,3 +1689,43 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .today-missed-disclosure > summary { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: var(--ink); font-size: 13px; font-weight: 700; cursor: pointer; }
 .today-missed-disclosure > summary span { display: grid; min-width: 26px; height: 26px; place-items: center; border-radius: 99px; color: var(--status-missed-ink); background: var(--status-missed-surface); font-size: 11px; }
 .today-missed-disclosure > .today-checkin-list { padding: 0 10px 10px; }
+
+/* Goal cards use progressive disclosure: summaries stay compact, detailed plans load on demand. */
+.goal-card { min-width: 0; overflow: hidden; padding: 0; }
+.goal-card-trigger { display: flex; width: 100%; min-width: 0; min-height: 112px; flex-direction: column; align-items: stretch; gap: 8px; padding: 14px 15px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.goal-card-trigger:focus-visible, .goal-plan-disclosure > summary:focus-visible, .goal-milestone-disclosure > summary:focus-visible, .goal-history-disclosure > summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: -3px; }
+.goal-card-summary-top { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.goal-card-deadline { min-width: 0; color: var(--ink-muted); font-size: 11px; overflow-wrap: anywhere; }
+.goal-card-summary-name { color: var(--ink); font-size: 17px; font-weight: 730; line-height: 1.25; overflow-wrap: anywhere; }
+.goal-card-summary-metrics { display: grid; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr)); gap: 8px 16px; }
+.goal-card-summary-metric { display: grid; min-width: 0; gap: 2px; color: var(--ink-muted); font-size: 11px; }
+.goal-card-summary-metric > * { min-width: 0; overflow-wrap: anywhere; }
+.goal-card-summary-metric strong { color: var(--ink); font-size: 13px; font-weight: 680; }
+.goal-card-summary-metric small { color: var(--ink-muted); font-size: 10px; }
+.goal-card-progress { display: block; width: 100%; height: 5px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--status-fg) 17%, transparent); }
+.goal-card-progress i { display: block; height: 100%; border-radius: inherit; background: var(--status-fg); }
+.goal-card-expand-hint { display: flex; min-height: 24px; align-items: center; justify-content: space-between; color: var(--ink-muted); font-size: 11px; font-weight: 650; }
+.goal-expanded-details { min-width: 0; padding: 0 15px 15px; border-top: 1px solid var(--status-stroke); }
+.goal-expanded-details[hidden] { display: none; }
+.goal-expanded-details > .tracker-card-description { min-height: 0; margin: 12px 0; }
+.goal-plan-disclosure, .goal-milestone-disclosure, .goal-history-disclosure { margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 76%, var(--surface-muted)); }
+.goal-plan-disclosure > summary, .goal-milestone-disclosure > summary, .goal-history-disclosure > summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: inherit; color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer; }
+.goal-disclosure-content { min-width: 0; padding: 0 12px 12px; }
+.goal-plan-disclosure .goal-plan-visualization { margin-top: 0; padding-top: 12px; }
+.goal-milestone-disclosure .goal-milestones { margin: 0; padding: 0 12px 12px; }
+.goal-history-disclosure .goal-card-summary { margin: 0; padding: 0 12px 12px; }
+.goal-expanded-details .tracker-card-actions { flex-wrap: wrap; margin: 12px 0 0; padding-top: 12px; }
+.goal-plan-disclosure summary::-webkit-details-marker, .goal-milestone-disclosure summary::-webkit-details-marker, .goal-history-disclosure summary::-webkit-details-marker { display: none; }
+@media (max-width: 600px) {
+  .goal-card-trigger { min-height: 110px; padding: 14px; }
+  .goal-expanded-details { padding-right: 14px; padding-left: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .goal-card, .goal-card-progress i { scroll-behavior: auto; transition: none; } }
+.allocation-page-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 8px; color: var(--ink-muted); font-size: 11px; }
+.allocation-page-controls > span { flex: 1; text-align: center; }
+.allocation-page-controls .button { min-height: 40px; white-space: nowrap; }
+@media (max-width: 380px) { .allocation-page-controls { gap: 4px; font-size: 10px; } .allocation-page-controls .button { padding-right: 8px; padding-left: 8px; } }
+.goal-today-plan-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 8px; margin: 10px 0; }
+.goal-today-plan-summary > div { min-width: 0; padding: 8px 10px; border-radius: 9px; background: var(--surface-muted); }
+.goal-today-plan-summary dt { color: var(--ink-muted); font-size: 10px; }
+.goal-today-plan-summary dd { margin: 3px 0 0; color: var(--ink); font-size: 12px; font-weight: 680; overflow-wrap: anywhere; }

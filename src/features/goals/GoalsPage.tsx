@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -10,6 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
@@ -19,6 +21,7 @@ import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
 type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
+type GoalProgressSummary = { metricId: string; name: string; value: string; target?: number; remaining?: number; percent?: number; unit: string }
 
 export function GoalsPage() {
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
@@ -33,10 +36,13 @@ export function GoalsPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ workspaceKey: string; message: string } | null>(null)
+  const [expandedGoals, setExpandedGoals] = useState<Set<string>>(() => new Set())
+  const [visitedGoals, setVisitedGoals] = useState<Set<string>>(() => new Set())
   const goals = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.goals : []
-  const holidayDates = new Set(workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidays : [])
+  const holidayDates = useMemo(() => new Set(workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidays : []), [workspaceKey, snapshot])
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
-  const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
+  const hasCurrentSnapshot = Boolean(workspaceKey && snapshot?.workspaceKey === workspaceKey)
+  const visibleLoading = !workspaceReady || (loading && !hasCurrentSnapshot) || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
 
   async function moveGoalToBin(tracker: StoredTrackerDefinition) {
     if (!window.confirm(`Move “${tracker.name}” to the Bin? You can restore it for 30 days with its progress and plan.`)) return
@@ -96,6 +102,7 @@ export function GoalsPage() {
   const activeCount = goals.filter(({ tracker }) => tracker.status === 'active' && (!tracker.deadline || tracker.deadline >= today)).length
   const overdueCount = goals.filter(({ tracker }) => tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < today)).length
   const completedCount = goals.filter(({ tracker }) => tracker.status === 'completed').length
+  const goalSummaries = useMemo(() => new Map(goals.map(({ tracker, entries }) => [tracker.id, buildGoalProgressSummary(tracker, entries, timeZone, holidayDates)])), [goals, today, timeZone, holidayDates])
 
   return <section className="tracker-page goals-page" aria-labelledby="goals-title">
     <PageHeader headingId="goals-title" eyebrow="YOUR DIRECTION" title="Goals" description="Keep your longer-term aims and the next useful step in view." action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create a goal</Link>} />
@@ -120,10 +127,25 @@ export function GoalsPage() {
           const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
           const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
+          const expanded = expandedGoals.has(tracker.id)
+          const goalDetailId = `goal-details-${encodeURIComponent(tracker.id)}`
+          const summaryMetrics = goalSummaries.get(tracker.id) ?? []
+          const daysRemaining = tracker.deadline ? Math.ceil((Date.parse(`${tracker.deadline}T00:00:00.000Z`) - Date.parse(`${planningToday}T00:00:00.000Z`)) / 86_400_000) : undefined
           return <Surface className={`goal-card status-card status-${goalStatusColor}`} key={tracker.id}>
-            <div className="tracker-card-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span>{overdue ? 'Was due' : 'Due'} {calendarDateLabel(tracker.deadline)}</span>}</div>
-            <h2>{tracker.name}</h2>
-            <p className="tracker-card-description">{tracker.description || 'No description yet.'}</p>
+            <button className="goal-card-trigger" type="button" aria-expanded={expanded} aria-controls={goalDetailId} onClick={() => {
+              setVisitedGoals((current) => new Set(current).add(tracker.id))
+              setExpandedGoals((current) => {
+                const next = new Set(current); if (next.has(tracker.id)) next.delete(tracker.id); else next.add(tracker.id); return next
+              })
+            }}>
+              <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
+              <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
+              <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}</>}</span>)}</span>
+              <span className="goal-card-expand-hint">{expanded ? 'Hide details' : 'View goal details'} <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span></span>
+            </button>
+            <div className="goal-expanded-details" id={goalDetailId} hidden={!expanded}>
+            {visitedGoals.has(tracker.id) && <>
+            {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
             {tracker.metrics.length > 0 && <ul className="goal-metric-list" aria-label={`${tracker.name} measures`}>
               {tracker.metrics.map((metric) => {
                 const value = latest?.values[metric.id]
@@ -132,7 +154,7 @@ export function GoalsPage() {
                 return <li key={metric.id}><span>{metric.name}</span><strong>{valueText}{target !== undefined ? ` · target ${formatTrackerNumber(target)}${metric.unit ? ` ${metric.unit}` : ''}` : ''}</strong></li>
               })}
             </ul>}
-            {tracker.schemaVersion >= 2 && tracker.goalPlanning && <section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
+            {tracker.schemaVersion >= 2 && tracker.goalPlanning && <LazyDisclosure className="goal-plan-disclosure" summary="View daily plan"><section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
               <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, skipped, missed, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
@@ -140,12 +162,14 @@ export function GoalsPage() {
                   const metric = tracker.metrics.find((item) => item.id === metricId)
                   if (!metric) return null
                   const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate, holidays: holidayDates })
-                  const recentDays = plan.days.slice(-14)
+                  const todayEntry = goalEntries.find((entry) => entry.date === planningToday && entry.deletedAt === null)
+                  const todayValue = goalMetricValue(metric, todayEntry)
                   const missed = plan.days.filter((day) => ['missed', 'skipped', 'below-target'].includes(day.state)).length
                   return <div className="goal-daily-metric" key={metricId}>
                     <div className="goal-plan-metric-heading"><strong>{metric.name}</strong><span>{formatTrackerNumber(target)}{metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''} per scheduled day</span></div>
+                    <dl className="goal-today-plan-summary"><div><dt>Today’s target</dt><dd>{formatTrackerNumber(target)}{metric.unit ? ` ${metric.unit}` : ''}</dd></div><div><dt>Completed today</dt><dd>{formatTrackerNumber(todayValue)}{metric.unit ? ` ${metric.unit}` : ''}</dd></div>{metric.thresholds?.direction !== 'decrease' && <div><dt>Remaining today</dt><dd>{formatTrackerNumber(Math.max(0, target - todayValue))}{metric.unit ? ` ${metric.unit}` : ''}</dd></div>}<div><dt>Scheduled days remaining</dt><dd>{plan.scheduledDaysRemaining}</dd></div></dl>
                     <p>{plan.consistencyPercent === null ? 'No completed scheduled opportunities yet' : `${plan.metCount} of ${plan.elapsedOpportunities} scheduled days met target · ${plan.consistencyPercent}% consistency`}{missed ? ` · ${missed} missed or below target` : ''} · {plan.scheduledDaysRemaining} scheduled days remaining in this view</p>
-                    <ol className="goal-plan-days">{recentDays.map((day) => <li key={day.date} className={`goal-plan-day ${day.state === 'met' ? 'completed' : day.state === 'below-target' ? 'partial' : day.state === 'missed' ? 'missed' : day.state === 'holiday' || day.state === 'rest' ? 'holiday' : day.state === 'pending' || day.state === 'future' ? 'pending' : 'skipped'}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${goalDayStatusLabel(day.state)}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${goalDayStatusLabel(day.state)}`}><span>{Number(day.date.slice(8, 10))}</span></li>)}</ol>
+                    <GoalPlanDayList days={plan.days} metricName={metric.name} />
                     <div className="goal-plan-legend"><span>Met</span><span>Below / missed</span><span>Rest</span><span>Upcoming</span></div>
                   </div>
                 })}</div>
@@ -154,7 +178,12 @@ export function GoalsPage() {
                   : <div className="goal-cumulative-plans">{Object.entries(tracker.goalPlanning.cumulativeTargets).map(([metricId, totalTarget]) => {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
-                  const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates })
+                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates })
+                    const todayPreview = createCumulativeAllocationPreview({ tracker, entries: goalEntries, metricId, totalTarget, startDate, asOfDate: planningToday, holidays: holidayDates })
+                    const todaySuggestion = todayPreview.days.find((day) => day.date === planningToday && day.eligible)?.amount
+                    const todaySaved = tracker.goalPlanning?.allocations?.[metricId]?.[planningToday]
+                    const todayValue = goalMetricValue(metric, goalEntries.find((entry) => entry.date === planningToday && entry.deletedAt === null))
+                    const todaysAllocation = todaySaved ?? todaySuggestion
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const format = formatTrackerNumber
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
@@ -166,6 +195,7 @@ export function GoalsPage() {
                         <div><span>Expected by today</span><div className="goal-plan-bar"><i className="expected" style={{ width: `${expectedPercent}%` }} /></div></div>
                       </div>
                       <dl className="goal-plan-facts"><div><dt>Actual progress</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected progress</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${format(plan.requiredDailyPace)}${unit} / scheduled day`}</dd></div></dl>
+                      <dl className="goal-today-plan-summary"><div><dt>{todaySaved === undefined ? 'Suggested allocation today' : 'Saved allocation today'}</dt><dd>{todaysAllocation == null ? 'No scheduled allocation' : `${format(todaysAllocation)}${unit}`}</dd></div><div><dt>Completed today</dt><dd>{format(todayValue)}{unit}</dd></div>{todaysAllocation != null && <div><dt>Remaining today</dt><dd>{format(Math.max(0, todaysAllocation - todayValue))}{unit}</dd></div>}<div><dt>Scheduled days remaining</dt><dd>{plan.scheduledDaysRemaining}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
@@ -175,9 +205,8 @@ export function GoalsPage() {
                       />}
                     </div>
                   })}</div>}
-            </section>}
-            {tracker.milestones.length > 0 && <section className="goal-milestones" aria-label={`${tracker.name} milestones`}>
-              <h3>Milestones</h3>
+            </section></LazyDisclosure>}
+            {tracker.milestones.length > 0 && <details className="goal-milestone-disclosure"><summary>Milestones <span>{tracker.milestones.length}</span></summary><section className="goal-milestones" aria-label={`${tracker.name} milestones`}>
               <ul>
                 {tracker.milestones.map((milestone) => {
                   const metric = tracker.metrics.find((item) => item.id === milestone.metricId)
@@ -200,21 +229,59 @@ export function GoalsPage() {
                   </li>
                 })}
               </ul>
-            </section>}
-            <div className="goal-card-summary">
+            </section></details>}
+            <details className="goal-history-disclosure"><summary>History and activity</summary><div className="goal-card-summary">
               <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}</span>
               <span>{latest ? `${latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
-            </div>
+            </div></details>
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
               <Button variant="quiet" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete</Button>
+            </div>
+            </>}
             </div>
           </Surface>
         })}
       </div>
     </>}
   </section>
+}
+
+function buildGoalProgressSummary(
+  tracker: StoredTrackerDefinition,
+  entries: readonly StoredTrackerEntry[],
+  fallbackTimeZone: string,
+  holidays: ReadonlySet<string>,
+): GoalProgressSummary[] {
+  const planningTimeZone = tracker.schemaVersion >= 3 ? tracker.goalPlanning?.planningTimeZone ?? fallbackTimeZone : fallbackTimeZone
+  const asOfDate = localCalendarDate(new Date(), planningTimeZone)
+  const startDate = tracker.startDate ?? localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
+  const cumulativeTargets = tracker.goalPlanning?.mode === 'cumulative-deadline' ? tracker.goalPlanning.cumulativeTargets : {}
+  const latestRecorded = entries.find((entry) => entry.outcome === 'recorded')
+  return tracker.metrics.map((metric) => {
+    const target = cumulativeTargets[metric.id]
+    if (target !== undefined && tracker.goalPlanning?.progressSemantics[metric.id] === 'incremental') {
+      const plan = calculateCumulativeMetricPlan({ tracker, entries, metricId: metric.id, totalTarget: target, asOfDate, startDate, progressSemantics: 'incremental', holidays })
+      const percent = target === 0 ? 100 : Math.min(100, Math.max(0, plan.actualProgress / target * 100))
+      const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
+      return { metricId: metric.id, name: metric.name, value: `${formatTrackerNumber(plan.actualProgress)} / ${formatTrackerNumber(target)}${unit}`, target, remaining: plan.remainingWork, percent, unit }
+    }
+    const value = latestRecorded?.values[metric.id]
+    const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
+    const valueText = typeof value === 'number' ? `${formatTrackerNumber(value)}${unit}` : typeof value === 'boolean' ? (value ? 'Complete' : 'Not complete') : value && typeof value === 'object' ? `${Object.values(value).filter((item) => item).length} items` : 'No progress recorded'
+    const threshold = metric.thresholds?.target
+    return { metricId: metric.id, name: metric.name, value: `${valueText}${threshold === undefined ? '' : ` · target threshold ${formatTrackerNumber(threshold)}${unit}`}`, unit }
+  })
+}
+
+function goalMetricValue(metric: StoredTrackerDefinition['metrics'][number], entry: StoredTrackerEntry | undefined): number {
+  if (!entry || entry.outcome !== 'recorded') return 0
+  const value = entry.values[metric.id]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (typeof value === 'object' && value !== null) return Object.values(value).filter(Boolean).length
+  return 0
 }
 
 function cumulativeStatusLabel(status: string, paceStatus: string): string {
@@ -237,4 +304,22 @@ function goalDayStatusLabel(status: string): string {
 
 function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {
   return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
+}
+
+function LazyDisclosure({ className, summary, children }: { className: string; summary: string; children: ReactNode }) {
+  const [visited, setVisited] = useState(false)
+  return <details className={className} onToggle={(event) => { if (event.currentTarget.open) setVisited(true) }}>
+    <summary>{summary}</summary>
+    {visited && <div className="goal-disclosure-content">{children}</div>}
+  </details>
+}
+
+function GoalPlanDayList({ days, metricName }: { days: ReturnType<typeof calculateDailyRecurringMetricPlan>['days']; metricName: string }) {
+  const [pageStart, setPageStart] = useState(() => Math.max(0, days.length - 14))
+  useEffect(() => setPageStart((current) => Math.min(current, Math.max(0, days.length - 14))), [days.length])
+  const pageDays = days.slice(pageStart, pageStart + 14)
+  return <>
+    {days.length > 14 && <nav className="allocation-page-controls" aria-label={`${metricName} daily history pages`}><button className="button button-secondary button-small" type="button" disabled={pageStart === 0} onClick={() => setPageStart((current) => Math.max(0, current - 14))}>Earlier dates</button><span>Dates {pageStart + 1}–{Math.min(days.length, pageStart + pageDays.length)} of {days.length}</span><button className="button button-secondary button-small" type="button" disabled={pageStart + pageDays.length >= days.length} onClick={() => setPageStart((current) => Math.min(days.length - 14, current + 14))}>Later dates</button></nav>}
+    <ol className="goal-plan-days">{pageDays.map((day) => <li key={day.date} className={`goal-plan-day ${day.state === 'met' ? 'completed' : day.state === 'below-target' ? 'partial' : day.state === 'missed' ? 'missed' : day.state === 'holiday' || day.state === 'rest' ? 'holiday' : day.state === 'pending' || day.state === 'future' ? 'pending' : 'skipped'}`} aria-label={`${calendarDateLabel(day.date, { month: 'short', day: 'numeric' })}: ${goalDayStatusLabel(day.state)}${day.value === null ? '' : `, ${formatTrackerNumber(day.value)}`}`} title={`${calendarDateLabel(day.date)} · ${goalDayStatusLabel(day.state)}`}><span>{Number(day.date.slice(8, 10))}</span></li>)}</ol>
+  </>
 }
