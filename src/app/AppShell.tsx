@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useAuth } from '../features/auth/AuthProvider'
 import { InstallAppPrompt } from '../components/InstallAppPrompt'
 import { WorkspaceTimeZoneProvider } from '../features/settings/WorkspaceTimeZone'
@@ -38,6 +38,34 @@ export function AppShell() {
   const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const moreRef = useRef<HTMLDivElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  const moreTriggerRef = useRef<HTMLButtonElement>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  useEffect(() => { setMoreOpen(false) }, [location.key, location.pathname, location.search, location.hash])
+  useEffect(() => {
+    if (!moreOpen) return
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !moreRef.current?.contains(event.target)) setMoreOpen(false)
+    }
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setMoreOpen(false); moreTriggerRef.current?.focus() }
+    }
+    const closeForOtherLayers = () => setMoreOpen(false)
+    const closeOnFocusOutside = (event: FocusEvent) => {
+      if (event.target instanceof Node && !moreRef.current?.contains(event.target)) setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeEscape)
+    document.addEventListener('progress-tracker:open-info', closeForOtherLayers)
+    document.addEventListener('focusin', closeOnFocusOutside)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeEscape)
+      document.removeEventListener('progress-tracker:open-info', closeForOtherLayers)
+      document.removeEventListener('focusin', closeOnFocusOutside)
+    }
+  }, [moreOpen])
   useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
   const syncLabel = status === 'loading' ? 'Checking account'
     : status !== 'signed-in' ? 'Local mode'
@@ -54,6 +82,18 @@ export function AppShell() {
   const workspaceOwnerVerified = workspaceUserId === expectedWorkspaceUserId
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceOwnerVerified
   const guestChoiceReady = !sessionTransitionPending && status === 'signed-in' && workspaceStatus === 'needs-guest-choice' && workspaceOwnerVerified
+
+  function handleMoreMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const items = moreMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')
+    if (!items?.length) return
+    event.preventDefault()
+    const current = [...items].indexOf(document.activeElement as HTMLElement)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? (current + 1) % items.length
+        : current <= 0 ? items.length - 1 : current - 1
+    items[next]?.focus()
+  }
 
   return (
     <ToastProvider><div className="app-frame">
@@ -129,15 +169,24 @@ export function AppShell() {
               <AppIcon className="mobile-nav-icon" name={icon as AppIconName} /><small>{label}</small>
             </NavLink>
           })}
-          <details className="mobile-more">
-            <summary aria-label="More destinations"><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></summary>
-            <div className="mobile-more-menu">
+          <div className={`mobile-more${moreOpen ? ' is-open' : ''}`} ref={moreRef}>
+            <button ref={moreTriggerRef} type="button" aria-label="More destinations" aria-haspopup="menu" aria-expanded={moreOpen} aria-controls={moreOpen ? 'mobile-more-menu' : undefined} className="mobile-more-trigger" onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                if (moreOpen) moreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+                else {
+                  setMoreOpen(true)
+                  requestAnimationFrame(() => moreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
+                }
+              }
+            }} onClick={() => setMoreOpen((value) => !value)}><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></button>
+            {moreOpen && <div ref={moreMenuRef} id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations" onKeyDown={handleMoreMenuKeyDown}>
               {[...mobileMoreNavigation, ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
-                const details = event.currentTarget.closest('details')
-                if (details) details.open = false
-              }}>{label}</NavLink>)}
-            </div>
-          </details>
+                setMoreOpen(false)
+                event.currentTarget.blur()
+              }} role="menuitem">{label}</NavLink>)}
+            </div>}
+          </div>
         </nav>
       </main>
     </div></ToastProvider>
