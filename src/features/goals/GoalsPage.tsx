@@ -7,7 +7,7 @@ import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs
 import { InfoButton } from '../../components/ui/InfoButton'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
-import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
@@ -91,13 +91,7 @@ export function GoalsPage() {
     return () => { generationRef.current += 1 }
   }, [refresh, workspaceKey, workspaceReady])
 
-  useEffect(() => {
-    if (!workspaceReady) return
-    const owner = expectedOwner
-    return subscribeToWorkspaceDataChanges((changedOwner) => {
-      if (changedOwner === owner) void refresh()
-    })
-  }, [expectedOwner, refresh, workspaceReady])
+  useWorkspaceDataChanges(expectedOwner, workspaceReady, refresh)
 
   const activeCount = goals.filter(({ tracker }) => tracker.status === 'active' && (!tracker.deadline || tracker.deadline >= today)).length
   const overdueCount = goals.filter(({ tracker }) => tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < today)).length

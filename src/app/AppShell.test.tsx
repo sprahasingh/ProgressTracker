@@ -7,7 +7,7 @@ import { localRepository } from '../db/localRepository'
 import { TodayPage } from '../features/today/TodayPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
-import { AppShell } from './AppShell'
+import { AppShell, getAvatarInitial } from './AppShell'
 
 const guestReadyState = { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null }
 const authState = vi.hoisted(() => ({ value: { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null } }))
@@ -16,6 +16,46 @@ vi.mock('../features/auth/AuthProvider', () => ({ useAuth: () => authState.value
 afterEach(async () => { cleanup(); vi.restoreAllMocks(); authState.value = guestReadyState; await db.delete() })
 
 describe('app navigation quality', () => {
+  it('selects a normalized initial from display name, then email, then no initial', () => {
+    expect(getAvatarInitial({ user_metadata: { full_name: '  Spraha Singh ' }, email: 'other@example.com' })).toBe('S')
+    expect(getAvatarInitial({ user_metadata: { name: ' alex ' } })).toBe('A')
+    expect(getAvatarInitial({ email: ' example@gmail.com ' })).toBe('E')
+    expect(getAvatarInitial({ user_metadata: { display_name: '   ' }, email: ' ' })).toBeNull()
+    expect(getAvatarInitial(null)).toBeNull()
+  })
+
+  it('renders the current account initial or an accessible generic icon', () => {
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com', user_metadata: { display_name: ' Alex ' } } } as never
+    const view = render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
+    const avatar = screen.getByRole('link', { name: 'Open account and sign-in' })
+    expect(avatar).toHaveTextContent('A')
+    expect(avatar.querySelector('svg')).toBeNull()
+
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-b', email: ' b@example.com ' } } as never
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Open account and sign-in' })).toHaveTextContent('B')
+
+    authState.value = guestReadyState
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Open account and sign-in' }).querySelector('svg')).toBeInTheDocument()
+    authState.value = guestReadyState
+  })
+
+  it('keeps the avatar keyboard accessible and aligned in the header after sync status', async () => {
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, syncStatus: 'complete' } as never
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route><Route path="/auth" element={<p>Account</p>} /></Routes></MemoryRouter>)
+    const avatar = screen.getByRole('link', { name: 'Open account and sign-in' })
+    expect(avatar.previousElementSibling).toHaveClass('topbar-sync-state')
+    expect(avatar).toHaveAttribute('href', '/auth')
+    expect(avatar.tabIndex).toBe(0)
+    avatar.focus()
+    expect(avatar).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByText('Account')).toBeInTheDocument()
+    authState.value = guestReadyState
+  })
+
   it('does not render route content until the signed-in account workspace is active', () => {
     authState.value = { status: 'signed-in', user: { id: 'user-b', email: 'b@example.com' }, passwordRecovery: false, workspaceStatus: 'loading', workspaceUserId: 'user-a' } as never
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Account private content</p>} /></Route></Routes></MemoryRouter>)

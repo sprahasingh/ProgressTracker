@@ -8,6 +8,8 @@ import type { StoredTrackerDefinition } from '../../db/models'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { HistoryPage } from './HistoryPage'
 
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
+
 afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 
 const definition: StoredTrackerDefinition = {

@@ -4,6 +4,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
@@ -79,6 +80,7 @@ export function CalendarPage() {
     void refresh()
     return () => { requestRef.current += 1 }
   }, [refresh, workspaceKey, workspaceReady])
+  useWorkspaceDataChanges(expectedOwner, workspaceReady, refresh)
 
   const summaries = useMemo(() => {
     const [year, monthNumber] = month.split('-').map(Number)

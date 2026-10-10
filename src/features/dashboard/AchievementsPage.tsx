@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -6,6 +6,8 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
+import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateProgressRewards, calculateStreak, DEFAULT_REWARD_POLICY } from '../../domain/trackers/progression'
 import { localCalendarDate } from '../shared/localDates'
@@ -14,12 +16,17 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 type AchievementData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
 
 export function AchievementsPage() {
+  const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const owner = status === 'signed-in' ? user?.id ?? null : null
+  const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [data, setData] = useState<AchievementData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const refreshGeneration = useRef(0)
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current
     setLoading(true)
     setError('')
     try {
@@ -33,14 +40,15 @@ export function AchievementsPage() {
         localRepository.listAccountHolidays(earliest, today),
       ])
       const trackerIds = new Set(trackers.map((tracker) => tracker.id))
-      setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
+      if (refreshGeneration.current === generation) setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
     } catch {
-      setError('Your achievements could not be loaded from this device.')
+      if (refreshGeneration.current === generation) setError('Your achievements could not be loaded from this device.')
     } finally {
-      setLoading(false)
+      if (refreshGeneration.current === generation) setLoading(false)
     }
   }, [today])
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { if (workspaceReady) void refresh() }, [refresh, workspaceReady])
+  useWorkspaceDataChanges(owner, workspaceReady, refresh)
 
   const achievements = useMemo(() => data.trackers.map((tracker) => {
     const history = data.entries.filter((entry) => entry.trackerId === tracker.id)

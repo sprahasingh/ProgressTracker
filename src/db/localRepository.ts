@@ -2,7 +2,7 @@ import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { AccountHoliday, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
-import { publishWorkspaceMutation } from './workspaceMutationEvents'
+import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 
@@ -333,6 +333,7 @@ export const localRepository = {
         await database.syncOperations.where('entityId').equals(id).delete()
         await database.syncConflicts.where('entityId').equals(id).delete()
       })
+      publishWorkspaceDataChange(null)
       return 'deleted'
     }
     await database.transaction('rw', [database.trackers, database.permanentDeletionRequests, database.workspaceMetadata], async () => {
@@ -355,10 +356,16 @@ export const localRepository = {
 
   async reconcilePermanentDeletionLedger(ownerUserId: string, rows: Array<{ tracker_id: string; permanently_deleted_at: string }>): Promise<void> {
     const database = await openDatabase()
+    let workspaceChanged = false
     await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
       const metadata = await database.workspaceMetadata.get('workspace')
       if (metadata?.userId !== ownerUserId) throw new Error('The active workspace changed during deletion reconciliation.')
       const authoritativeIds = new Set(rows.map((row) => row.tracker_id))
+      const existingLedger = await database.permanentDeletionLedger.where('ownerUserId').equals(ownerUserId).toArray()
+      workspaceChanged = existingLedger.length !== rows.length || rows.some((row) => {
+        const existing = existingLedger.find((item) => item.trackerId === row.tracker_id)
+        return !existing || existing.permanentlyDeletedAt !== row.permanently_deleted_at
+      })
       await database.permanentDeletionLedger.clear()
       for (const verification of await database.trackerVerification.toArray()) {
         if (authoritativeIds.has(verification.trackerId)) continue
@@ -370,6 +377,7 @@ export const localRepository = {
         const trackerId = row.tracker_id
         const key = `${ownerUserId}:${trackerId}`
         const children = await database.trackerEntries.where('trackerId').equals(trackerId).toArray()
+        if (children.length > 0 || await database.trackers.get(trackerId)) workspaceChanged = true
         const childIds = new Set(children.map((entry) => entry.id))
         const ledger: PermanentDeletionLedgerEntry = { key, ownerUserId, trackerId, permanentlyDeletedAt: row.permanently_deleted_at }
         await database.permanentDeletionLedger.put(ledger)
@@ -391,6 +399,7 @@ export const localRepository = {
         await database.trackerVerification.delete(trackerId)
       }
     })
+    if (workspaceChanged) publishWorkspaceDataChange(ownerUserId)
   },
 
   /** Apply one deletion confirmed by the server without treating it as a full ledger scan. */
@@ -420,6 +429,7 @@ export const localRepository = {
       await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).delete()
       await database.trackerVerification.delete(trackerId)
     })
+    publishWorkspaceDataChange(ownerUserId)
   },
 
   async listCategories(includeArchived = false): Promise<Category[]> {

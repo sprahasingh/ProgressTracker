@@ -6,6 +6,7 @@ import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { StoredTrackerDefinition } from '../../db/models'
+import { calendarDateLabel } from '../shared/localDates'
 import { TodayPage } from './TodayPage'
 import todayStyles from '../../styles.css?raw'
 
@@ -24,7 +25,7 @@ const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-
 })
 
 describe('Today check-ins', () => {
-  it.each([320, 360, 390, 768, 1280])('keeps long tracker and measure summaries structured at %ipx', async (width) => {
+  it.each([320, 360, 390, 430, 768, 1280])('keeps long tracker and measure summaries structured at %ipx', async (width) => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     const measureName = 'Sessions completed during the advanced distributed systems course'
     const longTracker = {
@@ -43,19 +44,20 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     const card = await screen.findByRole('heading', { name: longTracker.name }).then((heading) => heading.closest('.today-checkin-card')!)
-    const summary = card.querySelector('.today-target-summary')!
-    expect(summary).toHaveAttribute('role', 'group')
-    expect(summary.querySelector('.today-target-name')).toHaveTextContent(measureName)
-    expect(summary.querySelector('.today-target-value')).toHaveTextContent('0 / 850.25 Sessions')
-    expect(summary.querySelector('.today-target-remaining')).toHaveTextContent('850.25 Sessions remaining')
+    expect(card.querySelector('.today-compact-metric')).toHaveTextContent(measureName)
+    expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 850.25 Sessions')
+    expect(card.querySelector('.today-compact-metric')).toHaveTextContent('850.25 Sessions remaining')
+    expect(screen.queryByLabelText(`${measureName} · Sessions`)).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: `Open ${longTracker.name}, Pending` }))
     expect(screen.getByLabelText(`${measureName} · Sessions`)).toHaveAttribute('placeholder', 'Enter Sessions')
     expect(card).toHaveClass('status-pending')
 
     // JSDOM does not perform browser layout; guard the responsive CSS contract and
     // rendered hierarchy at each target viewport instead of relying on fake geometry.
-    expect(todayStyles).toMatch(/\.today-target-summary\s*\{[^}]*display:\s*grid/s)
-    expect(todayStyles).toMatch(/\.today-checkin-title\s*\{[^}]*overflow-wrap:\s*anywhere/s)
-    expect(todayStyles).toMatch(/@media\s*\(max-width:\s*420px\)[\s\S]*?\.today-target-summary\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)
+    expect(todayStyles).toMatch(/\.today-compact-metrics\s*\{[^}]*display:\s*flex/s)
+    expect(todayStyles).toMatch(/\.today-card-title\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+    expect(todayStyles).toMatch(/@media\s*\(max-width:\s*380px\)/)
   })
 
   it('validates required fields, saves locally, evaluates the rule, and edits the same daily entry', async () => {
@@ -64,9 +66,10 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
-    const activityCard = screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')!
+    const activityCard = screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')!
     expect(activityCard).toHaveClass('status-pending')
     expect(screen.getByRole('status', { name: 'Pending' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     expect(screen.getByLabelText('Pages')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Pages'), '5')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
@@ -75,7 +78,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
 
     expect(await screen.findByText('Your configured success rule is met.')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-completed'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-completed'))
     const savedDate = today()
     const saved = await localRepository.getTrackerEntry('today-tracker', savedDate)
     expect(saved).toMatchObject({ outcome: 'recorded', values: { pages: 5, 'field:mood': 'Focused' } })
@@ -85,7 +88,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-partial'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
   })
 
   it('keeps the week pattern collapsed until requested', async () => {
@@ -114,7 +117,7 @@ describe('Today check-ins', () => {
     })
     act(() => publishWorkspaceDataChange(null))
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily reading' }).closest('.today-checkin-card')).toHaveClass('status-completed'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-completed'))
     expect(screen.getByRole('status', { name: 'Completed' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Information about Daily reading daily requirements' }))
     expect(await screen.findByRole('dialog')).toHaveTextContent(/Completed\s*5/)
@@ -135,15 +138,15 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     const card = await screen.findByRole('heading', { name: 'Daily DSA course' }).then((heading) => heading.closest('.today-checkin-card')!)
-    expect(card.querySelector('.today-target-summary')).toHaveTextContent('Today’s saved allocation0 / 5 sessions5 sessions remainingToday’s suggestion: 4 sessionsNext scheduled suggestion: 3 sessions')
-    expect(card.querySelector('.today-target-summary')).not.toHaveTextContent('0 / 10 sessions')
+    expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions')
+    await user.click(screen.getByRole('button', { name: 'Open Daily DSA course, Pending' }))
     await user.type(screen.getByLabelText('Problems · sessions'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-target-summary')).toHaveTextContent('3 / 5 sessions2 sessions remainingNext scheduled suggestion: 4 sessions'))
-    const detailsButton = screen.getByRole('button', { name: 'Information about Daily DSA course daily requirements' })
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('3 / 5 sessions'))
+    const detailsButton = screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!
     await user.click(detailsButton)
     await waitFor(() => expect(detailsButton).toHaveAttribute('aria-expanded', 'true'))
-    let dialog = screen.getByRole('dialog')
+    let dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Goal total10 sessions')
     expect(dialog).toHaveTextContent('Recorded toward goal3 sessions')
     expect(dialog).toHaveTextContent('Saved allocation5 sessions')
@@ -156,14 +159,14 @@ describe('Today check-ins', () => {
     await user.clear(screen.getByLabelText('Problems · sessions'))
     await user.type(screen.getByLabelText('Problems · sessions'), '4')
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-target-summary')).toHaveTextContent('4 / 5 sessions1 session remainingNext scheduled suggestion: 3 sessions'))
-    await user.click(screen.getByRole('button', { name: 'Information about Daily DSA course daily requirements' }))
-    dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('4 / 5 sessions'))
+    await user.click(screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!)
+    dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Recorded toward goal4 sessions')
 
     await user.click(screen.getByRole('button', { name: 'Close daily requirements' }))
     await user.click(screen.getByRole('button', { name: 'Clear check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-target-summary')).toHaveTextContent('0 / 5 sessions5 sessions remainingToday’s suggestion: 4 sessionsNext scheduled suggestion: 3 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions'))
   })
 
   it('keeps a daily recurring target distinct from per-check-in thresholds', async () => {
@@ -179,11 +182,10 @@ describe('Today check-ins', () => {
     }
     await localRepository.saveTracker(dailyGoal)
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
-    const summary = await screen.findByRole('group', { name: 'Daily reading progress and daily expectation' })
-    expect(summary).toHaveTextContent('Today’s target0 / 6 pages6 pages remaining')
-    expect(summary).toHaveTextContent('Study timeToday’s target0 / 30 minutes30 minutes remaining')
-    await user.click(screen.getByRole('button', { name: 'Information about Daily reading daily requirements' }))
-    const dialog = await screen.findByRole('dialog')
+    await screen.findByRole('heading', { name: 'Daily reading' })
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.click(screen.getAllByRole('button', { name: 'Information about Daily reading daily requirements' }).at(-1)!)
+    const dialog = (await screen.findAllByRole('dialog')).at(-1)!
     expect(dialog).toHaveTextContent('Daily plan target6 pages')
     expect(dialog).toHaveTextContent('Daily plan target30 minutes')
     expect(dialog).toHaveTextContent('Minimum2 pages')
@@ -200,10 +202,9 @@ describe('Today check-ins', () => {
     }
     await localRepository.saveTracker(yesNo)
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
-    const summary = await screen.findByRole('group', { name: 'Daily meditation progress and daily expectation' })
-    expect(summary).toHaveTextContent('MeditatedComplete todayNot completed')
+    await screen.findByRole('heading', { name: 'Daily meditation' })
     await user.click(screen.getByRole('button', { name: 'Information about Daily meditation daily requirements' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = (await screen.findAllByRole('dialog')).at(-1)!
     expect(dialog).toHaveTextContent('ExpectedComplete this check-in')
     expect(dialog).not.toHaveTextContent('Thresholds')
     expect(screen.getByRole('button', { name: 'Close daily requirements' })).toHaveFocus()
@@ -217,16 +218,82 @@ describe('Today check-ins', () => {
 
   it('filters trackers that are not scheduled today and records a skip for scheduled trackers', async () => {
     const user = userEvent.setup()
-    await localRepository.saveTracker(tracker({ kind: 'none' }))
+    await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [] })
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
-    expect(await screen.findByText('Nothing scheduled today')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Open Daily reading, Rest day' })).toBeInTheDocument()
 
-    await db.trackers.put(tracker())
+    await db.trackers.put({ ...tracker(), customFields: [] })
     cleanup()
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await screen.findByRole('heading', { name: 'Daily reading' })
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     await user.click(await screen.findByRole('button', { name: 'Skip today' }))
     await waitFor(() => expect(screen.getByText('Skipped')).toBeInTheDocument())
-    expect(screen.getByText('1 of 1 scheduled activity checked in · skipped activities stay neutral.')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 skipped')
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Skipped' }))
+    expect(screen.getByText(/This activity was skipped/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Pages'), '3')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Partially completed' })).toBeInTheDocument())
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 3 } })
+  })
+
+  it('protects unsaved check-in edits and restores focus to the activity card', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    const trigger = await screen.findByRole('button', { name: 'Open Daily reading, Pending' })
+    await user.click(trigger)
+    await user.type(screen.getByLabelText('Pages'), '3')
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
+    expect(window.confirm).toHaveBeenCalled()
+    vi.mocked(window.confirm).mockReturnValue(true)
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Daily reading' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
+  })
+
+  it('opens rest-day cards for details without offering an invalid check-in', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker({ kind: 'none' }))
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Rest day' }))
+    expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
+    expect(screen.getByText(/Today is not a scheduled day/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save check-in' })).not.toBeInTheDocument()
+  })
+
+  it('shows holiday cards as inspectable while keeping holiday check-in actions unavailable', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    await localRepository.saveAccountHolidays([today()], 'personal')
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByText('Today is a holiday')).toBeInTheDocument()
+    const open = await screen.findByRole('button', { name: 'Open Daily reading, Holiday' })
+    expect(open.closest('.today-checkin-card')).toHaveClass('status-holiday')
+    await user.click(open)
+    expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
+    expect(screen.getByText(/marked as a holiday|holiday, so this activity cannot/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save check-in' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Manage holidays' })).toHaveAttribute('href', `/holidays?date=${today()}`)
+  })
+
+  it('allows a missed scheduled opportunity to receive a historical check-in', async () => {
+    const user = userEvent.setup()
+    const yesterday = new Date(Date.parse(`${today()}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByText(/Missed opportunities in the last week/))
+    const missed = await screen.findByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })
+    await user.click(missed)
+    expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toHaveTextContent('Missed')
+    await user.type(screen.getByLabelText('Pages'), '5')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await localRepository.getTrackerEntry('today-tracker', yesterday)).toMatchObject({ outcome: 'recorded', values: { pages: 5 } })
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })).not.toBeInTheDocument())
   })
 
   it('shows only scheduled work in the at-a-glance progress summary', async () => {
@@ -235,8 +302,8 @@ describe('Today check-ins', () => {
     await localRepository.saveTracker({ ...tracker({ kind: 'none' }), id: 'flexible', name: 'Flexible work' })
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     expect(await screen.findByRole('region', { name: 'Today at a glance' })).toBeInTheDocument()
-    expect(screen.getByText('0 of 1 scheduled activity checked in.')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '0 of 1 scheduled activities logged' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('0 of 1 checked in')
+    expect(screen.getByRole('img', { name: '0 of 1 scheduled activities completed' })).toBeInTheDocument()
   })
 
   it('surfaces active goal deadlines without mixing goals into today’s scheduled check-in count', async () => {
@@ -245,7 +312,7 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     expect(await screen.findByRole('heading', { name: 'Coming up soon' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Finish the portfolio.*2 days left/ })).toHaveAttribute('href', '/goals')
-    expect(screen.getByText('Nothing scheduled today')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Finish the portfolio, Rest day' })).toBeInTheDocument()
   })
 
   it('shows a retry state rather than treating a failed local read as an empty day', async () => {
@@ -256,6 +323,6 @@ describe('Today check-ins', () => {
     expect(screen.getByText('Your check-ins are still here')).toBeInTheDocument()
     expect(screen.queryByText('Nothing scheduled today')).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('Nothing scheduled today')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Create a tracker' })).toBeInTheDocument()
   })
 })

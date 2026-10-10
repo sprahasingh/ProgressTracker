@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
+import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
+import { useAuth } from '../auth/AuthProvider'
 import type { AccountHoliday, CalendarDate, HolidayReason } from '../../db/models'
 import { expandHolidayRange } from '../../domain/holidays'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -11,6 +13,9 @@ import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 const reasonLabel: Record<HolidayReason, string> = { travel: 'Travel', exam: 'Exam', personal: 'Personal', other: 'Other' }
 
 export function HolidaysPage() {
+  const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const owner = status === 'signed-in' ? user?.id ?? null : null
+  const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const [search] = useSearchParams()
   const { timeZone } = useWorkspaceTimeZone()
   const today = localCalendarDate(new Date(), timeZone)
@@ -23,18 +28,22 @@ export function HolidaysPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const requestGeneration = useRef(0)
 
   const refresh = useCallback(async () => {
+    const generation = ++requestGeneration.current
     setLoading(true)
     try {
       const [live, all] = await Promise.all([localRepository.listAccountHolidays(), localRepository.listAccountHolidays(undefined, undefined, true)])
+      if (requestGeneration.current !== generation) return
       setRows(live)
       setAllRows(all)
       setError('')
-    } catch { setError('Holidays could not be loaded from this workspace.') }
-    finally { setLoading(false) }
+    } catch { if (requestGeneration.current === generation) setError('Holidays could not be loaded from this workspace.') }
+    finally { if (requestGeneration.current === generation) setLoading(false) }
   }, [])
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { if (workspaceReady) void refresh() }, [refresh, workspaceReady])
+  useWorkspaceDataChanges(owner, workspaceReady, refresh)
 
   async function addRange(event: React.FormEvent) {
     event.preventDefault(); setError(''); setMessage('')
