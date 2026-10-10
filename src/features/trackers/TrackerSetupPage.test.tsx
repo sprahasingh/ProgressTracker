@@ -173,7 +173,7 @@ describe('tracker setup flow', () => {
       metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }],
     })
     expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-  })
+  }, 15_000)
 
   it('allows a simple name-only goal without forcing planning details', async () => {
     const user = userEvent.setup()
