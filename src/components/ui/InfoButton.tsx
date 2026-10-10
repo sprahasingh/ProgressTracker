@@ -104,10 +104,12 @@ export function InfoButton({ title, summary, description, label = `More about ${
       aria-labelledby={`info-title-${id}`}
       style={{ position: 'fixed', top: position.top, left: position.left }}
     >
-      <button className="info-dialog-close" type="button" onClick={() => { setOpen(false); buttonRef.current?.focus() }} aria-label="Close explanation">×</button>
-      <p className="info-dialog-summary">{summary}</p>
-      <h2 id={`info-title-${id}`}>{title}</h2>
-      <p className="info-dialog-description">{description}</p>
+      <div className="info-popover-heading"><button className="info-dialog-close" type="button" onClick={() => { setOpen(false); buttonRef.current?.focus() }} aria-label="Close explanation">×</button></div>
+      <div className="info-popover-content">
+        <p className="info-dialog-summary">{summary}</p>
+        <h2 id={`info-title-${id}`}>{title}</h2>
+        <p className="info-dialog-description">{description}</p>
+      </div>
     </div>, document.body)}
   </>
 }

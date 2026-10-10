@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InfoButton } from './InfoButton'
 
 describe('InfoButton', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
   it('opens an explanation with the highlighted summary before the full description', () => {
     render(<InfoButton title="Daily target" summary="A short summary." description="A detailed explanation at the bottom." />)
@@ -36,6 +36,18 @@ describe('InfoButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More about Second' }))
     expect(screen.queryByRole('dialog', { name: 'First' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Second' })).toBeInTheDocument()
+  })
+
+  it('keeps its close control outside the scrollable long-form content', () => {
+    const trigger = render(<InfoButton title="Schedule" summary="Summary." description={'A long detail. '.repeat(300)} />).getByRole('button', { name: 'More about Schedule' })
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Schedule' })
+    const close = screen.getByRole('button', { name: 'Close explanation' })
+    expect(close.parentElement).toHaveClass('info-popover-heading')
+    expect(dialog.querySelector('.info-popover-content')).toContainElement(dialog.querySelector('.info-dialog-description'))
+    fireEvent.click(close)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('anchors the popover beside its icon and moves it above when there is no room below', () => {

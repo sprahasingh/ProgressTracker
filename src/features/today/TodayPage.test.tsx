@@ -208,12 +208,114 @@ describe('Today check-ins', () => {
     expect(dialog).toHaveTextContent('ExpectedComplete this check-in')
     expect(dialog).not.toHaveTextContent('Thresholds')
     expect(screen.getByRole('button', { name: 'Close daily requirements' })).toHaveFocus()
-    expect(todayStyles).toContain('max-height: min(86dvh, 760px)')
+    expect(todayStyles).toContain('max-height: min(760px, calc(100dvh - max(8px, env(safe-area-inset-top, 0px))')
     expect(todayStyles).toContain('env(safe-area-inset-bottom, 0px)')
     expect(todayStyles).toContain('overscroll-behavior: contain')
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Information about Daily meditation daily requirements' })).toHaveFocus()
+  })
+
+  it('keeps nested requirements scrollable, closes the top overlay first, and restores body scrolling', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker({
+      ...tracker(),
+      description: 'A long description with a URL-like value that stays readable: ' + 'details/'.repeat(40),
+      customFields: [],
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } },
+        { id: 'minutes', name: 'Minutes practiced', valueType: 'quantity', unit: 'minutes' },
+        { id: 'complete', name: 'Session complete', valueType: 'boolean' },
+      ],
+    })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    const cardTrigger = await screen.findByRole('button', { name: 'Open Daily reading, Pending' })
+    const cardInfo = screen.getByRole('button', { name: 'Information about Daily reading daily requirements' })
+    expect(cardInfo).toHaveClass('today-requirements-trigger')
+    await user.click(cardInfo)
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Save check-in' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Close daily requirements' }))
+    expect(cardInfo).toHaveFocus()
+
+    await user.click(cardTrigger)
+    const checkin = screen.getByRole('dialog', { name: 'Daily reading' })
+    expect(checkin.querySelector('.today-description-details')).toHaveTextContent('details/'.repeat(40))
+    expect(screen.getByLabelText(/Pages · pages/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Minutes practiced · minutes/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Session complete')).toBeInTheDocument()
+    expect(checkin.querySelector('footer')).toHaveTextContent('Save check-in')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    const infoButtons = screen.getAllByRole('button', { name: 'Information about Daily reading daily requirements' })
+    await user.click(infoButtons.at(-1)!)
+    expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(2)
+    expect(checkin).toHaveAttribute('aria-hidden', 'true')
+    expect(checkin).toHaveProperty('inert', true)
+    await user.keyboard('{Escape}')
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(checkin).not.toHaveAttribute('aria-hidden')
+    expect(checkin).toHaveProperty('inert', false)
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(infoButtons.at(-1)).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Close check-in details' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
+    expect(cardTrigger).toHaveFocus()
+
+    // Repeated open and close cycles must not retain the lock.
+    await user.click(cardTrigger)
+    await user.click(screen.getByRole('button', { name: 'Close check-in details' }))
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
+  })
+
+  it('keeps dialog headers, close buttons, scroll regions, and check-in actions in viewport-aware layout', () => {
+    expect(todayStyles).toMatch(/\.today-detail-content\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s)
+    expect(todayStyles).toMatch(/\.today-detail-actions\s*\{[^}]*flex:\s*0 0 auto/s)
+    expect(todayStyles).toMatch(/\.today-requirements-content\s*\{[^}]*overflow-y:\s*auto/s)
+    expect(todayStyles).toMatch(/\.today-requirements-heading\s*\{[^}]*flex:\s*0 0 auto/s)
+    expect(todayStyles).toMatch(/\.today-requirements-trigger\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)
+    expect(todayStyles).toContain('max-height: min(850px, calc(100dvh - max(12px, env(safe-area-inset-top, 0px))')
+    expect(todayStyles).toContain('env(safe-area-inset-top, 0px)')
+    expect(todayStyles).toContain('-webkit-overflow-scrolling: touch')
+    expect(todayStyles).toContain('overflow-wrap: anywhere')
+  })
+
+  it('closes the top Today overlay first when browser back is used', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    const info = screen.getAllByRole('button', { name: 'Information about Daily reading daily requirements' }).at(-1)!
+    await user.click(info)
+    expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(2)
+
+    window.history.back()
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1))
+    expect(document.body.style.overflow).toBe('hidden')
+    window.history.back()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
+  })
+
+  it('keeps an unsaved check-in open when browser back discard is canceled', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.type(screen.getByLabelText('Pages'), '4')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    window.history.back()
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
+    await waitFor(() => expect((window.history.state as Record<string, unknown>).__progressTrackerModalLayer).toBeTruthy())
+
+    confirm.mockReturnValue(true)
+    window.history.back()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Daily reading' })).not.toBeInTheDocument())
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
   })
 
   it('filters trackers that are not scheduled today and records a skip for scheduled trackers', async () => {
