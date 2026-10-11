@@ -14,8 +14,21 @@ import { useAuth } from '../auth/AuthProvider'
 
 const REAUTH_KEY = 'progress-tracker:delete-account-reauth'
 
+async function deletionRequestError(error: { name?: string; message?: string; context?: unknown }): Promise<string> {
+  if (error.context instanceof Response) {
+    if (error.context.status === 401) return 'Your sign-in could not be verified. Use the fresh sign-in link, return to Settings, and try again.'
+    try {
+      const payload = await error.context.clone().json() as { error?: unknown }
+      if (typeof payload.error === 'string' && payload.error.trim()) return payload.error
+    } catch { /* Use a stable fallback for empty or non-JSON function responses. */ }
+  }
+  if (error.name === 'FunctionsFetchError') return 'Could not connect to the account deletion service. No response reached this device.'
+  return 'The account deletion service did not return a response. Check your connection and retry.'
+}
+
 function readReauthenticationRequestAt(): number | null {
-  try { const value = Number(sessionStorage.getItem(REAUTH_KEY)); return value || null }
+  // localStorage lets a same-origin callback opened in another tab see the request.
+  try { const value = Number(localStorage.getItem(REAUTH_KEY)); return value || null }
   catch { return null }
 }
 
@@ -64,7 +77,7 @@ export function AccountDeletion() {
       const isRecent = Boolean(issuedAt && Date.now() / 1000 - issuedAt <= 5 * 60 && issuedAt <= Date.now() / 1000 + 30)
       setRecentAuthentication(isRecent)
       if (requestedAt && issuedAt && issuedAt >= requestedAt && isRecent) {
-        try { sessionStorage.removeItem(REAUTH_KEY) } catch { /* The fresh verified session remains authoritative on the server. */ }
+        try { localStorage.removeItem(REAUTH_KEY) } catch { /* The fresh verified session remains authoritative on the server. */ }
         setStep(2)
         setMessage('Your sign-in was refreshed. Confirm the final deletion below.')
       }
@@ -86,10 +99,14 @@ export function AccountDeletion() {
     setError(''); setMessage(''); setRecentAuthentication(false)
     const requestedAt = Math.floor(Date.now() / 1000)
     try {
-      const result = await requestAccountDeletionReauthentication(email, `${window.location.origin}${window.location.pathname}#/settings`)
-      if (result.error) { setError(result.error); return }
-      try { sessionStorage.setItem(REAUTH_KEY, String(requestedAt)) } catch { /* The user can still sign in and retry from Settings. */ }
-      setMessage(`A secure sign-in link was sent to ${email}. Open it on this device, then return to this confirmation.`)
+      try { localStorage.setItem(REAUTH_KEY, String(requestedAt)) } catch { /* The user can still sign in and retry from Settings. */ }
+      const result = await requestAccountDeletionReauthentication(email, `${window.location.origin}${window.location.pathname}`)
+      if (result.error) {
+        try { localStorage.removeItem(REAUTH_KEY) } catch { /* Ignore unavailable browser storage. */ }
+        setError(result.error)
+        return
+      }
+      setMessage(`A secure sign-in link was sent to ${email}. Open it in the same browser where you requested it. If your email app opens another browser, open the app there and request a new link from Settings.`)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The verification email could not be sent.') }
   }
 
@@ -124,7 +141,7 @@ export function AccountDeletion() {
       const { data, error: invokeError } = await client.functions.invoke<{ deleted: boolean }>('delete-account', { body: { confirmation: 'DELETE' } })
       const responseStatus = invokeError?.context instanceof Response ? invokeError.context.status : null
       responseReceived = !invokeError || (responseStatus !== null && responseStatus < 500 && responseStatus !== 409)
-      if (invokeError) throw new Error(invokeError.message || 'The server could not confirm account deletion. Local data was preserved.')
+      if (invokeError) throw new Error(await deletionRequestError(invokeError))
       if (!data?.deleted) throw new Error('The server did not confirm deletion. Local data was preserved.')
       const cleanupNotice = await auth.finishAccountDeletion(ownerId)
       notify({ kind: cleanupNotice ? 'warning' : 'success', title: 'Account deletion confirmed', description: cleanupNotice ?? 'Your account and cloud data were deleted. This device is now using guest mode.', duration: cleanupNotice ? 0 : undefined })
@@ -168,7 +185,7 @@ export function AccountDeletion() {
           {error && <p className="auth-error" role="alert">{error}</p>}
         </div>
         <footer className="account-delete-actions">
-          {step === 1 ? <><button type="button" className="button button-secondary button-small" onClick={() => setStep(0)}>Cancel</button><button type="button" className="button button-destructive button-small" onClick={() => void continueToVerification()}>Continue to verification</button></> : <><button type="button" className="button button-secondary button-small" disabled={busy || outcomeUncertain} onClick={() => { setStep(0); setError('') }}>Cancel</button><button type="button" className="button button-destructive button-small" disabled={busy || !recentAuthentication || typed !== 'DELETE' || pendingCount === null} onClick={() => void permanentlyDelete()}>{busy ? 'Deleting account…' : outcomeUncertain ? 'Retry deletion status' : 'Permanently Delete Account'}</button></>}
+          {step === 1 ? <><button type="button" className="button button-secondary button-small" onClick={() => setStep(0)}>Cancel</button><button type="button" className="button button-destructive button-small" onClick={() => void continueToVerification()}>Continue to verification</button></> : <><button type="button" className="button button-secondary button-small" disabled={busy || outcomeUncertain} onClick={() => { setStep(0); setError('') }}>Cancel</button><button type="button" className="button button-destructive button-small" disabled={busy || (!outcomeUncertain && !recentAuthentication) || typed !== 'DELETE' || pendingCount === null} onClick={() => void permanentlyDelete()}>{busy ? 'Deleting account…' : outcomeUncertain ? 'Retry deletion status' : 'Permanently Delete Account'}</button></>}
         </footer>
       </section>
     </div>, document.body)}

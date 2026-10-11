@@ -31,6 +31,18 @@ function setDeletionLock(ownerId: string, locked: boolean) {
   } catch { /* The in-memory guard below still protects this tab. */ }
 }
 
+function hasFreshDeletionReauthentication(accessToken: string): boolean {
+  try {
+    const requestedAt = Number(localStorage.getItem('progress-tracker:delete-account-reauth'))
+    if (!requestedAt || Date.now() / 1000 - requestedAt > 30 * 60) return false
+    const payload = JSON.parse(atob(accessToken.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/'))) as { amr?: unknown }
+    if (!Array.isArray(payload.amr)) return false
+    const timestamps = payload.amr.flatMap((method) => method && typeof method === 'object' && typeof (method as { timestamp?: unknown }).timestamp === 'number' ? [(method as { timestamp: number }).timestamp] : [])
+    const authenticatedAt = Math.max(0, ...timestamps)
+    return authenticatedAt >= requestedAt && Date.now() / 1000 - authenticatedAt <= 5 * 60
+  } catch { return false }
+}
+
 type AuthState = {
   status: AuthStatus
   user: User | null
@@ -96,6 +108,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pushTransitionChainRef = useRef<Promise<void>>(Promise.resolve())
   authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
   workspaceReadyRef.current = status === 'signed-in' && workspaceStatus === 'ready' && workspaceUserId === user?.id
+
+  // PKCE links may open the app at its clean base URL. Once Supabase has
+  // restored the fresh session, return the user to the deletion confirmation.
+  useEffect(() => {
+    if (status !== 'signed-in' || !user) return
+    let cancelled = false
+    const client = getSupabaseClient()
+    if (!client || typeof client.auth.getSession !== 'function') return
+    void client.auth.getSession().then(({ data }) => {
+      if (cancelled || data.session?.user.id !== user.id || !hasFreshDeletionReauthentication(data.session.access_token)) return
+      window.location.hash = '/settings'
+    })
+    return () => { cancelled = true }
+  }, [status, user?.id])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
