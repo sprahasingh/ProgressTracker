@@ -11,6 +11,7 @@ import { AuthPage } from '../auth/AuthPage'
 import { AccountDeletion } from './AccountDeletion'
 import { WorkspaceLoadingState } from '../../components/ui/WorkspaceLoadingState'
 import { NotificationsSettings } from '../notifications/NotificationsSettings'
+import { getAuthRedirectUrl } from '../auth/authRedirect'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -104,7 +105,13 @@ export function SettingsPage() {
   const metadata = auth.user?.user_metadata
   const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim() ?? ''
   const avatarInitial = (displayName || auth.user?.email?.trim())?.charAt(0).toLocaleUpperCase() || null
-  const requestedEmail = pendingEmail ?? auth.user?.new_email ?? null
+  const requestedEmail = auth.user?.new_email ?? (pendingEmail?.toLowerCase() !== auth.user?.email?.toLowerCase() ? pendingEmail : null)
+
+  useEffect(() => {
+    if (!pendingEmail || auth.user?.email?.toLowerCase() !== pendingEmail.toLowerCase() || auth.user.new_email) return
+    setPendingEmail(null)
+    notify({ kind: 'success', title: 'Email address updated', description: 'Your new email is confirmed and is now used for this account.' })
+  }, [auth.user?.email, auth.user?.new_email, notify, pendingEmail])
 
   async function saveName(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -122,11 +129,11 @@ export function SettingsPage() {
     const clean = emailValue.trim().toLowerCase()
     setProfileError('')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) { setProfileError('Enter a valid email address.'); return }
-    const result = await requestAccountEmailChange(clean, `${window.location.origin}${window.location.pathname}`)
+    const result = await requestAccountEmailChange(clean, getAuthRedirectUrl(window.location))
     if (result.error) { setProfileError(result.error); return }
     setPendingEmail(result.pendingEmail)
     setEmailEditing(false)
-    notify({ kind: 'info', title: 'Verification requested', description: 'Check your email for the next step. Your current address remains active until you confirm.' })
+    notify({ kind: 'info', title: 'Verification requested', description: 'Check both inboxes if prompted. Your current address remains active until all required confirmations are complete.' })
   }
 
   async function changeTimeZone(next: string) {
@@ -159,8 +166,9 @@ export function SettingsPage() {
         <div><span><strong>Full name</strong><small>{displayName || 'Not set'}</small></span><button className="button button-secondary button-small" onClick={() => { setNameValue(displayName); setNameEditing(!nameEditing); setProfileError('') }}>{nameEditing ? 'Cancel' : 'Edit'}</button></div>
         {nameEditing && <form className="settings-edit-form" onSubmit={(event) => void saveName(event)} noValidate><label className="form-field"><span>Full name</span><input className="auth-input" autoComplete="name" value={nameValue} onChange={(event) => setNameValue(event.target.value)} /></label><button className="button button-primary button-medium">Save name</button></form>}
         <div><span><strong>Email address</strong><small>{auth.user.email || 'Not available'}{requestedEmail ? ` · confirmation pending for ${requestedEmail}` : ''}</small></span><button className="button button-secondary button-small" onClick={() => { setEmailValue(''); setEmailEditing(!emailEditing); setProfileError('') }}>{emailEditing ? 'Cancel' : 'Change email'}</button></div>
-        {emailEditing && <form className="settings-edit-form" onSubmit={(event) => void saveEmail(event)} noValidate><label className="form-field"><span>New email address</span><input className="auth-input" type="email" inputMode="email" autoComplete="email" value={emailValue} onChange={(event) => setEmailValue(event.target.value)} /></label><p className="settings-hint">Supabase sends verification messages. Your current email remains in use until the change is confirmed.</p><button className="button button-primary button-medium">Send confirmation</button></form>}
+        {emailEditing && <form className="settings-edit-form" onSubmit={(event) => void saveEmail(event)} noValidate><label className="form-field"><span>New email address</span><input className="auth-input" type="email" inputMode="email" autoComplete="email" value={emailValue} onChange={(event) => setEmailValue(event.target.value)} /></label><p className="settings-hint">Check the new inbox for a confirmation link. Depending on the project’s secure email-change setting, Supabase may also require approval from your current inbox. Your current address stays active until all required confirmations are complete.</p><button className="button button-primary button-medium">Send confirmation</button></form>}
       </div>
+      {requestedEmail && <p className="settings-hint" role="status">Email change pending for <strong>{requestedEmail}</strong>. Check the new inbox and, if requested, approve the change from your current inbox too. This page will show the new address when confirmation is complete.</p>}
       {profileError && <p className="auth-error" role="alert">{profileError}</p>}
     </section>
     <section className="settings-section" aria-labelledby="security-title"><h2 id="security-title">Security</h2><p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p></section>
