@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
+import { knowledgeDocuments } from './_generated/knowledgeBundle'
+import { sourceIndex } from './_generated/sourceIndex'
 
 const measureGuide = { slug: 'measures', title: 'Measures', path: 'docs/ai-help/measures-and-success-rules.md', content: 'New measures are Yes/No or Quantity. Existing Duration and Checklist measures remain supported.' }
 const goalGuide = { slug: 'goals', title: 'Goals', path: 'docs/ai-help/goals-and-milestones.md', content: 'Daily checklist targets cannot exceed item count; cumulative goals can count incremental items.' }
@@ -83,6 +85,16 @@ describe('AI Help retrieval and provider boundary', () => {
 
   it('searches the source index when documentation only partially covers an app question', () => {
     expect(documentationCoverage('Can I archive a goal?', [], docs).needsSourceFallback).toBe(true)
+  })
+
+  it('retrieves the actual account deletion process and approved support contact', () => {
+    const question = 'How can I delete my ProgressTracker account?'
+    const relevantDocs = rankKnowledgeDocuments(question, [], knowledgeDocuments)
+    expect(relevantDocs[0]?.content).toContain('Permanently Delete Account')
+    expect(relevantDocs[0]?.content).toContain('spraha.progresstracker@gmail.com')
+    const evidence = retrieveSourceExcerpts(question, [], sourceIndex)
+    expect(evidence).toContain('src/features/settings/AccountDeletion.tsx')
+    expect(evidence).toContain('supabase/functions/delete-account/index.ts')
   })
 
   it('keeps implementation behavior ahead of test-only matches and limits evidence to relevant indexed chunks', () => {

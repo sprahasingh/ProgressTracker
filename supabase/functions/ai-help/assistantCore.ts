@@ -122,7 +122,9 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
         ? ['GoalsPage', 'goalPlanning', 'planning', 'allocationPreview']
         : /\b(?:measure|metric)\b/.test(normalizedQuestion) && /\b(?:saved|change|type|immutable|history)\b/.test(normalizedQuestion)
           ? ['invariants', 'schema', 'tracker_metric_integrity']
-          : []
+          : /\b(?:account|profile)\b/.test(normalizedQuestion) && /\b(?:delete|deletion|remove)\b/.test(normalizedQuestion)
+            ? ['src/features/settings/AccountDeletion.tsx', 'supabase/functions/delete-account/index.ts', 'secure_account_deletion']
+            : []
   const frequencies = new Map<string, number>()
   for (const entry of entries) for (const term of new Set(entry.terms.split(' '))) frequencies.set(term, (frequencies.get(term) ?? 0) + 1)
   const ranked = entries.map((entry, index) => {
@@ -133,6 +135,7 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
       score += (currentTerms.has(term) ? 5 : followupTerms.has(term) ? 1 : pageTerms.has(term) ? 1 : 2) * rarity
     }
     if (preferredPaths.some((path) => entry.path.includes(path))) score += 100
+    if (preferredPaths.includes('src/features/settings/AccountDeletion.tsx') && entry.path === 'supabase/functions/delete-account/index.ts') score += 75
     if (entry.kind === 'test' && preferredPaths.some((path) => entry.path.includes(path))) score += 100
     if (entry.kind === 'implementation') score *= 1.15
     return { entry, score, index }

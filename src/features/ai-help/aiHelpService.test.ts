@@ -14,6 +14,14 @@ describe('AI Help knowledge helpers', () => {
     await expect(askAssistant(null, 'Can I change a saved measure?', [], 'trackers', false, false)).resolves.toHaveProperty('answer')
   })
 
+  it('gives the real account deletion steps and correct support email offline', () => {
+    const answer = getLocalHelpAnswer('Why can’t I delete my account and what is the process?')
+    expect(answer).toContain('Settings → Account Actions → Delete Account')
+    expect(answer).toContain('Type DELETE')
+    expect(answer).toContain('spraha.progresstracker@gmail.com')
+    expect(answer).not.toContain('support@progresstracker.com')
+  })
+
   it('distinguishes definitions, supported measure types, and legacy checkbox follow-ups', () => {
     const first = 'What are measures?'
     const definition = getLocalHelpAnswer(first)

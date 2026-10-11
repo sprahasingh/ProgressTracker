@@ -46,6 +46,14 @@ Workspace time zone and appearance are saved locally for that workspace and curr
 
 Account settings include profile-name edits, email-change confirmation, password controls in Sync & Data, notifications, account deletion, and workspace preferences. The app uses Supabase Auth for sign-in and profile/account operations. A user must confirm an email change through the sent verification message.
 
+### Delete your account
+
+Account deletion is available in the app for signed-in users under **Settings → Account Actions → Delete Account**. Review the permanent-deletion notice, choose **Continue to verification**, and use **Send fresh sign-in link**. Open the link in the same browser where you requested it so the PKCE sign-in can complete. If your email app opens a different browser, open ProgressTracker there, request a new link from Settings, and open that new link in that browser. The successful link returns to Settings. A recent verified session is required. Type the exact word `DELETE`, then choose **Permanently Delete Account**. If the app says it could not reach the deletion service, keep the confirmation open and retry the deletion status when online; the server checks whether deletion already completed before trying again.
+
+The app reports pending offline changes before the final confirmation; those changes are not uploaded as part of deletion. Export the workspace first if you want a copy. The server removes the Supabase Auth account and its account-owned cloud records. This device switches to guest mode and clears the deleted account's local workspace only after the server confirms deletion. Other devices can retain local copies and must be cleared separately. If the server cannot confirm the result, the app keeps local data and may pause synchronization until the deletion status is checked.
+
+If deletion fails, read the message shown in the confirmation dialog and retry only after resolving its cause. For help, contact **spraha.progresstracker@gmail.com**. ProgressTracker does not require users to contact support to delete an account.
+
 ## Calendar, holidays, Insights, and achievements
 
 The **Calendar** page shows activity by date. Use it to review where activity was recorded or an opportunity was missed; History provides the detailed saved values. The **Holidays & breaks** page manages date-only account holidays used by schedule-aware views. In Standard Mode, a holiday removes that date from expected opportunities; Strict Mode still requires activity on an active calendar day.

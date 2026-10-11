@@ -6,7 +6,7 @@ import { publishWorkspaceMutation } from '../../db/workspaceMutationEvents'
 
 const providerMocks = vi.hoisted(() => ({
   authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string }; access_token?: string } | null) => void),
-  activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(),
+  activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(), getSession: vi.fn(),
   synchronizeWorkspace: vi.fn(),
 }))
 
@@ -24,6 +24,7 @@ vi.mock('../../services/supabase/client', () => ({
       providerMocks.authListener = callback
       return { data: { subscription: { unsubscribe: vi.fn() } } }
     },
+    getSession: providerMocks.getSession,
     signOut: vi.fn().mockResolvedValue({ error: null }),
   }, functions: { invoke: vi.fn().mockResolvedValue({ error: null }) } }),
 }))
@@ -63,6 +64,7 @@ describe('AuthProvider automatic sync lifecycle', () => {
     providerMocks.decideGuestData.mockReset().mockResolvedValue(undefined)
     providerMocks.getGuestDecision.mockReset().mockResolvedValue('kept-separate')
     providerMocks.getGuestWorkspaceSummary.mockReset().mockResolvedValue({ hasData: false, counts: {} })
+    providerMocks.getSession.mockReset().mockResolvedValue({ data: { session: null } })
     providerMocks.synchronizeWorkspace.mockReset().mockResolvedValue({ uploaded: 0, downloaded: 2, conflicts: 0, failed: 0 })
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
     delete (window as Window & { latestSync?: () => Promise<void> }).latestSync
@@ -73,6 +75,7 @@ describe('AuthProvider automatic sync lifecycle', () => {
 
   afterEach(async () => {
     cleanup()
+    window.history.replaceState({}, '', window.location.pathname)
     vi.useRealTimers()
     vi.restoreAllMocks()
     Reflect.deleteProperty(navigator, 'serviceWorker')
@@ -237,6 +240,17 @@ describe('AuthProvider automatic sync lifecycle', () => {
     render(<AuthProvider><Probe /></AuthProvider>)
     emit('INITIAL_SESSION', 'restored-account')
     await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledWith('restored-account'))
+  })
+
+  it('returns to Settings after a fresh deletion sign-in link opens at the app base URL', async () => {
+    const requestedAt = Math.floor(Date.now() / 1000) - 5
+    const payload = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) }] })).replace(/=/g, '')
+    const accessToken = `header.${payload}.signature`
+    localStorage.setItem('progress-tracker:delete-account-reauth', String(requestedAt))
+    providerMocks.getSession.mockResolvedValue({ data: { session: { access_token: accessToken, user: { id: 'account-a' } } } })
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(window.location.hash).toBe('#/settings'))
   })
 
   it('does not sync for guest or signed-out workspaces', async () => {

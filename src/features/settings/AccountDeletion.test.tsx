@@ -34,6 +34,7 @@ describe('AccountDeletion', () => {
     mocks.downloadBackup.mockReset()
     mocks.sessionToken = recentToken()
     sessionStorage.clear()
+    localStorage.clear()
   })
 
   it('does not render for guests', () => {
@@ -97,7 +98,8 @@ describe('AccountDeletion', () => {
     fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send fresh sign-in link' }))
     expect(await screen.findByText(/secure sign-in link was sent/i)).toBeInTheDocument()
-    expect(requestAccountDeletionReauthentication).toHaveBeenCalledWith('user@example.com', expect.stringContaining('#/settings'))
+    expect(requestAccountDeletionReauthentication).toHaveBeenCalledWith('user@example.com', `${window.location.origin}${window.location.pathname}`)
+    expect(Number(localStorage.getItem('progress-tracker:delete-account-reauth'))).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeDisabled()
     mocks.sessionToken = recentToken()
     mocks.auth.user = { id: 'user-1', email: 'user@example.com', freshSession: true } as never
@@ -107,7 +109,7 @@ describe('AccountDeletion', () => {
   })
 
   it('preserves the workspace and reopens sync after the server does not confirm deletion', async () => {
-    mocks.invoke.mockResolvedValue({ data: null, error: Object.assign(new Error('server unavailable'), { context: new Response('', { status: 422 }) }) })
+    mocks.invoke.mockResolvedValue({ data: null, error: Object.assign(new Error('Edge Function returned a non-2xx status code'), { context: new Response(JSON.stringify({ error: 'The account was not deleted. Your local workspace remains available; retry after reviewing the error.' }), { status: 422 }) }) })
     render(<AccountDeletion />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
@@ -115,9 +117,28 @@ describe('AccountDeletion', () => {
     await screen.findByText(/Recent sign-in verified/)
     fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/server unavailable/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/The account was not deleted/i)
     expect(mocks.auth.finishAccountDeletion).not.toHaveBeenCalled()
     expect(mocks.auth.resumeAccountSyncAfterDeletionFailure).toHaveBeenCalledWith('user-1')
+  })
+
+  it('keeps status retry available after the recent-authentication window expires', async () => {
+    mocks.invoke.mockResolvedValueOnce({ data: null, error: new Error('Failed to send a request to the Edge Function') })
+    const view = render(<AccountDeletion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
+    await screen.findByLabelText('Type DELETE to confirm')
+    await screen.findByText(/Recent sign-in verified/)
+    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
+    const retry = await screen.findByRole('button', { name: 'Retry deletion status' })
+    expect(retry).toBeEnabled()
+
+    const stale = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) - 10 * 60 }] })).replace(/=/g, '')
+    mocks.sessionToken = `header.${stale}.signature`
+    mocks.auth.user = { id: 'user-1', email: 'user@example.com', expiredSession: true } as never
+    view.rerender(<AccountDeletion />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry deletion status' })).toBeEnabled())
   })
 
   it('surfaces offline changes and requires a reviewed confirmation before deleting them', async () => {
