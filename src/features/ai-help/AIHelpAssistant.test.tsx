@@ -21,7 +21,7 @@ function renderAssistant(path = '/') { return render(<MemoryRouter initialEntrie
 
 describe('AI Help Assistant', () => {
   it('opens from the accessible header entry and submits a page-aware suggestion', async () => {
-    mocks.invoke.mockResolvedValue({ data: { answer: 'A streak counts scheduled days.', links: [{ label: 'Insights', href: '/dashboard' }] }, error: null })
+    mocks.invoke.mockResolvedValue({ data: { answer: 'A streak counts scheduled days.', links: [{ label: 'Insights', href: '/dashboard' }], followUps: ['How do holidays affect streaks?'] }, error: null })
     const user = userEvent.setup()
     renderAssistant('/dashboard')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
@@ -30,6 +30,9 @@ describe('AI Help Assistant', () => {
     expect(await screen.findByText('A streak counts scheduled days.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledWith('ai-help', expect.objectContaining({ body: expect.objectContaining({ pageContext: 'analytics' }) }))
     expect(screen.getByRole('link', { name: 'Insights' })).toHaveAttribute('href', '/dashboard')
+    expect(await screen.findByRole('navigation', { name: 'Suggested follow-up questions' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'How do holidays affect streaks?' }))
+    expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 
   it('supports Enter submission, Shift+Enter newlines, and prevents empty messages', async () => {
@@ -57,6 +60,25 @@ describe('AI Help Assistant', () => {
     expect(input).toHaveValue('What is the daily target?')
     await user.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(screen.getByText('Recovered.')).toBeInTheDocument())
+    expect(mocks.invoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows provider cooldown guidance, keeps the draft, and unlocks retry afterward', async () => {
+    mocks.invoke.mockResolvedValueOnce({ data: null, error: { context: new Response(JSON.stringify({ code: 'provider_rate_limit', retryAfterSeconds: 4 }), { status: 429, headers: { 'Retry-After': '4' } }) } })
+      .mockResolvedValueOnce({ data: { answer: 'Recovered after cooldown.' }, error: null })
+    const user = userEvent.setup()
+    renderAssistant()
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    const input = await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' })
+    await user.type(input, 'Explain a custom feature setting{Enter}')
+    expect((await screen.findAllByText(/provider is busy/)).length).toBeGreaterThan(0)
+    expect(input).toHaveValue('Explain a custom feature setting')
+    const cooldown = await screen.findByRole('button', { name: /^Retry in/ })
+    expect(cooldown).toBeDisabled()
+    const retry = await screen.findByRole('button', { name: 'Retry' }, { timeout: 5500 })
+    expect(retry).toBeEnabled()
+    await user.click(retry)
+    expect(await screen.findByText('Recovered after cooldown.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 

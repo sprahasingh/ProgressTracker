@@ -194,19 +194,24 @@ a { color: inherit; text-decoration: none; }
 .ai-help-suggestions button:disabled { opacity: var(--disabled-opacity); cursor: not-allowed; }
 .ai-help-suggestions svg { width: 14px; height: 14px; flex: 0 0 14px; transform: rotate(-90deg); color: var(--ink-muted); }
 .ai-help-offline-note { margin-top: 14px !important; font-size: 11px !important; }
-.ai-help-thread { display: grid; gap: 18px; }
+.ai-help-thread { display: grid; gap: 13px; }
 .ai-help-message { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
 .ai-help-message.user { justify-content: flex-end; }
 .ai-help-message-mark { width: 25px; height: 25px; flex-basis: 25px; border-radius: 8px; }
 .ai-help-message-mark svg { width: 14px; height: 14px; }
-.ai-help-message-content { max-width: 86%; min-width: 0; color: var(--ink); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.ai-help-message-content { max-width: 86%; min-width: 0; color: var(--ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .ai-help-message-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .ai-help-message-links a { min-height: 36px; display: inline-flex; align-items: center; padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent-strong); font-size: 11px; text-decoration: none; }
+.ai-help-follow-ups { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; margin: 8px 0 0; }
+.ai-help-follow-ups button { min-height: 38px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-raised); color: var(--accent-strong); font: inherit; font-size: 11px; line-height: 1.35; text-align: left; cursor: pointer; }
+.ai-help-follow-ups button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.ai-help-follow-ups button:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus-ring) 72%, transparent); outline-offset: 2px; }
+.ai-help-follow-ups button:disabled { opacity: var(--disabled-opacity); cursor: not-allowed; }
 .ai-help-message.user .ai-help-message-content { padding: 9px 12px; border-radius: 14px 14px 4px 14px; background: var(--accent-soft); }
 .ai-help-message.has-error .ai-help-message-content { color: var(--ink-muted); }
-.ai-help-formatted p { margin: 0 0 10px; white-space: pre-wrap; }
+.ai-help-formatted p { margin: 0 0 8px; white-space: pre-wrap; }
 .ai-help-formatted p:last-child { margin-bottom: 0; }
-.ai-help-formatted ul { margin: 2px 0 10px; padding-left: 20px; }
+.ai-help-formatted ul, .ai-help-formatted ol { margin: 2px 0 10px; padding-left: 20px; }
 .ai-help-formatted li + li { margin-top: 4px; }
 .ai-help-formatted a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
 .ai-help-formatted code { padding: 1px 4px; border-radius: 4px; background: var(--surface-muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
