@@ -13,6 +13,7 @@ import { AnalyticsPage } from '../features/analytics/AnalyticsPage'
 import { TrackerBinPage } from '../features/trackers/TrackerBinPage'
 import { HolidaysPage } from '../features/holidays/HolidaysPage'
 import { CalendarPage } from '../features/calendar/CalendarPage'
+import { AIKnowledgePage } from '../features/ai-knowledge/AIKnowledgePage'
 
 export const router = createHashRouter([
   {
@@ -32,6 +33,7 @@ export const router = createHashRouter([
       { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
       { path: 'achievements', element: <AchievementsPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'ai-knowledge', element: <AIKnowledgePage /> },
       { path: 'auth', element: <AuthPage redirectSignedIn /> },
     ],
   },
