@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'chevron-down' | 'status-pending' | 'status-completed' | 'status-partial' | 'status-missed' | 'status-holiday' | 'status-unscheduled'
+export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-completed' | 'status-partial' | 'status-missed' | 'status-holiday' | 'status-unscheduled'
 
 const paths: Record<AppIconName, ReactNode> = {
   today: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14l2.2 2.2L16 11" /></>,
@@ -23,6 +23,7 @@ const paths: Record<AppIconName, ReactNode> = {
   add: <><path d="M12 5v14M5 12h14" /></>,
   check: <><path d="m5 12.5 4.5 4L19 7" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></>,
+  lock: <><rect x="4.5" y="10" width="15" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
   'chevron-down': <><path d="m6 9 6 6 6-6" /></>,
   'status-pending': <><circle cx="12" cy="12" r="7.5" /></>,
   'status-completed': <><path d="m5 12.5 4.5 4L19 7" /></>,

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 import styles from '../../styles.css?raw'
 import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
 
@@ -24,7 +25,7 @@ afterEach(async () => {
 function renderSetup(path = '/trackers/new') {
   routeParams.trackerId = path.includes('/edit') ? path.split('/')[2] : undefined
   navigation.mockClear()
-  return render(<MemoryRouter><TrackerSetupPage /></MemoryRouter>)
+  return render(<ToastProvider><MemoryRouter><TrackerSetupPage /></MemoryRouter></ToastProvider>)
 }
 
 function precisePlannedGoal(id: string, decimalPlaces: 0 | 1 | 2, increment: number, allocations: Record<string, number>) {
@@ -54,7 +55,9 @@ describe('tracker setup flow', () => {
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
-    expect(await screen.findByText('Enter a name for this tracker.')).toBeInTheDocument()
+    expect(await screen.findByRole('alert', { name: 'Check the tracker details' })).toHaveTextContent('Enter a name for this tracker.')
+    expect(screen.getByText('Enter a name for this tracker.', { selector: 'small' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'What habit do you want to build?' })).toHaveFocus())
     expect(await localRepository.listTrackers()).toHaveLength(0)
   })
 
@@ -127,6 +130,47 @@ describe('tracker setup flow', () => {
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
     expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 4, metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
+  })
+
+  it('keeps the first type controlled by the main choice and lets unsaved secondary types change', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read daily')
+    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'pages')
+    await user.type(screen.getByRole('spinbutton', { name: 'Per-check-in target' }), '5')
+    await user.click(screen.getByRole('radio', { name: 'Done or not yet' }))
+    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    expect(screen.getByRole('textbox', { name: 'Numeric measure unit' })).toHaveValue('pages')
+    expect(screen.getByRole('spinbutton', { name: 'Per-check-in target' })).toHaveValue(5)
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    expect(screen.queryByRole('combobox', { name: 'Measure 1 value type' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
+    const secondaryType = screen.getByRole('combobox', { name: 'Measure 2 value type' })
+    expect(within(secondaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity'])
+    await user.selectOptions(secondaryType, 'boolean')
+    expect(secondaryType).toHaveValue('boolean')
+    expect(screen.getByRole('radio', { name: 'Number or amount' })).toBeChecked()
+  })
+
+  it('locks persisted measure types while leaving newly added measures editable until saved', async () => {
+    const existing = datedTracker('locked-measures', 'habit')
+    existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } })
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Measures, precision & targets'))
+    expect(screen.queryByRole('combobox', { name: 'Measure 1 value type' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Measure 2 value type' })).not.toBeInTheDocument()
+    expect(screen.getAllByText("Measure types can't be changed after a tracker is created.")).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
+    const newType = screen.getByRole('combobox', { name: 'Measure 3 value type' })
+    await user.selectOptions(newType, 'boolean')
+    expect(newType).toHaveValue('boolean')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'quantity' }, { valueType: 'boolean' }] }))
   })
 
   it.each([320, 360, 390, 430])('keeps the essential setup controls and compact action footer available at %ipx', async (width) => {
@@ -202,7 +246,7 @@ describe('tracker setup flow', () => {
     await user.clear(measureNames[1]!)
     await user.type(measureNames[1]!, 'Focus time')
     expect(measureNames[1]).toHaveValue('Focus time')
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 2 value type' }), 'duration')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 2 value type' }), 'quantity')
 
     const successDisclosure = screen.getByText('Success rule', { selector: 'summary' }).closest('details')!
     await user.click(screen.getByText('Success rule', { selector: 'summary' }))
@@ -235,7 +279,7 @@ describe('tracker setup flow', () => {
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
     const [saved] = await localRepository.listTrackers()
     expect(saved?.metrics).toHaveLength(2)
-    expect(saved?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'duration' })
+    expect(saved?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'quantity' })
     expect(saved?.qualificationRule).toMatchObject({ kind: 'all', operands: [{ kind: 'any', operands: [expect.any(Object), expect.any(Object)] }, expect.any(Object)] })
     expect(saved?.customFields).toMatchObject([{ name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'] }])
     expect(saved?.milestones).toMatchObject([{ title: 'Publish first case study' }])
@@ -295,7 +339,7 @@ describe('tracker setup flow', () => {
     fireEvent.change(start, { target: { value: '2026-01-11' } })
     await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
 
-    expect(await screen.findByText(/Start date must be on or before the deadline/)).toBeInTheDocument()
+    expect(await screen.findByText(/Start date must be on or before the deadline/, { selector: 'small' })).toBeInTheDocument()
     expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-05', deadline: '2026-01-10' })
   })
 
@@ -453,7 +497,7 @@ describe('tracker setup flow', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Pages recording precision' }), '1')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await screen.findByRole('alert', { name: 'Tracker details need attention' })
     expect(alert).toHaveTextContent('Saved daily allocations for Pages (increments of 0.1) do not match the selected precision.')
     expect(alert).toHaveTextContent('Your goal total, allocations, and recorded progress have not changed.')
     expect(alert).not.toHaveTextContent('2026-01-05')
