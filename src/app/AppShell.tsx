@@ -8,6 +8,7 @@ import { ToastProvider } from '../components/ui/ToastProvider'
 import { NotificationCenter } from '../components/NotificationCenter'
 import { ForegroundReminderMonitor } from '../features/notifications/ForegroundReminderMonitor'
 import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
+import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: 'today', matches: ['/'], end: true },
@@ -135,6 +136,7 @@ export function AppShell() {
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
           <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span></Link>
+          <AIHelpAssistant />
           <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
           <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}

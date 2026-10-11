@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:ai-help-bundle": "node scripts/build-ai-help-bundle.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
