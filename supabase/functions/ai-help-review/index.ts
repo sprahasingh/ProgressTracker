@@ -98,6 +98,8 @@ Deno.serve(async (request) => {
     if (error || !user?.email || !user.email_confirmed_at || !isMaintainer(user.email, normalizeMaintainerEmails(Deno.env.get('AI_HELP_MAINTAINER_EMAILS')))) {
       return json(403, { error: 'This account is not authorized to review AI Help knowledge.' }, origin)
     }
+    if (body.action === 'whoami') return json(200, { authorized: true }, origin)
+
     const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
     const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: sourceVersion })
     if (freshnessError) return json(503, { error: 'Knowledge freshness could not be checked. Try again later.' }, origin)
@@ -107,26 +109,63 @@ Deno.serve(async (request) => {
       const allowedStatuses = ['pending', 'stale', 'verified', 'rejected']
       if (status !== 'all' && !allowedStatuses.includes(status)) return json(400, { error: 'Unsupported review status.' }, origin)
       const limit = typeof body.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(body.limit))) : 50
-      const [candidateQuery, verifiedQuery, metricQuery] = await Promise.all([
-        (status === 'all' ? admin.from('ai_knowledge_candidates').select('id,topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,created_at,updated_at,reviewed_at,reviewer_id').not('topic_id', 'is', null).order('updated_at', { ascending: false }).limit(limit)
-          : admin.from('ai_knowledge_candidates').select('id,topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,created_at,updated_at,reviewed_at,reviewer_id').eq('status', status).not('topic_id', 'is', null).order('updated_at', { ascending: false }).limit(limit)),
-        admin.from('ai_verified_knowledge').select('topic_id,title,explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,reviewed_at,stale_at,reviewer_id').order('reviewed_at', { ascending: false }).limit(limit),
+      const offset = typeof body.offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.offset))) : 0
+      const search = typeof body.search === 'string' ? body.search.trim().slice(0, 80).replace(/[,%()\\]/g, ' ').replace(/\s+/g, ' ') : ''
+      const sort = body.sort === 'oldest' || body.sort === 'reviewed' ? body.sort : 'newest'
+      const ascending = sort === 'oldest'
+      const searchFilter = `topic_id.ilike.%${search}%,title.ilike.%${search}%,explanation.ilike.%${search}%`
+      // Stale and all views span two tables. Split their page window evenly so
+      // the UI can advance using the combined number of rows without skipping
+      // the second table's records.
+      const combinedStatus = status === 'stale' || status === 'all'
+      const tableLimit = combinedStatus ? Math.ceil(limit / 2) : limit
+      const tableOffset = combinedStatus ? Math.floor(offset / 2) : offset
+
+      let candidateQuery = admin.from('ai_knowledge_candidates')
+        .select('id,topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,created_at,updated_at,reviewed_at,reviewer_id')
+        .not('topic_id', 'is', null)
+      if (status === 'all') candidateQuery = candidateQuery.in('status', ['pending', 'stale', 'rejected'])
+      else if (status === 'pending' || status === 'stale' || status === 'rejected') candidateQuery = candidateQuery.eq('status', status)
+      else candidateQuery = candidateQuery.eq('id', '00000000-0000-0000-0000-000000000000')
+      if (search) candidateQuery = candidateQuery.or(searchFilter)
+      candidateQuery = candidateQuery.order(sort === 'reviewed' ? 'reviewed_at' : sort === 'oldest' ? 'created_at' : 'updated_at', { ascending, nullsFirst: false })
+        .range(tableOffset, tableOffset + tableLimit - 1)
+
+      let verifiedQuery = admin.from('ai_verified_knowledge')
+        .select('topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,reviewed_at,stale_at,reviewer_id')
+      if (status === 'verified' || status === 'stale') verifiedQuery = verifiedQuery.eq('status', status)
+      else if (status !== 'all') verifiedQuery = verifiedQuery.eq('topic_id', '__no_matching_topic__')
+      if (search) verifiedQuery = verifiedQuery.or(searchFilter)
+      verifiedQuery = verifiedQuery.order(sort === 'oldest' ? 'reviewed_at' : 'reviewed_at', { ascending, nullsFirst: false })
+        .range(tableOffset, tableOffset + tableLimit - 1)
+
+      const [candidateResult, verifiedResult, metricQuery, pendingCount, approvedCount, staleCount, rejectedCount] = await Promise.all([
+        candidateQuery,
+        verifiedQuery,
         admin.from('ai_help_learning_metrics').select('metric_date,event,feature_category,event_count').order('metric_date', { ascending: false }).limit(300),
+        admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'pending').not('topic_id', 'is', null),
+        admin.from('ai_verified_knowledge').select('id', { count: 'exact', head: true }).eq('status', 'verified'),
+        admin.from('ai_verified_knowledge').select('id', { count: 'exact', head: true }).eq('status', 'stale'),
+        admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'rejected').not('topic_id', 'is', null),
       ])
-      if (candidateQuery.error || verifiedQuery.error || metricQuery.error) return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
-      const verified = (verifiedQuery.data ?? []).map((entry) => {
+      const candidateRows = { data: candidateResult.data, error: candidateResult.error }
+      const verifiedQueryResult = { data: verifiedResult.data, error: verifiedResult.error }
+      if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleCount.error || rejectedCount.error) return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
+      const verified = (verifiedQueryResult.data ?? []).map((entry) => {
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
         return { ...entry, current_evidence: entry.status === 'stale' && currentRefs.length ? currentEvidence(currentRefs) : '' }
       })
-      const candidates = (candidateQuery.data ?? []).map((candidate) => {
+      const candidates = (candidateRows.data ?? []).map((candidate) => {
         const refs = Array.isArray(candidate.source_refs) ? candidate.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const possibleDuplicates = verified.filter((entry) => entry.topic_id === candidate.topic_id
           || (Array.isArray(entry.source_refs) && refs.some((ref) => entry.source_refs.includes(ref))))
           .slice(0, 3).map((entry) => ({ topic_id: entry.topic_id, title: entry.title, status: entry.status, match: entry.topic_id === candidate.topic_id ? 'same_topic' : 'shared_source' }))
         return { ...candidate, possible_duplicates: possibleDuplicates }
       })
-      return json(200, { knowledge_version: sourceVersion, candidates, verified_knowledge: verified, metrics: metricQuery.data ?? [] }, origin)
+      return json(200, { knowledge_version: sourceVersion, candidates, verified_knowledge: verified, metrics: metricQuery.data ?? [], counts: {
+        pending: pendingCount.count ?? 0, approved: approvedCount.count ?? 0, stale: staleCount.count ?? 0, rejected: rejectedCount.count ?? 0,
+      }, page: { limit, offset, has_more: (candidateResult.data?.length ?? 0) === tableLimit || (verifiedResult.data?.length ?? 0) === tableLimit } }, origin)
     }
 
     if (body.action === 'get') {
@@ -137,15 +176,19 @@ Deno.serve(async (request) => {
         if (candidateError || !candidate || !candidate.topic_id) return json(404, { error: 'Candidate not found.' }, origin)
         const refs = Array.isArray(candidate.source_refs) ? candidate.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
-        const { data: related } = await admin.from('ai_verified_knowledge').select('topic_id,title,explanation,feature_category,status,source_refs,knowledge_version,reviewed_at,stale_at').or(`topic_id.eq.${candidate.topic_id},status.eq.stale`).order('reviewed_at', { ascending: false }).limit(20)
-        return json(200, { knowledge_version: sourceVersion, candidate, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '', comparison: related ?? [] }, origin)
+        const { data: related, error: relatedError } = await admin.from('ai_verified_knowledge').select('topic_id,title,explanation,feature_category,status,source_refs,knowledge_version,reviewed_at,stale_at').or(`topic_id.eq.${candidate.topic_id},status.eq.stale`).order('reviewed_at', { ascending: false }).limit(20)
+        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at').eq('candidate_id', candidate.id).order('created_at', { ascending: false }).limit(30)
+        if (relatedError || reviewHistoryError) return json(503, { error: 'Review history is temporarily unavailable.' }, origin)
+        return json(200, { knowledge_version: sourceVersion, candidate, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '', comparison: related ?? [], review_history: reviewHistory ?? [] }, origin)
       }
       if (typeof body.topic_id === 'string') {
         const { data: entry, error: entryError } = await admin.from('ai_verified_knowledge').select('topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,reviewed_at,stale_at,reviewer_id').eq('topic_id', body.topic_id).maybeSingle()
         if (entryError || !entry) return json(404, { error: 'Verified knowledge not found.' }, origin)
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
-        return json(200, { knowledge_version: sourceVersion, entry, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '' }, origin)
+        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at').eq('topic_id', entry.topic_id).order('created_at', { ascending: false }).limit(30)
+        if (reviewHistoryError) return json(503, { error: 'Review history is temporarily unavailable.' }, origin)
+        return json(200, { knowledge_version: sourceVersion, entry, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '', review_history: reviewHistory ?? [] }, origin)
       }
       return json(400, { error: 'Choose a candidate or verified topic.' }, origin)
     }

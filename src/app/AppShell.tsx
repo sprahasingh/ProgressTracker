@@ -9,6 +9,7 @@ import { NotificationCenter } from '../components/NotificationCenter'
 import { ForegroundReminderMonitor } from '../features/notifications/ForegroundReminderMonitor'
 import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
 import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
+import { useMaintainerAccess } from '../features/ai-knowledge/useMaintainerAccess'
 
 const primaryNavigation = [
   { to: '/', label: 'Today', icon: 'today', matches: ['/'], end: true },
@@ -37,6 +38,7 @@ export function getAvatarInitial(user: { email?: string | null; user_metadata?: 
 
 export function AppShell() {
   const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
+  const maintainerAccess = useMaintainerAccess()
   const navigate = useNavigate()
   const location = useLocation()
   const moreRef = useRef<HTMLDivElement>(null)
@@ -123,6 +125,7 @@ export function AppShell() {
             <NavLink to="/holidays" className="nav-link secondary-link"><AppIcon className="nav-icon" name="holiday" />Holidays & breaks</NavLink>
             <NavLink to="/settings" className="nav-link secondary-link"><AppIcon className="nav-icon" name="settings" />Settings</NavLink>
             <NavLink to="/bin" className="nav-link secondary-link"><AppIcon className="nav-icon" name="bin" />Bin</NavLink>
+            {status === 'signed-in' && maintainerAccess.status === 'authorized' && <NavLink to="/ai-knowledge" className="nav-link secondary-link"><AppIcon className="nav-icon" name="spark" />AI Knowledge</NavLink>}
             {status !== 'signed-in' && <NavLink to="/auth" className="nav-link secondary-link"><AppIcon className="nav-icon" name="account" />Account & sync</NavLink>}
           </div>
           <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
@@ -162,7 +165,7 @@ export function AppShell() {
                 <button className="button button-secondary button-medium" onClick={() => void chooseGuestData?.('kept-separate')}>Keep guest progress separate</button>
               </div>
             </section>
-          ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><ForegroundReminderMonitor enabled={workspaceReady} /><Outlet /></WorkspaceTimeZoneProvider>}
+          ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><ForegroundReminderMonitor enabled={workspaceReady} /><Outlet context={maintainerAccess} /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {primaryNavigation.map(({ to, label, icon, matches, end }) => {
@@ -183,7 +186,7 @@ export function AppShell() {
               }
             }} onClick={() => setMoreOpen((value) => !value)}><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></button>
             {moreOpen && <div ref={moreMenuRef} id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations" onKeyDown={handleMoreMenuKeyDown}>
-              {[...mobileMoreNavigation, ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
+              {[...mobileMoreNavigation, ...(status === 'signed-in' && maintainerAccess.status === 'authorized' ? [{ to: '/ai-knowledge', label: 'AI Knowledge' }] : []), ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
                 setMoreOpen(false)
                 event.currentTarget.blur()
               }} role="menuitem">{label}</NavLink>)}

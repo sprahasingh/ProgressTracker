@@ -40,6 +40,8 @@ The old `ai_question_memory` table is retained for compatibility and audit, but 
 
 The review API is the separate `ai-help-review` Edge Function. It checks the access token with Supabase Auth, requires a confirmed email, and compares that email against the server-side `AI_HELP_MAINTAINER_EMAILS` comma-separated allowlist. Authenticated status alone does not grant review access. Candidate and verified-knowledge tables have RLS enabled and no browser-role table access; service-role credentials stay inside the Edge Function. There is no client-side admin switch.
 
+In the signed-in app, an allowlisted maintainer opens **More → AI Knowledge** (also in the mobile More menu), or navigates directly to `#/ai-knowledge`. The page calls the review function's authenticated `whoami` action before revealing navigation or knowledge data. Signed-out users follow the app's sign-in route; other authenticated users see an access-denied state. Every review operation is independently authorized by the Edge Function, so a hidden link is not the security boundary. The page keeps its response data in component memory only.
+
 Configure the allowlist as a Function secret. Use the maintainer's confirmed Supabase Auth email address:
 
 ```sh
@@ -58,15 +60,20 @@ curl "$SUPABASE_URL/functions/v1/ai-help-review" \
 
 Supported actions:
 
-- `list`: list pending, stale, verified, rejected, or all structured candidates; show related verified topics and aggregated metrics.
-- `get`: retrieve one candidate or verified topic with current indexed excerpts for its source references. Use the returned `updated_at` as the optimistic concurrency token.
+- `whoami`: after the existing confirmed-email allowlist check, return only `{ "authorized": true }`; never returns the allowlist.
+- `list`: list pending, stale, verified, rejected, or all structured candidates; show related verified topics and aggregated metrics. Supports bounded `limit`, `offset`, `search`, and `sort` values and returns summary counts for pending, approved, stale, and rejected records.
+- `get`: retrieve one candidate or verified topic with current indexed excerpts for its source references and up to 30 audit events. Use the returned candidate `updated_at` as the optimistic concurrency token.
 - `edit`: submit revised topic fields, explanation, category, and source paths. The server revalidates the text against current indexed excerpts and returns the candidate to pending.
 - `approve`: atomically writes the reviewed topic to `ai_verified_knowledge`, marks the candidate verified, and records review history. Supply the latest `expected_updated_at` plus the fields reviewed.
 - `reject`: permanently marks that candidate rejected and records the action.
 - `defer`: leaves the candidate pending or stale and records that it was deferred.
 - `revalidate`: for a stale verified topic, submit updated fields and current source paths to create a new pending candidate. It still requires a separate `approve`.
 
+The app requires an explicit second confirmation click for approval. Approval and editing are checked against current indexed source excerpts and fingerprints by the server; the page never marks an item approved until the operation succeeds. Stale verified topics are excluded from AI Help retrieval. **Queue for re-review** uses `revalidate` to create a pending candidate while preserving its stable topic ID; a maintainer must review and approve it separately. A rejected reason is not currently collected by the existing API, so the dashboard shows the available status and audit event without inventing a reason.
+
 For `edit` and `approve`, include `candidate_id`, `expected_updated_at`, `topic_id`, `title`, `explanation`, optional `detailed_explanation`, `feature_category`, and `source_refs`. The server loads the current excerpts and fingerprints itself; client-supplied evidence is ignored. For `reject` and `defer`, include the candidate ID and expected timestamp. A concurrent edit/review returns HTTP 409, after which reload with `get`. Related verified entries are shown for comparison but are never silently merged or overwritten. Approval of an existing stale topic is an explicit maintainer action and is preserved in review history.
+
+The dashboard searches topic ID, title, and explanation server-side, and pages through the existing tables. Audit entries show the action, old/new status, time, and the reviewer's short auth ID where stored. Audit metadata snapshots and private assistant questions are not sent to the browser.
 
 ## Verified retrieval and freshness
 
