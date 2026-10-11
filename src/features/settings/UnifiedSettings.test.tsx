@@ -65,6 +65,7 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }))
     expect(mocks.changeEmail).toHaveBeenCalledWith('next@example.com', expect.stringMatching(/^http/))
     expect(await screen.findByText(/confirmation pending for next@example.com/)).toBeInTheDocument()
-    expect(screen.getByRole('status', { name: /Verification requested/ })).toHaveTextContent(/current address remains active until you confirm/i)
+    expect(screen.getByRole('status', { name: /Verification requested/ })).toHaveTextContent(/current address remains active until all required confirmations are complete/i)
+    expect(screen.getAllByRole('status').find((element) => element.textContent?.includes('Email change pending for'))).toHaveTextContent(/approve the change from your current inbox too/i)
   })
 })

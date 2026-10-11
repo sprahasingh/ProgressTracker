@@ -50,7 +50,7 @@ Account settings include profile-name edits, email-change confirmation, password
 
 Open the account screen from **Settings** or the sign-in prompt. **Email me a sign-in link** sends a one-time email link; using an email for the first time creates an account, while using an existing account’s email signs that account in. To create an account with a password, choose **Create account**, enter an email and a password of at least eight characters, and submit. Existing password users can choose **Use password** and sign in with their email and password. A magic link is an alternative sign-in method and does not require setting a password.
 
-Signed-in users can choose **Set or change password** under **Settings → Sync & Data** and save a new password of at least eight characters. **Forgot password?** sends an account recovery link; open it to choose a new password. Recovery and email confirmation continue to use Supabase’s email links.
+Signed-in users can choose **Set or change password** under **Settings → Sync & Data** and save a new password of at least eight characters. **Forgot password?** sends an account recovery link; open it to choose a new password. Recovery and email confirmation continue to use Supabase’s email links. Depending on the project’s Secure email change setting, an email change may require links from both the current and new inboxes; until every required confirmation is completed, the current address remains active.
 
 ### Delete your account
 

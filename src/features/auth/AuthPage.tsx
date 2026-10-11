@@ -14,6 +14,7 @@ import { useAuth } from './AuthProvider'
 import { listSyncConflicts, resolveSyncConflict } from '../../db/syncConflictRepository'
 import type { SyncConflict } from '../../db/models'
 import { WorkspaceBackup } from './WorkspaceBackup'
+import { getAuthRedirectUrl } from './authRedirect'
 
 type AuthMode = 'magic-link' | 'sign-in' | 'sign-up' | 'forgot-password' | 'set-password'
 const emailSchema = z.string().trim().email('Enter a valid email address.').toLowerCase()
@@ -26,7 +27,7 @@ type EmailValues = z.infer<typeof emailFormSchema>
 type PasswordValues = z.infer<typeof passwordFormSchema>
 type SetPasswordValues = z.infer<typeof setPasswordSchema>
 
-function getCallbackUrl(): string { return `${window.location.origin}${window.location.pathname}` }
+function getCallbackUrl(): string { return getAuthRedirectUrl(window.location) }
 
 export function AuthPage({ embedded = false, redirectSignedIn = false }: { embedded?: boolean; redirectSignedIn?: boolean } = {}) {
   const { notify } = useToast()
