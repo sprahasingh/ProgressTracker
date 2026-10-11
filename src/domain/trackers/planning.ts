@@ -1,4 +1,5 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
+import { activeTrackerMetrics } from './types'
 import { calendarDateInTimeZone } from '../../db/calendarDate'
 
 export type GoalMode = 'daily-recurring' | 'cumulative-deadline'
@@ -457,11 +458,11 @@ export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly T
 
 export function evaluateTrackerEntry(tracker: TrackerDefinition, entry: TrackerEntry): RuleEvaluation {
   if (entry.trackerId !== tracker.id) throw new RangeError('Entry belongs to a different tracker.')
-  if (entry.outcome === 'skipped') return { qualified: false, achievedMetricIds: [], failedMetricIds: tracker.metrics.map((metric) => metric.id).sort() }
+  if (entry.outcome === 'skipped') return { qualified: false, achievedMetricIds: [], failedMetricIds: activeTrackerMetrics(tracker.metrics).map((metric) => metric.id).sort() }
   if (!tracker.qualificationRule) {
-    const metric = tracker.metrics[0]
+    const metric = activeTrackerMetrics(tracker.metrics)[0]
     const qualified = metric ? classifyAchievement(metric, entry.values[metric.id]) !== 'none' : false
     return metric ? { qualified, achievedMetricIds: qualified ? [metric.id] : [], failedMetricIds: qualified ? [] : [metric.id] } : { qualified: false, achievedMetricIds: [], failedMetricIds: [] }
   }
-  return evaluateQualificationRule(tracker.qualificationRule, tracker.metrics, entry.values)
+  return evaluateQualificationRule(tracker.qualificationRule, activeTrackerMetrics(tracker.metrics), entry.values)
 }

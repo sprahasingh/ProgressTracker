@@ -31,6 +31,15 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, strictMode: 'strict' }).success).toBe(false)
   })
 
+  it('accepts retired metrics for history while enforcing unique names and nonnegative targets', () => {
+    const retired = { ...tracker, metrics: [{ ...tracker.metrics[0]!, retiredAt: '2026-10-10T00:00:00.000Z' }, tracker.metrics[1]!] }
+    expect(trackerDefinitionSchema.parse(retired).metrics[0]).toMatchObject({ name: 'Pages', unit: 'pages', retiredAt: expect.any(String) })
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [tracker.metrics[0]!, { ...tracker.metrics[1]!, name: ' PAGES ' }] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, metrics: [{ ...tracker.metrics[0]!, thresholds: { ...tracker.metrics[0]!.thresholds!, target: -1 } }, tracker.metrics[1]!] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: -1 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 0 } }).success).toBe(false)
+  })
+
   it('keeps version 1 definitions valid and accepts version 2 plans without changing thresholds', () => {
     const planned: TrackerDefinition = {
       ...tracker, schemaVersion: 2, kind: 'goal', goalPlanning: {

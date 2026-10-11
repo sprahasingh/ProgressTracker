@@ -62,6 +62,19 @@ describe('local check-in history', () => {
     expect(screen.getByRole('heading', { name: 'Yoga' })).toBeInTheDocument()
   })
 
+  it('renders retired measure history with its original label and unit', async () => {
+    const withSecondMetric = { ...definition, metrics: [...definition.metrics, { id: 'done', name: 'Done', valueType: 'boolean' as const }] }
+    await localRepository.saveTracker(withSecondMetric)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { distance: 4 }, note: 'Before retirement' })
+    const retiredDefinition = { ...withSecondMetric, metrics: [{ ...definition.metrics[0]!, retiredAt: '2026-10-10T00:00:00.000Z' }, withSecondMetric.metrics[1]!] }
+    await localRepository.saveTracker(retiredDefinition)
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Distance')).toBeInTheDocument()
+    expect(screen.getByText('4 km')).toBeInTheDocument()
+    expect(screen.getByText('Before retirement')).toBeInTheDocument()
+  })
+
   it('shows a useful empty message without synthetic history', async () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()

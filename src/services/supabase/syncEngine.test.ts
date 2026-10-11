@@ -454,6 +454,44 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get('foreign-tracker')).resolves.toBeUndefined()
   })
 
+  it('preserves a local tracker and records a conflict when a remote update changes a saved measure type', async () => {
+    await activateWorkspace('sync-user')
+    const local = { ...tracker('immutable-sync-type'), metrics: [{ id: 'value', name: 'Value', valueType: 'quantity' as const }] }
+    await localRepository.saveTracker(local)
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `tracker:${local.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: local.id, serverRevision: 1 })
+    const remote = { ...local, metrics: [{ id: 'value', name: 'Value', valueType: 'boolean' as const }] }
+    const { client } = fakeClient({ trackerRows: [serverTracker(remote, 'sync-user', 2)] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 0, conflicts: 1 })
+    await expect(db.trackers.get(local.id)).resolves.toMatchObject({ metrics: [{ valueType: 'quantity' }] })
+    await expect(db.syncConflicts.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ entityId: local.id, localPayload: { metrics: [{ valueType: 'quantity' }] } })
+  })
+
+  it('round-trips retired measure definitions through tracker synchronization', async () => {
+    await activateWorkspace('sync-user')
+    const retired = {
+      ...tracker('retired-sync-measure'),
+      metrics: [
+        { id: 'old', name: 'Old count', valueType: 'quantity' as const, unit: 'items', retiredAt: '2026-10-11T00:00:00.000Z' },
+        { id: 'active', name: 'Current count', valueType: 'quantity' as const, unit: 'items' },
+      ],
+    }
+    await localRepository.saveTracker(retired)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(retired) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_sync_operation', expect.objectContaining({
+      p_record: expect.objectContaining({ definition: expect.objectContaining({ metrics: expect.arrayContaining([expect.objectContaining({ id: 'old', retiredAt: retired.metrics[0]!.retiredAt })]) }) }),
+    }))
+
+    await db.trackers.clear()
+    await db.syncOperations.clear()
+    await db.syncRecords.clear()
+    const { client: downloadClient } = fakeClient({ trackerRows: [serverTracker(retired)] })
+    await expect(synchronizeWorkspace('sync-user', downloadClient)).resolves.toMatchObject({ downloaded: 1, failed: 0 })
+    await expect(db.trackers.get(retired.id)).resolves.toMatchObject({ metrics: [{ id: 'old', retiredAt: retired.metrics[0]!.retiredAt }, { id: 'active' }] })
+  })
+
   it('discards a cloud page when the authenticated account changes before a row is merged', async () => {
     await activateWorkspace('sync-user')
     const remote = tracker('session-switched-row')

@@ -36,6 +36,12 @@ export type TrackerMetricDefinition = {
   precision?: { decimalPlaces: 0 | 1 | 2; increment: number }
   thresholds?: ThresholdConfiguration
   checklistItems?: ChecklistItemDefinition[]
+  /** Retired measures stay in the definition so historical values keep their meaning. */
+  retiredAt?: string
+}
+
+export function activeTrackerMetrics(metrics: readonly TrackerMetricDefinition[]): TrackerMetricDefinition[] {
+  return metrics.filter((metric) => metric.retiredAt === undefined)
 }
 
 export type TrackerRule =

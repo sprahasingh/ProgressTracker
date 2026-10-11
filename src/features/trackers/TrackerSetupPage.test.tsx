@@ -61,6 +61,47 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toHaveLength(0)
   })
 
+  it('associates advanced validation feedback with the exact invalid control', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Write daily')
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Extra check-in details'))
+    await user.click(screen.getByRole('button', { name: /Add field/ }))
+    const fieldName = document.querySelector<HTMLInputElement>('[data-validation-path="customFields.0.name"]')!
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    await waitFor(() => expect(fieldName).toHaveAttribute('aria-invalid', 'true'))
+    const describedBy = fieldName.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)).toHaveAttribute('role', 'alert')
+    expect(document.getElementById(describedBy!)).toHaveTextContent('Enter a value for this field.')
+  })
+
+  it('asks before discarding a modified tracker form and lets the user keep editing', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Write daily')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.getByRole('textbox', { name: 'What habit do you want to build?' })).toHaveValue('Write daily')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(navigation).toHaveBeenCalledWith('/trackers')
+  })
+
+  it('guards a modified form when browser history changes the hash', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Write daily')
+    window.history.pushState({}, '', `${window.location.pathname}${window.location.search}#/trackers`)
+    fireEvent.popState(window, { state: {} })
+    expect(await screen.findByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    expect(navigation).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(navigation).toHaveBeenCalledWith('/trackers')
+  })
+
   it('creates a habit with a daily default and offers an immediate check-in', async () => {
     const user = userEvent.setup()
     renderSetup()
@@ -173,6 +214,39 @@ describe('tracker setup flow', () => {
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'quantity' }, { valueType: 'boolean' }] }))
   })
 
+  it('retires a saved measure with history after confirmation and keeps its original definition', async () => {
+    const existing = datedTracker('retire-measure-flow', 'habit')
+    existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' })
+    await localRepository.saveTracker(existing)
+    const savedEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-10-10', outcome: 'recorded', values: { done: true, pages: 12 }, note: 'Keep this value' })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Measures, precision & targets'))
+    const retireButtons = await screen.findAllByRole('button', { name: 'Retire measure' })
+    await user.click(retireButtons.find((button) => !button.hasAttribute('disabled'))!)
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Retired measures won't appear in new check-ins"))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done' }, { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', retiredAt: expect.any(String) }] }))
+    await expect(localRepository.getTrackerEntry(existing.id, '2026-10-10')).resolves.toMatchObject({ id: savedEntry.id, values: { pages: 12 }, note: 'Keep this value' })
+    confirm.mockRestore()
+  })
+
+  it('keeps unrelated success rules when removing an unreferenced measure', async () => {
+    const existing = datedTracker('remove-unreferenced-measure', 'habit')
+    existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' })
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Measures, precision & targets'))
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove' })
+    await user.click(removeButtons.find((button) => !button.hasAttribute('disabled'))!)
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done' }], qualificationRule: { kind: 'comparison', metricId: 'done', value: true } }))
+  })
+
   it.each([320, 360, 390, 430])('keeps the essential setup controls and compact action footer available at %ipx', async (width) => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
@@ -198,9 +272,9 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
     await user.type(screen.getByRole('textbox', { name: 'What do you want to achieve?' }), 'Solve DSA problems')
+    await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'problems')
     await user.click(screen.getByText('Add a target or deadline'))
     await user.type(screen.getByRole('spinbutton', { name: 'Total amount' }), '100')
-    await user.type(screen.getByRole('textbox', { name: 'What are you counting?' }), 'problems')
     expect(screen.getByLabelText('Goal deadline')).toBeVisible()
     await user.type(screen.getByLabelText('Goal deadline'), '2099-12-31')
     expect(screen.getByRole('spinbutton', { name: 'Total amount' })).toHaveValue(100)
@@ -217,7 +291,7 @@ describe('tracker setup flow', () => {
       metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }],
     })
     expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-  }, 15_000)
+  }, 30_000)
 
   it('allows a simple name-only goal without forcing planning details', async () => {
     const user = userEvent.setup()

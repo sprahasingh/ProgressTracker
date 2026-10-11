@@ -43,6 +43,16 @@ describe('tracker analytics', () => {
     expect(result.metrics.map((metric) => metric.latestValue)).toEqual([2, 10])
   })
 
+  it('continues reporting retired measures with their original labels and historical values', () => {
+    const retiredTracker = {
+      ...tracker,
+      metrics: tracker.metrics.map((metric, index) => index === 0 ? { ...metric, retiredAt: '2026-10-08T00:00:00.000Z' } : metric),
+    }
+    const result = calculateTrackerAnalytics(retiredTracker, [entry('2026-10-05', { distance: 5, pages: 20 })], '2026-10-05', '2026-10-09')
+    expect(result.metrics[0]).toMatchObject({ metric: { id: 'distance', name: 'Distance', unit: 'km', retiredAt: expect.any(String) }, latestValue: 5 })
+    expect(result.metrics[0]?.observations).toEqual([{ date: '2026-10-05', value: 5 }])
+  })
+
   it('counts all elapsed calendar days for Strict Mode while leaving an unlogged today open', () => {
     const strict = { ...tracker, strictMode: true }
     const result = calculateTrackerAnalytics(strict, [entry('2026-10-05', { distance: 5, pages: 20 })], '2026-10-05', '2026-10-10', new Set(['2026-10-07']))
