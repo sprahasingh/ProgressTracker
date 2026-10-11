@@ -1,7 +1,36 @@
-# Check-ins, History, Analytics, and sync
+# Check-ins, History, Analytics, and synchronization
 
-Recorded check-ins retain values by stable measure ID. History displays a measure's saved name, unit, and type, including retired measures. Analytics calculates observations for each measure separately so different units are never combined. A newer revision for a date supersedes the older revision; tombstoned entries are excluded from current check-in and trend calculations.
+## Check-in records and History
 
-Local tracker edits and account sync are separate concerns. Signed-in changes enter a revisioned sync queue; the sync engine detects incompatible remote measure changes and retains a conflict for resolution. The assistant does not inspect personal records and cannot edit trackers.
+A check-in belongs to a tracker and date and stores values by stable measure ID. The tracker definition supplies the labels, units, and types used to interpret those values. Editing a measure with saved history is restricted so old values keep their meaning. Retiring the measure removes it from future check-in forms, but the definition remains for historical rendering.
 
-Source references: `src/features/history/HistoryPage.tsx`, `src/domain/trackers/analytics.ts`, `src/services/supabase/syncEngine.ts`, `src/db/localRepository.ts`, `src/db/database.ts`.
+History lets you review recorded and skipped dates and see each saved measure value with its name and unit. A legacy Checklist is rendered as a checked-item count while its retained item states preserve the old context. Retired measures can still appear in past entries. The latest live revision for a date is used; deleted/tombstoned entries are not treated as current activity.
+
+To troubleshoot a missing value, confirm the tracker and date filters, whether the check-in is recorded or skipped, whether a later revision replaced it, and whether an entry was deleted. Pausing or archiving a tracker does not erase its saved history.
+
+## Analytics
+
+Analytics can summarize **All Trackers** or an individual tracker over the selected 7-, 30-, or 90-day window. Aggregate counts such as check-ins and eligible opportunities can be compared across trackers; values with different units are not combined. Each measure gets its own observation count, average, latest value, and dated trend. Boolean values are represented as yes/no observations; a Checklist is represented by the number of checked items.
+
+Consistency is qualified eligible opportunities divided by elapsed opportunities. The current unlogged day remains open and is not included as a missed opportunity. Standard Mode counts scheduled non-holiday dates; Strict Mode counts every active calendar day. Rest days and holidays are excluded in Standard Mode and required in Strict Mode. The tracker’s active date range and schedule constrain opportunities. A recorded value may be present in the metric trend without qualifying toward consistency if it fails the success rule.
+
+Retired measures remain part of historical metric summaries because their definitions are retained. Analytics does not combine their observations with another measure or unit.
+
+## Local storage and cloud synchronization
+
+The browser saves workspace data locally first. When signed in and online, queued tracker, entry, and holiday changes synchronize with Supabase. Revision tracking detects when a cloud record has changed since the local device last read it. The app preserves both sides in a sync conflict instead of silently overwriting one version.
+
+Tracker sync checks stable measure IDs and historical interpretation. A remote edit that changes the type of a saved measure or the meaning of a measure with recorded history becomes a conflict. Resolve it through the app’s conflict flow before making dependent edits or deleting the tracker. Offline changes remain queued locally until sync can proceed.
+
+The sync engine verifies account ownership and rechecks the active account while applying pages of remote data. It does not merge records owned by another account. If sync is pending, failed, or conflicted, check the connection and sync status, then resolve the listed conflict. Do not delete local data to “fix” a conflict; that can remove the preserved local version.
+
+Workspace appearance and time-zone preferences are local settings and do not currently synchronize. Date-only check-ins remain on their original dates when the time zone changes; future date interpretation uses the selected zone.
+
+## Examples and common questions
+
+- **“Why does the old measure still appear in History?”** Retirement preserves the definition so earlier entries keep their original label and unit.
+- **“Why is there no old value in Analytics?”** Check whether the selected date period includes it, whether the measure had a value on that date, and whether the entry is the latest live revision.
+- **“Why did an edit not overwrite the other device?”** The remote revision changed; the app records a conflict so the two definitions can be reviewed.
+- **“Why does All Trackers not show one combined number?”** Different measures may use different units, so trends and values remain separated by measure.
+
+Source references: `src/features/history/HistoryPage.tsx`, `src/features/history/HistoryPage.test.tsx`, `src/domain/trackers/analytics.ts`, `src/domain/trackers/analytics.test.ts`, `src/domain/trackers/activityHeatmap.ts`, `src/services/supabase/syncEngine.ts`, `src/services/supabase/syncEngine.test.ts`, `src/db/syncConflictRepository.ts`, `src/db/localRepository.ts`, `src/db/database.ts`, `src/features/settings/WorkspaceTimeZone.tsx`.

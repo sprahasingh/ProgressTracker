@@ -28,10 +28,14 @@ describe('AI Help Edge Function validation', () => {
     expect(shouldFailoverToSecondary(400)).toBe(false)
   })
 
-  it('returns only a strong match from reviewed question memory', () => {
+  it('uses exact normalized matches from reviewed question memory and rejects broad overlap', () => {
     const memory = [{ question: 'How are streaks calculated?', answer: 'Streaks count scheduled days.' }]
     expect(findVerifiedAnswer('How are streaks calculated?', memory)?.answer).toContain('scheduled days')
+    expect(findVerifiedAnswer('How are streaks calculated', memory)?.answer).toContain('scheduled days')
     expect(findVerifiedAnswer('Tell me about private tracker data', memory)).toBeNull()
+    expect(findVerifiedAnswer('Do measures only have two types?', [{ question: 'What are measures?', answer: 'A measure records a value.' }])).toBeNull()
+    expect(findVerifiedAnswer('Are there only two types?', memory, [{ role: 'user', content: 'What are measures?' }])).toBeNull()
+    expect(findVerifiedAnswer('How are streaks calculated?', memory, [{ role: 'user', content: 'Is Sunday a rest day?' }])).toBeNull()
   })
 
   it('queues only general explanations and fingerprints only answer plus approved references', async () => {

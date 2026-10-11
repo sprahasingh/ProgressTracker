@@ -1,7 +1,37 @@
-# Schedules and streaks
+# Schedules, activity status, and streaks
 
-A schedule determines which dates are expected check-in opportunities. Standard Mode counts scheduled, non-holiday opportunities. Strict Mode counts every active calendar day, including rest days and past holidays. An unlogged current date stays open rather than counting as missed. A check-in qualifies according to the tracker success rule; streak calculations use the same qualification model and respect the active date range.
+A schedule defines when a tracker is expected to have an opportunity. It affects Today, activity status, streaks, plan pacing, and Analytics consistency; it does not create or delete check-ins.
 
-Changing schedules affects future opportunity calculations, not saved check-in rows. Holidays are stored as date-only values in the workspace time zone.
+## Schedule options
 
-Source references: `src/domain/trackers/planning.ts`, `src/domain/trackers/progression.ts`, `src/domain/trackers/activityStatus.ts`, `src/features/today/TodayPage.tsx`, `src/domain/holidays.ts`.
+The tracker setup form offers common schedules such as every day, weekdays, and three times a week. Existing or advanced tracker definitions can also use selected weekdays, every N days, a chosen number of occurrences per week or month, specific dates, a one-time date, or no scheduled occurrences. A custom schedule is preserved when editing rather than silently replaced by a simpler option.
+
+The effective start date is the later of the configured start and the tracker’s creation date interpreted in the workspace time zone. A deadline bounds the active period. An occurrence outside that interval is not a scheduled opportunity.
+
+## Standard Mode and Strict Mode
+
+In **Standard Mode**, only scheduled dates that are not holidays count as expected opportunities. Unscheduled rest days and holidays do not break a streak or lower consistency. In **Strict Mode**, each active calendar day is treated as an opportunity, including rest days and past holidays; a qualifying entry is required to preserve the streak.
+
+Changing modes recalculates the tracker’s streak interpretation but does not delete recorded progress. Standard Mode is often appropriate for routines with planned rest days. Strict Mode is appropriate only when every active day should require a qualifying check-in.
+
+## What counts as a streak day
+
+A check-in must be recorded and meet the tracker’s success rule to qualify. For a Yes/No measure, the rule can require true. Quantity and legacy measures can use a configured qualification level or their supported recorded-value behavior. A value may be saved and visible in History even if it does not qualify for the streak.
+
+A scheduled day in the past without a qualifying entry breaks the current run. In Standard Mode, an unscheduled rest day is neutral. A deliberately skipped scheduled opportunity is treated as missed for streak purposes. The current date remains open while no entry has been submitted; it is not prematurely counted as missed. Dates after the as-of date are future, not missed.
+
+The tracker deadline limits opportunities. A paused, archived, or deleted tracker does not create new active opportunities, while its recorded history remains viewable. The longest streak is historical; the current streak reflects the present run through the as-of date.
+
+## Holidays and breaks
+
+Holidays are date-only workspace records. In Standard Mode they remove that date from expected scheduled opportunities. In Strict Mode, an active past holiday remains a required calendar day for streak qualification. Holidays affect pacing and consistency calculations as well as streak continuity. They do not erase an entry stored on that date.
+
+## Troubleshooting examples
+
+- **A Sunday did not break my streak:** confirm Sunday is not scheduled and the tracker uses Standard Mode.
+- **A rest day did break my streak:** Strict Mode treats active calendar days as opportunities; switch modes only if that matches the intended rule.
+- **A recorded day did not extend the streak:** inspect the success rule and the values in that check-in; a recorded entry can be partial.
+- **Today appears pending:** that is expected until today’s check-in is submitted. Past unfilled scheduled dates can become missed.
+- **A schedule edit changed the consistency percentage:** the denominator is the set of opportunities under the current schedule and mode; saved check-ins remain intact.
+
+Source references: `src/domain/trackers/planning.ts`, `src/domain/trackers/progression.ts`, `src/domain/trackers/activityStatus.ts`, `src/domain/trackers/activityStatus.test.ts`, `src/domain/trackers/progression.test.ts`, `src/features/today/TodayPage.tsx`, `src/features/today/TodayPage.test.tsx`, `src/domain/holidays.ts`, `src/features/holidays/HolidaysPage.tsx`.

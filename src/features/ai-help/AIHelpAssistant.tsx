@@ -8,7 +8,7 @@ import { askAssistant, getHelpRoute, type ChatMessage, type HelpFailure } from '
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
 const storageKey = 'progress-tracker:ai-help:session'
-const safeRoutes = new Map([['/', 'Today'], ['/trackers', 'Trackers'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings']])
+const safeRoutes = new Map([['/', 'Today'], ['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings']])
 function loadSession(): { messages: ChatMessage[]; draft: string } {
   if (typeof sessionStorage === 'undefined') return { messages: [], draft: '' }
   try {
@@ -23,13 +23,20 @@ function loadSession(): { messages: ChatMessage[]; draft: string } {
         if (typeof href !== 'string' || !safeRoutes.has(href)) return []
         return [{ href, label: safeRoutes.get(href)! }]
       }) : undefined
-      return [{ id: typeof message.id === 'string' ? message.id : `restored-${index}`, role: message.role, content: message.content.slice(0, 6000), status: message.status === 'error' ? 'error' : undefined, links }]
+      const followUps = Array.isArray(message.followUps) ? message.followUps.filter((item): item is string => typeof item === 'string' && item.trim().length > 0 && item.length <= 140).slice(0, 2) : undefined
+      return [{ id: typeof message.id === 'string' ? message.id : `restored-${index}`, role: message.role, content: message.content.slice(0, 6000), status: message.status === 'error' ? 'error' : undefined, retryAfterSeconds: typeof message.retryAfterSeconds === 'number' && Number.isFinite(message.retryAfterSeconds) ? message.retryAfterSeconds : undefined, retryAfterUntil: typeof message.retryAfterUntil === 'number' && Number.isFinite(message.retryAfterUntil) ? message.retryAfterUntil : undefined, links, followUps }]
     }) : []
     return { messages, draft: typeof parsed.draft === 'string' ? parsed.draft.slice(0, 1500) : '' }
   } catch { return { messages: [], draft: '' } }
 }
 function failureCopy(kind: HelpFailure) {
-  if (kind === 'rate-limit') return 'The assistant is temporarily busy. Please try again shortly.'
+  if (kind === 'application-rate-limit') return 'You’ve reached the assistant’s request limit. The Retry button will unlock after the short wait.'
+  if (kind === 'provider-rate-limit' || kind === 'provider-cooldown') return 'The assistant provider is busy. The Retry button will unlock after the provider’s wait.'
+  if (kind === 'provider-unavailable') return 'The answer service is temporarily unavailable. Please retry in a little while.'
+  if (kind === 'rate-limit-service') return 'AI Help could not check its request limit. Please retry shortly.'
+  if (kind === 'configuration') return 'AI Help is not ready in this deployment yet. Please try again later.'
+  if (kind === 'edge-error') return 'AI Help encountered a temporary service error. Please retry.'
+  if (kind === 'invalid-response') return 'The assistant could not format a reliable answer. Your question is still here; please retry.'
   if (kind === 'offline') return 'AI help needs an internet connection. Try one of the available help topics when you are online.'
   if (kind === 'unauthenticated') return 'Sign in to ask the AI assistant. Common feature answers are available without an account.'
   if (kind === 'unavailable') return 'AI help is temporarily unavailable. Please try again later.'
@@ -43,6 +50,7 @@ export function AIHelpAssistant() {
   const [loading, setLoading] = useState(false)
   const [liveText, setLiveText] = useState('')
   const [nearBottom, setNearBottom] = useState(true)
+  const [clock, setClock] = useState(Date.now())
   const requestSequence = useRef(0)
   const sendingRef = useRef(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -53,6 +61,11 @@ export function AIHelpAssistant() {
   const closePanel = useCallback(() => setOpen(false), [])
 
   useEffect(() => { try { sessionStorage.setItem(storageKey, JSON.stringify(session)) } catch { /* Session persistence is best effort. */ } }, [session])
+  useEffect(() => {
+    if (!session.messages.some((message) => message.retryAfterUntil && message.retryAfterUntil > clock)) return
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [clock, session.messages])
   useEffect(() => {
     if (wasOpen.current && !open) triggerRef.current?.focus()
     wasOpen.current = open
@@ -72,13 +85,14 @@ export function AIHelpAssistant() {
       const context = appendUser ? prior : session.messages.filter((message) => message.status !== 'error').slice(-6)
       const result = await askAssistant(getSupabaseClient(), content, context, route, isOnline ?? navigator.onLine, status === 'signed-in')
       if (requestSequence.current !== sequence) return
-      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links }
+      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links, followUps: result.followUps }
       setSession((current) => ({ ...current, messages: [...current.messages, assistantMessage].slice(-30) }))
       setLiveText('New answer received.')
     } catch (error) {
       if (requestSequence.current !== sequence) return
       const kind = error instanceof Error && 'kind' in error ? error.kind as HelpFailure : 'network'
-      const message: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', status: 'error', content: failureCopy(kind) }
+      const retryAfterSeconds = error instanceof Error && 'retryAfterSeconds' in error && typeof error.retryAfterSeconds === 'number' ? error.retryAfterSeconds : undefined
+      const message: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', status: 'error', retryAfterSeconds, retryAfterUntil: retryAfterSeconds ? Date.now() + retryAfterSeconds * 1000 : undefined, content: failureCopy(kind) }
       setSession((current) => ({ ...current, draft: content, messages: [...current.messages, message].slice(-30) }))
       setLiveText(message.content)
     } finally { if (requestSequence.current === sequence) { sendingRef.current = false; setLoading(false) } }
@@ -105,7 +119,7 @@ export function AIHelpAssistant() {
       <AppIcon name="spark" />
     </IconButton>
     {open && <Suspense fallback={null}><AIHelpPanel
-      messages={session.messages} draft={session.draft} loading={loading} route={route} liveText={liveText} nearBottom={nearBottom}
+      messages={session.messages} draft={session.draft} loading={loading} route={route} liveText={liveText} nearBottom={nearBottom} now={clock}
       onClose={closePanel} onSend={(question) => { setNearBottom(true); void send(question) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
       onRetry={retry} onNewConversation={() => { setNearBottom(true); newConversation() }} onScrollPositionChange={setNearBottom} triggerRef={triggerRef}
     /></Suspense>}

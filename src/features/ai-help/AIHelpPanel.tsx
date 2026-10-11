@@ -6,8 +6,8 @@ import { useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { suggestionsByRoute, type ChatMessage, type HelpRoute } from './aiHelpService'
 
-type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; triggerRef: RefObject<HTMLButtonElement | null> }
-const internalLinks = new Map([['/trackers', 'Trackers'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History']])
+type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; triggerRef: RefObject<HTMLButtonElement | null> }
+const internalLinks = new Map([['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History']])
 
 function renderInline(text: string) {
   const segments = text.split(/(`[^`]+`|\*\*[^*]+\*\*|https?:\/\/[^\s)]+)/g).filter(Boolean)
@@ -32,17 +32,19 @@ function MessageText({ content }: { content: string }) {
     if (/^#{1,3} /.test(block)) return <h4 key={index}>{renderInline(block.replace(/^#{1,3} /, ''))}</h4>
     const lines = block.split('\n')
     if (lines.every((line) => /^[-*] /.test(line))) return <ul key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{renderInline(line.slice(2))}</li>)}</ul>
+    if (lines.every((line) => /^\d+[.)] /.test(line))) return <ol key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{renderInline(line.replace(/^\d+[.)] /, ''))}</li>)}</ol>
     return <p key={index}>{lines.map((line, lineIndex) => <span key={lineIndex}>{lineIndex > 0 && <br />}{renderInline(line)}</span>)}</p>
   })}</div>
 }
 
-export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBottom, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, triggerRef }: Props) {
+export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBottom, now, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, triggerRef }: Props) {
   const [mobile, setMobile] = useState(() => window.matchMedia?.('(max-width: 760px)').matches ?? false)
   const panelRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const [showJump, setShowJump] = useState(false)
+  const latestAssistantId = [...messages].reverse().find((item) => item.role === 'assistant' && item.status !== 'error')?.id
   useModalLayer(mobile, panelRef, onClose)
   useVisualViewportBounds(mobile, panelRef)
 
@@ -89,7 +91,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
           {!navigator.onLine && <p className="ai-help-offline-note">Some quick answers are available offline.</p>}
         </div> : <div className="ai-help-thread">{messages.map((message) => <article key={message.id} className={`ai-help-message ${message.role}${message.status === 'error' ? ' has-error' : ''}`}>
           {message.role === 'assistant' && <span className="ai-help-message-mark"><AppIcon name="spark" /></span>}
-          <div className="ai-help-message-content"><MessageText content={message.content} />{message.links?.length ? <nav className="ai-help-message-links" aria-label="Related pages">{message.links.map((link) => <Link key={link.href} to={link.href}>{link.label}</Link>)}</nav> : null}{message.status === 'error' ? <button type="button" className="ai-help-text-action" onClick={() => onRetry(message.id)}>Retry</button> : message.role === 'assistant' && <button type="button" className="ai-help-text-action" onClick={() => void navigator.clipboard?.writeText(message.content)}>Copy</button>}</div>
+          <div className="ai-help-message-content"><MessageText content={message.content} />{message.links?.length ? <nav className="ai-help-message-links" aria-label="Related pages">{message.links.map((link) => <Link key={link.href} to={link.href}>{link.label}</Link>)}</nav> : null}{message.status === 'error' ? (() => { const remaining = message.retryAfterUntil ? Math.max(0, Math.ceil((message.retryAfterUntil - now) / 1000)) : 0; return <button type="button" className="ai-help-text-action" disabled={remaining > 0} onClick={() => onRetry(message.id)} aria-label={remaining ? `Retry in ${remaining} seconds` : 'Retry'}>{remaining ? `Retry in ${remaining}s` : 'Retry'}</button> })() : message.role === 'assistant' && <button type="button" className="ai-help-text-action" onClick={() => void navigator.clipboard?.writeText(message.content)}>Copy</button>}{message.followUps?.length && message.role === 'assistant' && message.id === latestAssistantId ? <nav className="ai-help-follow-ups" aria-label="Suggested follow-up questions">{message.followUps.map((question) => <button type="button" key={question} disabled={loading} onClick={() => onSend(question)}>{question}</button>)}</nav> : null}</div>
         </article>)}{loading && <div className="ai-help-message assistant"><span className="ai-help-message-mark"><AppIcon name="spark" /></span><div className="ai-help-loading" aria-hidden="true"><span /><span /><span /></div></div>}<div ref={endRef} /></div>}
       </div>
       {showJump && <button className="ai-help-jump" type="button" onClick={() => { endRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' }); onScrollPositionChange(true); setShowJump(false) }}>Jump to latest</button>}

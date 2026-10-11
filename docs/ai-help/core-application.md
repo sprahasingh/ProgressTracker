@@ -1,7 +1,71 @@
-# ProgressTracker product map
+# Product map, account, and privacy
 
-ProgressTracker is an offline-first personal tracker for habits, goals, challenges, and projects. The main routes are Today (`/`), Trackers (`/trackers`), Calendar (`/calendar`), History (`/history`), Analytics (`/analytics`), Goals (`/goals`), Dashboard (`/dashboard`), Holidays (`/holidays`), and Settings (`/settings`).
+ProgressTracker stores personal activities as trackers and dated check-ins. It works locally first; signing in enables account synchronization. AI Help explains product behavior but has no permission to query personal trackers or make changes.
 
-Tracker definitions and check-ins are stored locally in IndexedDB through the repository layer. A signed-in account can synchronize workspace records through Supabase. The assistant explains product behavior only; it does not read tracker definitions, check-ins, or workspace settings.
+## Where features live
 
-Source references: `src/routes/router.tsx`, `src/app/AppShell.tsx`, `src/db/localRepository.ts`, `src/services/supabase/syncEngine.ts`.
+| Feature | Location | Main purpose |
+| --- | --- | --- |
+| Today | `/` | See today’s tracker opportunities and record check-ins. |
+| Trackers | `/trackers` | Create, edit, pause, archive, restore, and organize tracker definitions. |
+| Goals | `/goals` | Review saved goal plans, pacing, and milestones. |
+| Calendar | `/calendar` | Review activity by date and navigate the calendar. |
+| History | `/history` | Inspect past check-ins and their saved values. |
+| Insights / Analytics | `/dashboard`, `/analytics` | Review progress summaries and per-measure observations. |
+| Holidays & breaks | `/holidays` | Manage date-specific breaks that affect scheduled opportunities. |
+| Settings | `/settings` | Change profile, sync, time-zone, appearance, notification, and account settings. |
+
+The visible navigation groups some routes: Calendar includes History, and Insights includes Analytics, Achievements, and the dashboard. Route availability depends on account state for account-specific settings.
+
+## Create a tracker
+
+1. Open **Trackers** and choose **Create tracker** (or use the creation link from an empty Today view).
+2. Choose Habit or Goal. Open **Challenge or project?** for those tracker kinds.
+3. Enter a name, then choose the measure type and configure its values. New measures use Yes/No or Quantity.
+4. Set the schedule, active dates, and any strict-mode behavior that fits the tracker.
+5. Expand advanced settings to configure success rules, custom check-in fields, milestones, or goal planning when needed.
+6. Save. The tracker is saved locally on this device; signed-in accounts synchronize it when online.
+
+The setup page remains a single form. A validation error identifies the relevant field or section; correct it and submit again. If leaving a modified form, keep editing or explicitly discard the changes.
+
+## Edit a tracker
+
+Open the tracker from **Trackers**, then choose its edit action. You can update supported settings and add new measures. A saved measure’s type and historical interpretation are protected. Retire a measure with history to remove it from future check-ins while retaining the definition for old entries. Resolve rule, milestone, or plan dependencies before removing or retiring a measure.
+
+Archiving or pausing a tracker changes whether it is active for future opportunities; it does not erase recorded history. Deleting to the Bin is a separate lifecycle action and follows the app’s restore/permanent-delete flow.
+
+## Check-ins and custom fields
+
+A check-in records the values for active measures on a date. Custom check-in fields, such as a short note or selected answer, add context to that entry; they are not measure values and are not used as numeric goal totals. A deliberate skip is different from recording a value. Editing the same date keeps the latest live revision for current calculations; deleted/tombstoned entries are excluded from current progress.
+
+## Account, local data, and synchronization
+
+Local tracker definitions, entries, and workspace preferences use browser storage. Signing in enables Supabase synchronization for account-owned records. When offline, local work remains on the device and sync can resume later. The sync engine uses revisions and records conflicts instead of silently combining incompatible tracker edits. Resolve a conflict from the app’s sync/conflict flow; do not assume both versions were merged.
+
+Workspace time zone and appearance are saved locally for that workspace and currently do not synchronize across devices. A time-zone change changes date interpretation going forward; date-only check-in records are not shifted to a different date.
+
+Account settings include profile-name edits, email-change confirmation, password controls in Sync & Data, notifications, account deletion, and workspace preferences. The app uses Supabase Auth for sign-in and profile/account operations. A user must confirm an email change through the sent verification message.
+
+## Calendar, holidays, Insights, and achievements
+
+The **Calendar** page shows activity by date. Use it to review where activity was recorded or an opportunity was missed; History provides the detailed saved values. The **Holidays & breaks** page manages date-only account holidays used by schedule-aware views. In Standard Mode, a holiday removes that date from expected opportunities; Strict Mode still requires activity on an active calendar day.
+
+The **Insights** overview combines recent counts and consistency across active trackers, while keeping each tracker’s streak separate. Its activity heatmap shows daily completion relative to that date’s eligible opportunities; on narrow screens its automatic default shows a shorter range, and the user can select a period/year. The range choice is stored for the browser session. The **Achievements** section summarizes qualified check-ins, reward points, current/longest streaks, and streak milestones derived from saved entries. Points do not change tracker records or goals. When viewing all trackers, points and counts may be added, but different tracker streak lengths are not combined.
+
+## Notifications and the Bin
+
+Signed-in users can configure reminders under **Settings → Notifications**: reminders for today’s unmarked activities, unresolved activity from yesterday, optional partially completed targets, motivational messages, quiet hours, and daily caps. Reminder times use the workspace time zone and foreground checks run while the app is open. Device permission and push subscription registration do not mean closed-app delivery is available; the app explicitly reports that background sender/scheduler setup is not deployed. Guests do not have account notification preferences.
+
+Deleted trackers appear in **The Bin** for a 30-day recovery period. Restore brings back the tracker and its saved progress/planning data. Permanent deletion is a separate action that removes the tracker and history across synchronized devices after server confirmation; an offline request can remain pending. Archiving, deleting into the Bin, restoring, and permanently deleting are different actions.
+
+## Local backup
+
+In **Settings → Sync & Data**, the local backup controls can download a workspace backup and restore a JSON backup into the same guest workspace or account. Restore previews additions and conflicts, adds missing records, skips identical records, and stops without changing data if IDs or dates conflict. A backup is a portability/recovery file; it is not proof that cloud synchronization succeeded. Keep it in a safe place because it can contain workspace records.
+
+## AI Help privacy and availability
+
+The browser sends the question, a bounded set of recent chat messages, and a fixed route identifier. It does not attach tracker definitions, check-in values, journals, goals, profile fields, or workspace preferences. The assistant cannot inspect a user’s personal records, edit the workspace, or execute actions.
+
+Remote answers require an authenticated session and connectivity. A small local FAQ can answer selected common questions while signed out or offline; it cannot search the full product knowledge bundle. Provider, configuration, and rate-limit failures are shown with a recoverable message. Retry after any displayed cooldown.
+
+Source references: `src/routes/router.tsx`, `src/app/AppShell.tsx`, `src/features/trackers/TrackerSetupPage.tsx`, `src/features/trackers/TrackerLibraryPage.tsx`, `src/features/trackers/TrackerBinPage.tsx`, `src/features/today/TodayPage.tsx`, `src/features/dashboard/DashboardPage.tsx`, `src/features/dashboard/AchievementsPage.tsx`, `src/features/calendar/CalendarPage.tsx`, `src/features/holidays/HolidaysPage.tsx`, `src/features/auth/AuthPage.tsx`, `src/features/auth/AuthProvider.tsx`, `src/features/auth/authService.ts`, `src/features/auth/WorkspaceBackup.tsx`, `src/db/workspaceBackup.ts`, `src/features/notifications/NotificationsSettings.tsx`, `src/features/settings/WorkspaceTimeZone.tsx`, `src/features/settings/appearance.ts`, `src/features/ai-help/AIHelpAssistant.tsx`, `src/features/ai-help/aiHelpService.ts`, `src/services/supabase/syncEngine.ts`, `src/db/localRepository.ts`, `src/db/database.ts`, `supabase/functions/ai-help/index.ts`.

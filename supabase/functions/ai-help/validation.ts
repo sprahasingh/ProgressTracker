@@ -7,7 +7,7 @@ export type AssistantHistoryItem = { role: 'user' | 'assistant'; content: string
 export type AssistantInput = { question: string; history: AssistantHistoryItem[]; pageContext: string }
 
 export class AssistantInputError extends Error {
-  constructor(readonly status: number, message: string) { super(message) }
+  constructor(readonly status: number, message: string, readonly code = 'invalid_request', readonly retryAfterSeconds?: number) { super(message) }
 }
 
 const pageContexts = new Set(['today', 'trackers', 'analytics', 'goals', 'calendar', 'history', 'settings', 'other'])
@@ -32,18 +32,24 @@ export function shouldFailoverToSecondary(status: number): boolean {
   return status === 0 || status === 401 || status === 403 || status >= 500
 }
 
-export function tokenize(text: string): string[] { return [...new Set(text.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? [])] }
+export function tokenize(text: string): string[] {
+  return [...new Set((text.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? []).map((term) => {
+    if (term.length > 5 && term.endsWith('ies')) return `${term.slice(0, -3)}y`
+    if (term.length > 4 && term.endsWith('sses')) return term.slice(0, -2)
+    if (term.length > 4 && term.endsWith('s') && !term.endsWith('ss')) return term.slice(0, -1)
+    return term
+  }))]
+}
 
-export function findVerifiedAnswer(question: string, memory: Array<{ question: string; answer: string }>) {
-  const terms = tokenize(question)
-  const normalizedQuestion = question.toLocaleLowerCase().replace(/\s+/g, ' ').trim()
-  return memory.map((item) => {
-    const knownQuestion = item.question.toLocaleLowerCase().replace(/\s+/g, ' ').trim()
-    const sourceText = `${item.question} ${item.answer}`.toLocaleLowerCase()
-    const score = terms.filter((term) => sourceText.includes(term)).length
-    return { item, score, exact: normalizedQuestion === knownQuestion }
-  }).sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score)
-    .find(({ score, exact }) => exact || (terms.length > 0 && score >= Math.min(2, terms.length) && score / terms.length >= 0.5))?.item ?? null
+export function findVerifiedAnswer(question: string, memory: Array<{ question: string; answer: string }>, history: AssistantHistoryItem[] = []) {
+  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+  const trimmed = question.trim()
+  const contextDependent = trimmed.split(/\s+/).length <= 4 || /\b(?:it|that|those|them|this|these|other|same)\b/i.test(trimmed) || /^(?:and|what about|how about|why|can i|could i|does it|is it)\b/i.test(trimmed)
+  if (history.length && contextDependent) return null
+  const normalizedQuestion = normalize(question)
+  // Reviewed answers are safe as exact FAQ hits. Keyword overlap is too broad
+  // for conversational questions such as “only two types?” or “what about it?”.
+  return memory.find((item) => normalize(item.question) === normalizedQuestion) ?? null
 }
 
 export function isGeneralConversation(question: string, history: AssistantHistoryItem[]): boolean {
