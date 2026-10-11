@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { SectionHeader } from '../../components/ui/SectionHeader'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { AppIcon } from '../../components/ui/AppIcon'
 
 function freshMetric(index: number): TrackerMetricDefinition {
   return { id: crypto.randomUUID(), name: `Measure ${index + 1}`, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
@@ -117,20 +118,23 @@ type Props = {
   onCustomFieldsChange: (fields: CustomFieldDefinition[]) => void
   milestones: TrackerMilestoneDefinition[]
   onMilestonesChange: (milestones: TrackerMilestoneDefinition[]) => void
+  firstMetricTypeMode?: 'setup' | 'locked'
+  persistedMetricIds?: string[]
 }
 
-export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange }: Props) {
+export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [] }: Props) {
   function updateMetric(id: string, changes: Partial<TrackerMetricDefinition>) {
     onMetricsChange(metrics.map((metric) => metric.id === id ? { ...metric, ...changes } : metric))
   }
 
   function changeMetricType(metric: TrackerMetricDefinition, type: TrackerMetricDefinition['valueType']) {
+    if (type !== 'boolean' && type !== 'quantity') return
     updateMetric(metric.id, {
       valueType: type,
-      unit: type === 'quantity' || type === 'duration' ? metric.unit ?? '' : undefined,
-      thresholds: type === 'quantity' || type === 'duration' || type === 'checklist' ? metric.thresholds ?? { direction: 'increase', streakQualification: 'any-recorded-value' } : undefined,
-      precision: type === 'quantity' || type === 'duration' ? metric.precision : undefined,
-      checklistItems: type === 'checklist' ? metric.checklistItems?.length ? metric.checklistItems : [{ id: crypto.randomUUID(), label: 'First item', position: 0 }] : undefined,
+      unit: type === 'quantity' ? metric.unit ?? '' : undefined,
+      thresholds: type === 'quantity' ? metric.thresholds ?? { direction: 'increase', streakQualification: 'any-recorded-value' } : undefined,
+      precision: type === 'quantity' ? metric.precision : undefined,
+      checklistItems: undefined,
     })
   }
 
@@ -160,7 +164,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
           {metrics.length > 1 && <header className="configuration-card-heading"><strong>{metric.name || `Measure ${index + 1}`}</strong><div><Button type="button" variant="destructive" size="small" disabled={ruleUsesMetric(rule, metric.id)} title={ruleUsesMetric(rule, metric.id) ? 'Remove linked success conditions first.' : undefined} onClick={() => removeMetric(metric.id)}>Remove</Button>{ruleUsesMetric(rule, metric.id) && <small className="field-hint">Remove linked success conditions first.</small>}</div></header>}
           <div className="form-grid configuration-grid">
             <label className="form-field"><span>Name <InfoButton title="Measure name" summary="Name the value you plan to record." description="Examples include problems solved, reading, or workout duration. The name appears in check-in forms, history, analytics, and goal plans." /></span><input aria-label="Name" className="auth-input" maxLength={120} value={metric.name} onChange={(event) => updateMetric(metric.id, { name: event.target.value })} /></label>
-            <label className="form-field"><span>Value type <InfoButton title="Value type" summary="Choose the shape of each recorded value." description="Yes/no stores a boolean completion. Quantity stores a number. Duration stores time as a number with a unit you choose. Checklist stores checked items and can be summarized as a count. Boolean measures do not support numeric planning targets." /></span><select aria-label={`Measure ${index + 1} value type`} className="auth-input" value={metric.valueType} onChange={(event) => changeMetricType(metric, event.target.value as TrackerMetricDefinition['valueType'])}><option value="boolean">Yes / no</option><option value="quantity">Quantity</option><option value="duration">Duration</option><option value="checklist">Checklist</option></select></label>
+            <label className="form-field"><span>Value type <InfoButton title="Value type" summary="Choose the shape of each recorded value." description="Yes/no stores a boolean completion. Quantity stores a number. Saved measure types stay fixed so historical check-ins keep their meaning." /></span>{index === 0 || persistedMetricIds.includes(metric.id) ? <span className="measure-type-readonly"><span>{(index > 0 || firstMetricTypeMode === 'locked') && <AppIcon name="lock" />}{metric.valueType === 'boolean' ? 'Yes / no' : metric.valueType === 'quantity' ? 'Quantity' : metric.valueType === 'duration' ? 'Duration' : 'Checklist'}</span><small>{index === 0 && firstMetricTypeMode === 'setup' ? 'Choose this type above.' : "Measure types can't be changed after a tracker is created."}</small></span> : <select aria-label={`Measure ${index + 1} value type`} className="auth-input" value={metric.valueType} onChange={(event) => changeMetricType(metric, event.target.value as 'boolean' | 'quantity')}><option value="boolean">Yes / no</option><option value="quantity">Quantity</option></select>}</label>
             {(metric.valueType === 'quantity' || metric.valueType === 'duration' || metric.valueType === 'checklist') && <>
               {metric.valueType !== 'checklist' && <label className="form-field"><span>Unit <InfoButton title="Unit" summary="Add the unit used to interpret the number." description="Examples: pages, sessions, kilometers, minutes, or hours. Separate metrics are never combined across different units." /></span><input className="auth-input" value={metric.unit ?? ''} onChange={(event) => updateMetric(metric.id, { unit: event.target.value })} placeholder={metric.valueType === 'duration' ? 'minutes, hours' : 'pages, sessions'} /></label>}
               {metric.valueType !== 'checklist' && <>

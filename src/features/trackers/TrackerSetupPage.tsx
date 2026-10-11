@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { AppIcon, type AppIconName } from '../../components/ui/AppIcon'
@@ -68,6 +68,12 @@ function suggestedPace(amount: number, startDate: string, deadline: string, sche
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(amount / count)} per scheduled day`
 }
 
+function readableValidationMessage(message: string): string {
+  return /^(Invalid input|Invalid discriminator|Expected |Unrecognized key|Too small:|Too big:|Invalid type:|Invalid value:)/i.test(message)
+    ? 'Some tracker settings are invalid. Review the highlighted fields and try again.'
+    : message
+}
+
 function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'): FormValues {
   const schedule = tracker?.schedule.kind === 'weekdays' ? 'weekdays'
     : tracker?.schedule.kind === 'none' ? 'none'
@@ -92,6 +98,7 @@ export function TrackerSetupPage() {
     const metric = starterMetric('habit')
     return { metrics: [metric], rule: starterRule(metric), customFields: [], milestones: [] }
   })
+  const [primaryQuantityBackup, setPrimaryQuantityBackup] = useState<TrackerMetricDefinition | null>(null)
   const [goalPlanning, setGoalPlanning] = useState<GoalPlanningConfiguration>(emptyGoalPlanning)
   const [goalAmount, setGoalAmount] = useState('')
   const [goalUnit, setGoalUnit] = useState('')
@@ -101,6 +108,7 @@ export function TrackerSetupPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const advancedSetupRef = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
     if (!trackerId) return
@@ -153,14 +161,21 @@ export function TrackerSetupPage() {
       const rule = starterRule(changed)
       return { ...current, metrics: [changed], rule }
     })
+    setPrimaryQuantityBackup(null)
   }
 
   function chooseSimpleMeasure(valueType: 'boolean' | 'quantity') {
     const metric = configuration.metrics[0]
-    if (!metric) return
+    if (!metric || metric.valueType === valueType) return
+    if (valueType === 'boolean' && metric.valueType === 'quantity') setPrimaryQuantityBackup(metric)
+    const restored = valueType === 'quantity' && primaryQuantityBackup?.id === metric.id ? primaryQuantityBackup : undefined
+    const defaultName = metric.name === 'Completed' || metric.name === 'Progress'
+      ? valueType === 'boolean' ? 'Completed' : 'Progress'
+      : metric.name
     const updated: TrackerMetricDefinition = valueType === 'boolean'
-      ? { id: metric.id, name: 'Completed', valueType: 'boolean' }
-      : { id: metric.id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
+      ? { id: metric.id, name: defaultName, valueType: 'boolean' }
+      : restored ? { ...restored, name: defaultName }
+        : { id: metric.id, name: defaultName, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
     setConfiguration((current) => ({ ...current, metrics: [updated, ...current.metrics.slice(1)], rule: starterRule(updated) }))
   }
 
@@ -207,10 +222,22 @@ export function TrackerSetupPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (saving) return
     setError('')
     const parsed = trackerSetupSchema.safeParse(values)
     if (!parsed.success) {
-      setFieldErrors(Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), issue.message])))
+      const issues = parsed.error.issues
+      setFieldErrors(Object.fromEntries(issues.map((issue) => [String(issue.path[0]), issue.message])))
+      const message = issues[0]?.message ?? 'Check the highlighted tracker details.'
+      notify({ kind: 'error', title: 'Check the tracker details', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
+      if (issues.some((issue) => issue.path[0] === 'deadline') && values.kind === 'goal' && !existing) setGoalPlanOpen(true)
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const field = issues[0]?.path[0]
+        const target = field === 'name' ? document.querySelector<HTMLInputElement>('[aria-label^="What "]')
+          : field === 'startDate' ? document.querySelector<HTMLInputElement>('[aria-label="Start date"]')
+            : field === 'deadline' ? document.querySelector<HTMLInputElement>('[aria-label="Goal deadline"], .tracker-deadline-field input') : null
+        target?.focus(); target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+      }))
       return
     }
     if (existing && (existing.strictMode ?? false) !== parsed.data.strictMode) {
@@ -231,7 +258,9 @@ export function TrackerSetupPage() {
             const entries = await localRepository.listTrackerEntriesBetween(oldActiveStart as CalendarDate, excludedEnd)
             excludedCount = entries.filter((entry) => entry.trackerId === existing.id).length
           } catch {
-            setError('Could not verify saved check-ins before the new start date. Nothing was saved; please try again.')
+            const message = 'Could not verify saved check-ins before the new start date. Nothing was saved; please try again.'
+            setError(message)
+      notify({ kind: 'error', title: 'Could not verify check-ins', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
             return
           }
           if (excludedCount > 0 && !window.confirm(`Moving the start date forward will leave ${excludedCount} saved check-in record${excludedCount === 1 ? '' : 's'} before the new active date. The records will remain in History, but date-based streak and goal calculations will use the new start date. Continue?`)) return
@@ -242,10 +271,13 @@ export function TrackerSetupPage() {
     const enteredGoalAmount = goalAmount === '' ? undefined : Number(goalAmount)
     const goalAmountInvalid = enteredGoalAmount === undefined || !Number.isFinite(enteredGoalAmount) || enteredGoalAmount <= 0 || enteredGoalAmount > Number.MAX_SAFE_INTEGER
     if (isNewPlannedGoal && goalAmountInvalid) {
+      const message = 'Enter a total greater than zero, such as 100.'
       setFieldErrors((current) => ({
         ...current,
-        ...(goalAmountInvalid ? { goalAmount: 'Enter a total greater than zero, such as 100.' } : {}),
+        ...(goalAmountInvalid ? { goalAmount: message } : {}),
       }))
+      notify({ kind: 'error', title: 'Check the goal target', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
+      requestAnimationFrame(() => { setGoalPlanOpen(true); const field = document.querySelector<HTMLInputElement>('[aria-label="Total amount"]'); field?.focus(); field?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }) })
       return
     }
     setSaving(true)
@@ -313,21 +345,37 @@ export function TrackerSetupPage() {
           })
           messages.push(`Saved daily allocations for ${conflicts.join(', ')} do not match the selected precision. Update those allocation values or restore the previous precision before saving. Your goal total, allocations, and recorded progress have not changed.`)
         }
-        messages.push(...otherIssues.map((issue) => issue.message).filter((message, index, all) => all.indexOf(message) === index))
-        setError(messages.join(' ') || 'Check the tracker details and try again.')
+        messages.push(...otherIssues.map((issue) => readableValidationMessage(issue.message)).filter((message, index, all) => all.indexOf(message) === index))
+        const message = messages.join(' ') || 'Check the tracker details and try again.'
+        setError(message)
+        notify({ kind: 'error', title: 'Tracker details need attention', description: messages[0] ?? 'Check the highlighted tracker details.', duration: 0, dedupeKey: 'tracker-form-validation' })
+        advancedSetupRef.current?.setAttribute('open', '')
+        const issuePath = checked.error.issues[0]?.path[0]
+        const sectionLabel = issuePath === 'metrics' ? 'Measures, precision & targets'
+          : issuePath === 'goalPlanning' ? 'Goal planning'
+            : issuePath === 'customFields' ? 'Extra check-in details'
+              : issuePath === 'milestones' ? 'Milestones'
+                : issuePath === 'qualificationRule' ? 'Success rule' : undefined
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const details = advancedSetupRef.current
+          if (!details) return
+          const section = sectionLabel ? [...details.querySelectorAll<HTMLDetailsElement>('.advanced-subsection')].find((item) => item.querySelector('summary')?.textContent?.includes(sectionLabel)) : undefined
+          if (section) section.open = true
+          const target = section?.querySelector<HTMLElement>('input:not([type="hidden"]), select, textarea')
+          target?.focus(); target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+        }))
         return
       }
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
+      notify({ kind: 'success', title: existing ? 'Tracker updated' : 'Tracker created', description: returnToToday && !existing ? 'Your new tracker is ready. Your progress is saved on this device.' : existing ? 'Your changes were saved on this device.' : 'Your new tracker was saved on this device.', dedupeKey: `tracker:${result.id}` })
       if (existing) {
-        notify({ kind: 'success', title: 'Tracker updated', description: 'Your changes were saved on this device.', dedupeKey: `tracker:${result.id}` })
         navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
       }
       else if (returnToToday) {
-        notify({ kind: 'success', title: 'Tracker created', description: 'Your new tracker is ready. Your progress is saved on this device.', dedupeKey: `tracker:${result.id}` })
         navigate('/', { replace: true })
       }
       else setSavedTracker(result)
-    } catch {
+    } catch (cause) {
       notify({ kind: 'error', title: existing ? 'Couldn’t update tracker' : 'Couldn’t create tracker', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: existing?.id ? `tracker:${existing.id}` : `tracker-create:${values.name}` })
     } finally {
       setSaving(false)
@@ -380,11 +428,11 @@ export function TrackerSetupPage() {
           {!existing && selectedKind === 'goal' && configuration.metrics[0]?.valueType !== 'boolean' && <details className="optional-goal-plan" open={goalPlanOpen || Boolean(fieldErrors.goalAmount)} onToggle={(event) => setGoalPlanOpen(event.currentTarget.open)}>
             <summary>Add a target or deadline <span>Optional</span></summary>
             <p>A target without a deadline becomes a daily goal. Add a deadline to track a total and get a suggested pace.</p>
-            <div className="goal-target-row"><label className="form-field"><span>Target amount</span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => { setGoalAmount(event.target.value); setFieldErrors((current) => ({ ...current, goalAmount: '' })) }} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : undefined} />{fieldErrors.goalAmount && <small id="goal-amount-error" className="auth-error">{fieldErrors.goalAmount}</small>}</label><label className="form-field"><span>Unit <em>optional</em></span><input aria-label="What are you counting?" className="auth-input" maxLength={40} value={goalUnit} onChange={(event) => setGoalUnit(event.target.value)} placeholder="problems, pages, minutes" /></label><label className="form-field"><span>Deadline <em>optional</em></span><input aria-label="Goal deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} /></label></div>
+            <div className="goal-target-row"><label className="form-field"><span>Target amount</span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => { setGoalAmount(event.target.value); setFieldErrors((current) => ({ ...current, goalAmount: '' })) }} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : undefined} />{fieldErrors.goalAmount && <small id="goal-amount-error" className="auth-error">{fieldErrors.goalAmount}</small>}</label><label className="form-field"><span>Unit <em>optional</em></span><input aria-label="What are you counting?" className="auth-input" maxLength={40} value={goalUnit} onChange={(event) => setGoalUnit(event.target.value)} placeholder="problems, pages, minutes" /></label><label className="form-field"><span>Deadline <em>optional</em></span><input aria-label="Goal deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label></div>
             {pace && <p className="goal-pace-suggestion">Suggested pace: about <strong>{pace}</strong> per scheduled day.</p>}
           </details>}
           {existing && (existing.kind !== 'habit' || Boolean(existing.deadline)) && <label className="form-field tracker-deadline-field"><span>Deadline <em>optional</em> <InfoButton title="Deadline" summary="Choose the date you want this goal or challenge to be completed." description="For example, a goal to solve 100 problems by October 31. Deadline status and cumulative pace use this calendar date in the planner’s time zone. Editing the date recalculates expected and remaining scheduled days; it does not erase historical progress." /></span><input className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
-          <details className="advanced-setup">
+          <details className="advanced-setup" ref={advancedSetupRef}>
             <summary><span><strong>More options</strong><small>Extra measures, targets, milestones, and details</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary>
             <div className="advanced-setup-content">
             {!existing && <label className="form-field advanced-description"><span>Description <em>optional</em> <InfoButton title="Description" summary="Write the context that makes this tracker meaningful." description="This text is for your own reference and does not change how values, success rules, or progress are calculated." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Why does this matter to you?" /></label>}
@@ -394,7 +442,7 @@ export function TrackerSetupPage() {
                 <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
                 <p className="field-hint form-field-wide">Workspace holidays and excluded days are applied automatically.</p>
               </div></details>
-              <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" firstMetricTypeMode={existing ? 'locked' : 'setup'} persistedMetricIds={existing?.metrics.map((metric) => metric.id)} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Milestones</summary><TrackerConfigurationEditor section="milestones" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
