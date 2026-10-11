@@ -28,6 +28,42 @@ function isFollowUp(question: string): boolean {
 
 export type HelpIntent = 'troubleshooting' | 'instructions' | 'comparison' | 'deeper_detail' | 'clarification' | 'explanation'
 
+export function deterministicProductAnswer(question: string, history: AssistantHistoryItem[], supportEmail: string): { answer: string; topic: string } | null {
+  const normalized = canonicalize(question).toLocaleLowerCase()
+  const contextual = isFollowUp(question) ? history.filter((entry) => entry.role === 'user').slice(-2).map(({ content }) => canonicalize(content).toLocaleLowerCase()).join(' ') : ''
+  const combined = `${normalized} ${contextual}`
+  const contactQuestion = /\b(?:support email|contact (?:support|you|the team)|reach (?:support|you|the team)|help (?:email|address)|email (?:for|to) (?:support|help)|who do i contact|(?:what(?:'s| is)|give me|find) (?:the )?(?:progresstracker |your )?(?:support )?(?:email|email address|contact address))\b/.test(normalized)
+    || (isFollowUp(question) && /\b(?:support|contact|help email|email address)\b/.test(contextual))
+  if (contactQuestion) return { answer: `For ProgressTracker support, email ${supportEmail}.`, topic: 'account' }
+
+  const accountQuestion = /\b(?:account|sign in|signin|log in|login|passwordless|magic link|password|authenticate|authentication|register|sign up|signup)\b/.test(combined)
+  if (!accountQuestion) return null
+  if (/\b(?:delete|deletion|remove|permanently)\b/.test(combined) && /\b(?:account|profile)\b/.test(combined)) {
+    return { answer: 'To delete your account, open Settings → Account Actions → Delete Account. Enter your current password and the exact word DELETE, then choose Permanently Delete Account. The server checks the password and authorizes one deletion for up to five minutes. If you usually use email sign-in links, set a password first under Settings → Sync & Data → Set or change password. You can export local data before confirming; unsynchronized changes are not uploaded.', topic: 'account' }
+  }
+  if (/\b(?:forgot|reset|recovery|recover)\b/.test(combined) && /\bpassword\b/.test(combined)) {
+    return { answer: 'On the account screen choose Forgot password? and enter the account email. Open the recovery link to choose a new password. The email link is for recovery; it does not create a second account.', topic: 'account' }
+  }
+  if (/\b(?:set|change|update)\b/.test(combined) && /\bpassword\b/.test(combined)) {
+    return { answer: 'While signed in, open Settings → Sync & Data → Set or change password. Save a password with at least eight characters. If you cannot sign in, use Forgot password? on the account screen to receive a recovery link.', topic: 'account' }
+  }
+  if (/\b(?:create|creating|new|register|sign up|signup)\b/.test(combined) && /\baccount\b/.test(combined)) {
+    return { answer: 'You can create an account by choosing Create account on the account screen and entering an email and password of at least eight characters. You can also use Email me a sign-in link; the first use of an email creates an account, while an existing account’s email signs that account in. Signing in and creating an account are separate choices.', topic: 'account' }
+  }
+  if (/\b(?:passwordless|magic link|email link|one time link)\b/.test(combined)) {
+    return { answer: 'Choose Email me a sign-in link on the account screen. ProgressTracker emails a one-time link. The first use of an email creates an account; an existing account’s email signs that account in. A password is optional for sign-in, but account deletion requires a password, which you can set under Settings → Sync & Data.', topic: 'account' }
+  }
+  if (/\b(?:sign in|signin|log in|login)\b/.test(combined)) {
+    return { answer: 'On the account screen, choose Email me a sign-in link for passwordless access or Use password to sign in with your email and password. Choose Create account only if you are registering a new account. Using an existing account’s email for a sign-in link signs into that account.', topic: 'account' }
+  }
+  return { answer: 'ProgressTracker supports one-time email sign-in links and email/password sign-in. On the account screen, choose Create account to register, or choose a sign-in method for an existing account. I can give exact steps if you tell me whether you want to create an account, sign in, change a password, or delete an account.', topic: 'account' }
+}
+
+export function hasUnverifiedEmailClaim(answer: string, supportEmail: string): boolean {
+  const addresses = answer.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []
+  return addresses.some((address) => address.toLocaleLowerCase() !== supportEmail.toLocaleLowerCase())
+}
+
 export function classifyHelpIntent(question: string): HelpIntent {
   const value = canonicalize(question).toLocaleLowerCase()
   if (/\b(?:problem|problems|issue|issues|error|stuck|trouble|troubleshoot|not working|doesn.t work|failed|can.t|cannot)\b/.test(value)) return 'troubleshooting'

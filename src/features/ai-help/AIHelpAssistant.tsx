@@ -4,7 +4,7 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { useAuth } from '../auth/AuthProvider'
-import { askAssistant, getHelpRoute, type ChatMessage, type HelpFailure } from './aiHelpService'
+import { askAssistant, getHelpRoute, submitAnswerFeedback, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
 const storageKey = 'progress-tracker:ai-help:session'
@@ -24,7 +24,9 @@ function loadSession(): { messages: ChatMessage[]; draft: string } {
         return [{ href, label: safeRoutes.get(href)! }]
       }) : undefined
       const followUps = Array.isArray(message.followUps) ? message.followUps.filter((item): item is string => typeof item === 'string' && item.trim().length > 0 && item.length <= 140).slice(0, 2) : undefined
-      return [{ id: typeof message.id === 'string' ? message.id : `restored-${index}`, role: message.role, content: message.content.slice(0, 6000), status: message.status === 'error' ? 'error' : undefined, retryAfterSeconds: typeof message.retryAfterSeconds === 'number' && Number.isFinite(message.retryAfterSeconds) ? message.retryAfterSeconds : undefined, retryAfterUntil: typeof message.retryAfterUntil === 'number' && Number.isFinite(message.retryAfterUntil) ? message.retryAfterUntil : undefined, links, followUps }]
+      const topic = typeof message.topic === 'string' && ['core', 'trackers', 'goals', 'schedules', 'history', 'analytics', 'sync', 'privacy', 'account', 'notifications', 'settings', 'other'].includes(message.topic) ? message.topic : undefined
+      const knowledgeVersion = typeof message.knowledgeVersion === 'string' && message.knowledgeVersion.length <= 100 ? message.knowledgeVersion : undefined
+      return [{ id: typeof message.id === 'string' ? message.id : `restored-${index}`, role: message.role, content: message.content.slice(0, 6000), status: message.status === 'error' ? 'error' : undefined, retryAfterSeconds: typeof message.retryAfterSeconds === 'number' && Number.isFinite(message.retryAfterSeconds) ? message.retryAfterSeconds : undefined, retryAfterUntil: typeof message.retryAfterUntil === 'number' && Number.isFinite(message.retryAfterUntil) ? message.retryAfterUntil : undefined, links, followUps, topic, knowledgeVersion, feedbackStatus: message.feedbackStatus === 'helpful' || message.feedbackStatus === 'reported' ? message.feedbackStatus : undefined }]
     }) : []
     return { messages, draft: typeof parsed.draft === 'string' ? parsed.draft.slice(0, 1500) : '' }
   } catch { return { messages: [], draft: '' } }
@@ -85,7 +87,7 @@ export function AIHelpAssistant() {
       const context = appendUser ? prior : session.messages.filter((message) => message.status !== 'error').slice(-6)
       const result = await askAssistant(getSupabaseClient(), content, context, route, isOnline ?? navigator.onLine, status === 'signed-in')
       if (requestSequence.current !== sequence) return
-      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links, followUps: result.followUps }
+      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links, followUps: result.followUps, topic: result.topic, knowledgeVersion: result.knowledge_version }
       setSession((current) => ({ ...current, messages: [...current.messages, assistantMessage].slice(-30) }))
       setLiveText('New answer received.')
     } catch (error) {
@@ -106,6 +108,13 @@ export function AIHelpAssistant() {
     void send(previous.content, false)
   }, [send, session.messages])
 
+  const sendFeedback = useCallback(async (messageId: string, category: FeedbackCategory, explanation?: string) => {
+    const message = session.messages.find((item) => item.id === messageId)
+    if (!message?.topic || !message.knowledgeVersion) throw new Error('This response does not include current product version details for feedback.')
+    await submitAnswerFeedback(getSupabaseClient(), { responseId: messageId, category, explanation, topic: message.topic, knowledgeVersion: message.knowledgeVersion })
+    setSession((current) => ({ ...current, messages: current.messages.map((item) => item.id === messageId ? { ...item, feedbackStatus: category === 'helpful' ? 'helpful' : 'reported' } : item) }))
+  }, [session.messages])
+
   const newConversation = () => {
     requestSequence.current += 1
     sendingRef.current = false
@@ -122,6 +131,7 @@ export function AIHelpAssistant() {
       messages={session.messages} draft={session.draft} loading={loading} route={route} liveText={liveText} nearBottom={nearBottom} now={clock}
       onClose={closePanel} onSend={(question) => { setNearBottom(true); void send(question) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
       onRetry={retry} onNewConversation={() => { setNearBottom(true); newConversation() }} onScrollPositionChange={setNearBottom} triggerRef={triggerRef}
+      onFeedback={sendFeedback}
     /></Suspense>}
   </>
 }

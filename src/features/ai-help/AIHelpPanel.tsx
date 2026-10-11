@@ -4,9 +4,9 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
-import { suggestionsByRoute, type ChatMessage, type HelpRoute } from './aiHelpService'
+import { suggestionsByRoute, type ChatMessage, type FeedbackCategory, type HelpRoute } from './aiHelpService'
 
-type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; triggerRef: RefObject<HTMLButtonElement | null> }
+type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; triggerRef: RefObject<HTMLButtonElement | null> }
 const internalLinks = new Map([['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History']])
 
 function renderInline(text: string) {
@@ -37,7 +37,37 @@ function MessageText({ content }: { content: string }) {
   })}</div>
 }
 
-export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBottom, now, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, triggerRef }: Props) {
+function AnswerFeedback({ message, onFeedback }: { message: ChatMessage; onFeedback: Props['onFeedback'] }) {
+  const [showReasons, setShowReasons] = useState(false)
+  const [category, setCategory] = useState<FeedbackCategory>('factually_incorrect')
+  const [explanation, setExplanation] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  if (!message.knowledgeVersion || !message.topic) return null
+  if (message.feedbackStatus) return <p className="ai-help-feedback-thanks" role="status">{message.feedbackStatus === 'helpful' ? 'Thanks for your feedback.' : 'Thanks. Your report was sent for review.'}</p>
+  async function submit(choice: FeedbackCategory, details?: string) {
+    setBusy(true)
+    setError('')
+    try { await onFeedback(message.id, choice, details) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Feedback could not be sent. Try again.') }
+    finally { setBusy(false) }
+  }
+  return <div className="ai-help-feedback">
+    <span>Was this answer helpful?</span>
+    <button type="button" className="ai-help-text-action" disabled={busy} onClick={() => void submit('helpful')}>👍 Helpful</button>
+    <button type="button" className="ai-help-text-action" disabled={busy} onClick={() => { setShowReasons(true); setError('') }}>👎 Incorrect</button>
+    {showReasons && <form className="ai-help-feedback-form" onSubmit={(event) => { event.preventDefault(); void submit(category, explanation.trim() || undefined) }}>
+      <label>What was wrong?<select value={category} onChange={(event) => setCategory(event.target.value as FeedbackCategory)} disabled={busy}>
+        <option value="factually_incorrect">Factually incorrect</option><option value="outdated">Outdated information</option><option value="wrong_instructions">Wrong instructions</option><option value="wrong_contact">Wrong contact information</option><option value="other">Other</option>
+      </select></label>
+      <label>Optional note<textarea value={explanation} onChange={(event) => setExplanation(event.target.value.slice(0, 300))} maxLength={300} rows={2} placeholder="Briefly describe the issue. Don’t include personal information." disabled={busy} /></label>
+      {error && <p className="ai-help-feedback-error" role="alert">{error}</p>}
+      <div><button className="button button-primary button-small" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send report'}</button><button className="button button-secondary button-small" type="button" disabled={busy} onClick={() => setShowReasons(false)}>Cancel</button></div>
+    </form>}
+  </div>
+}
+
+export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBottom, now, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, onFeedback, triggerRef }: Props) {
   const [mobile, setMobile] = useState(() => window.matchMedia?.('(max-width: 760px)').matches ?? false)
   const panelRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -91,7 +121,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
           {!navigator.onLine && <p className="ai-help-offline-note">Some quick answers are available offline.</p>}
         </div> : <div className="ai-help-thread">{messages.map((message) => <article key={message.id} className={`ai-help-message ${message.role}${message.status === 'error' ? ' has-error' : ''}`}>
           {message.role === 'assistant' && <span className="ai-help-message-mark"><AppIcon name="spark" /></span>}
-          <div className="ai-help-message-content"><MessageText content={message.content} />{message.links?.length ? <nav className="ai-help-message-links" aria-label="Related pages">{message.links.map((link) => <Link key={link.href} to={link.href}>{link.label}</Link>)}</nav> : null}{message.status === 'error' ? (() => { const remaining = message.retryAfterUntil ? Math.max(0, Math.ceil((message.retryAfterUntil - now) / 1000)) : 0; return <button type="button" className="ai-help-text-action" disabled={remaining > 0} onClick={() => onRetry(message.id)} aria-label={remaining ? `Retry in ${remaining} seconds` : 'Retry'}>{remaining ? `Retry in ${remaining}s` : 'Retry'}</button> })() : message.role === 'assistant' && <button type="button" className="ai-help-text-action" onClick={() => void navigator.clipboard?.writeText(message.content)}>Copy</button>}{message.followUps?.length && message.role === 'assistant' && message.id === latestAssistantId ? <nav className="ai-help-follow-ups" aria-label="Suggested follow-up questions">{message.followUps.map((question) => <button type="button" key={question} disabled={loading} onClick={() => onSend(question)}>{question}</button>)}</nav> : null}</div>
+          <div className="ai-help-message-content"><MessageText content={message.content} />{message.links?.length ? <nav className="ai-help-message-links" aria-label="Related pages">{message.links.map((link) => <Link key={link.href} to={link.href}>{link.label}</Link>)}</nav> : null}{message.status === 'error' ? (() => { const remaining = message.retryAfterUntil ? Math.max(0, Math.ceil((message.retryAfterUntil - now) / 1000)) : 0; return <button type="button" className="ai-help-text-action" disabled={remaining > 0} onClick={() => onRetry(message.id)} aria-label={remaining ? `Retry in ${remaining} seconds` : 'Retry'}>{remaining ? `Retry in ${remaining}s` : 'Retry'}</button> })() : message.role === 'assistant' && <><button type="button" className="ai-help-text-action" onClick={() => void navigator.clipboard?.writeText(message.content)}>Copy</button><AnswerFeedback message={message} onFeedback={onFeedback} /></>}{message.followUps?.length && message.role === 'assistant' && message.id === latestAssistantId ? <nav className="ai-help-follow-ups" aria-label="Suggested follow-up questions">{message.followUps.map((question) => <button type="button" key={question} disabled={loading} onClick={() => onSend(question)}>{question}</button>)}</nav> : null}</div>
         </article>)}{loading && <div className="ai-help-message assistant"><span className="ai-help-message-mark"><AppIcon name="spark" /></span><div className="ai-help-loading" aria-hidden="true"><span /><span /><span /></div></div>}<div ref={endRef} /></div>}
       </div>
       {showJump && <button className="ai-help-jump" type="button" onClick={() => { endRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' }); onScrollPositionChange(true); setShowJump(false) }}>Jump to latest</button>}

@@ -24,6 +24,31 @@ export type VerifiedKnowledge = {
   status: 'verified' | 'stale'
 }
 
+export function hasConflictingVerifiedKnowledge(entries: VerifiedKnowledge[]): boolean {
+  const negations = new Set(['not', 'cannot', 'cant', 'unable', 'unavailable', 'unsupported', 'never', 'without'])
+  const positive = new Set(['can', 'available', 'supported', 'required', 'requires', 'allowed'])
+  for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+    const left = entries[leftIndex]!
+    for (const right of entries.slice(leftIndex + 1)) {
+      if (left.feature_category !== right.feature_category) continue
+      const terms = (entry: VerifiedKnowledge) => new Set(tokenize(`${entry.title} ${entry.explanation}`).filter((term) => term.length > 3 && !stopWords.has(term) && !negations.has(term) && !positive.has(term)))
+      const leftTerms = terms(left)
+      const rightTerms = terms(right)
+      const shared = [...leftTerms].filter((term) => rightTerms.has(term)).length
+      const overlap = shared / Math.max(1, new Set([...leftTerms, ...rightTerms]).size)
+      if (overlap < 0.72) continue
+      const leftText = `${left.title} ${left.explanation}`.toLocaleLowerCase()
+      const rightText = `${right.title} ${right.explanation}`.toLocaleLowerCase()
+      const leftNegative = [...negations].some((word) => new RegExp(`\\b${word}\\b`).test(leftText))
+      const rightNegative = [...negations].some((word) => new RegExp(`\\b${word}\\b`).test(rightText))
+      const leftPositive = [...positive].some((word) => new RegExp(`\\b${word}\\b`).test(leftText))
+      const rightPositive = [...positive].some((word) => new RegExp(`\\b${word}\\b`).test(rightText))
+      if (leftNegative && rightPositive || rightNegative && leftPositive) return true
+    }
+  }
+  return false
+}
+
 const stopWords = new Set(['about', 'after', 'also', 'are', 'been', 'being', 'can', 'could', 'does', 'for', 'from', 'have', 'into', 'is', 'its', 'may', 'not', 'only', 'should', 'that', 'the', 'their', 'this', 'through', 'what', 'when', 'where', 'which', 'while', 'with', 'would'])
 const topicPattern = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 const privateContentPattern = /\b(?:i|me|my|mine|we|us|our|ours|your|you|your tracker|your account)\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b\d{4}-\d{2}-\d{2}\b|\+?\d[\d ()-]{7,}\d/i

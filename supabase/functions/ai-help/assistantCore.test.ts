@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 import { knowledgeDocuments } from './_generated/knowledgeBundle'
 import { sourceIndex } from './_generated/sourceIndex'
@@ -14,6 +14,18 @@ const sourceEntries = [
 ]
 
 describe('AI Help retrieval and provider boundary', () => {
+  it('answers verified account and contact workflows deterministically', () => {
+    const email = 'spraha.progresstracker@gmail.com'
+    expect(deterministicProductAnswer('How do I create an account?', [], email)?.answer).toContain('first use of an email creates an account')
+    expect(deterministicProductAnswer('How do I sign in?', [], email)?.answer).toContain('Use password')
+    expect(deterministicProductAnswer('How do I set my password?', [], email)?.answer).toContain('Settings → Sync & Data')
+    expect(deterministicProductAnswer('How can I delete my account?', [], email)?.answer).toContain('exact word DELETE')
+    expect(deterministicProductAnswer('What is your support email?', [], email)?.answer).toBe(`For ProgressTracker support, email ${email}.`)
+    expect(deterministicProductAnswer('What is that email?', [{ role: 'user', content: 'How can I contact support?' }], email)?.answer).toBe(`For ProgressTracker support, email ${email}.`)
+    expect(deterministicProductAnswer('Why are streaks broken?', [], email)).toBeNull()
+    expect(hasUnverifiedEmailClaim(`Email ${email}`, email)).toBe(false)
+    expect(hasUnverifiedEmailClaim('Email support@example.com', email)).toBe(true)
+  })
   it('classifies the six reported question intents and includes the current intent in the prompt', () => {
     expect(classifyHelpIntent('What are measures?')).toBe('explanation')
     expect(classifyHelpIntent('Can I add Checklist measures?')).toBe('instructions')

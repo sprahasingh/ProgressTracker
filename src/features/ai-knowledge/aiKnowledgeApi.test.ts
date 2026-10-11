@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { checkMaintainerAccess, listKnowledge, ReviewApiError } from './aiKnowledgeApi'
+import { checkMaintainerAccess, invalidateVerifiedTopic, listAnswerFeedback, listKnowledge, reviewAnswerFeedback, ReviewApiError } from './aiKnowledgeApi'
 
 function clientFor({ token = 'session-token', result = { data: { authorized: true }, error: null } }: { token?: string; result?: { data: unknown; error: unknown } } = {}) {
   const invoke = vi.fn().mockResolvedValue(result)
@@ -39,5 +39,28 @@ describe('AI Knowledge review API client', () => {
     const { client, invoke } = clientFor({ token: '' })
     await expect(checkMaintainerAccess(client)).rejects.toBeInstanceOf(ReviewApiError)
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps feedback in its own authenticated dashboard action and supports status updates', async () => {
+    const { client, invoke } = clientFor({ result: { data: { feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 } }, error: null } })
+    await listAnswerFeedback({ status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 }, client)
+    expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
+      body: { action: 'feedback_list', status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 },
+      headers: { Authorization: 'Bearer session-token' },
+    })
+    await reviewAnswerFeedback('feedback-id', 'resolved', client)
+    expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
+      body: { action: 'feedback_review', id: 'feedback-id', status: 'resolved' },
+      headers: { Authorization: 'Bearer session-token' },
+    })
+  })
+
+  it('submits stale knowledge invalidation with its optimistic review timestamp and reason', async () => {
+    const { client, invoke } = clientFor({ result: { data: { result: { status: 'stale' } }, error: null } })
+    await invalidateVerifiedTopic({ topic_id: 'account.signin', reviewed_at: '2026-10-01T00:00:00Z' } as never, 'The sign-in flow changed.', client)
+    expect(invoke).toHaveBeenCalledWith('ai-help-review', {
+      body: { action: 'invalidate', topic_id: 'account.signin', expected_reviewed_at: '2026-10-01T00:00:00Z', reason: 'The sign-in flow changed.' },
+      headers: { Authorization: 'Bearer session-token' },
+    })
   })
 })

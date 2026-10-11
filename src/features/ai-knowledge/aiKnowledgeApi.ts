@@ -41,8 +41,15 @@ export type ReviewEvent = {
   next_status: string | null
   reviewer_id: string | null
   created_at: string
+  metadata?: Record<string, unknown>
 }
 export type ReviewCounts = { pending: number; approved: number; stale: number; rejected: number }
+export type AnswerFeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
+export type AnswerFeedbackStatus = 'pending' | 'reviewed' | 'resolved'
+export type AnswerFeedback = {
+  id: string; user_id: string; response_id: string; category: AnswerFeedbackCategory; explanation: string | null
+  topic: string; knowledge_version: string; status: AnswerFeedbackStatus; created_at: string; reviewed_at: string | null; reviewer_id: string | null
+}
 export type ReviewList = {
   knowledge_version: string
   candidates: KnowledgeCandidate[]
@@ -134,4 +141,16 @@ export function revalidateTopic(topic: VerifiedTopic, client?: SupabaseClient) {
     title: topic.title, explanation: topic.explanation, detailed_explanation: topic.detailed_explanation,
     feature_category: topic.feature_category, source_refs: topic.source_refs,
   }, client)
+}
+
+export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all'; category?: AnswerFeedbackCategory | 'all'; limit?: number; offset?: number }, client?: SupabaseClient) {
+  return invokeReview<{ current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }>({ action: 'feedback_list', ...input }, client)
+}
+
+export function reviewAnswerFeedback(id: string, status: Exclude<AnswerFeedbackStatus, 'pending'>, client?: SupabaseClient) {
+  return invokeReview<{ feedback: AnswerFeedback }>({ action: 'feedback_review', id, status }, client)
+}
+
+export function invalidateVerifiedTopic(topic: VerifiedTopic, reason: string, client?: SupabaseClient) {
+  return invokeReview<{ result: unknown }>({ action: 'invalidate', topic_id: topic.topic_id, expected_reviewed_at: topic.reviewed_at, reason }, client)
 }
