@@ -8,6 +8,7 @@ import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/tracke
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
+import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -250,7 +251,7 @@ async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: str
   if (row.user_id !== userId) throw new Error('Cloud response contained a tracker owned by another account.')
   const remote = trackerFromServer(row)
   const stateKey = keyFor('tracker', row.id)
-  return database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+  return database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
     const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker', row.id]).first()
     const state = await database.syncRecords.get(stateKey)
     const local = await database.trackers.get(row.id)
@@ -267,6 +268,16 @@ async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: str
       return { downloaded: 0, conflicts: 1 }
     }
     if (!state || !local || row.server_revision > state.serverRevision) {
+      if (local) {
+        const changed = trackerMetricTypeChange(local, remote)
+        const history = await database.trackerEntries.where('[trackerId+date]').between([row.id, '0000-01-01'], [row.id, '9999-12-31']).filter((entry) => entry.deletedAt === null).toArray()
+        const historicalMetricIds = new Set(local.metrics.filter((metric) => history.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
+        const changedMeaning = historicalMetricMeaningChange(local, remote, historicalMetricIds)
+        if (changed || changedMeaning) {
+          await database.syncConflicts.put({ id: `pull:tracker:${row.id}`, ownerUserId: userId, entity: 'tracker', entityId: row.id, localPayload: local, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+          return { downloaded: 0, conflicts: 1 }
+        }
+      }
       await database.trackers.put(remote)
       await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'tracker', entityId: row.id, serverRevision: row.server_revision })
       return { downloaded: local ? 0 : 1, conflicts: 0, changed: true }

@@ -23,6 +23,23 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('keeps retired measure definitions and old values while rejecting type changes to saved IDs', async () => {
+    await activateWorkspace('retired-measure-owner')
+    const original: StoredTrackerDefinition = { ...tracker, metrics: [
+      { id: 'focus', name: 'Focus', valueType: 'quantity', unit: 'minutes' },
+      { id: 'done', name: 'Done', valueType: 'boolean' },
+    ] }
+    await localRepository.saveTracker(original)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: original.id, date: '2026-10-10', outcome: 'recorded', values: { focus: 30, done: true }, note: '' })
+    const retired = { ...original, metrics: [{ ...original.metrics[0]!, retiredAt: '2026-10-11T00:00:00.000Z' }, original.metrics[1]!] }
+    await localRepository.saveTracker(retired)
+    await expect(localRepository.listTrackerEntriesForTracker(original.id)).resolves.toMatchObject([{ id: entry.id, values: { focus: 30, done: true } }])
+    await expect(localRepository.saveTracker({ ...retired, metrics: [{ ...retired.metrics[0]!, valueType: 'duration' }, retired.metrics[1]!] })).rejects.toThrow(/measure type.*can’t be changed/i)
+    await expect(localRepository.saveTracker({ ...retired, metrics: [retired.metrics[1]!] })).rejects.toThrow(/original definition/i)
+    const extended = { ...retired, metrics: [...retired.metrics, { id: 'new', name: 'New', valueType: 'quantity' as const }] }
+    await expect(localRepository.saveTracker(extended)).resolves.toMatchObject({ metrics: [{ retiredAt: expect.any(String) }, {}, { id: 'new' }] })
+  })
+
   it('keeps notification preferences and custom messages isolated per account workspace', async () => {
     await activateWorkspace('notification-prefs-a')
     await localRepository.saveNotificationPreferences({ enabled: true, daily_enabled: true, daily_times: ['09:00'], overdue_enabled: false, overdue_times: ['10:00'], remind_partial: false, motivation_mode: 'off', motivation_times: ['18:00'], motivation_weekdays: [1], timezone: 'Asia/Kolkata', quiet_start: null, quiet_end: null, allow_overdue_during_quiet: false, daily_limit: 4, motivation_daily_limit: 1, tracker_ids: null })

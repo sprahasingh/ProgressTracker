@@ -20,9 +20,9 @@ const scheduleSchema = z.discriminatedUnion('kind', [
 
 const thresholdSchema = z.object({
   direction: z.enum(['increase', 'decrease']),
-  minimum: z.number().finite().optional(),
-  target: z.number().finite().optional(),
-  stretch: z.number().finite().optional(),
+  minimum: z.number().finite().min(0, 'Target must be zero or greater.').optional(),
+  target: z.number().finite().min(0, 'Target must be zero or greater.').optional(),
+  stretch: z.number().finite().min(0, 'Target must be zero or greater.').optional(),
   streakQualification: z.enum(['minimum', 'target', 'any-recorded-value']),
 }).superRefine((value, context) => {
   const levels = [value.minimum, value.target, value.stretch].filter((n): n is number => n !== undefined)
@@ -44,6 +44,7 @@ const metricSchema = z.object({
   precision: z.object({ decimalPlaces: z.union([z.literal(0), z.literal(1), z.literal(2)]), increment: z.number().finite().positive() }).optional(),
   thresholds: thresholdSchema.optional(),
   checklistItems: z.array(z.object({ id, label: z.string().trim().min(1), position: z.number().int().nonnegative() })).optional(),
+  retiredAt: z.iso.datetime().optional(),
 }).superRefine((metric, context) => {
   if (metric.precision) {
     if (!['quantity', 'duration'].includes(metric.valueType)) context.addIssue({ code: 'custom', path: ['precision'], message: 'Numeric precision applies only to quantity and duration measures.' })
@@ -67,7 +68,7 @@ const metricSchema = z.object({
 
 const ruleSchema: z.ZodType<unknown> = z.lazy(() => z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('threshold'), metricId: id, level: z.enum(['minimum', 'target', 'stretch']) }),
-  z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite()]) }),
+  z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite().min(0, 'Target must be zero or greater.')]) }),
   z.object({ kind: z.enum(['all', 'any']), operands: z.array(ruleSchema).min(2) }),
   z.object({ kind: z.literal('at-least'), required: z.number().int().positive(), operands: z.array(ruleSchema).min(1) }).superRefine((rule, context) => {
     if (rule.required > rule.operands.length) context.addIssue({ code: 'custom', path: ['required'], message: 'Required count cannot exceed the number of operands.' })
@@ -90,11 +91,12 @@ const customFieldSchema = z.object({
 })
 
 const planningTarget = z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER)
+const positivePlanningTarget = z.number().finite().gt(0, 'Goal targets must be greater than zero.').max(Number.MAX_SAFE_INTEGER)
 const goalPlanningSchema = z.object({
   mode: z.enum(['daily-recurring', 'cumulative-deadline']),
   progressSemantics: z.record(z.string(), z.enum(['incremental', 'snapshot'])),
-  dailyTargets: z.record(z.string(), planningTarget),
-  cumulativeTargets: z.record(z.string(), planningTarget),
+  dailyTargets: z.record(z.string(), positivePlanningTarget),
+  cumulativeTargets: z.record(z.string(), positivePlanningTarget),
   planningTimeZone: z.string().min(1).optional(),
   allocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
 })
@@ -111,10 +113,13 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
     if (!metric) context.addIssue({ code: 'custom', path, message: 'Rule references an unknown metric.' })
     else if (value.kind === 'threshold') {
       if (!metric.thresholds || metric.thresholds[value.level as 'minimum' | 'target' | 'stretch'] === undefined) context.addIssue({ code: 'custom', path, message: 'Threshold rule references an undefined metric level.' })
+      else if (metric.valueType !== 'boolean' && metric.thresholds.direction === 'increase' && metric.thresholds[value.level as 'minimum' | 'target' | 'stretch'] === 0) context.addIssue({ code: 'custom', path, message: 'A zero threshold qualifies every nonnegative value. Choose a positive threshold or change the success condition.' })
     } else if (typeof value.value === 'boolean' ? metric.valueType !== 'boolean' : metric.valueType === 'boolean') {
       context.addIssue({ code: 'custom', path, message: 'Comparison value does not match metric type.' })
     } else if (metric.valueType === 'boolean' && value.operator !== 'equals') {
       context.addIssue({ code: 'custom', path: [...path, 'operator'], message: 'Boolean comparisons support Equals only.' })
+    } else if (metric.valueType !== 'boolean' && value.operator === 'at-least' && value.value === 0) {
+      context.addIssue({ code: 'custom', path, message: 'A comparison of at least zero always qualifies. Choose a positive value or a different condition.' })
     }
   }
   if (Array.isArray(value.operands)) value.operands.forEach((operand, index) => ruleMetricsCheck(operand, metrics, context, [...path, 'operands', index]))
@@ -154,6 +159,13 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
+  const normalizedNames = new Map<string, number>()
+  tracker.metrics.forEach((metric, index) => {
+    const key = metric.name.trim().toLowerCase()
+    const first = normalizedNames.get(key)
+    if (first !== undefined) context.addIssue({ code: 'custom', path: ['metrics', index, 'name'], message: `This name duplicates “${tracker.metrics[first]!.name}”. Choose a different measure name.` })
+    else normalizedNames.set(key, index)
+  })
   const customIds = tracker.customFields.map((field) => field.id)
   if (!unique(customIds)) context.addIssue({ code: 'custom', path: ['customFields'], message: 'Custom field IDs must be unique.' })
   tracker.milestones.forEach((milestone, index) => {
@@ -239,7 +251,7 @@ function isAllowedIncrement(value: number, increment: number): boolean {
 
 /** Validate typed values against a tracker's metric and custom-field definitions. */
 export function validateTrackerEntryValues(tracker: {
-  metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }>; precision?: { decimalPlaces: 0 | 1 | 2; increment: number } }>
+  metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }>; precision?: { decimalPlaces: 0 | 1 | 2; increment: number }; retiredAt?: string }>
   customFields: Array<{ id: string; type: string; required: boolean; options?: string[] }>
 }, values: Record<string, unknown>, options: { enforcePrecision?: boolean; existingValues?: Record<string, unknown> } = {}): string | undefined {
   const allowed = new Set<string>()
@@ -247,10 +259,11 @@ export function validateTrackerEntryValues(tracker: {
     allowed.add(metric.id)
     const value = values[metric.id]
     if (value === undefined || value === null) continue
-    if (metric.valueType === 'boolean' && typeof value !== 'boolean') return 'Boolean measures need a yes or no value.'
-    if ((metric.valueType === 'quantity' || metric.valueType === 'duration') && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return 'Numeric measures must be finite, nonnegative numbers.'
     const unchangedExistingValue = options.existingValues !== undefined && Object.hasOwn(options.existingValues, metric.id)
       && options.existingValues[metric.id] === value
+    if (metric.retiredAt && !unchangedExistingValue) return 'Retired measures cannot be used in new check-ins.'
+    if (metric.valueType === 'boolean' && typeof value !== 'boolean') return 'Boolean measures need a yes or no value.'
+    if ((metric.valueType === 'quantity' || metric.valueType === 'duration') && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return 'Numeric measures must be finite, nonnegative numbers.'
     if (options.enforcePrecision !== false && !unchangedExistingValue && metric.precision && typeof value === 'number' && !isAllowedIncrement(value, metric.precision.increment)) return `Use increments of ${metric.precision.increment} for this measure.`
     if (metric.valueType === 'checklist') {
       if (typeof value !== 'object' || Array.isArray(value)) return 'Checklist progress is invalid.'

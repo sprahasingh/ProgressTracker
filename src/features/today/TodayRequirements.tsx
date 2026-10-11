@@ -8,6 +8,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { calculateCumulativeMetricPlan, getTargetProgress } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
+import { activeTrackerMetrics } from '../../domain/trackers/types'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 
 type Props = {
@@ -62,7 +63,7 @@ function scheduleDescription(tracker: StoredTrackerDefinition): string {
 }
 
 export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, timeZone = 'UTC'): TodayMetricDetails[] {
-  return tracker.metrics.map((metric) => {
+  return activeTrackerMetrics(tracker.metrics).map((metric) => {
     const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
     const completed = metric.valueType === 'boolean'
       ? value === true

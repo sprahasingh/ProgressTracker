@@ -5,6 +5,8 @@ import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
+import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
+import { activeTrackerMetrics } from '../domain/trackers/types'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -253,9 +255,20 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
       const existing = await database.trackers.get(draft.id)
       if (existing?.deletedAt) throw new Error('Restore this tracker from the Bin before editing it.')
+      if (existing) {
+        if (activeTrackerMetrics(existing.metrics).length > 0 && activeTrackerMetrics(draft.metrics).length === 0) throw new Error('Keep at least one active measure so this tracker can record future check-ins.')
+        const changedType = trackerMetricTypeChange(existing, draft)
+        if (changedType) throw new Error(`The saved measure type for “${changedType}” can’t be changed. Add a new measure to record it differently.`)
+        const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
+        if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
+        const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).filter((entry) => entry.deletedAt === null).toArray()
+        const historicalMetricIds = new Set(existing.metrics.filter((metric) => history.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
+        const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
+        if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
+      }
       const workspace = await database.workspaceMetadata.get('workspace')
       const activeOwner = workspace?.userId ?? null
       if (activeOwner) {
@@ -289,6 +302,11 @@ export const localRepository = {
     const database = await openDatabase()
     const entries = await database.trackerEntries.where('date').between(startDate, endDate, true, true).toArray()
     return entries.filter((entry) => entry.deletedAt === null).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt))
+  },
+
+  async listTrackerEntriesForTracker(trackerId: string): Promise<StoredTrackerEntry[]> {
+    const database = await openDatabase()
+    return (await database.trackerEntries.where('[trackerId+date]').between([trackerId, '0000-01-01'], [trackerId, '9999-12-31']).toArray()).filter((entry) => entry.deletedAt === null)
   },
 
   async getTrackerEntry(trackerId: string, date: CalendarDate): Promise<StoredTrackerEntry | undefined> {

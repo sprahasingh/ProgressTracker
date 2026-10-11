@@ -1,4 +1,5 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
+import { activeTrackerMetrics } from './types'
 import { classifyAchievement, evaluateTrackerEntry, isTrackerScheduledOccurrence, trackerCreationDate } from './planning'
 
 export type StreakResult = {
@@ -61,8 +62,9 @@ export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEnt
     const ranks = { none: 0, minimum: 1, target: 2, stretch: 3 }
     return ranks[achieved] >= (qualification === 'target' ? ranks.target : ranks.minimum)
   }
-  if (!tracker.qualificationRule) return tracker.metrics[0] ? metricQualifies(tracker.metrics[0]) : false
-  const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
+  const activeMetrics = activeTrackerMetrics(tracker.metrics)
+  if (!tracker.qualificationRule) return activeMetrics[0] ? metricQualifies(activeMetrics[0]) : false
+  const metrics = new Map(activeMetrics.map((metric) => [metric.id, metric]))
   const evaluate = (rule: TrackerRule): boolean => {
     if (rule.kind === 'all') return rule.operands.every(evaluate)
     if (rule.kind === 'any') return rule.operands.some(evaluate)

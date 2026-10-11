@@ -3,7 +3,7 @@ import { NumericStepperInput } from '../../components/ui/NumericStepperInput'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { getTargetProgress } from '../../domain/trackers/planning'
-import type { TrackerDefinition, TrackerEntry, TrackerValue } from '../../domain/trackers/types'
+import { activeTrackerMetrics, type TrackerDefinition, type TrackerEntry, type TrackerValue } from '../../domain/trackers/types'
 
 export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels }: {
   tracker: TrackerDefinition
@@ -28,7 +28,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
   }
   return <>
     <div className="today-entry-fields">
-      {tracker.metrics.map((metric) => {
+      {activeTrackerMetrics(tracker.metrics).map((metric) => {
         const value = values[metric.id]
         if (metric.valueType === 'boolean') return <BooleanChoice key={metric.id} id={metric.id} label={metric.name} value={value} setValue={(next) => setValue(metric.id, next)} />
         if (metric.valueType === 'checklist') return <fieldset className="today-checklist" key={metric.id}><legend>{metric.name}</legend>{metric.checklistItems?.slice().sort((a, b) => a.position - b.position).map((item) => <label className="form-check today-check" key={item.id}><input type="checkbox" checked={typeof value === 'object' && value !== null && !Array.isArray(value) && value[item.id] === true} onChange={(event) => {
@@ -51,7 +51,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
       })}
       {tracker.customFields.slice().sort((a, b) => a.position - b.position).map((field) => <CustomField key={field.id} field={field} value={values[`field:${field.id}`]} setValue={(value) => setValue(`field:${field.id}`, value)} onValidityChange={(valid) => reportInputValidity(`field:${field.id}`, valid)} />)}
     </div>
-    {invalidInputs.size === 0 && date && tracker.metrics.some((metric) => {
+    {invalidInputs.size === 0 && date && activeTrackerMetrics(tracker.metrics).some((metric) => {
       const value = values[metric.id]
       return value !== undefined && value !== null && value !== ''
     }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} />}

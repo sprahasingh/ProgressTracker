@@ -32,6 +32,16 @@ describe('shared type-aware daily entry fields', () => {
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('omits retired measures from new check-in forms', () => {
+    const tracker: TrackerDefinition = { ...base, metrics: [
+      { id: 'old', name: 'Old count', valueType: 'quantity', unit: 'pages', retiredAt: '2026-10-10T00:00:00.000Z' },
+      { id: 'done', name: 'Current measure', valueType: 'boolean' },
+    ] }
+    render(<TrackerEntryFields tracker={tracker} values={{}} setValue={vi.fn()} />)
+    expect(screen.queryByRole('spinbutton', { name: 'Old count' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
+  })
+
   it('uses an independent configured increment for each numeric measure and previews configured targets', async () => {
     const setValue = vi.fn()
     const tracker: TrackerDefinition = {
