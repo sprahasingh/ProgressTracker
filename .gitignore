@@ -5,6 +5,7 @@ coverage/
 .env
 .env.*
 !.env.example
+ai-help.env
 *.tsbuildinfo
 supabase/.temp/
 supabase/.branches/

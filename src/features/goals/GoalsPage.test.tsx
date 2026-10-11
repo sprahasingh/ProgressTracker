@@ -10,6 +10,11 @@ import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { GoalsPage } from './GoalsPage'
 import goalStyles from '../../styles.css?raw'
 
+// GoalsPage uses the workspace's device time zone by default. Keep these
+// fixtures in that same zone so they remain valid on either side of UTC
+// midnight and on machines configured outside UTC.
+const testTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({
   status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false,
 }) }))
@@ -24,7 +29,7 @@ async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: 
 describe('Goals page allocation preview', () => {
   it('reaches boolean and checklist checkpoints using persisted check-in values', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const historicalDate = shiftCalendarDate(today, -6)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 1, id: 'milestone-value-types', name: 'Mixed measure goal', description: '', kind: 'goal', status: 'active', categoryId: null,
@@ -67,12 +72,12 @@ describe('Goals page allocation preview', () => {
 
   it('resets expanded tracker details when the route is left and restored with browser history', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const goal: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'route-reset-goal', name: 'Route reset goal', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 3),
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 2 }, cumulativeTargets: {}, planningTimeZone: 'UTC' },
+      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 2 }, cumulativeTargets: {}, planningTimeZone: testTimeZone },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(goal)
@@ -101,13 +106,13 @@ describe('Goals page allocation preview', () => {
 
   it('gives goal-plan dates distinct accessible markers for rest days and holidays', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const holidayDate = shiftCalendarDate(today, 1)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'daily-goal-status-markers', name: 'Daily writing plan', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' }, startDate: shiftCalendarDate(today, -7),
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 5 }, cumulativeTargets: {}, planningTimeZone: 'UTC' },
+      goalPlanning: { mode: 'daily-recurring', progressSemantics: { pages: 'incremental' }, dailyTargets: { pages: 5 }, cumulativeTargets: {}, planningTimeZone: testTimeZone },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(tracker)
@@ -125,11 +130,11 @@ describe('Goals page allocation preview', () => {
   })
 
   it('uses one shared compact information control for all goal summary cards', async () => {
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     await localRepository.saveTracker({
       schemaVersion: 4, id: 'goal-info-icons', name: 'Compact info test', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 2), metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: 'UTC', allocations: { pages: {} } },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: testTimeZone, allocations: { pages: {} } },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     })
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
@@ -141,14 +146,14 @@ describe('Goals page allocation preview', () => {
 
   it('exposes an unsaved preview without changing the stored plan or check-ins', async () => {
     const user = userEvent.setup()
-    // The fixture uses the UTC planning zone, so its entry date and the goal
+    // The fixture uses the workspace planning zone, so its entry date and the goal
     // page's planning "today" must be derived in that same zone.
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'goal-preview-integration', name: 'Finish a draft', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 2),
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 2, increment: 0.01 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: 'UTC', allocations: { pages: {} } },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 10 }, planningTimeZone: testTimeZone, allocations: { pages: {} } },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(tracker)
@@ -172,12 +177,12 @@ describe('Goals page allocation preview', () => {
 
   it('refreshes actual progress and the cumulative suggestion after a guest check-in is saved', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'goal-live-progress', name: 'Practice questions', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 2),
       metrics: [{ id: 'questions', name: 'Questions', valueType: 'quantity', unit: 'problems', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { questions: 'incremental' }, dailyTargets: {}, cumulativeTargets: { questions: 9 }, planningTimeZone: 'UTC', allocations: { questions: { [shiftCalendarDate(today, 1)]: 4, [shiftCalendarDate(today, 2)]: 5 } } },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { questions: 'incremental' }, dailyTargets: {}, cumulativeTargets: { questions: 9 }, planningTimeZone: testTimeZone, allocations: { questions: { [shiftCalendarDate(today, 1)]: 4, [shiftCalendarDate(today, 2)]: 5 } } },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(tracker)
@@ -196,14 +201,14 @@ describe('Goals page allocation preview', () => {
 
   it('recalculates displayed future suggestions after progress is created, edited, and deleted without replacing saved allocations', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const tomorrow = shiftCalendarDate(today, 1)
     const nextDay = shiftCalendarDate(today, 2)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'goal-adaptive-progress', name: 'Practice problems', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: nextDay,
       metrics: [{ id: 'problems', name: 'Problems', valueType: 'quantity', unit: 'problems', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { problems: 'incremental' }, dailyTargets: {}, cumulativeTargets: { problems: 10 }, planningTimeZone: 'UTC', allocations: { problems: { [today]: 4, [tomorrow]: 3, [nextDay]: 3 } } },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { problems: 'incremental' }, dailyTargets: {}, cumulativeTargets: { problems: 10 }, planningTimeZone: testTimeZone, allocations: { problems: { [today]: 4, [tomorrow]: 3, [nextDay]: 3 } } },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(tracker)
@@ -238,12 +243,12 @@ describe('Goals page allocation preview', () => {
 
   it('keeps goals collapsed by default, supports multiple open cards, and refreshes their summaries in place', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const makeGoal = (id: string, name: string, metrics: StoredTrackerDefinition['metrics'], cumulativeTargets: Record<string, number>): StoredTrackerDefinition => ({
       schemaVersion: 4, id, name, description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 2),
       metrics, customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: Object.fromEntries(Object.keys(cumulativeTargets).map((key) => [key, 'incremental' as const])), dailyTargets: {}, cumulativeTargets, planningTimeZone: 'UTC', allocations: {} },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: Object.fromEntries(Object.keys(cumulativeTargets).map((key) => [key, 'incremental' as const])), dailyTargets: {}, cumulativeTargets, planningTimeZone: testTimeZone, allocations: {} },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     })
     const first = makeGoal('goal-alpha', 'Finish the database course', [
@@ -292,13 +297,13 @@ describe('Goals page allocation preview', () => {
 
   it('paginates long allocation schedules while keeping every date reachable', async () => {
     const user = userEvent.setup()
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const deadline = shiftCalendarDate(today, 45)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 4, id: 'long-goal-plan', name: 'Long research project', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline,
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
-      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 50 }, planningTimeZone: 'UTC', allocations: {} },
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 50 }, planningTimeZone: testTimeZone, allocations: {} },
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(tracker)
@@ -314,7 +319,7 @@ describe('Goals page allocation preview', () => {
 
   it.each([320, 360, 390, 430, 1280])('keeps long goal summaries responsive at %ipx', async (width) => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
-    const today = localCalendarDate(new Date(), 'UTC')
+    const today = localCalendarDate(new Date(), testTimeZone)
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 1, id: `long-goal-${width}`, name: 'Complete the advanced distributed systems capstone course', description: '', kind: 'goal', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'sessions', name: 'Sessions in the advanced lab series', valueType: 'quantity', unit: 'sessions', thresholds: { direction: 'increase', target: 25, streakQualification: 'target' } }],
