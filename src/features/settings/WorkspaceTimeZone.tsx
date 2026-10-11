@@ -12,6 +12,7 @@ import { AccountDeletion } from './AccountDeletion'
 import { WorkspaceLoadingState } from '../../components/ui/WorkspaceLoadingState'
 import { NotificationsSettings } from '../notifications/NotificationsSettings'
 import { getAuthRedirectUrl } from '../auth/authRedirect'
+import { SendFeedbackAction } from '../feedback/SendFeedback'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -177,12 +178,14 @@ export function SettingsPage() {
     <NotificationsSettings />
     <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
     <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
+    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></section>
   </section>
 
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
     {renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error)}
+    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></section>
   </section>
 }
 

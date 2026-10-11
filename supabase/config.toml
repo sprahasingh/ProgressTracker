@@ -9,6 +9,9 @@ verify_jwt = true
 [functions.ai-help-feedback]
 verify_jwt = true
 
+[functions.send-feedback]
+verify_jwt = true
+
 [functions.ai-help-review]
 verify_jwt = true
 

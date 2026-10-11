@@ -1,0 +1,120 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { AppIcon } from '../../components/ui/AppIcon'
+import { IconButton } from '../../components/ui/IconButton'
+import { useModalLayer } from '../../components/ui/useModalLayer'
+import { SUPPORT_EMAIL } from '../../config/supportContact'
+import { getSupabaseClient } from '../../services/supabase/client'
+import { useAuth } from '../auth/AuthProvider'
+import { FeedbackSubmissionError, submitGeneralFeedback, type GeneralFeedbackCategory } from './feedbackService'
+
+const categoryLabels: Record<GeneralFeedbackCategory, string> = {
+  bug_report: 'Bug report', feature_request: 'Feature request', general_feedback: 'General feedback', help_support: 'Help / Support',
+}
+
+function createRequestId() { return crypto.randomUUID() }
+
+function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: boolean; onClose: () => void; signedIn: boolean; accountEmail?: string | null }) {
+  const [category, setCategory] = useState<GeneralFeedbackCategory>('general_feedback')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [retryAllowed, setRetryAllowed] = useState(true)
+  const [outcomeUncertain, setOutcomeUncertain] = useState(false)
+  const [accepted, setAccepted] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const dialogRef = useRef<HTMLElement>(null)
+  const busyRef = useRef(false)
+  const requestRef = useRef<{ requestId: string; category: GeneralFeedbackCategory; message: string } | null>(null)
+
+  useModalLayer(open, dialogRef, onClose)
+  useEffect(() => {
+    if (open) dialogRef.current?.querySelector<HTMLElement>('select, textarea, button')?.focus()
+  }, [open])
+  useEffect(() => {
+    if (!open) {
+      setCategory('general_feedback')
+      setMessage('')
+      setBusy(false)
+      setError('')
+      setRetryAllowed(true)
+      setOutcomeUncertain(false)
+      setAccepted(false)
+      setCopied(false)
+      busyRef.current = false
+      requestRef.current = null
+    }
+  }, [open])
+
+  if (!open) return null
+
+  async function submit(event?: FormEvent) {
+    event?.preventDefault()
+    const cleanMessage = message.trim()
+    if (!cleanMessage) { setError('Enter a message before sending.'); return }
+    if (cleanMessage.length > 2000) { setError('Keep your message under 2,000 characters.'); return }
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setError('')
+    setOutcomeUncertain(false)
+    const prior = requestRef.current
+    const requestId = prior && prior.category === category && prior.message === cleanMessage ? prior.requestId : createRequestId()
+    requestRef.current = { requestId, category, message: cleanMessage }
+    try {
+      await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId })
+      setAccepted(true)
+      setMessage('')
+      requestRef.current = null
+    } catch (cause) {
+      if (cause instanceof FeedbackSubmissionError) {
+        setRetryAllowed(cause.retryable && !cause.uncertain)
+        setOutcomeUncertain(cause.uncertain)
+      } else {
+        setRetryAllowed(true)
+      }
+      setError(cause instanceof Error ? cause.message : 'Couldn’t send your feedback right now. You can email us directly instead.')
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
+  async function copyEmail() {
+    try {
+      await navigator.clipboard.writeText(SUPPORT_EMAIL)
+      setCopied(true)
+    } catch { setCopied(false) }
+  }
+
+  const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[ProgressTracker Feedback] ${categoryLabels[category]}`)}&body=${encodeURIComponent(`Feedback type: ${categoryLabels[category]}\n\n${message.trim()}`)}`
+
+  return <div className="send-feedback-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <section ref={dialogRef} className="send-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="send-feedback-title" aria-describedby="send-feedback-dialog-description" tabIndex={-1}>
+      <p className="sr-only" id="send-feedback-dialog-description">Send a bug report, feature request, general feedback, or support question.</p>
+      <header className="send-feedback-heading"><div><span className="send-feedback-eyebrow">PROGRESS TRACKER</span><h2 id="send-feedback-title">Send Feedback</h2></div><IconButton label="Close feedback" title="Close" onClick={onClose} disabled={busy}><AppIcon name="close" /></IconButton></header>
+      {accepted ? <div className="send-feedback-content"><p className="send-feedback-success" role="status"><AppIcon name="check" />Feedback sent. Thank you for helping improve ProgressTracker!</p><p>The email provider accepted your message for sending. Delivery to the support inbox may take a little time.</p><footer className="send-feedback-actions"><button type="button" className="button button-primary button-medium" onClick={onClose}>Done</button></footer></div> : <form className="send-feedback-content" onSubmit={(event) => void submit(event)}>
+        <label className="form-field" htmlFor="general-feedback-category"><span>Feedback type</span><select id="general-feedback-category" className="auth-input" value={category} onChange={(event) => setCategory(event.target.value as GeneralFeedbackCategory)} disabled={busy}><option value="bug_report">Bug report</option><option value="feature_request">Feature request</option><option value="general_feedback">General feedback</option><option value="help_support">Help / Support</option></select></label>
+        <label className="form-field" htmlFor="general-feedback-message"><span>Your message</span><textarea id="general-feedback-message" className="auth-input send-feedback-textarea" value={message} onChange={(event) => setMessage(event.target.value.slice(0, 2000))} maxLength={2000} rows={6} placeholder="Tell us what's happening or what you'd like improved..." disabled={busy} required aria-describedby="send-feedback-privacy send-feedback-count" /></label>
+        <div className="send-feedback-meta"><small id="send-feedback-count">{message.length}/2,000</small>{signedIn && accountEmail && <small>Reply address: {accountEmail}</small>}</div>
+        <p className="settings-hint" id="send-feedback-privacy">Please don’t include passwords, sign-in links, access tokens, or private tracker details. Your message and account reply address are sent to support; neither is stored in the ProgressTracker database.</p>
+        {!signedIn && <p className="send-feedback-error" role="status">Sign in to submit feedback here. You can still contact support using the fallback below.</p>}
+        {error && <p className="send-feedback-error" role="alert">{error}</p>}
+        {(error || !signedIn) && <section className="send-feedback-fallback" aria-label="Email support fallback"><p>{outcomeUncertain ? 'We could not confirm whether the message was accepted. To avoid a duplicate, automatic retry is disabled. Please email us directly if you still need help.' : "Couldn't send your feedback right now. You can email us directly instead."}</p><strong>{SUPPORT_EMAIL}</strong><div><a className="button button-secondary button-small" href={mailto}>Email Support</a><button type="button" className="button button-secondary button-small" onClick={() => void copyEmail()}>Copy Email</button>{error && signedIn && retryAllowed && <button type="button" className="button button-primary button-small" disabled={busy} onClick={() => void submit()}>{busy ? 'Sending…' : 'Try Again'}</button>}</div>{copied && <small role="status">Support email copied.</small>}</section>}
+        {!error && signedIn && <footer className="send-feedback-actions"><button type="button" className="button button-secondary button-medium" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="button button-primary button-medium" disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send Feedback'}</button></footer>}
+      </form>}
+    </section>
+  </div>
+}
+
+export function SendFeedbackAction({ variant = 'button', className = '' }: { variant?: 'button' | 'icon'; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const auth = useAuth()
+  const signedIn = auth.status === 'signed-in' && Boolean(auth.user?.id)
+  const accountEmail = signedIn ? auth.user?.email ?? null : null
+  const close = () => setOpen(false)
+  return <>
+    {variant === 'icon' ? <IconButton className={className} label="Send general feedback" title="Send Feedback" onClick={() => setOpen(true)}><AppIcon name="mail" /></IconButton>
+      : <button type="button" className={className || 'button button-secondary button-medium'} onClick={() => setOpen(true)}><AppIcon name="mail" />Send Feedback</button>}
+    <SendFeedbackDialog open={open} onClose={close} signedIn={signedIn} accountEmail={accountEmail} />
+  </>
+}
