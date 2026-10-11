@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle'
-import { sourcePaths, sourceVersion } from './_generated/sourceBundle'
+import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex'
 import { documentationCoverage, rankKnowledgeDocuments, rankSourceIndex } from './assistantCore'
 
@@ -42,6 +42,10 @@ describe('AI Help retrieval evaluation', () => {
     expect(sourcePaths).toContain('src/domain/trackers/invariants.ts')
     expect(sourcePaths).toContain('src/domain/trackers/schema.test.ts')
     expect(sourcePaths).toContain('supabase/functions/ai-help/index.ts')
+    expect(sourcePaths).toContain('supabase/functions/ai-help/learningCore.ts')
+    expect(sourcePaths).toContain('supabase/functions/ai-help-review/index.ts')
+    expect(evidenceFingerprints['docs/ai-help/goals-and-milestones.md']).toMatch(/^[a-f0-9]{64}$/)
+    expect(sourcePaths.every((path) => /^[a-f0-9]{64}$/.test(evidenceFingerprints[path] ?? ''))).toBe(true)
   })
 
   it('automatically searches implementation and test evidence when documentation is insufficient', () => {

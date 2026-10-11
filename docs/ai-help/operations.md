@@ -10,6 +10,7 @@ The authoritative inputs are the five feature guides in `docs/ai-help/` and the 
 2. Reads approved implementation and behavioral test files into build-time 14-line, overlapping excerpts. Each excerpt stores its source path, nearest function or test label, line range, searchable terms, and whether it is implementation or test evidence.
 3. Generates `knowledgeBundle.ts`, `sourceBundle.ts`, and `sourceIndex.ts` under `supabase/functions/ai-help/_generated/`.
 4. Computes a shared version from the app version and the contents of all included guides and source files.
+5. Emits SHA-256 fingerprints for each guide and indexed source file. These per-file fingerprints let the server identify which reviewed topics changed without invalidating knowledge that cites unrelated files.
 
 Run the generator after editing any included guide or source file:
 
@@ -23,7 +24,63 @@ Do not manually edit generated files. Check that all three generated versions ma
 
 The request handler selects up to four relevant documentation sections. It automatically selects a bounded set of source-index excerpts when the docs have weak query coverage or the question asks for implementation-sensitive behavior, such as why a restriction exists, what happens after an edit, or how a conflict is handled. Source matches are ranked by query terms, term rarity, feature context, and implementation/test type. At most four snippets and 5,200 characters are sent to Groq. The prompt prefers implementation behavior over conflicting prose, while the final answer remains user-facing and does not expose code or paths.
 
-The endpoint allows citations only from the documentation sections and source paths actually supplied for that request. If no supplied evidence supports the answer, the assistant must acknowledge uncertainty. A knowledge-version mismatch blocks generation rather than serving stale bundles. Reviewed answers are exact-question matches only, must cite current allowlisted references, and are skipped for context-dependent follow-ups. Generated answer candidates remain pending; they are never automatically promoted.
+The endpoint allows citations only from the documentation sections, current verified topics, and source paths actually supplied for that request. If no supplied evidence supports the answer, the assistant must acknowledge uncertainty. A knowledge-version mismatch blocks generation rather than serving mismatched bundles. Verified topics are ranked as evidence and never returned as canned answers; current implementation evidence takes priority. Legacy exact-question memory is not used or written by the current runtime.
+
+## Candidate discovery and privacy
+
+During the same Groq response used to answer the question, the model may return one optional, standalone topic candidate. This makes no additional provider request. Candidate collection is considered only when current source-code excerpts were supplied, the answer passed grounding validation, the user interaction appears general rather than personal, and the candidate names one to four source files that were actually supplied and cited.
+
+The server then checks the candidate's dotted topic identifier, category, length, source allowlist, source fingerprints, basic personal-data patterns, and lexical overlap with the supplied source excerpts. These checks are deterministic screening, not proof that the explanation is semantically correct. Every accepted candidate remains pending until an authorized maintainer reviews it. The system never fine-tunes a model and never promotes a model-written candidate automatically.
+
+Candidate rows contain a stable topic, title, standalone explanation, optional detail, feature category, source references and fingerprints, and the bundle version. They do not contain the user's question, conversation, question hash, tracker values, or account data. A content fingerprint is derived only from the candidate topic, normalized explanation, and source paths. Topic and fingerprint uniqueness checks, plus a transaction lock, prevent duplicate queue entries during concurrent requests. Related topics such as type immutability and retirement keep separate identifiers. The queue has a 5,000-row hard capacity; after that, discovery is skipped and aggregated as a metric. Existing unstructured legacy candidates are marked stale and retained for audit, but are not exposed in the review queue.
+
+The old `ai_question_memory` table is retained for compatibility and audit, but the new runtime does not read from it or insert questions into it. Existing rows are not deleted.
+
+## Maintainer review workflow
+
+The review API is the separate `ai-help-review` Edge Function. It checks the access token with Supabase Auth, requires a confirmed email, and compares that email against the server-side `AI_HELP_MAINTAINER_EMAILS` comma-separated allowlist. Authenticated status alone does not grant review access. Candidate and verified-knowledge tables have RLS enabled and no browser-role table access; service-role credentials stay inside the Edge Function. There is no client-side admin switch.
+
+Configure the allowlist as a Function secret. Use the maintainer's confirmed Supabase Auth email address:
+
+```sh
+supabase secrets set AI_HELP_MAINTAINER_EMAILS="maintainer@example.com"
+```
+
+The review endpoint accepts authenticated JSON POST requests. A CLI workflow can use a maintainer's normal Supabase user access token and the public publishable key; never use a service-role key in a browser or review client. The responses do not include user questions or conversations.
+
+```sh
+curl "$SUPABASE_URL/functions/v1/ai-help-review" \
+  -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+  -H "Authorization: Bearer $MAINTAINER_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"action":"list","status":"pending","limit":50}'
+```
+
+Supported actions:
+
+- `list`: list pending, stale, verified, rejected, or all structured candidates; show related verified topics and aggregated metrics.
+- `get`: retrieve one candidate or verified topic with current indexed excerpts for its source references. Use the returned `updated_at` as the optimistic concurrency token.
+- `edit`: submit revised topic fields, explanation, category, and source paths. The server revalidates the text against current indexed excerpts and returns the candidate to pending.
+- `approve`: atomically writes the reviewed topic to `ai_verified_knowledge`, marks the candidate verified, and records review history. Supply the latest `expected_updated_at` plus the fields reviewed.
+- `reject`: permanently marks that candidate rejected and records the action.
+- `defer`: leaves the candidate pending or stale and records that it was deferred.
+- `revalidate`: for a stale verified topic, submit updated fields and current source paths to create a new pending candidate. It still requires a separate `approve`.
+
+For `edit` and `approve`, include `candidate_id`, `expected_updated_at`, `topic_id`, `title`, `explanation`, optional `detailed_explanation`, `feature_category`, and `source_refs`. The server loads the current excerpts and fingerprints itself; client-supplied evidence is ignored. For `reject` and `defer`, include the candidate ID and expected timestamp. A concurrent edit/review returns HTTP 409, after which reload with `get`. Related verified entries are shown for comparison but are never silently merged or overwritten. Approval of an existing stale topic is an explicit maintainer action and is preserved in review history.
+
+## Verified retrieval and freshness
+
+After request authentication and rate limiting, the runtime reconciles topic evidence against the generated per-file fingerprint manifest. It marks a verified topic stale only when one of its referenced guide/source fingerprints changed or disappeared. Unaffected entries advance to the new bundle version and remain eligible. Stale topics are excluded from retrieval and shown to maintainers with current excerpts. A maintainer uses `revalidate`, reviews the new candidate, and approves it to restore the topic.
+
+Reconciliation runs on the first normal AI Help request in a new function instance after a bundle version change, and before every maintainer review operation. The local bundle build never writes to Supabase. After deploying a new bundle, the first app request or a `list` review call performs the hosted reconciliation. If reconciliation fails, the request returns a recoverable service error instead of using potentially stale verified content. No destructive knowledge deletion occurs.
+
+## Operational metrics and failure recovery
+
+The database stores daily aggregate counts by event and feature category only: requests, source fallbacks, verified-topic use, candidates created/skipped, duplicate skips, approvals, rejections, stale entries, and grounding failures. No prompt, question, conversation, tracker value, or question fingerprint enters metrics. Maintainers can inspect the latest 300 daily counters through the authenticated `list` response. These counters are operational signals, not model-quality proof; use `docs/ai-help/quality-evaluation.md` for manual answer evaluation.
+
+Candidate submission is background best-effort work. If candidate storage is unavailable, a valid answer is still returned; the candidate is not retried automatically, so inspect aggregate counts and investigate database/function health. If freshness reconciliation fails, AI Help fails closed before calling Groq. A conflict during approval returns 409; reload the candidate and re-review. The review history stores only candidate/topic IDs, review actions, statuses, and approved knowledge snapshots, not chat data.
+
+Set `AI_HELP_CANDIDATE_COLLECTION_ENABLED=false` in the AI Help Function environment to stop new candidate collection while leaving answer generation, verified retrieval, and maintainer review available. Remove or change the value to re-enable it. This flag does not delete queued or verified knowledge.
 
 ## Privacy, authentication, and provider behavior
 
@@ -34,6 +91,10 @@ Configure the existing Supabase browser URL and publishable key in the app. Conf
 Set `AI_HELP_ALLOWED_ORIGINS` to the comma-separated exact origins that should call the endpoint. The Edge Function also requires its server-side Supabase URL, publishable/anon key, and service-role key. The service-role key stays in the Function environment. The database request limiter allows up to 8 requests per user per minute and 24 per project per minute; its server-side RPC is the enforcement boundary. A provider 429 does not rotate to another credential. Transient network, 401/403, and 5xx failures may try a healthy secondary once; there is no repeated retry loop.
 
 The browser session stores the bounded conversation in `sessionStorage` for continuity. It is not synced across devices. The assistant does not claim long-term memory.
+
+If the client shows “AI Help could not check its request limit,” the Edge Function received an error from `consume_ai_help_request`; this is distinct from a 429 quota response. The function logs the marker `AI_HELP_RATE_LIMIT_RPC_FAILED` with only the Postgres/PostgREST error code. In Supabase Dashboard, open **Edge Functions → ai-help → Logs** and filter for that marker, then compare the code and timestamp with **Logs → Postgres**. Codes such as `PGRST202` or `42883` indicate RPC discovery/signature problems; `42501` indicates permission denial; `42P01` or `42703` indicate missing schema objects. Do not copy request headers, tokens, SQL parameter values, or provider secrets into a support report.
+
+The current migration explicitly reloads the PostgREST schema cache after installing the function and its service-role grant. If the marker continues after deploying migration `20261026000100`, inspect the exact logged error code and verify the function signature and role grant in the target database before changing any limit.
 
 ## Local verification
 
@@ -55,21 +116,30 @@ supabase functions serve ai-help --no-verify-jwt
 
 The server should report the `ai-help` endpoint and a compatible Supabase Edge Runtime. Do not send a live Groq request as a compile check. A local unauthenticated handler check can be performed with a localhost-only origin and a request without a bearer token; it should be rejected before any model request. The local gateway may require its normal local API-key routing header before the request reaches the function.
 
-No database schema changes are required to rebuild this bundle. Run `supabase test db` only when database code or migrations change; AI Help client/index changes do not call for a database reset or migration.
+No database schema changes are required to rebuild this bundle. For this topic-memory workflow, apply the new migrations after reviewing the target migration list, then run `supabase test db`. Do not reset the database.
 
 ## Release procedure
 
 1. Run bundle generation and all local checks above.
 2. Review the bundle version and ensure `knowledgeVersion`, `sourceVersion`, and `sourceIndexVersion` are identical.
-3. Confirm the target Supabase project has the reviewed AI Help migrations through `20261022000100`; inspect migration status before applying any missing migration. Never repair migration history or reset a database as part of the bundle release.
-4. Configure the required secrets and exact CORS origins in the target Function environment. Keep the Groq key and Supabase service-role key server-side.
-5. After the application release containing the matching generated bundles is approved, deploy the Function:
+3. Confirm migration versions through `20261022000100` are present, then review the pending `20261023000100`, `20261024000100`, `20261025000100`, and `20261026000100` migrations in the target project. Apply them using the configured project connection:
+
+```sh
+supabase migration list
+supabase db push
+supabase test db
+```
+
+   Never repair migration history or reset a database as part of deployment. Do not use `--include-all` to bypass version conflicts.
+4. Configure `AI_HELP_MAINTAINER_EMAILS` and the existing required secrets and exact CORS origins in the target Function environment. Keep the Groq key and Supabase service-role key server-side. The candidate collection switch is optional and defaults to enabled.
+5. After the application release containing the matching generated bundles is approved, deploy both Functions:
 
 ```sh
 supabase functions deploy ai-help
+supabase functions deploy ai-help-review
 ```
 
-6. Verify the deployed Function’s status and make one authenticated product smoke test using an approved account. Check that a normal answer works and that an unavailable/rate-limited response remains recoverable. Do not use real tracker details as test prompts.
+6. Verify both deployed Function statuses, call the maintainer review API with the allowlisted account, and make one authenticated product smoke test. Check a normal answer, candidate queueing when the model returns an eligible candidate, and recoverable unavailable/rate-limited responses. Do not use real tracker details as test prompts.
 
 Deployment is an explicit release action; bundle generation and local serving do not deploy or modify hosted Supabase.
 
@@ -78,5 +148,8 @@ Deployment is an explicit release action; bundle generation and local serving do
 - Lexical source search is deterministic and cost-conscious, but it is not a full semantic embedding search. The explicit synonyms and indexed code/test terms improve phrasing coverage; an unusual term may still yield no source match.
 - Retrieval is bounded and may not find every relevant code path in a very broad question. The assistant should state uncertainty rather than infer from absent evidence.
 - Mocked provider tests verify request shape, response validation, retry behavior, evidence selection, and grounding rules. They do not prove live model factual accuracy, latency, or current provider quotas.
+- Candidate screening checks reference validity and lexical overlap deterministically, but semantic correctness remains a human review responsibility.
+- Source fingerprints are full-file hashes for the reviewed allowlist. An unrelated edit inside a file cited by a topic will mark it stale; changes to unrelated files will not.
+- Candidate storage stops accepting new entries at 5,000 lifetime rows to keep the queue bounded. Rejected and stale records are retained for audit.
 - A local runtime start proves compilation, not end-to-end authenticated behavior. Test that separately in the local Supabase stack without invoking Groq.
 - Mobile viewport component tests do not replace hands-on keyboard and visual review on a real device.

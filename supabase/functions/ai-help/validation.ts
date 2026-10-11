@@ -57,8 +57,3 @@ export function isGeneralConversation(question: string, history: AssistantHistor
   return ![question, ...history.map(({ content }) => content)].some((text) => privateSignal.test(text))
 }
 
-export async function createCandidateFingerprint(answer: string, sourceRefs: string[]): Promise<string> {
-  const input = `${sourceRefs.slice().sort().join('\n')}\n${answer.toLocaleLowerCase().replace(/\s+/g, ' ').trim()}`
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}

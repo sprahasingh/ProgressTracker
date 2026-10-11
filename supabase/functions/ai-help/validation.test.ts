@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AssistantInputError, createCandidateFingerprint, findVerifiedAnswer, isGeneralConversation, normalizeAssistantInput, shouldFailoverToSecondary } from './validation'
+import { AssistantInputError, findVerifiedAnswer, isGeneralConversation, normalizeAssistantInput, shouldFailoverToSecondary } from './validation'
 
 describe('AI Help Edge Function validation', () => {
   it('bounds text and history while allowing only safe page context values', () => {
@@ -38,11 +38,9 @@ describe('AI Help Edge Function validation', () => {
     expect(findVerifiedAnswer('How are streaks calculated?', memory, [{ role: 'user', content: 'Is Sunday a rest day?' }])).toBeNull()
   })
 
-  it('queues only general explanations and fingerprints only answer plus approved references', async () => {
+  it('queues only general explanations and excludes personal or context-specific questions', () => {
     expect(isGeneralConversation('How are streaks calculated?', [])).toBe(true)
     expect(isGeneralConversation('How many pages did I log?', [])).toBe(false)
     expect(isGeneralConversation('What about that?', [{ role: 'user', content: 'I recorded 12 pages yesterday.' }])).toBe(false)
-    const refs = ['docs/ai-help/schedules-and-streaks.md']
-    await expect(createCandidateFingerprint(' Streaks count scheduled days. ', refs)).resolves.toBe(await createCandidateFingerprint('streaks count scheduled days.', refs))
   })
 })

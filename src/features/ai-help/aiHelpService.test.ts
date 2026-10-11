@@ -24,7 +24,33 @@ describe('AI Help knowledge helpers', () => {
     ]
     expect(getLocalHelpAnswer('Are there only two types?', history)).toContain('Yes/No or Quantity')
     expect(getLocalHelpAnswer('What about checkbox measures?', [...history, { id: '3', role: 'user', content: 'Are there only two types?' }])).toContain('legacy measure type')
-    expect(getLocalHelpAnswer('What about checkbox measures?')).toContain('not available when creating')
+    expect(getLocalHelpAnswer('What about checkbox measures?')).toContain('cannot be selected when creating')
+  })
+
+  it('answers the requested intent across the reported Checklist conversation', () => {
+    const turns = [
+      'What are measures?',
+      'Can I add Checklist measures?',
+      "I'm trying to add Checklist measures and having problems.",
+      'How can I add Checklist and what should I take care of?',
+      'Help me.',
+      'Tell me more about Checklist measures.',
+    ]
+    const answers: string[] = []
+    const history: import('./aiHelpService').ChatMessage[] = []
+    for (const question of turns) {
+      const answer = getLocalHelpAnswer(question, history)
+      expect(answer).toBeTruthy()
+      answers.push(answer!)
+      history.push({ id: `q${history.length}`, role: 'user', content: question }, { id: `a${history.length}`, role: 'assistant', content: answer! })
+    }
+    expect(answers[0]).toContain('one value')
+    expect(answers[1]).toContain('can’t add a Checklist measure')
+    expect(answers[2]).toContain('what error you see')
+    expect(answers[3]).toContain('one Yes/No measure per item')
+    expect(answers[4]).toContain('Are you editing an existing tracker')
+    expect(answers[5]).toContain('checked-item count')
+    expect(new Set(answers).size).toBe(6)
   })
 
   it('does not submit a remote request while offline or signed out', async () => {
@@ -68,6 +94,12 @@ describe('AI Help knowledge helpers', () => {
     await expect(askAssistant(client(503, 'provider_cooldown', 12), 'Unknown system question?', [], 'other', true, true)).rejects.toMatchObject({ kind: 'provider-cooldown', retryAfterSeconds: 12 })
     await expect(askAssistant(client(503, 'configuration_missing'), 'Unknown system question?', [], 'other', true, true)).rejects.toMatchObject({ kind: 'configuration' })
     await expect(askAssistant(client(500, 'internal_error'), 'Unknown system question?', [], 'other', true, true)).rejects.toMatchObject({ kind: 'edge-error' })
+  })
+
+  it('preserves the rate-limit RPC failure instead of disguising it as a local cached answer', async () => {
+    const invoke = vi.fn().mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ code: 'rate_limit_unavailable' }), { status: 503 }) } })
+    await expect(askAssistant({ functions: { invoke } } as never, 'How are streaks calculated?', [], 'today', true, true))
+      .rejects.toMatchObject({ kind: 'rate-limit-service' })
   })
 
   it('uses a locally verified answer when a remote request fails', async () => {

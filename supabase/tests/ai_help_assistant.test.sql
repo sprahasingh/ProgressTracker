@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(20);
 
 select has_table('public', 'ai_feature_knowledge', 'feature documentation cache exists');
 select has_table('public', 'ai_question_memory', 'verified question memory exists');
@@ -9,6 +9,13 @@ select has_table('public', 'ai_help_user_rate_limits', 'per-user rate limits exi
 select has_table('public', 'ai_help_global_rate_limit', 'global rate limits exist');
 select has_table('public', 'ai_help_provider_health', 'provider health is tracked');
 select has_function('public', 'consume_ai_help_request', array['uuid'], 'atomic rate-limit function exists');
+select ok((select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'consume_ai_help_request'), 'rate-limit function executes with its restricted definer role');
+select ok((select exists (
+  select 1 from pg_index index_info
+  join pg_attribute column_info on column_info.attrelid = index_info.indrelid and column_info.attnum = index_info.indkey[0]
+  where index_info.indrelid = 'public.ai_help_user_rate_limits'::regclass and index_info.indisunique
+    and index_info.indnkeyatts = 1 and column_info.attname = 'user_id'
+)), 'rate-limit upsert conflict target has a unique constraint');
 
 select ok((select bool_and(c.relrowsecurity) from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relname in ('ai_feature_knowledge', 'ai_question_memory', 'ai_knowledge_candidates', 'ai_help_user_rate_limits', 'ai_help_global_rate_limit', 'ai_help_provider_health')),
