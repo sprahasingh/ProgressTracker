@@ -1,25 +1,19 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccountDeletion } from './AccountDeletion'
-import { requestAccountDeletionReauthentication } from '../auth/authService'
 
 const mocks = vi.hoisted(() => ({
   auth: { status: 'signed-in' as string, user: { id: 'user-1', email: 'user@example.com' }, prepareAccountDeletion: vi.fn(), resumeAccountSyncAfterDeletionFailure: vi.fn(), finishAccountDeletion: vi.fn() },
-  invoke: vi.fn(), countPending: vi.fn(), createBackup: vi.fn(), downloadBackup: vi.fn(), sessionToken: '',
+  invoke: vi.fn(), countPending: vi.fn(), createBackup: vi.fn(), downloadBackup: vi.fn(), notify: vi.fn(),
 }))
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => mocks.auth }))
-vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({ functions: { invoke: mocks.invoke }, auth: { getSession: vi.fn().mockImplementation(async () => ({ data: { session: { access_token: mocks.sessionToken } } })) } }) }))
+vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({ functions: { invoke: mocks.invoke } }) }))
 vi.mock('../../db/database', () => ({ countPendingWorkspaceSyncOperations: mocks.countPending }))
 vi.mock('../../db/workspaceBackup', () => ({ backupRecordCount: () => 2, createWorkspaceBackup: mocks.createBackup, downloadWorkspaceBackup: mocks.downloadBackup }))
-vi.mock('../auth/authService', () => ({ requestAccountDeletionReauthentication: vi.fn().mockResolvedValue({ error: null }) }))
+vi.mock('../../components/ui/ToastProvider', () => ({ useToast: () => ({ notify: mocks.notify }) }))
 
 afterEach(() => { cleanup(); document.body.style.overflow = '' })
-
-function recentToken() {
-  const payload = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) }] })).replace(/=/g, '')
-  return `header.${payload}.signature`
-}
 
 describe('AccountDeletion', () => {
   beforeEach(() => {
@@ -28,13 +22,13 @@ describe('AccountDeletion', () => {
     mocks.auth.prepareAccountDeletion.mockReset().mockResolvedValue(0)
     mocks.auth.resumeAccountSyncAfterDeletionFailure.mockReset()
     mocks.auth.finishAccountDeletion.mockReset().mockResolvedValue(null)
-    mocks.invoke.mockReset().mockResolvedValue({ data: { deleted: true }, error: null })
+    mocks.invoke.mockReset().mockImplementation(async (_name: string, { body }: { body: { action: string } }) => body.action === 'verify-password'
+      ? { data: { authorized: true, authorization: 'a'.repeat(64) }, error: null }
+      : { data: { deleted: true }, error: null })
     mocks.countPending.mockReset().mockResolvedValue(0)
     mocks.createBackup.mockReset().mockResolvedValue({ stores: {} })
     mocks.downloadBackup.mockReset()
-    mocks.sessionToken = recentToken()
-    sessionStorage.clear()
-    localStorage.clear()
+    mocks.notify.mockReset()
   })
 
   it('does not render for guests', () => {
@@ -44,115 +38,112 @@ describe('AccountDeletion', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows an information dialog and the first confirmation does not delete', async () => {
+  it('shows one dialog with password and DELETE inputs and does not submit an incorrect confirmation', async () => {
     render(<AccountDeletion />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'More about Deleting your account' }))
-    expect(await screen.findByText(/external copies or backups/i)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Close explanation' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByRole('heading', { name: 'Verify and confirm deletion' })
-    expect(mocks.invoke).not.toHaveBeenCalled()
-    expect(mocks.auth.finishAccountDeletion).not.toHaveBeenCalled()
-  })
-
-  it('requires the typed confirmation and completes cleanup only after server confirmation', async () => {
-    render(<AccountDeletion />)
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    const finalButton = screen.getByRole('button', { name: 'Permanently Delete Account' })
-    await screen.findByText(/Recent sign-in verified/)
-    expect(finalButton).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'delete' } })
-    expect(finalButton).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
-    expect(finalButton).toBeEnabled()
-    fireEvent.click(finalButton)
-    await waitFor(() => expect(mocks.auth.finishAccountDeletion).toHaveBeenCalledWith('user-1'))
-    expect(mocks.auth.prepareAccountDeletion).toHaveBeenCalledWith('user-1')
-    expect(mocks.invoke).toHaveBeenCalledWith('delete-account', { body: { confirmation: 'DELETE' } })
-  })
-
-  it('keeps final deletion disabled when recent identity verification is missing', async () => {
-    const payload = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) - 10 * 60 }] })).replace(/=/g, '')
-    mocks.sessionToken = `header.${payload}.signature`
-    render(<AccountDeletion />)
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    await screen.findByText(/Verify your identity with a fresh email sign-in/)
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
+    expect(await screen.findByRole('dialog', { name: 'Delete your account?' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/Current account password/)).toBeInTheDocument()
+    expect(screen.getByText(/set a password first under Settings/)).toBeInTheDocument()
+    const confirmation = screen.getByLabelText(/Type DELETE to confirm/)
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(confirmation, { target: { value: 'delete' } })
     expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeDisabled()
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
-  it('requests an existing-account sign-in link and enables confirmation only after a fresh session returns', async () => {
-    const stale = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) - 10 * 60 }] })).replace(/=/g, '')
-    mocks.sessionToken = `header.${stale}.signature`
-    const view = render(<AccountDeletion />)
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    await screen.findByText(/Verify your identity with a fresh email sign-in/)
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send fresh sign-in link' }))
-    expect(await screen.findByText(/secure sign-in link was sent/i)).toBeInTheDocument()
-    expect(requestAccountDeletionReauthentication).toHaveBeenCalledWith('user@example.com', `${window.location.origin}${window.location.pathname}`)
-    expect(Number(localStorage.getItem('progress-tracker:delete-account-reauth'))).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeDisabled()
-    mocks.sessionToken = recentToken()
-    mocks.auth.user = { id: 'user-1', email: 'user@example.com', freshSession: true } as never
-    view.rerender(<AccountDeletion />)
-    await screen.findByText(/Recent sign-in verified/)
-    expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeEnabled()
-  })
-
-  it('preserves the workspace and reopens sync after the server does not confirm deletion', async () => {
-    mocks.invoke.mockResolvedValue({ data: null, error: Object.assign(new Error('Edge Function returned a non-2xx status code'), { context: new Response(JSON.stringify({ error: 'The account was not deleted. Your local workspace remains available; retry after reviewing the error.' }), { status: 422 }) }) })
+  it('requires a verified password and exact DELETE before cleanup', async () => {
     render(<AccountDeletion />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    await screen.findByText(/Recent sign-in verified/)
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
+    await screen.findByText('No pending offline changes were found.')
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/The account was not deleted/i)
+    await waitFor(() => expect(mocks.auth.finishAccountDeletion).toHaveBeenCalledWith('user-1'))
+    expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'delete-account', { body: { action: 'verify-password', password: 'secret' } })
+    expect(mocks.invoke).toHaveBeenNthCalledWith(2, 'delete-account', { body: { action: 'delete', confirmation: 'DELETE', authorization: 'a'.repeat(64) } })
+    expect(mocks.auth.prepareAccountDeletion).toHaveBeenCalledWith('user-1')
+  })
+
+  it('guards against duplicate submission before the button rerenders', async () => {
+    let release!: (result: { data: { authorized: boolean; authorization: string }; error: null }) => void
+    mocks.invoke.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    render(<AccountDeletion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
+    await screen.findByText('No pending offline changes were found.')
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
+    const button = screen.getByRole('button', { name: 'Permanently Delete Account' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledOnce())
+    release({ data: { authorized: true, authorization: 'a'.repeat(64) }, error: null })
+    await waitFor(() => expect(mocks.auth.finishAccountDeletion).toHaveBeenCalledOnce())
+  })
+
+  it('reports incorrect passwords and resumes synchronization', async () => {
+    mocks.invoke.mockResolvedValueOnce({ data: null, error: Object.assign(new Error('unauthorized'), { context: new Response(JSON.stringify({ error: 'The password could not be verified.' }), { status: 401 }) }) })
+    render(<AccountDeletion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
+    await screen.findByText('No pending offline changes were found.')
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'wrong' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The password could not be verified.')
+    expect(mocks.invoke).toHaveBeenCalledOnce()
     expect(mocks.auth.finishAccountDeletion).not.toHaveBeenCalled()
     expect(mocks.auth.resumeAccountSyncAfterDeletionFailure).toHaveBeenCalledWith('user-1')
   })
 
-  it('keeps status retry available after the recent-authentication window expires', async () => {
-    mocks.invoke.mockResolvedValueOnce({ data: null, error: new Error('Failed to send a request to the Edge Function') })
-    const view = render(<AccountDeletion />)
+  it('explains expired one-use authorization and leaves the account available', async () => {
+    mocks.invoke.mockImplementationOnce(async () => ({ data: { authorized: true, authorization: 'a'.repeat(64) }, error: null }))
+      .mockImplementationOnce(async () => ({ data: null, error: Object.assign(new Error('unauthorized'), { context: new Response(JSON.stringify({ error: 'Password verification expired or was already used. Verify your password again.' }), { status: 401 }) }) }))
+    render(<AccountDeletion />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    await screen.findByText(/Recent sign-in verified/)
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
+    await screen.findByText('No pending offline changes were found.')
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Verify your password again/)
+    expect(mocks.auth.finishAccountDeletion).not.toHaveBeenCalled()
+    expect(mocks.auth.resumeAccountSyncAfterDeletionFailure).toHaveBeenCalledWith('user-1')
+  })
+
+  it('keeps deletion disabled until pending local changes have been checked', async () => {
+    let resolveCount!: (count: number) => void
+    mocks.countPending.mockReturnValueOnce(new Promise<number>((resolve) => { resolveCount = resolve }))
+    render(<AccountDeletion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
+    expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeDisabled()
+    resolveCount(2)
+    await screen.findByText(/2 local changes have not synchronized/i)
+    expect(screen.getByRole('button', { name: 'Permanently Delete Account' })).toBeEnabled()
+  })
+
+  it('keeps local data and offers status retry when the deletion response is lost', async () => {
+    mocks.invoke.mockImplementationOnce(async () => ({ data: { authorized: true, authorization: 'a'.repeat(64) }, error: null }))
+      .mockImplementationOnce(async () => ({ data: null, error: Object.assign(new Error('network'), { name: 'FunctionsFetchError' }) }))
+      .mockImplementationOnce(async () => ({ data: { deleted: false }, error: null }))
+    render(<AccountDeletion />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
+    await screen.findByText('No pending offline changes were found.')
+    fireEvent.change(screen.getByLabelText(/Current account password/), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
     const retry = await screen.findByRole('button', { name: 'Retry deletion status' })
     expect(retry).toBeEnabled()
-
-    const stale = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) - 10 * 60 }] })).replace(/=/g, '')
-    mocks.sessionToken = `header.${stale}.signature`
-    mocks.auth.user = { id: 'user-1', email: 'user@example.com', expiredSession: true } as never
-    view.rerender(<AccountDeletion />)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry deletion status' })).toBeEnabled())
+    fireEvent.click(retry)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/account is still active/i)
+    expect(mocks.auth.finishAccountDeletion).not.toHaveBeenCalled()
+    expect(mocks.invoke).toHaveBeenNthCalledWith(3, 'delete-account', { body: { action: 'status' } })
   })
 
-  it('surfaces offline changes and requires a reviewed confirmation before deleting them', async () => {
-    mocks.countPending.mockResolvedValue(1)
-    mocks.auth.prepareAccountDeletion.mockResolvedValue(1)
+  it('supports exporting the local workspace before deletion', async () => {
     render(<AccountDeletion />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to verification' }))
-    await screen.findByLabelText('Type DELETE to confirm')
-    await screen.findByText(/Recent sign-in verified/)
-    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
-    expect(screen.getByText(/1 local change has not synchronized/i)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Permanently Delete Account' }))
-    await waitFor(() => expect(mocks.auth.finishAccountDeletion).toHaveBeenCalledWith('user-1'))
-    expect(mocks.invoke).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Export My Data' }))
+    await waitFor(() => expect(mocks.downloadBackup).toHaveBeenCalled())
+    expect(await screen.findByText(/Workspace export downloaded/)).toBeInTheDocument()
   })
 })
