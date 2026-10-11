@@ -101,8 +101,64 @@ Deno.serve(async (request) => {
     if (body.action === 'whoami') return json(200, { authorized: true }, origin)
 
     const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    if (body.action === 'feedback_list') {
+      const allowedStatuses = ['pending', 'reviewed', 'resolved']
+      const status = typeof body.status === 'string' ? body.status : 'pending'
+      const categories = ['helpful', 'factually_incorrect', 'outdated', 'wrong_instructions', 'wrong_contact', 'other']
+      const category = typeof body.category === 'string' ? body.category : 'all'
+      if (status !== 'all' && !allowedStatuses.includes(status)) return json(400, { error: 'Unsupported feedback status.' }, origin)
+      if (category !== 'all' && !categories.includes(category)) return json(400, { error: 'Unsupported feedback category.' }, origin)
+      const limit = typeof body.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(body.limit))) : 50
+      const offset = typeof body.offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.offset))) : 0
+      try { await admin.from('ai_help_answer_feedback').delete().lte('expires_at', new Date().toISOString()) } catch { /* Feedback remains reviewable if retention cleanup is temporarily unavailable. */ }
+      let query = admin.from('ai_help_answer_feedback')
+        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id')
+      if (status !== 'all') query = query.eq('status', status)
+      if (category !== 'all') query = query.eq('category', category)
+      query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+      const [rows, pending, reviewed, resolved] = await Promise.all([
+        query,
+        admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'reviewed'),
+        admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
+      ])
+      if (rows.error || pending.error || reviewed.error || resolved.error) return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
+      return json(200, { current_knowledge_version: knowledgeVersion, feedback: rows.data ?? [], counts: { pending: pending.count ?? 0, reviewed: reviewed.count ?? 0, resolved: resolved.count ?? 0 }, page: { limit, offset, has_more: (rows.data?.length ?? 0) === limit } }, origin)
+    }
+
+    if (body.action === 'feedback_review') {
+      if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || (body.status !== 'reviewed' && body.status !== 'resolved')) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
+      const { data, error: updateError } = await admin.from('ai_help_answer_feedback').update({ status: body.status, reviewed_at: new Date().toISOString(), reviewer_id: user.id })
+        .eq('id', body.id).eq('status', 'pending')
+        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').maybeSingle()
+      if (updateError) return json(503, { error: 'The feedback status could not be updated. Try again.' }, origin)
+      if (!data) {
+        const { data: existing, error: readError } = await admin.from('ai_help_answer_feedback')
+          .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').eq('id', body.id).maybeSingle()
+        if (readError) return json(503, { error: 'The feedback report could not be checked. Try again.' }, origin)
+        if (!existing) return json(404, { error: 'Feedback report not found.' }, origin)
+        if (existing.status !== body.status) return json(409, { error: 'Feedback report changed. Refresh and retry.' }, origin)
+        return json(200, { feedback: existing }, origin)
+      }
+      return json(200, { feedback: data }, origin)
+    }
+
     const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: sourceVersion })
     if (freshnessError) return json(503, { error: 'Knowledge freshness could not be checked. Try again later.' }, origin)
+
+    if (body.action === 'invalidate') {
+      if (typeof body.topic_id !== 'string' || typeof body.expected_reviewed_at !== 'string' || typeof body.reason !== 'string' || body.reason.trim().length < 8 || body.reason.trim().length > 300) {
+        return json(400, { error: 'Select an approved topic and provide a short reason for marking it stale.' }, origin)
+      }
+      const { data: result, error: invalidateError } = await admin.rpc('invalidate_ai_verified_knowledge', {
+        p_topic_id: body.topic_id,
+        p_reviewer_id: user.id,
+        p_expected_reviewed_at: body.expected_reviewed_at,
+        p_reason: body.reason.trim(),
+      })
+      if (invalidateError) return json(invalidateError.code === '40001' ? 409 : invalidateError.code === 'P0002' ? 404 : 400, { error: invalidateError.code === '40001' ? 'This topic changed during review. Refresh and try again.' : invalidateError.code === 'P0002' ? 'Verified topic not found.' : 'The topic could not be marked stale. Check the reason and try again.' }, origin)
+      return json(200, { result }, origin)
+    }
 
     if (body.action === 'list') {
       const status = typeof body.status === 'string' ? body.status : 'pending'
@@ -177,7 +233,7 @@ Deno.serve(async (request) => {
         const refs = Array.isArray(candidate.source_refs) ? candidate.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
         const { data: related, error: relatedError } = await admin.from('ai_verified_knowledge').select('topic_id,title,explanation,feature_category,status,source_refs,knowledge_version,reviewed_at,stale_at').or(`topic_id.eq.${candidate.topic_id},status.eq.stale`).order('reviewed_at', { ascending: false }).limit(20)
-        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at').eq('candidate_id', candidate.id).order('created_at', { ascending: false }).limit(30)
+        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at,metadata').eq('candidate_id', candidate.id).order('created_at', { ascending: false }).limit(30)
         if (relatedError || reviewHistoryError) return json(503, { error: 'Review history is temporarily unavailable.' }, origin)
         return json(200, { knowledge_version: sourceVersion, candidate, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '', comparison: related ?? [], review_history: reviewHistory ?? [] }, origin)
       }
@@ -186,7 +242,7 @@ Deno.serve(async (request) => {
         if (entryError || !entry) return json(404, { error: 'Verified knowledge not found.' }, origin)
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
-        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at').eq('topic_id', entry.topic_id).order('created_at', { ascending: false }).limit(30)
+        const { data: reviewHistory, error: reviewHistoryError } = await admin.from('ai_knowledge_review_events').select('action,previous_status,next_status,reviewer_id,created_at,metadata').eq('topic_id', entry.topic_id).order('created_at', { ascending: false }).limit(30)
         if (reviewHistoryError) return json(503, { error: 'Review history is temporarily unavailable.' }, origin)
         return json(200, { knowledge_version: sourceVersion, entry, current_evidence: currentRefs.length ? currentEvidence(currentRefs) : '', review_history: reviewHistory ?? [] }, origin)
       }

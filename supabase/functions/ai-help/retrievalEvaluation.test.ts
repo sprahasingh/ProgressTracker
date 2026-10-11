@@ -71,7 +71,7 @@ describe('AI Help retrieval evaluation', () => {
   it('keeps Edge Function modules out of embedded source evidence', () => {
     expect(sourceIndex.some(({ content }) => content.includes("from './validation.ts'"))).toBe(false)
     expect(sourceIndex.some(({ content }) => content.includes("import './styles.css?raw'"))).toBe(false)
-    expect(sourceIndex.some(({ content }) => content.includes('module import declaration omitted from indexed evidence'))).toBe(true)
+    expect(sourceIndex.some(({ content }) => content.includes('import syntax omitted from indexed evidence'))).toBe(true)
   })
 
   it.each(cases)('retrieves $guide for “$question”', ({ question, guide, history = [] }) => {

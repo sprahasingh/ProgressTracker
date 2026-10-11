@@ -4,9 +4,10 @@ import { Navigate, useNavigate, useOutletContext } from 'react-router-dom'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { useToast } from '../../components/ui/ToastProvider'
 import { useAuth } from '../auth/AuthProvider'
-import { getCandidate, getVerifiedTopic, listKnowledge, ReviewApiError, revalidateTopic, reviewCandidate } from './aiKnowledgeApi'
+import { getCandidate, getVerifiedTopic, invalidateVerifiedTopic, listKnowledge, ReviewApiError, revalidateTopic, reviewCandidate } from './aiKnowledgeApi'
 import type { CandidateFields, KnowledgeCandidate, ReviewCounts, ReviewDetail, ReviewSort, ReviewStatus, VerifiedTopic } from './aiKnowledgeApi'
 import type { MaintainerAccess } from './useMaintainerAccess'
+import { AnswerFeedbackWorkspace } from './AnswerFeedbackWorkspace'
 
 const tabs: Array<{ id: ReviewStatus; label: string; countKey: keyof ReviewCounts }> = [
   { id: 'pending', label: 'Pending', countKey: 'pending' },
@@ -26,6 +27,7 @@ function safeApiMessage(error: unknown) { return error instanceof Error ? error.
 
 function KnowledgeWorkspace() {
   const { notify } = useToast()
+  const [workspaceTab, setWorkspaceTab] = useState<'knowledge' | 'feedback'>('knowledge')
   const [tab, setTab] = useState<ReviewStatus>('pending')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -43,6 +45,7 @@ function KnowledgeWorkspace() {
   const [detailError, setDetailError] = useState('')
   const [busyAction, setBusyAction] = useState('')
   const [confirmApproval, setConfirmApproval] = useState(false)
+  const [invalidationReason, setInvalidationReason] = useState('')
   const [editing, setEditing] = useState(false)
   const [fields, setFields] = useState<EditableFields | null>(null)
   const dialogRef = useRef<HTMLElement>(null)
@@ -50,6 +53,7 @@ function KnowledgeWorkspace() {
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), [])
   useEffect(() => {
+    if (workspaceTab !== 'knowledge') return
     let active = true
     setLoading(true)
     setError('')
@@ -71,7 +75,7 @@ function KnowledgeWorkspace() {
       if (active) setError(safeApiMessage(cause))
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [tab, search, sort, refreshKey])
+  }, [tab, search, sort, refreshKey, workspaceTab])
 
   useEffect(() => {
     if (!selected) return
@@ -87,6 +91,7 @@ function KnowledgeWorkspace() {
       if (record) setFields({ topic_id: record.topic_id, title: record.title, explanation: record.explanation, detailed_explanation: record.detailed_explanation, feature_category: record.feature_category, source_refs: record.source_refs })
       setEditing(false)
       setConfirmApproval(false)
+      setInvalidationReason('')
     }).catch((cause) => { if (active) setDetailError(safeApiMessage(cause)) })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
@@ -172,10 +177,35 @@ function KnowledgeWorkspace() {
     } catch (cause) { setDetailError(safeApiMessage(cause)) }
     finally { setBusyAction('') }
   }
+  async function invalidateTopic() {
+    if (!selectedTopic || selectedTopic.status !== 'verified' || invalidationReason.trim().length < 8 || busyAction) return
+    setBusyAction('invalidate')
+    setDetailError('')
+    try {
+      await invalidateVerifiedTopic(selectedTopic, invalidationReason.trim())
+      notify({ kind: 'success', title: 'Topic marked stale', description: 'It is excluded from AI Help until it is reviewed against current evidence.' })
+      closeDetail()
+      refresh()
+    } catch (cause) { setDetailError(safeApiMessage(cause)) }
+    finally { setBusyAction('') }
+  }
   function updateField<K extends keyof EditableFields>(key: K, value: EditableFields[K]) { setFields((current) => current ? { ...current, [key]: value } : current) }
+
+  if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
+    <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review knowledge and user-reported answer issues." />
+    <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
+      <button type="button" aria-current="false" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>
+      <button type="button" aria-current="page" className="is-active">Answer Feedback</button>
+    </nav>
+    <AnswerFeedbackWorkspace />
+  </section>
 
   return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review and manage the knowledge your AI assistant uses." />
+    <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
+      <button type="button" aria-current="page" className="is-active">Knowledge candidates</button>
+      <button type="button" aria-current="false" onClick={() => setWorkspaceTab('feedback')}>Answer Feedback</button>
+    </nav>
     <p className="ai-knowledge-intro">Candidates are proposed automatically from current product evidence. Each one stays pending until a maintainer reviews and approves it.</p>
     <div className="ai-knowledge-counts" aria-label="Knowledge review counts">
       {tabs.map(({ id, label, countKey }) => <button type="button" key={id} className={`ai-knowledge-count${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}>
@@ -229,13 +259,14 @@ function KnowledgeWorkspace() {
                   <section className="ai-knowledge-detail-section"><h3>Proposed explanation</h3><p>{activeRecord.explanation}</p>{activeRecord.detailed_explanation && <p>{activeRecord.detailed_explanation}</p>}</section>
                   <section className="ai-knowledge-detail-section"><h3>Supporting sources</h3><ul>{activeRecord.source_refs.map((ref) => <li key={ref}><code>{ref}</code><small>Fingerprint: {activeRecord.source_fingerprints?.[ref]?.slice(0, 16) ?? 'Not available'}…</small></li>)}</ul>{detail.current_evidence ? <details className="ai-knowledge-evidence"><summary>Current source excerpts</summary><pre>{detail.current_evidence}</pre></details> : <p className="ai-knowledge-muted">Current source excerpts are unavailable for these references.</p>}</section>
                   {selectedCandidate?.possible_duplicates?.length ? <section className="ai-knowledge-detail-section"><h3>Related verified topics</h3><ul>{selectedCandidate.possible_duplicates.map((duplicate) => <li key={duplicate.topic_id}>{duplicate.title} <span className={`ai-knowledge-status is-${duplicate.status}`}>{duplicate.status === 'verified' ? 'Approved' : 'Stale'}</span></li>)}</ul></section> : null}
-                  <section className="ai-knowledge-detail-section"><h3>Review history</h3>{detail.review_history.length ? <ol className="ai-knowledge-history">{detail.review_history.map((event, index) => <li key={`${event.created_at}-${index}`}><strong>{event.action.replaceAll('_', ' ')}</strong><span>{event.previous_status ?? '—'} → {event.next_status ?? '—'}</span><small>{displayDate(event.created_at)} · {event.reviewer_id ? `Maintainer ${event.reviewer_id.slice(0, 8)}` : 'System'}</small></li>)}</ol> : <p className="ai-knowledge-muted">No review history is available.</p>}{selectedCandidate?.status === 'rejected' && <p className="ai-knowledge-muted">The review API does not store a rejection reason.</p>}</section>
+                  <section className="ai-knowledge-detail-section"><h3>Review history</h3>{detail.review_history.length ? <ol className="ai-knowledge-history">{detail.review_history.map((event, index) => <li key={`${event.created_at}-${index}`}><strong>{event.action.replaceAll('_', ' ')}</strong><span>{event.previous_status ?? '—'} → {event.next_status ?? '—'}</span><small>{displayDate(event.created_at)} · {event.reviewer_id ? `Maintainer ${event.reviewer_id.slice(0, 8)}` : 'System'}</small>{typeof event.metadata?.reason === 'string' && <small>Reason: {event.metadata.reason}</small>}</li>)}</ol> : <p className="ai-knowledge-muted">No review history is available.</p>}{selectedCandidate?.status === 'rejected' && <p className="ai-knowledge-muted">The review API does not store a rejection reason.</p>}</section>
                 </>}
               </div>
               {detailError && <p className="ai-knowledge-inline-error" role="alert">{detailError}</p>}
               <footer className="ai-knowledge-actions">
                 {(selectedCandidate?.status === 'pending' || selectedCandidate?.status === 'stale') && (editing ? <><button className="button button-primary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => void performReview('edit')}>{busyAction === 'edit' ? 'Saving…' : 'Save edits'}</button><button className="button button-secondary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => { setEditing(false); setDetailError('') }}>Cancel edit</button></> : <><button className="button button-secondary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => setEditing(true)}>Edit</button><button className="button button-secondary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => void performReview('defer')}>{busyAction === 'defer' ? 'Saving…' : 'Defer'}</button><button className="button button-destructive button-small" type="button" disabled={Boolean(busyAction)} onClick={() => void performReview('reject')}>{busyAction === 'reject' ? 'Rejecting…' : 'Reject'}</button>{confirmApproval && <span className="ai-knowledge-confirm-copy">Approve this current, source-checked explanation?</span>}<button className="button button-primary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => void performReview('approve')}>{busyAction === 'approve' ? 'Approving…' : confirmApproval ? 'Confirm approval' : 'Approve'}</button></>)}
                 {selectedTopic?.status === 'stale' && <><span className="ai-knowledge-confirm-copy">Re-review queues a new pending candidate; approval is still required.</span><button className="button button-primary button-small" type="button" disabled={Boolean(busyAction)} onClick={() => void queueRevalidation()}>{busyAction === 'revalidate' ? 'Queueing…' : 'Queue for re-review'}</button></>}
+                {selectedTopic?.status === 'verified' && <><span className="ai-knowledge-confirm-copy">If this approved explanation is outdated or incorrect, mark it stale. It will stop appearing in answers and remain in review history.</span><label className="ai-knowledge-invalidate-reason">Reason for review<textarea value={invalidationReason} onChange={(event) => setInvalidationReason(event.target.value.slice(0, 300))} maxLength={300} rows={2} placeholder="Briefly describe the conflicting or outdated fact." /></label><button className="button button-destructive button-small" type="button" disabled={Boolean(busyAction) || invalidationReason.trim().length < 8} onClick={() => void invalidateTopic()}>{busyAction === 'invalidate' ? 'Marking stale…' : 'Mark as stale'}</button></>}
               </footer>
             </>}
       </section>

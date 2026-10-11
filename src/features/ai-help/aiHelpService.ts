@@ -1,7 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { SUPPORT_EMAIL } from '../../config/supportContact'
 
 export type HelpRoute = 'today' | 'trackers' | 'analytics' | 'goals' | 'calendar' | 'history' | 'settings' | 'other'
-export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; status?: 'error'; retryAfterSeconds?: number; retryAfterUntil?: number; links?: Array<{ label: string; href: string }>; followUps?: string[] }
+export type FeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
+export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; status?: 'error'; retryAfterSeconds?: number; retryAfterUntil?: number; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledgeVersion?: string; feedbackStatus?: 'helpful' | 'reported' }
 
 export const suggestionsByRoute: Record<HelpRoute, string[]> = {
   today: ['How are streaks calculated?', 'How do daily check-ins work?', 'What is a success rule?'],
@@ -24,10 +26,34 @@ export function getHelpRoute(pathname: string): HelpRoute {
   return 'other'
 }
 
-export type AssistantReply = { answer: string; links?: Array<{ label: string; href: string }>; followUps?: string[] }
+export type AssistantReply = { answer: string; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledge_version?: string }
 export type HelpFailure = 'offline' | 'unauthenticated' | 'unavailable' | 'configuration' | 'edge-error' | 'rate-limit-service' | 'provider-unavailable' | 'provider-cooldown' | 'application-rate-limit' | 'provider-rate-limit' | 'invalid-response' | 'network' | 'unsupported'
 export class HelpRequestError extends Error {
   constructor(readonly kind: HelpFailure, readonly retryAfterSeconds?: number) { super(kind) }
+}
+
+export async function submitAnswerFeedback(client: SupabaseClient | null, input: { responseId: string; category: FeedbackCategory; explanation?: string; topic: string; knowledgeVersion: string }): Promise<void> {
+  if (!client) throw new Error('Feedback requires an internet connection and a signed-in account.')
+  const { data: sessionData, error: sessionError } = await client.auth.getSession()
+  const token = sessionData.session?.access_token
+  if (sessionError || !token) throw new Error('Sign in again to send feedback.')
+  const { error } = await client.functions.invoke('ai-help-feedback', {
+    body: { response_id: input.responseId, category: input.category, explanation: input.explanation ?? null, topic: input.topic, knowledge_version: input.knowledgeVersion },
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!error) return
+  let message = ''
+  let status = 0
+  if (error.context instanceof Response) {
+    status = error.context.status
+    try {
+      const payload = await error.context.clone().json() as { error?: unknown }
+      if (typeof payload.error === 'string') message = payload.error
+    } catch { /* Use a stable fallback for empty gateway responses. */ }
+  }
+  if (status === 429) throw new Error(message || 'Too many feedback reports. Try again later.')
+  if (status === 401) throw new Error('Sign in again to send feedback.')
+  throw new Error(message || 'Feedback could not be saved right now. Try again shortly.')
 }
 
 const allowedLinkLabels = new Map([
@@ -46,8 +72,27 @@ const answers: Array<{ terms: string[]; answer: string }> = [
 
 export function getLocalHelpAnswer(question: string, history: ChatMessage[] = []): string | null {
   const normalized = question.toLocaleLowerCase().replace(/\b(?:check[ -]?box(?:es)?|tick[ -]?box(?:es)?)\b/g, 'checklist')
+  if (/\b(?:support|contact|reach (?:out|you|the team)|help desk)\b/.test(normalized) && /\b(?:email|address|contact|reach|support)\b/.test(normalized)
+    || /\b(?:what(?:'s| is)|give me|find) (?:the )?(?:progresstracker |your )?(?:support )?(?:email|email address|contact address)\b/.test(normalized)) {
+    return `For ProgressTracker support, email ${SUPPORT_EMAIL}.`
+  }
+  if (/\b(?:create (?:an )?account|creating an account|sign up|signup|register)\b/.test(normalized)) {
+    return 'Choose Create account on the account screen and enter an email and a password of at least eight characters. You can also choose Email me a sign-in link; using an email for the first time creates an account, while an existing account’s email signs that account in.'
+  }
+  if (/\b(?:sign in|signin|log in|login|authentication|authenticate)\b/.test(normalized)) {
+    return 'On the account screen, choose Email me a sign-in link for passwordless access or Use password to sign in with your email and password. Choose Create account only when registering a new account.'
+  }
+  if (/\b(?:passwordless|magic link|email link)\b/.test(normalized)) {
+    return 'Choose Email me a sign-in link on the account screen. The first use of an email creates an account; an existing account’s email signs that account in. A password is optional for sign-in, but deletion requires a password that you can set under Settings → Sync & Data.'
+  }
+  if (/\b(?:forgot|reset|recovery)\b/.test(normalized) && /\bpassword\b/.test(normalized)) {
+    return 'Choose Forgot password? on the account screen and enter the account email. Open the recovery link to choose a new password.'
+  }
+  if (/\b(?:set|change|update)\b/.test(normalized) && /\bpassword\b/.test(normalized)) {
+    return 'While signed in, open Settings → Sync & Data → Set or change password. Save a password with at least eight characters. If you cannot sign in, choose Forgot password? on the account screen.'
+  }
   if (/\b(?:account|profile)\b/.test(normalized) && /\b(?:delete|deletion|remove|permanently)\b/.test(normalized)) {
-    return 'You can delete your account in Settings → Account Actions → Delete Account. Enter your current account password and the exact word DELETE, then choose Permanently Delete Account. Password verification is checked securely by the server and authorizes one deletion for up to five minutes. If you usually sign in by email link, first set a password under Settings → Sync & Data → Set or change password. Export your data first if you want a copy; unsynchronized changes will not be uploaded. If the app cannot reach the deletion service, keep the confirmation open and retry the status when online; the server checks whether deletion already completed. For help, contact spraha.progresstracker@gmail.com. Tell me which step failed and what message appeared.'
+    return `You can delete your account in Settings → Account Actions → Delete Account. Enter your current account password and the exact word DELETE, then choose Permanently Delete Account. Password verification is checked securely by the server and authorizes one deletion for up to five minutes. If you usually sign in by email link, first set a password under Settings → Sync & Data → Set or change password. Export your data first if you want a copy; unsynchronized changes will not be uploaded. If the app cannot reach the deletion service, keep the confirmation open and retry the status when online; the server checks whether deletion already completed. For help, contact ${SUPPORT_EMAIL}. Tell me which step failed and what message appeared.`
   }
   const followUp = /^(?:and\b|what about\b|how about\b|are there\b|only\b|other\b|tell me more\b)/i.test(question.trim()) || /\b(?:it|that|those|other types|more about)\b/i.test(question) || question.trim().split(/\s+/).length <= 3
   const context = followUp ? history.slice(-4).map(({ content }) => content.toLocaleLowerCase()).join(' ') : ''

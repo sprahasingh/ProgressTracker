@@ -23,6 +23,14 @@ describe('AI Help knowledge helpers', () => {
     expect(answer).not.toContain('support@progresstracker.com')
   })
 
+  it('answers account creation, sign-in, password, and contact questions from verified local facts', () => {
+    expect(getLocalHelpAnswer('How do I create an account?')).toContain('first time creates an account')
+    expect(getLocalHelpAnswer('How do I sign in?')).toContain('Use password')
+    expect(getLocalHelpAnswer('How do I set my password?')).toContain('Settings → Sync & Data')
+    expect(getLocalHelpAnswer('What is the support email?')).toBe('For ProgressTracker support, email spraha.progresstracker@gmail.com.')
+    expect(getLocalHelpAnswer('How can I contact support?')).toContain('spraha.progresstracker@gmail.com')
+  })
+
   it('distinguishes definitions, supported measure types, and legacy checkbox follow-ups', () => {
     const first = 'What are measures?'
     const definition = getLocalHelpAnswer(first)

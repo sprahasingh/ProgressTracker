@@ -6,5 +6,11 @@ verify_jwt = true
 [functions.ai-help]
 verify_jwt = true
 
+[functions.ai-help-feedback]
+verify_jwt = true
+
+[functions.ai-help-review]
+verify_jwt = true
+
 [functions.manage-push-subscription]
 verify_jwt = true

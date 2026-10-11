@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, isMaintainer, normalizeMaintainerEmails, parseKnowledgeCandidate, rankVerifiedKnowledge, scheduleBestEffortCandidateCollection, validateReviewEdits } from './learningCore'
+import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, hasConflictingVerifiedKnowledge, isMaintainer, normalizeMaintainerEmails, parseKnowledgeCandidate, rankVerifiedKnowledge, scheduleBestEffortCandidateCollection, validateReviewEdits } from './learningCore'
 
 const sourcePath = 'src/domain/trackers/invariants.ts'
 const sourceExcerpts = `SOURCE ${sourcePath} · implementation · assertTrackerInvariant · lines 10-24
@@ -15,6 +15,14 @@ const rawCandidate = {
 }
 
 describe('AI Help verified knowledge workflow helpers', () => {
+  it('detects close, contradictory verified topics so the assistant can omit both', () => {
+    const base = { detailed_explanation: null, feature_category: 'account' as const, source_refs: [], source_fingerprints: {}, knowledge_version: 'v1', status: 'verified' as const }
+    expect(hasConflictingVerifiedKnowledge([
+      { ...base, topic_id: 'account.password', title: 'Password required for deletion', explanation: 'Account deletion requires a password before the DELETE confirmation.' },
+      { ...base, topic_id: 'account.password_alt', title: 'Password not required for deletion', explanation: 'Account deletion does not require a password before the DELETE confirmation.' },
+    ])).toBe(true)
+    expect(hasConflictingVerifiedKnowledge([{ ...base, topic_id: 'account.password', title: 'Password for deletion', explanation: 'Account deletion requires a password.' }])).toBe(false)
+  })
   it('accepts standalone source-backed candidates and fingerprints only candidate content', async () => {
     const candidate = parseKnowledgeCandidate(rawCandidate, { allowedSourceRefs: new Set([sourcePath]), suppliedSourceRefs: new Set([sourcePath]), evidenceFingerprints: fingerprints, sourceExcerpts })
     expect(candidate).toMatchObject({ topicId: 'measures.type_immutability', sourceRefs: [sourcePath] })
