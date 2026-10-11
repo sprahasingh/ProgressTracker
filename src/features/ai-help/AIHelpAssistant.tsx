@@ -93,7 +93,7 @@ export function AIHelpAssistant() {
       const kind = error instanceof Error && 'kind' in error ? error.kind as HelpFailure : 'network'
       const retryAfterSeconds = error instanceof Error && 'retryAfterSeconds' in error && typeof error.retryAfterSeconds === 'number' ? error.retryAfterSeconds : undefined
       const message: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', status: 'error', retryAfterSeconds, retryAfterUntil: retryAfterSeconds ? Date.now() + retryAfterSeconds * 1000 : undefined, content: failureCopy(kind) }
-      setSession((current) => ({ ...current, draft: content, messages: [...current.messages, message].slice(-30) }))
+      setSession((current) => ({ ...current, draft: content, messages: [...current.messages.filter((item) => item.status !== 'error'), message].slice(-30) }))
       setLiveText(message.content)
     } finally { if (requestSequence.current === sequence) { sendingRef.current = false; setLoading(false) } }
   }, [isOnline, loading, route, session.messages, status])

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 
 const measureGuide = { slug: 'measures', title: 'Measures', path: 'docs/ai-help/measures-and-success-rules.md', content: 'New measures are Yes/No or Quantity. Existing Duration and Checklist measures remain supported.' }
@@ -12,6 +12,18 @@ const sourceEntries = [
 ]
 
 describe('AI Help retrieval and provider boundary', () => {
+  it('classifies the six reported question intents and includes the current intent in the prompt', () => {
+    expect(classifyHelpIntent('What are measures?')).toBe('explanation')
+    expect(classifyHelpIntent('Can I add Checklist measures?')).toBe('instructions')
+    expect(classifyHelpIntent("I'm trying to add Checklist measures and having problems.")).toBe('troubleshooting')
+    expect(classifyHelpIntent('How can I add Checklist and what should I take care of?')).toBe('instructions')
+    expect(classifyHelpIntent('Help me.')).toBe('clarification')
+    expect(classifyHelpIntent('Tell me more about Checklist measures.')).toBe('deeper_detail')
+    const messages = buildHelpMessages({ question: 'Tell me more about Checklist measures.', history: [], pageContext: 'trackers', relevantDocs: '', sourceExcerpts: '', linkIds: [] })
+    expect(messages[0]?.content).toContain('latest turn intent is deeper_detail')
+    expect(messages[0]?.content).toContain('add useful supported information beyond the earlier reply')
+  })
+
   it('resolves follow-up wording and checkbox synonyms against measure and legacy knowledge', () => {
     const history: AssistantHistoryItem[] = [
       { role: 'user', content: 'What are measures?' },
@@ -40,6 +52,20 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(messages[1]).toMatchObject({ role: 'user', content: expect.stringContaining('Are there only two types?') })
     expect(messages[2]).toMatchObject({ role: 'assistant', content: expect.stringContaining('unverified') })
     expect(messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('What about checkbox measures?') })
+  })
+
+  it('uses reviewed topic knowledge as evidence and asks Groq to return candidates only when justified', () => {
+    const knowledge = renderVerifiedKnowledge([{
+      topic_id: 'measures.type_immutability', title: 'Saved measure types stay fixed',
+      explanation: 'A saved measure retains its original type.', detailed_explanation: null,
+      feature_category: 'trackers', source_refs: ['src/domain/trackers/invariants.ts'],
+      source_fingerprints: {}, knowledge_version: 'v1', status: 'verified',
+    }])
+    const messages = buildHelpMessages({ question: 'Why is this fixed?', history: [], pageContext: 'trackers', relevantDocs: '', verifiedKnowledge: knowledge, sourceExcerpts: 'Current code says type stays fixed.', linkIds: [] })
+    expect(messages[0]?.content).toContain('VERIFIED TOPIC measures.type_immutability')
+    expect(messages[0]?.content).toContain('knowledge_candidate (object or null)')
+    expect(messages[0]?.content).toContain('pending human review')
+    expect(messages[0]?.content).toContain('Source implementation/test excerpts take priority')
   })
 
   it('keeps retrieval empty when no supplied source is relevant', () => {
@@ -115,5 +141,12 @@ describe('AI Help retrieval and provider boundary', () => {
   it('rejects malformed or ungrounded model output without exposing it as supported', () => {
     expect(() => parseGroqCompletion({ choices: [{ message: { content: 'not JSON' } }] }, new Set(), new Set())).toThrow(ProviderRequestError)
     expect(parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: true, answer: 'Made up', source_refs: [], link_ids: [] }) } }] }, new Set(), new Set()).answer).toContain('couldn’t verify')
+  })
+
+  it('passes an optional knowledge candidate through the existing grounded response parse', () => {
+    const candidate = { topic_id: 'goals.cumulative_deadline', title: 'Cumulative goal deadlines', explanation: 'Cumulative goal planning requires a deadline to calculate a pacing target.', feature_category: 'goals', source_refs: ['src/features/goals/GoalsPage.tsx'] }
+    const result = parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: true, answer: 'Cumulative goals need a deadline.', source_refs: ['src/features/goals/GoalsPage.tsx'], link_ids: [], knowledge_candidate: candidate }) } }] }, new Set(['src/features/goals/GoalsPage.tsx']), new Set())
+    expect(result.knowledgeCandidate).toEqual(candidate)
+    expect(parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: false, answer: 'Not sure.', knowledge_candidate: candidate }) } }] }, new Set(), new Set()).knowledgeCandidate).toBeNull()
   })
 })

@@ -63,6 +63,19 @@ describe('AI Help Assistant', () => {
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps one actionable failure card after repeated failed requests', async () => {
+    mocks.invoke.mockResolvedValue({ data: null, error: new Error('network') })
+    const user = userEvent.setup()
+    renderAssistant()
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    const input = await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' })
+    await user.type(input, 'Explain a purple control{Enter}')
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    await user.clear(input)
+    await user.type(input, 'Explain an orange control{Enter}')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1))
+  })
+
   it('shows provider cooldown guidance, keeps the draft, and unlocks retry afterward', async () => {
     mocks.invoke.mockResolvedValueOnce({ data: null, error: { context: new Response(JSON.stringify({ code: 'provider_rate_limit', retryAfterSeconds: 4 }), { status: 429, headers: { 'Retry-After': '4' } }) } })
       .mockResolvedValueOnce({ data: { answer: 'Recovered after cooldown.' }, error: null })
@@ -110,6 +123,7 @@ describe('AI Help Assistant', () => {
     const trigger = screen.getByRole('button', { name: 'Open AI Help Assistant' })
     await user.click(trigger)
     expect(await screen.findByRole('dialog', { name: 'Ask ProgressTracker' })).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByRole('textbox', { name: 'Ask about ProgressTracker' })).not.toHaveFocus()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask ProgressTracker' })).not.toBeInTheDocument())
     expect(trigger).toHaveFocus()

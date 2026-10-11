@@ -1,9 +1,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle.ts'
-import { sourcePaths, sourceVersion } from './_generated/sourceBundle.ts'
+import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle.ts'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore.ts'
-import { AssistantInputError as RequestError, MAX_BODY_BYTES, createCandidateFingerprint, findVerifiedAnswer, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, documentationCoverage, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore.ts'
+import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
+import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
 const APP_LINKS: Record<string, { label: string; href: string }> = {
   today: { label: 'Today', href: '/' }, trackers: { label: 'Trackers', href: '/trackers' }, create_tracker: { label: 'Create a tracker', href: '/trackers/new' }, analytics: { label: 'Insights', href: '/dashboard' },
@@ -14,6 +15,8 @@ const ORIGIN_ALLOWLIST = new Set((Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? Den
 type HistoryItem = AssistantHistoryItem
 type ProviderCredential = { slot: 'primary' | 'secondary'; key: string }
 let syncedKnowledgeVersion = ''
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
 function response(status: number, body: Record<string, unknown>, origin: string) {
   const retryAfterSeconds = typeof body.retryAfterSeconds === 'number' ? body.retryAfterSeconds : undefined
@@ -53,7 +56,37 @@ async function recordProviderHealth(admin: ReturnType<typeof createClient>, slot
   await admin.from('ai_help_provider_health').upsert({ provider_slot: slot, last_status: status, consecutive_failures: failures, disabled_until: cooldown, checked_at: new Date().toISOString() })
 }
 
-async function generate(admin: ReturnType<typeof createClient>, question: string, history: HistoryItem[], pageContext: string) {
+async function recordLearningMetric(admin: ReturnType<typeof createClient>, event: string, category: string) {
+  try { await admin.rpc('record_ai_help_metric', { p_event: event, p_feature_category: category }) } catch { /* Metrics must never interrupt help. */ }
+}
+
+function buildCandidate(admin: ReturnType<typeof createClient>, raw: unknown, result: ReturnType<typeof parseGroqCompletion>,
+  question: string, history: HistoryItem[], suppliedSourceExcerpts: string) {
+  if (!raw || !isGeneralConversation(question, history)) return Promise.resolve()
+  const suppliedSourceRefs = new Set([...suppliedSourceExcerpts.matchAll(/^SOURCE ([^ ·]+) ·/gm)].map((match) => match[1]!))
+  const candidate = parseKnowledgeCandidate(raw, {
+    allowedSourceRefs: new Set(sourcePaths),
+    suppliedSourceRefs,
+    evidenceFingerprints,
+    sourceExcerpts: suppliedSourceExcerpts,
+  })
+  if (!candidate || candidate.sourceRefs.some((ref) => !result.sourceRefs.includes(ref))) return Promise.resolve()
+  return createKnowledgeFingerprint(candidate).then(async (candidateFingerprint) => {
+    await admin.rpc('submit_ai_knowledge_candidate', {
+      p_topic_id: candidate.topicId,
+      p_title: candidate.title,
+      p_explanation: candidate.explanation,
+      p_detailed_explanation: candidate.detailedExplanation,
+      p_feature_category: candidate.featureCategory,
+      p_source_refs: candidate.sourceRefs,
+      p_source_fingerprints: Object.fromEntries(candidate.sourceRefs.map((ref) => [ref, evidenceFingerprints[ref]])),
+      p_knowledge_version: knowledgeVersion,
+      p_candidate_fingerprint: candidateFingerprint,
+    })
+  })
+}
+
+async function generate(admin: ReturnType<typeof createClient>, question: string, history: HistoryItem[], pageContext: string, verifiedRows: VerifiedKnowledge[]) {
   const credentials: ProviderCredential[] = [
     { slot: 'primary', key: Deno.env.get('GROQ_API_KEY_PRIMARY') ?? '' },
     { slot: 'secondary', key: Deno.env.get('GROQ_API_KEY_SECONDARY') ?? '' },
@@ -75,9 +108,14 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   const sources = sourcePlan.needsSourceFallback
     ? retrieveSourceExcerpts(question, history, sourceIndex, 4, 5200, pageContext)
     : ''
-  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, sourceExcerpts: sources, linkIds: Object.keys(APP_LINKS) })
+  const verified = rankVerifiedKnowledge(question, history, verifiedRows, 3)
+  const relevantVerified = renderVerifiedKnowledge(verified)
+  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, verifiedKnowledge: relevantVerified, sourceExcerpts: sources, linkIds: Object.keys(APP_LINKS) })
+  const category = mapFeatureCategory(pageContext)
+  if (sourcePlan.needsSourceFallback) await recordLearningMetric(admin, 'source_fallback', category)
+  if (verified.length) await recordLearningMetric(admin, 'verified_knowledge_used', category)
   const model = Deno.env.get('GROQ_MODEL') || 'openai/gpt-oss-120b'
-  const sourceRefs = [...new Set([...docs.flatMap((doc) => [doc.path, doc.slug]), ...(sources.matchAll(/^SOURCE ([^ ·]+) ·/gm)).map((match) => match[1]!)])]
+  const sourceRefs = [...new Set([...verified.flatMap((entry) => entry.source_refs), ...docs.flatMap((doc) => [doc.path, doc.slug]), ...(sources.matchAll(/^SOURCE ([^ ·]+) ·/gm)).map((match) => match[1]!)])]
   const allowedSources = new Set(sourceRefs)
   let raw: unknown
   try {
@@ -93,12 +131,12 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
     throw new RequestError(503, 'AI help is temporarily unavailable. Please try again later.', 'provider_unavailable')
   }
   const result = parseGroqCompletion(raw, allowedSources, new Set(Object.keys(APP_LINKS)))
-  const links = result.links.map((id) => APP_LINKS[id])
-  if (result.sourceRefs.length && isGeneralConversation(question, history)) {
-      const candidateFingerprint = await createCandidateFingerprint(result.answer, result.sourceRefs)
-      const existing = await admin.from('ai_knowledge_candidates').select('id').eq('candidate_fingerprint', candidateFingerprint).eq('knowledge_version', knowledgeVersion).eq('status', 'pending').maybeSingle()
-      if (!existing.data) await admin.from('ai_knowledge_candidates').insert({ candidate_fingerprint: candidateFingerprint, answer: result.answer, source_refs: result.sourceRefs, knowledge_version: knowledgeVersion })
+  if (!result.sourceRefs.length) await recordLearningMetric(admin, 'grounding_failure', category)
+  if (Deno.env.get('AI_HELP_CANDIDATE_COLLECTION_ENABLED') !== 'false' && result.knowledgeCandidate && sources) {
+    const candidateTask = buildCandidate(admin, result.knowledgeCandidate, result, question, history, sources)
+    scheduleBestEffortCandidateCollection(candidateTask, typeof EdgeRuntime !== 'undefined' ? EdgeRuntime.waitUntil.bind(EdgeRuntime) : undefined)
   }
+  const links = result.links.map((id) => APP_LINKS[id])
   return { answer: result.answer, links, followUps: result.sourceRefs.length ? buildFollowUpSuggestions(result.sourceRefs, question) : [] }
 }
 
@@ -125,15 +163,17 @@ Deno.serve(async (request) => {
     if (identityError || !userId) return response(401, { error: 'Your session expired. Sign in again to use AI help.' }, origin)
     const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
     const { data: rate, error: rateError } = await admin.rpc('consume_ai_help_request', { p_user_id: userId })
-    if (rateError) throw new RequestError(503, 'AI help is temporarily unavailable. Please try again later.', 'rate_limit_unavailable')
+    if (rateError) {
+      // Keep diagnostics useful without logging a user ID, request body, provider data, or database message.
+      console.error('AI_HELP_RATE_LIMIT_RPC_FAILED', JSON.stringify({ databaseCode: rateError.code ?? 'unknown' }))
+      throw new RequestError(503, 'AI help is temporarily unavailable. Please try again later.', 'rate_limit_unavailable')
+    }
     if (!rate?.allowed) throw new RequestError(429, 'The assistant request limit has been reached. Please try again after the stated wait.', 'application_rate_limit', typeof rate?.retryAfterSeconds === 'number' ? rate.retryAfterSeconds : 60)
     if (sourceVersion !== knowledgeVersion || sourceIndexVersion !== knowledgeVersion) throw new RequestError(503, 'AI Help knowledge is being updated. Please try again shortly.', 'knowledge_version_mismatch')
-
-    const { data: memory } = await admin.from('ai_question_memory').select('question,answer,source_refs').eq('active', true).eq('knowledge_version', knowledgeVersion).limit(30)
-    const validMemoryRefs = new Set([...knowledgeDocuments.flatMap((doc) => [doc.path, doc.slug]), ...sourcePaths])
-    const verifiedMemory = (memory ?? []).filter((item) => Array.isArray(item.source_refs) && item.source_refs.length > 0 && item.source_refs.every((ref: unknown) => typeof ref === 'string' && validMemoryRefs.has(ref)))
-    const cachedAnswer = findVerifiedAnswer(input.question, verifiedMemory, input.history)
+    await recordLearningMetric(admin, 'request', mapFeatureCategory(input.pageContext))
     if (syncedKnowledgeVersion !== knowledgeVersion) {
+      const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: knowledgeVersion })
+      if (freshnessError) throw new RequestError(503, 'AI Help knowledge could not be refreshed. Please try again shortly.', 'knowledge_reconciliation_unavailable')
       const documentsBySlug = new Map<string, { slug: string; title: string; content: string; source_refs: string[]; knowledge_version: string }>()
       for (const section of knowledgeDocuments) {
         const previous = documentsBySlug.get(section.slug)
@@ -141,12 +181,16 @@ Deno.serve(async (request) => {
         else documentsBySlug.set(section.slug, { slug: section.slug, title: section.title.split(': ')[0] ?? section.title, content: section.content, source_refs: [section.path], knowledge_version: knowledgeVersion })
       }
       await admin.from('ai_feature_knowledge').upsert([...documentsBySlug.values()], { onConflict: 'slug' })
-      await admin.from('ai_question_memory').update({ active: false }).neq('knowledge_version', knowledgeVersion)
-      await admin.from('ai_knowledge_candidates').update({ status: 'stale' }).eq('status', 'pending').neq('knowledge_version', knowledgeVersion)
       syncedKnowledgeVersion = knowledgeVersion
     }
-    if (cachedAnswer) return response(200, { answer: cachedAnswer.answer, links: [] }, origin)
-    const result = await generate(admin, input.question, input.history, input.pageContext)
+    const { data: knowledgeRows } = await admin.from('ai_verified_knowledge')
+      .select('topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status')
+      .eq('status', 'verified').eq('knowledge_version', knowledgeVersion).order('reviewed_at', { ascending: false }).limit(100)
+    const verifiedRows = (knowledgeRows ?? []).filter((entry) => Array.isArray(entry.source_refs)
+      && entry.source_refs.length > 0
+      && entry.source_refs.every((ref: unknown) => typeof ref === 'string' && Boolean(evidenceFingerprints[ref]))
+      && entry.source_refs.every((ref: string) => entry.source_fingerprints?.[ref] === evidenceFingerprints[ref])) as VerifiedKnowledge[]
+    const result = await generate(admin, input.question, input.history, input.pageContext, verifiedRows)
     return response(200, result, origin)
   } catch (error) {
     if (error instanceof RequestError) return response(error.status, { error: error.message, code: error.code, ...(error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}) }, origin)

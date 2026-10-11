@@ -46,12 +46,31 @@ const answers: Array<{ terms: string[]; answer: string }> = [
 
 export function getLocalHelpAnswer(question: string, history: ChatMessage[] = []): string | null {
   const normalized = question.toLocaleLowerCase().replace(/\b(?:check[ -]?box(?:es)?|tick[ -]?box(?:es)?)\b/g, 'checklist')
-  const followUp = /^(?:and\b|what about\b|how about\b|are there\b|only\b|other\b)/i.test(question.trim()) || /\b(?:it|that|those|other types)\b/i.test(question) || question.trim().split(/\s+/).length <= 3
+  const followUp = /^(?:and\b|what about\b|how about\b|are there\b|only\b|other\b|tell me more\b)/i.test(question.trim()) || /\b(?:it|that|those|other types|more about)\b/i.test(question) || question.trim().split(/\s+/).length <= 3
   const context = followUp ? history.slice(-4).map(({ content }) => content.toLocaleLowerCase()).join(' ') : ''
   const combined = `${normalized} ${context}`
   const hasMeasure = /\b(?:measure|measures|metric|metrics)\b/.test(combined)
-  if (/\b(?:checklist|check list)\b/.test(normalized)) {
-    return 'Checklist is a legacy measure type kept for existing trackers. Each check-in stores which items are checked, and thresholds or goal planning use the number checked. New measures can be Yes/No or Quantity; Checklist is not available when creating a new measure.'
+  const checklist = /\b(?:checklist|check list)\b/.test(normalized) || (followUp && /\bchecklist\b/.test(context))
+  if (checklist && /\b(?:problem|problems|issue|issues|stuck|error|trouble|having trouble|doesn.t work|cannot|can.t)\b/.test(normalized)) {
+    return 'Checklist measures are supported only on existing trackers; new measures offer Yes/No or Quantity. If you are editing an existing tracker, keep its Checklist measure and tell me which step fails or what error you see. For a new tracker, use one Yes/No measure per item or a Quantity measure for the total.'
+  }
+  if (checklist && /\b(?:what should|take care|before i|keep in mind|consider)\b/.test(normalized)) {
+    return 'Checklist cannot be selected for a new tracker. To model the same idea, create one Yes/No measure per item when you need each item tracked separately, or one Quantity measure when only the total matters. The total approach won’t preserve which individual items were checked. Existing Checklist measures can stay on their current tracker for history.'
+  }
+  if (checklist && /\b(?:how|steps|add|create|instruction|what should|take care|configure|set up)\b/.test(normalized)) {
+    return 'You can’t add a Checklist measure to a new tracker. In the tracker form, add a Yes/No measure for each independently checked item, or a Quantity measure if you only need a total. Existing trackers can keep their legacy Checklist measures; their values are preserved for history.'
+  }
+  if (checklist && /\b(?:more|detail|details|explain|tell me)\b/.test(normalized)) {
+    return 'Checklist is a legacy format used by some existing trackers. A check-in records which checklist items are checked, and threshold or goal calculations use the checked-item count. New trackers cannot select Checklist; use separate Yes/No measures for individual items or Quantity for a count. An existing Checklist measure remains available on its tracker.'
+  }
+  if (checklist && /\b(?:help me|help)\b/.test(normalized.trim())) {
+    return 'I can help with Checklist measures. They can be used on existing trackers, but you can’t add one to a new tracker. Are you editing an existing tracker or creating a new one, and what happens when you try?'
+  }
+  if (checklist && /\b(?:add|create|new|available|can i|can we|supported)\b/.test(normalized)) {
+    return 'Checklist isn’t available for new measures. Existing trackers may still use it. For a new tracker, choose Yes/No for each item or Quantity for a total.'
+  }
+  if (checklist) {
+    return 'Checklist is a legacy measure type retained on existing trackers. Each check-in records checked items, and thresholds or goals use the number checked. New measures are Yes/No or Quantity, so Checklist cannot be selected when creating a measure.'
   }
   if (hasMeasure && /\bduration\b/.test(normalized)) {
     return 'Duration is a legacy numeric measure type retained by existing trackers, usually for elapsed time with a unit such as minutes. New measures use Yes/No or Quantity, and a saved measure type cannot be changed.'
@@ -132,7 +151,7 @@ export async function askAssistant(client: SupabaseClient | null, question: stri
     }) : []
     return { answer: data.answer, links, followUps }
   } catch (error) {
-    if (error instanceof HelpRequestError && ['application-rate-limit', 'provider-rate-limit', 'invalid-response'].includes(error.kind)) throw error
+    if (error instanceof HelpRequestError && ['application-rate-limit', 'provider-rate-limit', 'rate-limit-service', 'invalid-response'].includes(error.kind)) throw error
     const cached = getLocalHelpAnswer(question, history)
     if (cached) return { answer: cached }
     if (error instanceof HelpRequestError) throw error

@@ -64,7 +64,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
     return () => document.removeEventListener('pointerdown', closeOutside)
   }, [mobile, onClose, triggerRef])
   useEffect(() => { if (nearBottom) endRef.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' }) }, [messages, loading, nearBottom])
-  useEffect(() => { textareaRef.current?.focus() }, [])
+  useEffect(() => { if (!window.matchMedia?.('(max-width: 760px)').matches) textareaRef.current?.focus() }, [])
 
   function submit(event: FormEvent) { event.preventDefault(); if (draft.trim() && !loading) onSend(draft) }
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (draft.trim() && !loading) onSend(draft) } }
