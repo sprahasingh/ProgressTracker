@@ -4,6 +4,7 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
+import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { suggestionsByRoute, type ChatMessage, type FeedbackCategory, type HelpRoute } from './aiHelpService'
 
 type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; triggerRef: RefObject<HTMLButtonElement | null> }
@@ -111,6 +112,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
       <header className="ai-help-header">
         <span className="ai-help-mark"><AppIcon name="spark" /></span>
         <div className="ai-help-heading"><h2 id="ai-help-title">Ask ProgressTracker</h2><p id="ai-help-subtitle">Help with features and how things work</p></div>
+        <SendFeedbackAction variant="icon" className="ai-help-feedback-action" />
         {messages.length > 0 && <IconButton label="Start a new conversation" title="Start a new conversation" className="ai-help-new" onClick={onNewConversation}><AppIcon name="add" /></IconButton>}
         <IconButton label="Close AI Help Assistant" title="Close" className="ai-help-close" onClick={onClose}><AppIcon name="close" /></IconButton>
       </header>

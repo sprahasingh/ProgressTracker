@@ -35,6 +35,16 @@ describe('AI Help Assistant', () => {
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 
+  it('opens the shared general feedback dialog from the AI Help header', async () => {
+    mocks.status = 'signed-in'
+    const user = userEvent.setup()
+    renderAssistant()
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await user.click(await screen.findByRole('button', { name: 'Send general feedback' }))
+    expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Your message' })).toBeInTheDocument()
+  })
+
   it('supports Enter submission, Shift+Enter newlines, and prevents empty messages', async () => {
     mocks.invoke.mockResolvedValue({ data: { answer: 'Yes.' }, error: null })
     const user = userEvent.setup()

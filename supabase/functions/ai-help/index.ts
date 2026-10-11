@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle.ts'
-import { PUBLIC_SUPPORT_EMAIL } from './_generated/verifiedConfig.ts'
+import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
 import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle.ts'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
 import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore.ts'

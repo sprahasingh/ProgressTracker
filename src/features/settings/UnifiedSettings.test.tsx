@@ -28,6 +28,7 @@ describe('unified Settings authentication states', () => {
     expect(screen.queryByRole('heading', { name: 'Personal Information' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Account Actions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Delete Account' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send Feedback' })).toBeInTheDocument()
   })
 
   it('shows signed-in profile, allows name edits, and consolidates sync controls', async () => {
@@ -39,6 +40,7 @@ describe('unified Settings authentication states', () => {
     expect(screen.getByText('Cloud synchronization controls')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Account Actions' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete Account' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send Feedback' })).toBeInTheDocument()
     const sectionHeadings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
     expect(sectionHeadings.indexOf('Calendar & Time')).toBeLessThan(sectionHeadings.indexOf('Appearance'))
     expect(sectionHeadings.indexOf('Appearance')).toBeLessThan(sectionHeadings.indexOf('Notifications'))
@@ -49,6 +51,15 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Save name' }))
     expect(mocks.updateName).toHaveBeenCalledWith('Alex Rivera')
     expect(await screen.findByRole('status', { name: /Name updated/ })).toHaveTextContent('Your profile name was saved.')
+  })
+
+  it('opens the shared feedback dialog from Settings', async () => {
+    mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
+    const user = userEvent.setup()
+    render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
+    await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
+    expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
+    expect(screen.getByText('Reply address: person@example.com')).toBeInTheDocument()
   })
 
   it('validates email and reports the secure confirmation state', async () => {
