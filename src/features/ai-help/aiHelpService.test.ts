@@ -17,7 +17,8 @@ describe('AI Help knowledge helpers', () => {
   it('gives the real account deletion steps and correct support email offline', () => {
     const answer = getLocalHelpAnswer('Why can’t I delete my account and what is the process?')
     expect(answer).toContain('Settings → Account Actions → Delete Account')
-    expect(answer).toContain('Type DELETE')
+    expect(answer).toContain('exact word DELETE')
+    expect(answer).toContain('first set a password under Settings → Sync & Data')
     expect(answer).toContain('spraha.progresstracker@gmail.com')
     expect(answer).not.toContain('support@progresstracker.com')
   })

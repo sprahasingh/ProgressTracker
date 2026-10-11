@@ -242,17 +242,6 @@ describe('AuthProvider automatic sync lifecycle', () => {
     await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledWith('restored-account'))
   })
 
-  it('returns to Settings after a fresh deletion sign-in link opens at the app base URL', async () => {
-    const requestedAt = Math.floor(Date.now() / 1000) - 5
-    const payload = btoa(JSON.stringify({ amr: [{ method: 'otp', timestamp: Math.floor(Date.now() / 1000) }] })).replace(/=/g, '')
-    const accessToken = `header.${payload}.signature`
-    localStorage.setItem('progress-tracker:delete-account-reauth', String(requestedAt))
-    providerMocks.getSession.mockResolvedValue({ data: { session: { access_token: accessToken, user: { id: 'account-a' } } } })
-    render(<AuthProvider><Probe /></AuthProvider>)
-    emit('INITIAL_SESSION', 'account-a')
-    await waitFor(() => expect(window.location.hash).toBe('#/settings'))
-  })
-
   it('does not sync for guest or signed-out workspaces', async () => {
     render(<AuthProvider><Probe /></AuthProvider>)
     emit('INITIAL_SESSION')
