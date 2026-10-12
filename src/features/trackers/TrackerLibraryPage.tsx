@@ -15,6 +15,7 @@ import { isScheduledDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
@@ -31,6 +32,7 @@ export function TrackerLibraryPage() {
   const readGenerationRef = useRef(0)
   const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; checkedInToday: string[] } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [pendingBinTracker, setPendingBinTracker] = useState<StoredTrackerDefinition | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
@@ -94,7 +96,6 @@ export function TrackerLibraryPage() {
   }
 
   async function moveToBin(tracker: StoredTrackerDefinition) {
-    if (!window.confirm(`Move “${tracker.name}” to the Bin? You can restore it for 30 days, including its history and plan.`)) return
     try {
       await localRepository.deleteTracker(tracker.id)
       await refresh()
@@ -148,12 +149,13 @@ export function TrackerLibraryPage() {
               <div className="tracker-card-actions">
                 {tracker.status === 'active' && (isScheduledDate(tracker, today, timeZone) || tracker.strictMode) && <Link className="button button-primary button-small" to="/">{checkedInToday.has(tracker.id) ? "Edit today's check-in" : tracker.strictMode && !isScheduledDate(tracker, today, timeZone) ? 'Voluntary check-in' : 'Check in today'}</Link>}
                 <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit setup</Link>
-                <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => moveToBin(tracker)} />
+                <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => setPendingBinTracker(tracker)} />
               </div>
             </Surface>
           ))}
         </div>
       )}
+      {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to the Bin?`} description="You can restore this tracker for 30 days. Its saved check-ins, measure definitions, and plan will be kept." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}
     </section>
   )
 }
@@ -162,7 +164,7 @@ function TrackerActionsMenu({ tracker, onArchive, onRestore, onDelete }: {
   tracker: StoredTrackerDefinition
   onArchive: () => Promise<void>
   onRestore: () => Promise<void>
-  onDelete: () => Promise<void>
+  onDelete: () => void | Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -196,7 +198,7 @@ function TrackerActionsMenu({ tracker, onArchive, onRestore, onDelete }: {
     }
   }, [open])
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => void | Promise<void>) {
     setOpen(false)
     await action()
   }

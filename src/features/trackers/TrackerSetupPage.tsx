@@ -22,6 +22,7 @@ import type { CalendarDate } from '../../db/models'
 type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; startDate: string; deadline: string; strictMode: boolean }
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
+type HistoricalPeriodConfirmation = { count: number; dateRange: string; resolve: (keep: boolean) => void }
 const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
 const kindOptions: Array<{ kind: TrackerKind; title: string; description: string; icon: AppIconName }> = [
   { kind: 'habit', title: 'Habit', description: 'Build a regular routine.', icon: 'habit' },
@@ -124,6 +125,7 @@ export function TrackerSetupPage() {
   const [validationIssues, setValidationIssues] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [historicalPeriodConfirmation, setHistoricalPeriodConfirmation] = useState<HistoricalPeriodConfirmation | null>(null)
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null)
   const advancedSetupRef = useRef<HTMLDetailsElement>(null)
   const allowNavigationRef = useRef(false)
@@ -403,16 +405,15 @@ export function TrackerSetupPage() {
         }
         if (excludedEntries.length > 0) {
           const affectedDates = excludedEntries.map((entry) => entry.date).sort()
-          const affectedRange = affectedDates[0] === affectedDates.at(-1)
-            ? affectedDates[0]
-            : `${affectedDates[0]}–${affectedDates.at(-1)}`
-          const periodChange = parsed.data.startDate !== existing.startDate && parsed.data.deadline !== existing.deadline
-            ? `Changing the start date to ${parsed.data.startDate} and deadline to ${parsed.data.deadline || 'none'}`
-            : parsed.data.startDate !== existing.startDate
-              ? `Changing the start date to ${parsed.data.startDate}`
-              : `Changing the deadline to ${parsed.data.deadline || 'none'}`
-          const message = `Existing check-ins are outside the new tracker period. ${periodChange} affects ${excludedEntries.length} check-in${excludedEntries.length === 1 ? '' : 's'} from ${affectedRange}.\n\nChoose OK to keep these entries in History. They will not count toward current-period streaks, completion rates, or goal progress. Their dates and values will remain unchanged. Choose Cancel to leave the tracker unchanged.`
-          if (!window.confirm(message)) return
+          const firstAffectedDate = affectedDates[0] ?? 'unknown date'
+          const lastAffectedDate = affectedDates.at(-1) ?? firstAffectedDate
+          const affectedRange = firstAffectedDate === lastAffectedDate
+            ? firstAffectedDate
+            : `${firstAffectedDate}–${lastAffectedDate}`
+          const keepHistoricalEntries = await new Promise<boolean>((resolve) => {
+            setHistoricalPeriodConfirmation({ count: excludedEntries.length, dateRange: affectedRange, resolve })
+          })
+          if (!keepHistoricalEntries) return
         }
       }
     }
@@ -627,9 +628,10 @@ export function TrackerSetupPage() {
             <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
             <Button type="button" variant="quiet" data-discard-trigger onClick={() => { if (!dirty) navigate('/trackers'); else { setPendingNavigation(null); setConfirmDiscard(true) } }}>Cancel</Button>
           </footer>
-          {confirmDiscard && <div className="tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description"><h2 id="discard-title">Discard unsaved changes?</h2><p id="discard-description">Your tracker setup will be lost if you leave now.</p><div><Button type="button" variant="quiet" onClick={() => { setConfirmDiscard(false); setPendingNavigation(null) }}>Keep editing</Button><Button type="button" variant="destructive" onClick={discardAndLeave}>Discard changes</Button></div></section></div>}
         </form>
       </Surface>
+      {confirmDiscard && <div className="tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description"><h2 id="discard-title">Discard unsaved changes?</h2><p id="discard-description">Your tracker setup will be lost if you leave now.</p><div><Button type="button" variant="quiet" onClick={() => { setConfirmDiscard(false); setPendingNavigation(null) }}>Keep editing</Button><Button type="button" variant="destructive" onClick={discardAndLeave}>Discard changes</Button></div></section></div>}
+      {historicalPeriodConfirmation && <div className="tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="historical-period-title" aria-describedby="historical-period-description"><h2 id="historical-period-title">Keep historical check-ins?</h2><p id="historical-period-description">Changing the tracker period will place {historicalPeriodConfirmation.count} existing check-in{historicalPeriodConfirmation.count === 1 ? '' : 's'} outside the active tracking period ({historicalPeriodConfirmation.dateRange}). Their dates and values will remain in History, but they will not count toward current-period streaks, completion rates, or goal progress.</p><div><Button type="button" variant="quiet" onClick={() => { const resolve = historicalPeriodConfirmation.resolve; setHistoricalPeriodConfirmation(null); resolve(false) }}>Cancel changes</Button><Button type="button" onClick={() => { const resolve = historicalPeriodConfirmation.resolve; setHistoricalPeriodConfirmation(null); resolve(true) }}>Keep historical entries</Button></div></section></div>}
     </section>
   )
 }
