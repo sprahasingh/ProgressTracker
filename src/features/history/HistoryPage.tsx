@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -20,11 +20,15 @@ import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
+import { ClearCheckInAction } from '../shared/ClearCheckInAction'
+import { selectMissingCheckIns, type MissingCheckIn } from '../../domain/trackers/missingCheckIns'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
 export function HistoryPage() {
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const { timeZone } = useWorkspaceTimeZone()
@@ -38,6 +42,7 @@ export function HistoryPage() {
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [holidays, setHolidays] = useState<AccountHoliday[]>([])
+  const [missing, setMissing] = useState<MissingCheckIn[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const startDate = (range === 'custom' ? customStart : shiftCalendarDate(today, -(Number(range) - 1))) as CalendarDate
@@ -60,6 +65,12 @@ export function HistoryPage() {
     }
   }, [searchParams])
 
+  useEffect(() => {
+    if (location.hash !== '#missing-checkins') return
+    const frame = window.requestAnimationFrame(() => document.getElementById('missing-checkins')?.scrollIntoView({ block: 'start' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash])
+
   const refresh = useCallback(async () => {
     const request = ++rangeRequest.current
     if (!workspaceReady) return
@@ -73,22 +84,27 @@ export function HistoryPage() {
     setLoading(true)
     setError('')
     try {
-      const [allTrackers, recentEntries, recentHolidays] = await Promise.all([
+      const missingStart = shiftCalendarDate(today, -7) as CalendarDate
+      const missingEnd = shiftCalendarDate(today, -1) as CalendarDate
+      const [allTrackers, recentEntries, recentHolidays, missingEntries, missingHolidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(startDate, endDate),
         localRepository.listAccountHolidays(startDate, endDate),
+        localRepository.listTrackerEntriesBetween(missingStart, missingEnd),
+        localRepository.listAccountHolidays(missingStart, missingEnd),
       ])
       if (request !== rangeRequest.current) return
       setTrackers(allTrackers)
       setEntries(recentEntries)
       setHolidays(recentHolidays)
+      setMissing(selectMissingCheckIns({ trackers: allTrackers, entries: missingEntries, holidays: new Set(missingHolidays.map((holiday) => holiday.date)), dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, -7 + index) as CalendarDate), today, timeZone }))
     } catch {
       if (request !== rangeRequest.current) return
       setError('Your check-in history could not be loaded from this device.')
     } finally {
       if (request === rangeRequest.current) setLoading(false)
     }
-  }, [endDate, rangeIssue, startDate, workspaceReady])
+  }, [endDate, rangeIssue, startDate, workspaceReady, today, timeZone])
 
   useEffect(() => {
     if (workspaceReady) void refresh()
@@ -112,6 +128,11 @@ export function HistoryPage() {
     <section className="tracker-page history-page" aria-labelledby="history-title">
       <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update past check-ins without losing the original timeline." help={{ title: 'History', summary: 'Find, review, and correct saved check-ins.', description: 'Use the date range and tracker filters to narrow the timeline. Editing an entry changes that saved entry and may change calculated streaks or goal progress. Deleting a check-in removes that local entry and queues the change for account sync when available.' }} />
       <SectionTabs label="Insights sections" items={insightsSectionTabs} />
+      <section className="history-missing-section" id="missing-checkins" aria-labelledby="missing-checkins-title">
+        <div className="history-missing-heading"><div><h2 id="missing-checkins-title">Missing Check-Ins</h2><p>Review scheduled days that don’t have a saved check-in.</p></div><span className="history-missing-count" aria-label={`${missing.length} unresolved check-ins`}>{missing.length}</span></div>
+        {missing.length === 0 ? <p className="history-missing-empty">No missing check-ins in the previous seven completed days.</p> : groupMissingByDate(missing).map(([date, dayItems]) => <div className="history-missing-day" key={date}><h3>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3><ul>{dayItems.map(({ tracker }) => <li key={tracker.id}><span><strong>{tracker.name}</strong><small>Missing check-in</small></span><button type="button" className="button button-secondary button-small" onClick={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date } } })}>Review</button></li>)}</ul></div>)}
+        <p className="history-missing-note">Holidays apply to the whole workspace. <Link to="/calendar">View older dates in Calendar</Link></p>
+      </section>
       <div className="history-toolbar">
         <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select></label>
         {range === 'custom' && <>
@@ -130,7 +151,7 @@ export function HistoryPage() {
           if (!tracker) return null
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
           const qualifies = activityStatus !== 'historical' && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} onSaved={refresh} />
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holiday={holidays.some((holiday) => holiday.date === entry.date)} onSaved={refresh} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
@@ -144,7 +165,13 @@ function groupByDate(entries: StoredTrackerEntry[]): Array<[string, StoredTracke
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; onSaved: () => Promise<void> }) {
+function groupMissingByDate(items: MissingCheckIn[]): Array<[CalendarDate, MissingCheckIn[]]> {
+  const groups = new Map<CalendarDate, MissingCheckIn[]>()
+  for (const item of items) groups.set(item.date, [...(groups.get(item.date) ?? []), item])
+  return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
+}
+
+function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holiday, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; holiday: boolean; onSaved: () => Promise<void> }) {
   const { notify } = useToast()
   const [editing, setEditing] = useState(false)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
@@ -153,6 +180,7 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onSaved }: 
   const [entryOutcome, setEntryOutcome] = useState<StoredTrackerEntry['outcome']>(entry.outcome)
   const [saving, setSaving] = useState(false)
   const [issue, setIssue] = useState('')
+  const [clearing, setClearing] = useState(false)
   const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
     const next = { ...current }
     if (value === undefined) delete next[key]
@@ -190,6 +218,19 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onSaved }: 
       setSaving(false)
     }
   }
+  async function clearEntry(): Promise<boolean> {
+    setClearing(true)
+    try {
+      await localRepository.deleteTrackerEntry(tracker.id, entry.date as CalendarDate)
+      await onSaved()
+      setEditing(false)
+      notify({ kind: 'success', title: 'Check-in cleared', description: 'The saved entry was removed from active history on this device.', dedupeKey: `checkin:${tracker.id}:${entry.date}` })
+      return true
+    } catch {
+      notify({ kind: 'error', title: 'Couldn’t clear check-in', description: 'Your saved entry is unchanged. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${entry.date}` })
+      return false
+    } finally { setClearing(false) }
+  }
   const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · marked intentionally' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
   const statusClass = status === 'unscheduled' ? 'rest' : status
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span><h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
@@ -200,7 +241,7 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onSaved }: 
       {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={entry.date} today={entry.date} timeZone={timeZone} onInputValidityChange={setInputValidity} />}
       <label className="form-field form-field-wide"><span>Note <em>· optional</em></span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} /></label>
       {issue && <p className="today-validation" role="alert">{issue}</p>}
-      <div className="today-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void saveChanges()}>{saving ? 'Saving…' : 'Save changes'}</button><button className="button button-quiet button-medium" disabled={saving} onClick={() => { setEditing(false); setIssue('') }}>Cancel</button></div>
+      <div className="today-actions"><button className="button button-primary button-medium" disabled={saving || clearing} onClick={() => void saveChanges()}>{saving ? 'Saving…' : 'Save changes'}</button><button className="button button-quiet button-medium" disabled={saving || clearing} onClick={() => { setEditing(false); setIssue('') }}>Cancel</button><span className="history-clear-action"><ClearCheckInAction onClear={clearEntry} saving={saving || clearing} holiday={holiday} /></span></div>
     </div>}
     {!editing && <>
     {entry.outcome === 'recorded' && <dl className="history-values">{tracker.metrics.map((metric) => {

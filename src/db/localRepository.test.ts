@@ -199,4 +199,14 @@ describe('workspace mutation notifications', () => {
       unsubscribe()
     }
   })
+
+  it('revives a cleared date when the user records it again without creating a duplicate row', async () => {
+    await localRepository.saveTracker(tracker)
+    const first = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'first' })
+    await localRepository.deleteTrackerEntry(tracker.id, '2026-10-09')
+    await expect(localRepository.getTrackerEntry(tracker.id, '2026-10-09')).resolves.toBeUndefined()
+    const second = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'corrected' })
+    expect(second).toMatchObject({ id: first.id, deletedAt: null, note: 'corrected' })
+    await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, '2026-10-09']).count()).resolves.toBe(1)
+  })
 })

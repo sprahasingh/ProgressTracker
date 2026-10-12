@@ -25,6 +25,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
+import { ClearCheckInAction } from '../shared/ClearCheckInAction'
 import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
 import { mondayFirstWeekday } from '../../db/calendarDate'
@@ -408,7 +409,7 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
     if (!saved) return
     setSaving(false)
   }
-  async function clear() { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose() }
+  async function clear(): Promise<boolean> { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose(); return cleared }
 
   return createPortal(<div ref={backdropRef} className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
@@ -425,7 +426,7 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as missed (breaks streak)</button><small>This records an intentional missed commitment.</small></div>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
+      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as missed (breaks streak)</button><small>This records an intentional missed commitment.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
     </section>
   </div>, document.body)
 }
