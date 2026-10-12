@@ -11,6 +11,7 @@ import type { PermanentDeletionRequest, StoredTrackerDefinition } from '../../db
 import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
+import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 
 const recoveryMs = 30 * 24 * 60 * 60 * 1000
 const kindLabel = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
@@ -35,6 +36,7 @@ export function TrackerBinPage() {
   const [error, setError] = useState('')
   const [now, setNow] = useState(Date.now())
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [pendingPermanentDeletion, setPendingPermanentDeletion] = useState<StoredTrackerDefinition | null>(null)
   const trackers = snapshot?.key === workspaceKey ? snapshot.trackers : []
   const requests = snapshot?.key === workspaceKey ? snapshot.requests : []
   const loading = !ready || Boolean(workspaceKey && snapshot?.key !== workspaceKey)
@@ -72,8 +74,6 @@ export function TrackerBinPage() {
   }
 
   async function permanentlyDelete(tracker: StoredTrackerDefinition) {
-    const scope = owner ? 'from this account and every synchronized device' : 'from this guest workspace on this device'
-    if (!window.confirm(`Permanently delete “${tracker.name}” ${scope}? Its tracker, full progress history, and planning data will be erased and cannot be recovered.`)) return
     setBusyId(tracker.id); setError('')
     try {
       const result = await localRepository.requestPermanentDeletion(tracker.id)
@@ -103,10 +103,11 @@ export function TrackerBinPage() {
           {request && <p className="bin-pending" role="status">{request.status === 'pending' ? 'Permanent deletion pending server confirmation.' : request.lastError ?? 'Deletion needs attention.'}</p>}
           <div className="tracker-card-actions">
             <Button data-ai-capability="bin.restore" variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || Boolean(request && request.status === 'pending')} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
-            {isPermanentDeletionEnabled() && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="unknown" variant="destructive" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => void permanentlyDelete(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
+            {isPermanentDeletionEnabled() && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="unknown" variant="destructive" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => setPendingPermanentDeletion(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
           </div>
         </Surface>
       })}
     </div>}
+    {pendingPermanentDeletion && <ConfirmActionDialog title={`Delete “${pendingPermanentDeletion.name}” permanently?`} description="This permanently removes the tracker and all associated check-ins, measure progress, notes, and planning data. It cannot be restored. For a signed-in account, removal waits for server confirmation and applies across synchronized devices." actionLabel="Delete permanently" destructive onCancel={() => setPendingPermanentDeletion(null)} onConfirm={() => { const tracker = pendingPermanentDeletion; setPendingPermanentDeletion(null); void permanentlyDelete(tracker) }} />}
   </section>
 }

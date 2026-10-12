@@ -38,7 +38,6 @@ describe('Tracker Bin', () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     mocks.listDeletedTrackers.mockResolvedValueOnce([deletedTracker]).mockResolvedValue([])
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
@@ -46,7 +45,6 @@ describe('Tracker Bin', () => {
     expect(screen.getByRole('heading', { name: 'Read 12 books' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Restore' }))
     expect(mocks.restoreTracker).toHaveBeenCalledWith('trash-goal')
-    expect(confirm).not.toHaveBeenCalled()
   })
 
   it('requires an irreversible-delete confirmation and leaves an offline request pending', async () => {
@@ -54,15 +52,16 @@ describe('Tracker Bin', () => {
     mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
     mocks.requestPermanentDeletion.mockResolvedValue('queued')
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
     await user.click(await screen.findByRole('button', { name: 'Permanently delete' }))
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('cannot be recovered'))
+    expect(await screen.findByRole('alertdialog', { name: 'Delete “Read 12 books” permanently?' })).toHaveTextContent('cannot be restored')
     expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
 
-    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Permanently delete' }))
+    await user.click(await screen.findByRole('button', { name: 'Delete permanently' }))
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith('trash-goal')
     expect(await screen.findByText(/Permanent deletion requests will remain pending until the server confirms them/)).toBeInTheDocument()
   })

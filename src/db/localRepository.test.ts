@@ -23,6 +23,24 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('keeps archived history readable but prevents check-in edits until unarchived', async () => {
+    await activateWorkspace('archive-edit-owner')
+    const definition = { ...tracker, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }] }
+    await localRepository.saveTracker(definition)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-10', outcome: 'recorded', values: { done: true }, note: 'preserved' })
+
+    await localRepository.archiveTracker(definition.id)
+
+    await expect(localRepository.listTrackers(true)).resolves.toMatchObject([{ status: 'archived' }])
+    await expect(localRepository.getTrackerEntry(definition.id, '2026-10-10')).resolves.toMatchObject({ id: entry.id, values: { done: true }, note: 'preserved' })
+    await expect(localRepository.saveTrackerEntry({ trackerId: definition.id, date: entry.date, outcome: 'recorded', values: { done: false }, note: 'should not overwrite' })).rejects.toThrow(/not available for check-ins/)
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ values: { done: true }, note: 'preserved' })
+
+    await localRepository.unarchiveTracker(definition.id)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: entry.date, outcome: 'recorded', values: { done: false }, note: 'edited after restore' })
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ id: entry.id, values: { done: false }, note: 'edited after restore' })
+  })
+
   it('keeps retired measure definitions and old values while rejecting type changes to saved IDs', async () => {
     await activateWorkspace('retired-measure-owner')
     const original: StoredTrackerDefinition = { ...tracker, metrics: [

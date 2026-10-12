@@ -43,7 +43,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
     expect(screen.getByRole('link', { name: 'Check in today' })).toHaveAttribute('href', '/')
   })
 
-  it('keeps archive and delete in the overflow menu and preserves delete confirmation', async () => {
+  it('keeps archive and delete in the overflow menu and labels the Bin confirmation action', async () => {
     const tracker = {
       schemaVersion: 1 as const, id: 'menu-habit', name: 'Read daily', description: '', kind: 'habit' as const, status: 'active' as const, categoryId: null,
       tags: [], icon: '', accent: '', schedule: { kind: 'every-day' as const }, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
@@ -53,7 +53,6 @@ describe('TrackerLibraryPage initial cloud state', () => {
     libraryMocks.listTrackers.mockResolvedValue([tracker])
     libraryMocks.archiveTracker.mockResolvedValue(tracker)
     libraryMocks.deleteTracker.mockResolvedValue(tracker)
-    vi.stubGlobal('confirm', vi.fn(() => true))
     const user = userEvent.setup()
     render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
 
@@ -67,9 +66,10 @@ describe('TrackerLibraryPage initial cloud state', () => {
 
     await user.click(screen.getByRole('button', { name: 'More actions for Read daily' }))
     await user.click(screen.getByRole('menuitem', { name: 'Delete tracker' }))
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Move “Read daily” to the Bin?'))
+    expect(await screen.findByRole('alertdialog', { name: 'Move “Read daily” to the Bin?' })).toHaveTextContent('saved check-ins')
+    expect(libraryMocks.deleteTracker).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Move to Bin' }))
     expect(libraryMocks.deleteTracker).toHaveBeenCalledWith('menu-habit')
-    vi.unstubAllGlobals()
   })
 
   it('offers Restore for archived trackers and closes the menu with Escape', async () => {
