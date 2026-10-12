@@ -43,8 +43,12 @@ const dateText = (time: number): string => new Date(time).toISOString().slice(0,
 function metricHasQualifyingValue(metric: TrackerMetricDefinition, value: TrackerValue | undefined): boolean {
   if (value === undefined || value === null) return false
   if (metric.valueType === 'boolean') return value === true
-  if (metric.valueType === 'quantity' || metric.valueType === 'duration') return typeof value === 'number' && Number.isFinite(value) && value >= 0
-  return Array.isArray(value) || (typeof value === 'object' && value !== null)
+  if (metric.valueType === 'quantity' || metric.valueType === 'duration') return typeof value === 'number' && Number.isFinite(value) && value > 0
+  if (metric.valueType === 'checklist') {
+    if (Array.isArray(value)) return value.some((item) => item === true)
+    return typeof value === 'object' && value !== null && Object.values(value).some((item) => item === true)
+  }
+  return false
 }
 
 export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {

@@ -249,7 +249,7 @@ describe('Today check-ins', () => {
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
     expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
     expect(await screen.findByRole('status', { name: /Check-in updated/ })).toHaveTextContent('Your progress has been saved on this device.')
-    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-pending'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
   })
 
   it('blocks saving an unfinished numeric draft and leaves the stored check-in unchanged', async () => {
@@ -576,7 +576,7 @@ describe('Today check-ins', () => {
     expect(screen.getByText(/marked missed intentionally/)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Pages'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Pending' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Partially completed' })).toBeInTheDocument())
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 3 } })
   })
 

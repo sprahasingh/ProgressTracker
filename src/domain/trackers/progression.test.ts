@@ -96,8 +96,17 @@ describe('streak calculation', () => {
     expect(calculateStreak(strict, [entry('2026-01-09'), entry('2026-01-10')], '2026-01-15')).toMatchObject({ current: 2, longest: 2, scheduledCount: 2 })
   })
 
-  it('treats a recorded numeric zero as qualifying under an unthresholded any-recorded rule', () => {
+  it('does not count recorded numeric zero as streak progress under the default rule', () => {
     const zeroTracker = tracker({ qualificationRule: undefined, metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' }] })
+    expect(calculateStreak(zeroTracker, [entry('2026-01-01', { pages: 0 })], '2026-01-01').qualifyingCount).toBe(0)
+    expect(calculateStreak(zeroTracker, [entry('2026-01-01', { pages: 1 })], '2026-01-01').qualifyingCount).toBe(1)
+  })
+
+  it('keeps an explicitly defined zero threshold meaningful for streak qualification', () => {
+    const zeroTracker = tracker({
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'minimum' },
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', thresholds: { direction: 'decrease', minimum: 0, streakQualification: 'minimum' } }],
+    })
     expect(calculateStreak(zeroTracker, [entry('2026-01-01', { pages: 0 })], '2026-01-01').qualifyingCount).toBe(1)
   })
 

@@ -1396,6 +1396,8 @@ button:focus-visible, a:focus-visible { outline-color: var(--joy-coral); }
 .activity-calendar .calendar-cell-status.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .activity-calendar .calendar-cell-status.pending { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .activity-calendar .calendar-cell-status.unscheduled { background: var(--status-rest-surface); color: var(--status-rest-ink); }
+.activity-calendar .calendar-cell-status.no-progress, .activity-calendar .calendar-cell-status.historical,
+.calendar-status-mark.no-progress, .calendar-status-mark.historical { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .activity-calendar .calendar-cell-status .calendar-cell-mark { font-size: 10px; font-style: normal; font-weight: 800; }
 .calendar-day-selected .calendar-cell-status { border-color: currentColor; box-shadow: 0 0 0 1px currentColor; }
 .calendar-day-today .calendar-cell-status { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -1857,17 +1859,19 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .status-pending { --status-bg: var(--status-pending-surface); --status-stroke: var(--status-pending-border); --status-fg: var(--status-pending-ink); }
 .status-completed { --status-bg: var(--status-completed-surface); --status-stroke: var(--status-completed-border); --status-fg: var(--status-completed-ink); }
 .status-partial { --status-bg: var(--status-partial-surface); --status-stroke: var(--status-partial-border); --status-fg: var(--status-partial-ink); }
+.status-no-progress, .status-historical { --status-bg: var(--status-pending-surface); --status-stroke: var(--status-pending-border); --status-fg: var(--status-pending-ink); }
 .status-holiday { --status-bg: var(--status-holiday-surface); --status-stroke: var(--status-holiday-border); --status-fg: var(--status-holiday-ink); }
 .status-missed { --status-bg: var(--status-missed-surface); --status-stroke: var(--status-missed-border); --status-fg: var(--status-missed-ink); }
 .status-unscheduled, .status-rest { --status-bg: var(--status-rest-surface); --status-stroke: var(--status-rest-border); --status-fg: var(--status-rest-ink); }
 .status-neutral, .status-skipped { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-neutral-ink); }
 .today-checkin-card.status-card, .history-entry-card.status-card, .dashboard-tracker-card.status-card, .goal-card.status-card { background: var(--status-bg); border-color: var(--status-stroke); }
 .tracker-archived-chip { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
-.today-state, .history-outcome.status-completed, .history-outcome.status-partial, .history-outcome.status-pending, .history-outcome.status-missed, .history-outcome.status-holiday, .history-outcome.status-unscheduled {
+.today-state, .history-outcome.status-completed, .history-outcome.status-partial, .history-outcome.status-pending, .history-outcome.status-no-progress, .history-outcome.status-historical, .history-outcome.status-missed, .history-outcome.status-holiday, .history-outcome.status-unscheduled, .history-outcome.no-progress, .history-outcome.historical {
   display: inline-flex; align-items: center; gap: 5px; background: var(--status-bg); color: var(--status-fg); font-weight: 750;
 }
 .today-state.skipped, .history-outcome.skipped { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .today-state.pending svg { color: var(--status-pending); }
+.today-state.no-progress svg, .today-state.historical svg { color: var(--status-pending); }
 .today-state.completed svg { color: var(--status-completed); }
 .today-state.partial svg { color: var(--status-partial); }
 .today-state.missed svg { color: var(--status-missed); }
@@ -1875,9 +1879,10 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .today-state.unscheduled svg { color: var(--status-rest); }
 .today-state.skipped svg { color: var(--status-neutral); }
 .status-badge { background: var(--status-bg) !important; color: var(--status-fg) !important; }
-.calendar-dot.pending, .calendar-dot.completed, .calendar-dot.partial, .calendar-dot.missed, .calendar-dot.holiday, .calendar-dot.unscheduled {
+.calendar-dot.pending, .calendar-dot.completed, .calendar-dot.partial, .calendar-dot.no-progress, .calendar-dot.historical, .calendar-dot.missed, .calendar-dot.holiday, .calendar-dot.unscheduled {
   display: inline-grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: var(--status-bg); color: var(--status-fg); font-size: 11px; font-style: normal; font-weight: 800;
 }
+.calendar-dot.no-progress, .calendar-dot.historical { --status-bg: var(--status-pending-surface); --status-fg: var(--status-pending-ink); }
 .calendar-dot.pending { --status-bg: var(--status-pending-surface); --status-fg: var(--status-pending-ink); }
 .calendar-dot.completed { --status-bg: var(--status-completed-surface); --status-fg: var(--status-completed-ink); }
 .calendar-dot.partial { --status-bg: var(--status-partial-surface); --status-fg: var(--status-partial-ink); }
@@ -1893,6 +1898,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .calendar-status-mark.skipped, .activity-calendar .calendar-cell-status.skipped, .calendar-dot.skipped, .goal-plan-day.skipped { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .week-rhythm-day.complete { background: var(--status-completed-surface); color: var(--status-completed-ink); }
 .week-rhythm-day.partial { background: var(--status-partial-surface); color: var(--status-partial-ink); }
+.week-rhythm-day.no-progress { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .week-rhythm-day.missed { background: var(--status-missed-surface); color: var(--status-missed-ink); }
 .week-rhythm-day.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 .week-rhythm-day.rest { background: var(--status-rest-surface); color: var(--status-rest-ink); }
@@ -1903,6 +1909,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .week-rhythm-day.today .week-rhythm-mark { background: var(--status-pending-surface); color: var(--status-pending); }
 .week-rhythm-day.complete .week-rhythm-mark { background: var(--status-completed-surface); color: var(--status-completed); box-shadow: none; }
 .week-rhythm-day.partial .week-rhythm-mark { background: var(--status-partial-surface); color: var(--status-partial); box-shadow: none; }
+.week-rhythm-day.no-progress .week-rhythm-mark { background: var(--status-pending-surface); color: var(--status-pending); box-shadow: none; }
 .week-rhythm-day.missed .week-rhythm-mark { background: var(--status-missed-surface); color: var(--status-missed); }
 .week-rhythm-day.pending .week-rhythm-mark { background: var(--status-pending-surface); color: var(--status-pending); }
 .week-rhythm-day.holiday .week-rhythm-mark { background: var(--status-holiday-surface); color: var(--status-holiday); }
@@ -1916,6 +1923,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 
 /* Status text and symbols share the exact foreground token for each status. */
 .calendar-dot.pending svg, .calendar-cell-status.pending .calendar-cell-mark,
+.calendar-dot.no-progress svg, .calendar-dot.historical svg, .calendar-cell-status.no-progress .calendar-cell-mark, .calendar-cell-status.historical .calendar-cell-mark,
 .week-rhythm-day.pending .week-rhythm-mark { color: var(--status-pending); }
 .calendar-dot.completed svg, .calendar-cell-status.completed .calendar-cell-mark,
 .week-rhythm-day.complete .week-rhythm-mark { color: var(--status-completed); }
@@ -1947,6 +1955,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .history-outcome.pending { background: var(--status-pending-surface); color: var(--status-pending); }
 .history-outcome.completed { background: var(--status-completed-surface); color: var(--status-completed); }
 .history-outcome.partial { background: var(--status-partial-surface); color: var(--status-partial); }
+.history-outcome.no-progress, .history-outcome.historical { background: var(--status-pending-surface); color: var(--status-pending-ink); }
 .history-outcome.missed { background: var(--status-missed-surface); color: var(--status-missed); }
 .history-outcome.holiday { background: var(--status-holiday-surface); color: var(--status-holiday); }
 .history-outcome.rest { background: var(--status-rest-surface); color: var(--status-rest); }
@@ -1972,6 +1981,8 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .activity-calendar .calendar-cell-status.unscheduled, .week-rhythm-day.rest,
 .goal-plan-day.rest { border-color: var(--status-rest-border); }
 .calendar-status-mark.pending, .activity-calendar .calendar-cell-status.pending,
+.calendar-status-mark.no-progress, .activity-calendar .calendar-cell-status.no-progress,
+.calendar-status-mark.historical, .activity-calendar .calendar-cell-status.historical,
 .week-rhythm-day.pending, .goal-plan-day.pending, .goal-plan-day.future { border-color: var(--status-pending-border); }
 .calendar-status-mark, .calendar-dot, .status-mark { border: 1px solid transparent; }
 .activity-calendar .calendar-cell-status { border-color: var(--status-stroke, var(--line)); }

@@ -34,32 +34,54 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-12')).toBe('pending')
     expect(state('2026-10-09')).toBe('missed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true))).toBe('completed')
-    expect(state('2026-10-09', {}, entry('2026-10-09', false))).toBe('partial')
+    expect(state('2026-10-09', {}, entry('2026-10-09', false))).toBe('no-progress')
     expect(state('2026-10-10', {}, skipped('2026-10-10'))).toBe('missed')
     expect(state('2026-10-09', {}, skipped('2026-10-09'))).toBe('missed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true), ['2026-10-09'])).toBe('holiday')
-    expect(state('2026-10-10', {}, entry('2026-10-10', false))).toBe('pending')
+    expect(state('2026-10-10', {}, entry('2026-10-10', false))).toBe('no-progress')
   })
 
   it('keeps rest and inactive dates neutral while retaining saved historical outcomes', () => {
     expect(state('2026-10-10', { schedule: { kind: 'none' } })).toBe('unscheduled')
     expect(state('2026-10-09', { status: 'paused' })).toBe('unscheduled')
     expect(state('2026-10-09', { schedule: { kind: 'none' } }, skipped('2026-10-09'))).toBe('unscheduled')
+    expect(state('2026-10-09', { schedule: { kind: 'none' } }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', { status: 'archived' }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true, '2026-10-11T00:00:00Z'))).toBe('missed')
+  })
+
+  it('distinguishes positive partial progress from zero while honoring explicit success rules', () => {
+    const quantityTracker = {
+      ...baseTracker,
+      metrics: [{ id: 'sessions', name: 'Sessions', valueType: 'quantity' as const, thresholds: { direction: 'increase' as const, target: 3, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'sessions', level: 'target' as const },
+    }
+    const quantityEntry = (value: number): TrackerEntry => ({ ...entry('2026-10-09', true), values: { sessions: value } })
+    expect(state('2026-10-09', quantityTracker, quantityEntry(0))).toBe('no-progress')
+    expect(state('2026-10-09', quantityTracker, quantityEntry(2))).toBe('partial')
+    expect(state('2026-10-09', quantityTracker, quantityEntry(3))).toBe('completed')
+    const explicitZeroRule = { ...quantityTracker, qualificationRule: { kind: 'threshold' as const, metricId: 'sessions', level: 'minimum' as const }, metrics: [{ ...quantityTracker.metrics[0]!, thresholds: { direction: 'decrease' as const, minimum: 0, streakQualification: 'minimum' as const } }] }
+    expect(state('2026-10-09', explicitZeroRule, quantityEntry(0))).toBe('completed')
+  })
+
+  it('marks saved records outside the inclusive start/deadline window as historical', () => {
+    expect(state('2026-10-09', { startDate: '2026-10-10' }, entry('2026-10-09', true))).toBe('historical')
+    expect(state('2026-10-09', { startDate: '2026-10-08' }, entry('2026-10-09', true))).toBe('completed')
+    expect(state('2026-10-11', { deadline: '2026-10-10' }, entry('2026-10-11', true))).toBe('historical')
+    expect(state('2026-10-09', { startDate: '2026-10-10' })).toBe('unscheduled')
   })
 
   it('keeps future dates pending and elapsed dates missed across month and year boundaries', () => {
     expect(state('2026-12-31', {}, undefined, undefined, '2027-01-01')).toBe('missed')
     expect(state('2027-01-01', {}, undefined, undefined, '2026-12-31')).toBe('pending')
-    expect(state('2027-01-01', {}, entry('2027-01-01', false), undefined, '2026-12-31')).toBe('partial')
+    expect(state('2027-01-01', {}, entry('2027-01-01', false), undefined, '2026-12-31')).toBe('no-progress')
     expect(state('2027-01-01', {}, undefined, ['2027-01-01'], '2026-12-31')).toBe('holiday')
     expect(state('2027-01-01', { schedule: { kind: 'none' } }, undefined, undefined, '2026-12-31')).toBe('unscheduled')
   })
 
   it('centralizes the required semantic labels, icons, hues, and light/dark token values', () => {
     expect(Object.fromEntries(Object.entries(ACTIVITY_STATUS_PRESENTATION).map(([key, value]) => [key, value.label]))).toMatchObject({
-      pending: 'Pending', completed: 'Completed', partial: 'Partially completed', missed: 'Missed', holiday: 'Holiday', unscheduled: 'Rest day',
+      pending: 'Pending', completed: 'Completed', partial: 'Partially completed', 'no-progress': 'No progress', historical: 'Historical · outside tracker period', missed: 'Missed', holiday: 'Holiday', unscheduled: 'Rest day',
     })
     expect(ACTIVITY_STATUS_PRESENTATION.pending.colorToken).toBe('--status-pending')
     expect(ACTIVITY_STATUS_PRESENTATION.completed.colorToken).toBe('--status-completed')

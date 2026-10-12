@@ -11,7 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod } from '../../domain/trackers/planning'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -101,7 +101,11 @@ export function HistoryPage() {
   const grouped = rangeIssue ? [] : groupByDate(filtered)
   const qualifiedCount = filtered.filter((entry) => {
     const tracker = trackerMap.get(entry.trackerId)
-    return tracker && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
+    return tracker && isTrackerInActivePeriod(tracker, entry.date, timeZone) && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
+  }).length
+  const historicalCount = filtered.filter((entry) => {
+    const tracker = trackerMap.get(entry.trackerId)
+    return tracker && !isTrackerInActivePeriod(tracker, entry.date, timeZone)
   }).length
 
   return (
@@ -115,7 +119,7 @@ export function HistoryPage() {
           <label className="history-filter"><span>Through</span><input className="auth-input" type="date" max={today} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
         </>}
         <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
-        {!loading && <p className="history-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} check-ins · {qualifiedCount} met the success rule</p>}
+        {!loading && <p className="history-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} check-ins · {qualifiedCount} met the current success rule{historicalCount ? ` · ${historicalCount} outside the current tracker period` : ''}</p>}
       </div>
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}
       {error && <div role="alert" className="form-alert">{error}</div>}
@@ -124,8 +128,8 @@ export function HistoryPage() {
         {grouped.map(([date, dayEntries]) => <section className="history-day" key={date} aria-labelledby={`history-${date}`}><header className="history-day-heading"><h2 id={`history-${date}`}>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h2><span>{dayEntries.length} {dayEntries.length === 1 ? 'check-in' : 'check-ins'}</span></header><div className="history-entry-list">{dayEntries.map((entry) => {
           const tracker = trackerMap.get(entry.trackerId)
           if (!tracker) return null
-          const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
+          const qualifies = activityStatus !== 'historical' && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
           return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} onSaved={refresh} />
         })}</div></section>)}
       </div>}
