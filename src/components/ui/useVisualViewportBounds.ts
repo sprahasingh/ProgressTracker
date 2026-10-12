@@ -18,6 +18,7 @@ export function useVisualViewportBounds(open: boolean, elementRef: { current: HT
       element.style.width = `${width}px`
       element.style.height = `${height}px`
       element.style.setProperty('--modal-visible-height', `${height}px`)
+      element.style.setProperty('--modal-max-height', `${Math.floor(height * 0.85)}px`)
     }
     update()
     viewport?.addEventListener('resize', update)
@@ -32,6 +33,7 @@ export function useVisualViewportBounds(open: boolean, elementRef: { current: HT
       element.style.removeProperty('width')
       element.style.removeProperty('height')
       element.style.removeProperty('--modal-visible-height')
+      element.style.removeProperty('--modal-max-height')
     }
   }, [open, elementRef])
 }
