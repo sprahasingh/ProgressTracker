@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -42,5 +42,16 @@ describe('permanent deletion production gate', () => {
     expect(isPermanentDeletionEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     expect(isPermanentDeletionEnabled()).toBe(true)
+  })
+})
+
+describe('automatic Bin cleanup messaging gate', () => {
+  it('stays hidden unless the database schedule and cleanup control have been verified', () => {
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', '')
+    expect(isAutomaticBinCleanupEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'false')
+    expect(isAutomaticBinCleanupEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
+    expect(isAutomaticBinCleanupEnabled()).toBe(true)
   })
 })

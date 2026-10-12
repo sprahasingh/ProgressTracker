@@ -1,5 +1,5 @@
 begin;
-select plan(61);
+select plan(75);
 
 select ok(to_regclass('public.tracker_deletion_ledger') is not null, 'durable deletion ledger exists');
 select ok(to_regclass('public.tracker_deletion_cleanup_control') is not null, 'cleanup control exists');
@@ -19,11 +19,12 @@ select ok(not has_table_privilege('authenticated', 'public.tracker_entries', 'in
 select ok((select convalidated and pg_get_constraintdef(oid) like '%1, 2, 3%' from pg_constraint where conrelid='public.trackers'::regclass and conname='trackers_schema_version_check'), 'permanent deletion preserves tracker schema versions 1 through 3');
 select ok(case when to_regclass('cron.job') is null then true else
   (xpath('/table/row/safe/text()', query_to_xml(
-    $query$select count(*) = 1 and bool_and(schedule = '17 * * * *' and active
+    $query$select count(*) = 1 and bool_and(schedule = '0 3 * * *' and active
       and command like '%public.purge_expired_tracker_bin()%') as safe
       from cron.job where jobname = 'progress-tracker-bin-cleanup'$query$,
     true, false, '')))[1]::text = 'true'
-  end, 'cleanup scheduler is either absent or has exactly the expected inert job');
+  end, 'cleanup scheduler is either absent or has exactly one daily 03:00 UTC job');
+select ok(current_setting('cron.timezone', true) is null or upper(current_setting('cron.timezone', true)) in ('UTC', 'GMT', 'ETC/UTC'), 'pg_cron schedule uses UTC-equivalent time');
 select is((select enabled from public.tracker_deletion_cleanup_control where id), false, 'cleanup stays inert until operational verification');
 
 insert into auth.users (id, email) values
@@ -37,19 +38,30 @@ insert into public.trackers (id, user_id, kind, status, name, definition, delete
   ('00000000-0000-4000-8000-000000000663', '00000000-0000-4000-8000-000000000062', 'goal', 'active', 'Restore test',
    '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000663","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null),
   ('00000000-0000-4000-8000-000000000664', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Expired stale restore',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000664","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', now() - interval '31 days');
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000664","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', now() - interval '31 days'),
+  ('00000000-0000-4000-8000-000000000665', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Twenty-nine-day Bin item',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000665","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', now() - interval '29 days'),
+  ('00000000-0000-4000-8000-000000000666', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Thirty-day Bin item',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000666","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', clock_timestamp() - interval '30 days'),
+  ('00000000-0000-4000-8000-000000000667', '00000000-0000-4000-8000-000000000061', 'habit', 'active', 'Other owner expired item',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000667","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', now() - interval '31 days'),
+  ('00000000-0000-4000-8000-000000000668', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Active item',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000668","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null);
 insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values, note, deleted_at) values
   ('00000000-0000-4000-8000-000000000761', '00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000661', '2026-10-09', 'recorded', '{"pages":4}', 'retained until purge', null),
   ('00000000-0000-4000-8000-000000000762', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000662', '2026-10-09', 'recorded', '{"minutes":20}', 'expired content', null),
   ('00000000-0000-4000-8000-000000000763', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000663', '2026-10-09', 'recorded', '{"steps":3}', 'restore history', null),
-  ('00000000-0000-4000-8000-000000000764', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000664', '2026-10-09', 'recorded', '{"steps":8}', 'expired restore history', null);
+  ('00000000-0000-4000-8000-000000000764', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000664', '2026-10-09', 'recorded', '{"steps":8}', 'expired restore history', null),
+  ('00000000-0000-4000-8000-000000000765', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000662', '2026-10-10', 'recorded', '{"minutes":30}', 'cleanup history', null);
 insert into public.sync_operation_receipts(user_id, operation_id, entity, expected_revision, record_payload, result) values
   ('00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000861', 'tracker', 1,
    '{"id":"00000000-0000-4000-8000-000000000661","definition":{"name":"Bin test"}}', '{"status":"applied"}'),
   ('00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000862', 'tracker_entry', 1,
    '{"id":"00000000-0000-4000-8000-000000000761","tracker_id":"00000000-0000-4000-8000-000000000661","entry_values":{"pages":4}}', '{"status":"applied"}'),
   ('00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000863', 'tracker_entry', 1,
-   '{"id":"00000000-0000-4000-8000-000000000661","tracker_id":"00000000-0000-4000-8000-000000000663","entry_values":{"steps":1}}', '{"status":"unrelated"}');
+   '{"id":"00000000-0000-4000-8000-000000000661","tracker_id":"00000000-0000-4000-8000-000000000663","entry_values":{"steps":1}}', '{"status":"unrelated"}'),
+  ('00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000864', 'tracker_entry', 1,
+   '{"id":"00000000-0000-4000-8000-000000000765","tracker_id":"00000000-0000-4000-8000-000000000662","entry_values":{"minutes":30}}', '{"status":"applied"}');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000062';
@@ -117,16 +129,52 @@ select is((select count(*) from public.tracker_entries where tracker_id = '00000
 select ok(pg_get_functiondef('public.apply_tracker_sync_operation(uuid,uuid,text,bigint,jsonb)'::regprocedure) like '%pg_advisory_xact_lock%', 'sync writes serialize by account and tracker');
 select ok(pg_get_functiondef('public.permanently_delete_tracker(uuid,uuid,uuid,bigint)'::regprocedure) like '%pg_advisory_xact_lock%', 'manual deletion serializes with sync writes');
 select ok(pg_get_functiondef('public.purge_expired_tracker_bin()'::regprocedure) like '%pg_advisory_xact_lock%', 'scheduled cleanup serializes with sync writes');
+select ok(pg_get_functiondef('public.purge_expired_tracker_bin()'::regprocedure) like '%deleted_at <= clock_timestamp() - interval ''30 days''%', 'cleanup uses an inclusive full 30-day server-time boundary');
 
 reset role;
+delete from public.tracker_deletion_cleanup_control where id;
+select is(public.purge_expired_tracker_bin(), 0, 'missing cleanup control row leaves the cleanup disabled');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000662'), 1::bigint, 'missing control row retains expired tracker content');
+insert into public.tracker_deletion_cleanup_control(id, enabled) values (true, false) on conflict (id) do update set enabled = false;
 select is(public.purge_expired_tracker_bin(), 0, 'scheduled cleanup is inert before verification');
 select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000662'), 1::bigint, 'expired content is retained while cleanup switch is off');
 update public.tracker_deletion_cleanup_control set enabled = true, updated_at = clock_timestamp() where id;
-select is(public.purge_expired_tracker_bin(), 1, 'cleanup purges an expired Bin item');
+select is(public.purge_expired_tracker_bin(), 3, 'cleanup purges only Bin items at least 30 days old across owners');
 select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000662'), 0::bigint, 'expired tracker row is purged');
 select is((select count(*) from public.tracker_entries where tracker_id = '00000000-0000-4000-8000-000000000662'), 0::bigint, 'expired tracker history is purged');
 select is((select count(*) from public.tracker_deletion_ledger where user_id = '00000000-0000-4000-8000-000000000062' and tracker_id = '00000000-0000-4000-8000-000000000662'), 1::bigint, 'scheduled cleanup retains the permanent ledger row');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000665'), 1::bigint, 'tracker deleted 29 days ago is retained');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000666'), 0::bigint, 'tracker at the 30-day boundary is eligible');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000668' and deleted_at is null), 1::bigint, 'active tracker is retained');
+select is((select count(*) from public.tracker_deletion_ledger where user_id = '00000000-0000-4000-8000-000000000061' and tracker_id = '00000000-0000-4000-8000-000000000667'), 1::bigint, 'other owner deletion is recorded only under that owner');
+select is((select count(*) from public.sync_operation_receipts where user_id = '00000000-0000-4000-8000-000000000062' and operation_id = '00000000-0000-4000-8000-000000000864'), 0::bigint, 'cleanup removes sync receipts containing expired tracker history');
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000062';
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000968','tracker',null,
+  '{"id":"00000000-0000-4000-8000-000000000662","schema_version":1,"kind":"habit","status":"active","name":"Stale resurrection","deleted_at":null,"definition":{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000662","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}}')->>'status'), 'permanently_deleted'::text, 'stale sync cannot recreate a tracker purged by scheduled cleanup');
 select is(public.purge_expired_tracker_bin(), 0, 'repeated scheduled cleanup is idempotent');
+insert into public.trackers (id, user_id, kind, status, name, definition, deleted_at) values
+  ('00000000-0000-4000-8000-000000000669', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Rollback test item',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000669","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', now() - interval '31 days');
+insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values, note, deleted_at) values
+  ('00000000-0000-4000-8000-000000000769', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000669', '2026-10-10', 'recorded', '{"minutes":5}', 'rollback history', null);
+create function public.tracker_bin_test_reject_delete() returns trigger
+language plpgsql
+as $$
+begin
+  if old.id = '00000000-0000-4000-8000-000000000669'::uuid then
+    raise exception 'injected cleanup failure' using errcode = 'P0001';
+  end if;
+  return old;
+end;
+$$;
+create trigger tracker_bin_test_reject_delete before delete on public.trackers
+for each row execute function public.tracker_bin_test_reject_delete();
+select throws_ok($$select public.purge_expired_tracker_bin()$$, 'P0001', 'injected cleanup failure', 'failed finalization aborts the cleanup transaction');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000669'), 1::bigint, 'failed cleanup retains the tracker row');
+select is((select count(*) from public.tracker_entries where tracker_id = '00000000-0000-4000-8000-000000000669'), 1::bigint, 'failed cleanup rolls back child-history deletion');
+select is((select count(*) from public.tracker_deletion_ledger where tracker_id = '00000000-0000-4000-8000-000000000669'), 0::bigint, 'failed cleanup rolls back its tentative ledger insert');
+drop trigger tracker_bin_test_reject_delete on public.trackers;
+drop function public.tracker_bin_test_reject_delete();
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000062';
 select is((public.permanently_delete_tracker('00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000966','00000000-0000-4000-8000-000000000663',1)->>'status'), 'conflict'::text, 'stale revision cannot permanently delete a restored tracker');

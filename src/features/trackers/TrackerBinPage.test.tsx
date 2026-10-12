@@ -45,6 +45,20 @@ describe('Tracker Bin', () => {
     expect(screen.queryByRole('button', { name: 'Permanently delete' })).not.toBeInTheDocument()
   })
 
+  it('only claims automatic deletion when the dedicated verified-cleanup build flag is enabled', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'false')
+    mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([])
+    const { unmount } = render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+    expect(await screen.findByText(/Trackers are not automatically removed after 30 days/)).toBeInTheDocument()
+    unmount()
+
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
+    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+    expect(await screen.findByText('Trackers in the Bin are permanently deleted after 30 days. You can restore or permanently delete them sooner.')).toBeInTheDocument()
+  })
+
   it('shows the recovery countdown and confirms before restoring a goal', async () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     mocks.listDeletedTrackers.mockResolvedValueOnce([deletedTracker]).mockResolvedValue([])
