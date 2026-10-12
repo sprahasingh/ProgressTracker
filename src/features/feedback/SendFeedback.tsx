@@ -16,7 +16,7 @@ const categoryLabels: Record<GeneralFeedbackCategory, string> = {
 
 function createRequestId() { return crypto.randomUUID() }
 
-function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: boolean; onClose: () => void; signedIn: boolean; accountEmail?: string | null }) {
+function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: { open: boolean; onClose: () => void; signedIn: boolean; accountEmail?: string | null; source: 'settings' | 'ai_help_support' | 'other' }) {
   const [category, setCategory] = useState<GeneralFeedbackCategory>('general_feedback')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,6 +25,8 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: b
   const [outcomeUncertain, setOutcomeUncertain] = useState(false)
   const [accepted, setAccepted] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [emailStatus, setEmailStatus] = useState<'accepted' | 'pending' | 'failed' | 'uncertain' | 'not_required'>('pending')
+  const [feedbackId, setFeedbackId] = useState('')
   const dialogRef = useRef<HTMLElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const busyRef = useRef(false)
@@ -45,6 +47,8 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: b
       setOutcomeUncertain(false)
       setAccepted(false)
       setCopied(false)
+      setEmailStatus('pending')
+      setFeedbackId('')
       busyRef.current = false
       requestRef.current = null
     }
@@ -66,7 +70,9 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: b
     const requestId = prior && prior.category === category && prior.message === cleanMessage ? prior.requestId : createRequestId()
     requestRef.current = { requestId, category, message: cleanMessage }
     try {
-      await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId })
+      const result = await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId, source })
+      setEmailStatus(result.deliveryStatus)
+      setFeedbackId(result.feedbackId ?? '')
       setAccepted(true)
       setMessage('')
       requestRef.current = null
@@ -97,7 +103,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: b
     <section ref={dialogRef} className="send-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="send-feedback-title" aria-describedby="send-feedback-dialog-description" tabIndex={-1}>
       <p className="sr-only" id="send-feedback-dialog-description">Send a bug report, feature request, general feedback, or support question.</p>
       <header className="send-feedback-heading"><div><span className="send-feedback-eyebrow">PROGRESS TRACKER</span><h2 id="send-feedback-title">Send Feedback</h2></div><IconButton label="Close feedback" title="Close" onClick={onClose} disabled={busy}><AppIcon name="close" /></IconButton></header>
-      {accepted ? <><div className="send-feedback-content send-feedback-scroll"><p className="send-feedback-success" role="status"><AppIcon name="check" />Feedback sent. Thank you for helping improve ProgressTracker!</p><p>The email provider accepted your message for sending. Delivery to the support inbox may take a little time.</p></div><footer className="send-feedback-actions"><button type="button" className="button button-primary button-medium" onClick={onClose}>Done</button></footer></> : <>
+      {accepted ? <><div className="send-feedback-content send-feedback-scroll"><p className="send-feedback-success" role="status"><AppIcon name="check" />Feedback saved. Thank you for helping improve ProgressTracker!</p><p>{emailStatus === 'accepted' ? 'The email provider accepted a notification for sending. Delivery to the support inbox may take a little time.' : emailStatus === 'uncertain' ? 'The feedback is saved, but notification delivery could not be confirmed. It will not be retried automatically to avoid a duplicate.' : emailStatus === 'failed' ? 'The feedback is saved, but the support email notification could not be sent. You can still contact support directly.' : emailStatus === 'pending' ? 'The feedback is saved. Its support email notification is pending.' : 'The feedback is saved.'}</p>{feedbackId && <small>Reference: {feedbackId}</small>}<p>Find support conversations later in Settings → My Support Queries.</p></div><footer className="send-feedback-actions"><button type="button" className="button button-primary button-medium" onClick={onClose}>Done</button></footer></> : <>
         <form id="general-feedback-form" className="send-feedback-content send-feedback-scroll" onSubmit={(event) => void submit(event)}>
         <label className="form-field" htmlFor="general-feedback-category"><span>Feedback type</span><select id="general-feedback-category" className="auth-input" value={category} onChange={(event) => setCategory(event.target.value as GeneralFeedbackCategory)} disabled={busy}><option value="bug_report">Bug report</option><option value="feature_request">Feature request</option><option value="general_feedback">General feedback</option><option value="help_support">Help / Support</option></select></label>
         <label className="form-field" htmlFor="general-feedback-message"><span>Your message</span><textarea id="general-feedback-message" className="auth-input send-feedback-textarea" value={message} onChange={(event) => setMessage(event.target.value.slice(0, 2000))} maxLength={2000} rows={6} placeholder="Tell us what's happening or what you'd like improved..." disabled={busy} required aria-describedby="send-feedback-privacy send-feedback-count" /></label>
@@ -118,7 +124,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail }: { open: b
   </div>, document.body)
 }
 
-export function SendFeedbackAction({ variant = 'button', className = '' }: { variant?: 'button' | 'icon'; className?: string }) {
+export function SendFeedbackAction({ variant = 'button', className = '', source = 'settings' }: { variant?: 'button' | 'icon'; className?: string; source?: 'settings' | 'ai_help_support' | 'other' }) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -155,6 +161,6 @@ export function SendFeedbackAction({ variant = 'button', className = '' }: { var
   return <>
     {variant === 'icon' ? <IconButton className={className} label="Send general feedback" title="Send Feedback" onClick={() => setOpen(true)}><AppIcon name="mail" /></IconButton>
       : <button type="button" className={className || 'button button-secondary button-medium'} onClick={() => setOpen(true)}><AppIcon name="mail" />Send Feedback</button>}
-    <SendFeedbackDialog open={open} onClose={close} signedIn={signedIn} accountEmail={accountEmail} />
+    <SendFeedbackDialog open={open} onClose={close} signedIn={signedIn} accountEmail={accountEmail} source={source} />
   </>
 }

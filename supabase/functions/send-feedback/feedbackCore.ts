@@ -8,7 +8,7 @@ export const feedbackCategoryLabels: Record<FeedbackCategory, string> = {
   help_support: 'Help / Support',
 }
 
-export type FeedbackSubmission = { category: FeedbackCategory; message: string; requestId: string }
+export type FeedbackSubmission = { category: FeedbackCategory; message: string; requestId: string; source?: string; subject?: string; feedbackId?: string; submittedAt?: string }
 export type FeedbackIdentity = { userId: string; email: string | null }
 
 const emailPattern = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/
@@ -18,12 +18,14 @@ const credentialPattern = /(?:password|passcode)\s+(?:is\s+)?[:=]?\s*\S+|(?:acce
 export function validateFeedbackSubmission(value: unknown): FeedbackSubmission | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
-  if (Object.keys(input).some((key) => !['category', 'message', 'request_id'].includes(key))) return null
+  if (Object.keys(input).some((key) => !['category', 'message', 'request_id', 'source', 'subject'].includes(key))) return null
   if (typeof input.category !== 'string' || !feedbackCategories.includes(input.category as FeedbackCategory)) return null
   if (typeof input.message !== 'string' || input.message.trim().length < 1 || input.message.trim().length > 2000) return null
+  if (input.source !== undefined && !['settings','ai_help_support','other'].includes(String(input.source))) return null
+  if (input.subject !== undefined && (typeof input.subject !== 'string' || input.subject.trim().length < 1 || input.subject.trim().length > 160)) return null
   if (credentialPattern.test(input.message)) return null
   if (typeof input.request_id !== 'string' || !uuidPattern.test(input.request_id)) return null
-  return { category: input.category as FeedbackCategory, message: input.message.trim(), requestId: input.request_id }
+  return { category: input.category as FeedbackCategory, message: input.message.trim(), requestId: input.request_id, source: typeof input.source === 'string' ? input.source : undefined, subject: typeof input.subject === 'string' ? input.subject.trim() : undefined }
 }
 
 export function validReplyAddress(value: string | null | undefined): string | null {
@@ -45,14 +47,17 @@ export function buildFeedbackEmail(input: FeedbackSubmission, identity: Feedback
     subject: `[ProgressTracker Feedback] ${category}`,
     text: [
       `Feedback type: ${category}`,
+      ...(input.feedbackId ? [`Feedback ID: ${input.feedbackId}`] : []),
+      ...(input.subject ? [`Subject: ${input.subject}`] : []),
+      ...(input.source ? [`Source: ${input.source}`] : []),
       `Reply email: ${replyEmail ?? 'Not available'}`,
-      `Submitted: ${timestamp}`,
+      `Submitted: ${input.submittedAt ?? timestamp}`,
       `App version: ${appVersion}`,
       '',
       'Message:',
       message,
     ].join('\n'),
-    html: `<h2>ProgressTracker feedback: ${category}</h2><p><strong>Reply email:</strong> ${escapedReplyEmail}</p><p><strong>Submitted:</strong> ${timestamp}</p><p><strong>App version:</strong> ${escapeEmailHtml(appVersion)}</p><hr><p><strong>Message:</strong></p><pre style="white-space:pre-wrap;font:inherit">${escapedMessage}</pre>`,
+    html: `<h2>ProgressTracker feedback: ${category}</h2>${input.feedbackId ? `<p><strong>Feedback ID:</strong> ${escapeEmailHtml(input.feedbackId)}</p>` : ''}${input.subject ? `<p><strong>Subject:</strong> ${escapeEmailHtml(input.subject)}</p>` : ''}${input.source ? `<p><strong>Source:</strong> ${escapeEmailHtml(input.source)}</p>` : ''}<p><strong>Reply email:</strong> ${escapedReplyEmail}</p><p><strong>Submitted:</strong> ${escapeEmailHtml(input.submittedAt ?? timestamp)}</p><p><strong>App version:</strong> ${escapeEmailHtml(appVersion)}</p><hr><p><strong>Message:</strong></p><pre style="white-space:pre-wrap;font:inherit">${escapedMessage}</pre>`,
     replyTo: replyEmail,
   }
 }

@@ -1,22 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type GeneralFeedbackCategory = 'bug_report' | 'feature_request' | 'general_feedback' | 'help_support'
-export type GeneralFeedbackInput = { category: GeneralFeedbackCategory; message: string; requestId: string }
+export type GeneralFeedbackInput = { category: GeneralFeedbackCategory; message: string; requestId: string; source?: 'settings' | 'ai_help_support' | 'other'; subject?: string }
+export type GeneralFeedbackResult = { feedbackId?: string; deliveryStatus: 'accepted' | 'pending' | 'failed' | 'uncertain' | 'not_required' }
 
 export class FeedbackSubmissionError extends Error {
   constructor(message: string, readonly status = 0, readonly retryAfterSeconds?: number, readonly uncertain = false, readonly retryable = true) { super(message) }
 }
 
-export async function submitGeneralFeedback(client: SupabaseClient | null, input: GeneralFeedbackInput): Promise<void> {
+export async function submitGeneralFeedback(client: SupabaseClient | null, input: GeneralFeedbackInput): Promise<GeneralFeedbackResult> {
   if (!client) throw new FeedbackSubmissionError('Sign in to send feedback. You can email support directly below.', 401)
   const { data, error: sessionError } = await client.auth.getSession()
   const token = data.session?.access_token
   if (sessionError || !token) throw new FeedbackSubmissionError('Sign in again to send feedback. You can email support directly below.', 401)
-  const { data: result, error } = await client.functions.invoke<{ accepted?: boolean; error?: string; retryAfterSeconds?: number; uncertain?: boolean; retryable?: boolean }>('send-feedback', {
-    body: { category: input.category, message: input.message, request_id: input.requestId },
+  const { data: result, error } = await client.functions.invoke<{ accepted?: boolean; error?: string; retryAfterSeconds?: number; uncertain?: boolean; retryable?: boolean; feedbackId?: string; deliveryStatus?: GeneralFeedbackResult['deliveryStatus'] }>('send-feedback', {
+    body: { category: input.category, message: input.message, request_id: input.requestId, source: input.source ?? 'settings', ...(input.subject ? { subject: input.subject } : {}) },
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!error && result?.accepted === true) return
+  if (!error && result?.accepted === true) return { feedbackId: result.feedbackId, deliveryStatus: result.deliveryStatus ?? 'pending' }
   let message = result?.error ?? ''
   let status = 0
   let retryAfterSeconds: number | undefined

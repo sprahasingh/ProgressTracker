@@ -124,7 +124,7 @@ describe('AI Help Assistant', () => {
     await user.clear(support)
     await user.type(support, 'My corrected support description.')
     await user.click(screen.getByRole('button', { name: 'Send Query' }))
-    expect(await screen.findByText('Support query accepted.')).toBeInTheDocument()
+    expect(await screen.findByText('Support query saved.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledWith('send-feedback', expect.objectContaining({
       body: expect.objectContaining({ category: 'help_support', message: 'My corrected support description.' }),
       headers: { Authorization: 'Bearer test-token' },

@@ -6,10 +6,10 @@ import { hasModalLayerAbove, useModalLayer } from '../../components/ui/useModalL
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
-import { FeedbackSubmissionError } from '../feedback/feedbackService'
+import { FeedbackSubmissionError, type GeneralFeedbackResult } from '../feedback/feedbackService'
 import { suggestionsByRoute, type ChatMessage, type FeedbackCategory, type HelpRoute } from './aiHelpService'
 
-type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string) => Promise<void>; triggerRef: RefObject<HTMLButtonElement | null> }
+type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string) => Promise<GeneralFeedbackResult>; triggerRef: RefObject<HTMLButtonElement | null> }
 const internalLinks = new Map([['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History']])
 
 function renderInline(text: string) {
@@ -81,6 +81,8 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
   const [supportBusy, setSupportBusy] = useState(false)
   const [supportError, setSupportError] = useState('')
   const [supportAccepted, setSupportAccepted] = useState(false)
+  const [supportEmailStatus, setSupportEmailStatus] = useState<GeneralFeedbackResult['deliveryStatus']>('pending')
+  const [supportFeedbackId, setSupportFeedbackId] = useState('')
   const requestIdRef = useRef<{ content: string; id: string } | null>(null)
   const latestAssistantId = [...messages].reverse().find((item) => item.role === 'assistant' && item.status !== 'error')?.id
   useModalLayer(mobile, panelRef, onClose)
@@ -131,7 +133,9 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
     const requestId = requestIdRef.current?.content === message ? requestIdRef.current.id : crypto.randomUUID()
     requestIdRef.current = { content: message, id: requestId }
     try {
-      await onSupportSubmit(message, requestId)
+      const result = await onSupportSubmit(message, requestId)
+      setSupportEmailStatus(result.deliveryStatus)
+      setSupportFeedbackId(result.feedbackId ?? '')
       setSupportAccepted(true)
       setSupportError('')
     } catch (error) {
@@ -146,7 +150,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
       <header className="ai-help-header">
         <span className="ai-help-mark"><AppIcon name="spark" /></span>
         <div className="ai-help-heading"><h2 id="ai-help-title">Ask ProgressTracker</h2><p id="ai-help-subtitle">Help with features and how things work</p></div>
-        <SendFeedbackAction variant="icon" className="ai-help-feedback-action" />
+        <SendFeedbackAction variant="icon" className="ai-help-feedback-action" source="ai_help_support" />
         {messages.length > 0 && <IconButton label="Start a new conversation" title="Start a new conversation" className="ai-help-new" onClick={onNewConversation}><AppIcon name="add" /></IconButton>}
         <IconButton label="Close AI Help Assistant" title="Close" className="ai-help-close" onClick={onClose}><AppIcon name="close" /></IconButton>
       </header>
@@ -163,7 +167,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
       {showJump && <button className="ai-help-jump" type="button" onClick={() => { endRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' }); onScrollPositionChange(true); setShowJump(false) }}>Jump to latest</button>}
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{liveText}</div>
       {supportOpen ? <form className="ai-help-support-form" onSubmit={(event) => void submitSupport(event)}>
-        {supportAccepted ? <div className="ai-help-support-success" role="status"><strong>Support query accepted.</strong><span>The email provider accepted it for sending to {SUPPORT_EMAIL}. Inbox delivery may take a little time.</span><button type="button" className="button button-secondary button-small" onClick={() => { onSupportOpen(false); setSupportAccepted(false); setSupportDetails(''); setSupportError(''); requestIdRef.current = null }}>Return to conversation</button></div> : <>
+        {supportAccepted ? <div className="ai-help-support-success" role="status"><strong>Support query saved.</strong><span>{supportEmailStatus === 'accepted' ? `The email provider accepted a notification for ${SUPPORT_EMAIL}; inbox delivery may take a little time.` : supportEmailStatus === 'uncertain' ? 'The query is saved, but email notification delivery could not be confirmed and will not be retried automatically.' : supportEmailStatus === 'failed' ? 'The query is saved, but its support email notification could not be sent.' : 'The query is saved and its support email notification is pending.'}</span>{supportFeedbackId && <small>Reference: {supportFeedbackId}</small>}<button type="button" className="button button-secondary button-small" onClick={() => { onSupportOpen(false); setSupportAccepted(false); setSupportDetails(''); setSupportError(''); requestIdRef.current = null }}>Return to conversation</button></div> : <>
           <label htmlFor="ai-help-support-message">Support query <small>Review and edit before sending.</small></label>
           <textarea id="ai-help-support-message" value={supportDraft} maxLength={1800} rows={3} onChange={(event) => { onSupportDraftChange(event.target.value.slice(0, 1800)); requestIdRef.current = null; setSupportError('') }} disabled={supportBusy} required />
           <label htmlFor="ai-help-support-details">Additional details <small>Optional. Don’t include passwords, sign-in links, or private tracker data.</small></label>

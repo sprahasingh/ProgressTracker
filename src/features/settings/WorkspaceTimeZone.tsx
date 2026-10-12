@@ -13,6 +13,7 @@ import { WorkspaceLoadingState } from '../../components/ui/WorkspaceLoadingState
 import { NotificationsSettings } from '../notifications/NotificationsSettings'
 import { getAuthRedirectUrl } from '../auth/authRedirect'
 import { SendFeedbackAction } from '../feedback/SendFeedback'
+import { MySupportQueries } from '../feedback/MySupportQueries'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -178,7 +179,8 @@ export function SettingsPage() {
     <NotificationsSettings />
     <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
     <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
-    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></section>
+    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>In-app feedback is saved to your support history and sent to ProgressTracker support. Email Support below is an external email option and is not tracked here.</p><SendFeedbackAction /></section>
+    <MySupportQueries />
   </section>
 
   return <section className="tracker-page settings-page" aria-labelledby="settings-title">

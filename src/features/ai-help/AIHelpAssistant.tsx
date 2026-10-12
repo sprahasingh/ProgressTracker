@@ -113,7 +113,7 @@ export function AIHelpAssistant() {
   }, [isOnline, loading, route, session.messages, status])
 
   const submitSupport = useCallback(async (message: string, requestId: string) => {
-    await submitGeneralFeedback(getSupabaseClient(), { category: 'help_support', message, requestId })
+    await submitGeneralFeedback(getSupabaseClient(), { category: 'help_support', message, requestId, source: 'ai_help_support' })
   }, [])
 
   const retry = useCallback((messageId: string) => {

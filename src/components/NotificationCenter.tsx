@@ -48,8 +48,11 @@ export function NotificationCenter({ ownerUserId, ready }: { ownerUserId: string
     }
     refresh()
     window.addEventListener('app-notifications-changed', refresh)
-    return () => { current = false; window.removeEventListener('app-notifications-changed', refresh) }
-  }, [ownerUserId, ready])
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { current = false; window.removeEventListener('app-notifications-changed', refresh); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', onVisible) }
+  }, [ownerUserId, ready, open])
   const unread = items.filter((item) => !item.readAt).length
   async function markAll() {
     await localRepository.markAllAppNotificationsRead()
