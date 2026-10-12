@@ -44,12 +44,12 @@ describe('Calendar page', () => {
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
     const legend = screen.getByLabelText('Activity status legend')
     expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      'Pending', 'Completed', 'Partially completed', 'No progress', 'Historical · outside tracker period', 'Missed', 'Holiday', 'Rest day',
+      'Pending', 'Completed', 'Partially completed', 'No progress', 'Historical · outside tracker period', 'Missed', 'Skipped', 'Holiday', 'Rest day',
     ])
     expect(legend.querySelector('.calendar-dot.holiday [data-icon="status-holiday"]')).toBeInTheDocument()
     expect(legend.querySelector('.calendar-dot.unscheduled [data-icon="status-unscheduled"]')).toBeInTheDocument()
     expect(Array.from(legend.querySelectorAll('.calendar-dot svg')).map((icon) => icon.getAttribute('data-icon'))).toEqual([
-      'status-pending', 'status-completed', 'status-partial', 'status-no-progress', 'status-historical', 'status-missed', 'status-holiday', 'status-unscheduled',
+      'status-pending', 'status-completed', 'status-partial', 'status-no-progress', 'status-historical', 'status-missed', 'status-skipped', 'status-holiday', 'status-unscheduled',
     ])
     expect(legend.querySelector('.calendar-dot.partial path[fill="currentColor"]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
@@ -86,7 +86,7 @@ describe('Calendar page', () => {
 
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
-    expect(screen.getByText(/Holiday · scheduled expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
+    expect(screen.getByText(/Holiday · Standard Mode expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
     expect(screen.getByText(/Holiday · Progress recorded: Done/)).toBeInTheDocument()
   })
 
@@ -98,6 +98,26 @@ describe('Calendar page', () => {
 
     expect(await screen.findByText('Pending')).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
+  })
+
+  it('shows Strict Mode misses on holidays and labels an intentional skip separately', async () => {
+    const oldTracker = { ...tracker, createdAt: '2026-01-01T00:00:00.000Z', startDate: '2026-01-01' }
+    mocks.listTrackers.mockResolvedValue([{ ...oldTracker, strictMode: true, schedule: { kind: 'none' } }])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([{ id: 'past-holiday', date: previousDate, reason: 'personal', createdAt: '', updatedAt: '', deletedAt: null }])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${previousDate}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/1 Strict Mode check-in is missed/)).toBeInTheDocument()
+    expect(screen.getAllByText('Missed').length).toBeGreaterThan(0)
+    expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
+
+    cleanup()
+    const standardTracker = { ...oldTracker, strictMode: false }
+    mocks.listTrackers.mockResolvedValue([standardTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([{ ...entry, date: previousDate, outcome: 'skipped', values: {} }])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const skippedCalendar = render(<MemoryRouter initialEntries={[`/calendar?date=${previousDate}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/Skipped · marked intentionally/)).toBeInTheDocument()
+    expect(skippedCalendar.container.querySelector('.calendar-cell-status.skipped')).toBeInTheDocument()
   })
 
   it('does not count retained entries whose tracker is hidden in the Bin', async () => {

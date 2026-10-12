@@ -36,6 +36,15 @@ describe('streak calculation', () => {
     expect(calculateStreak(tracker(), [entry('2026-01-01'), entry('2026-01-02'), skipped], '2026-01-03')).toMatchObject({ current: 0, longest: 2, missedCount: 1 })
   })
 
+  it('derives an elapsed missing opportunity while keeping the current date open, then recalculates a backdated correction', () => {
+    const successful = ['2026-10-08', '2026-10-09', '2026-10-10'].map((date) => entry(date))
+    const overdue = calculateStreak(tracker({ startDate: '2026-10-08' }), successful, '2026-10-12')
+    expect(overdue).toMatchObject({ current: 0, longest: 3, scheduledCount: 5, missedCount: 1 })
+
+    const corrected = calculateStreak(tracker({ startDate: '2026-10-08' }), [...successful, entry('2026-10-11')], '2026-10-12')
+    expect(corrected).toMatchObject({ current: 4, longest: 4, scheduledCount: 5, missedCount: 0 })
+  })
+
   it('uses configured streak thresholds, multi-metric qualification, and ignores tombstones', () => {
     const targetThreshold = tracker({ qualificationRule: undefined, metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', thresholds: { direction: 'increase', minimum: 2, target: 5, streakQualification: 'target' } }] })
     expect(calculateStreak(targetThreshold, [entry('2026-01-01', { pages: 3 })], '2026-01-01').qualifyingCount).toBe(0)

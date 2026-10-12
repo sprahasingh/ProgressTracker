@@ -62,7 +62,9 @@ export function calculateTrackerAnalytics(
   const trackerEntries = allEntries.filter((entry) => isTrackerInActivePeriod(tracker, entry.date, timeZone))
   const historicalCount = allEntries.length - trackerEntries.length
   const recorded = trackerEntries.filter((entry) => entry.outcome === 'recorded')
-  const qualifiedEntries = recorded.filter((entry) => !holidays.has(entry.date) && evaluateTrackerEntry(tracker, entry).qualified)
+  // This metric describes saved recorded outcomes; holiday exclusions apply to
+  // opportunity consistency, not to whether a saved value met its rule.
+  const qualifiedEntries = recorded.filter((entry) => evaluateTrackerEntry(tracker, entry).qualified)
   const activeSchedule = tracker.status === 'active' && tracker.deletedAt === null
   let scheduledCount = 0
   let scheduledQualifiedCount = 0

@@ -11,7 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
+import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { calculateProgressRewards, calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -176,12 +176,11 @@ export function DashboardPage() {
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
                 const currentEntry = history.find((entry) => entry.date === today)
                 const calculatedStatus = getTrackerActivityStatus({ tracker, entry: currentEntry, date: today, today, holidays: new Set(data.holidays), timeZone })
-                const inActivePeriod = isTrackerInActivePeriod(tracker, today, timeZone)
-                const status = tracker.strictMode && inActivePeriod && calculatedStatus === 'unscheduled'
-                  ? currentEntry?.outcome === 'skipped' ? 'missed' : 'pending'
-                  : calculatedStatus
+                const status = calculatedStatus
                 const statusClass = status
-                const currentStatusLabel = today < trackerActiveStartDate(tracker, timeZone) ? 'Not started' : tracker.deadline && today > tracker.deadline ? 'Tracking period ended' : status === 'holiday' && tracker.strictMode ? 'Holiday · check-in still required' : ACTIVITY_STATUS_PRESENTATION[status].label
+                const strictHoliday = tracker.strictMode && status === 'pending' && data.holidays.includes(today)
+                const strictRestDay = tracker.strictMode && status === 'pending' && !isTrackerScheduledOccurrence(tracker, today, timeZone)
+                const currentStatusLabel = today < trackerActiveStartDate(tracker, timeZone) ? 'Not started' : tracker.deadline && today > tracker.deadline ? 'Tracking period ended' : strictHoliday ? 'Holiday · check-in still required' : strictRestDay ? 'Rest day · check-in still required' : ACTIVITY_STATUS_PRESENTATION[status].label
                 return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}>
                   <div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ' · Standard'}</span></div>
                   <h3>{tracker.name}</h3>

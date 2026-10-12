@@ -65,12 +65,12 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
     const quiet = isWithinQuietHours(now, timeZone, prefs.quiet_start?.slice(0, 5), prefs.quiet_end?.slice(0, 5))
     const dueDaily = prefs.daily_enabled && !quiet ? dueLocalSlot(now, timeZone, (prefs.daily_times ?? []).map((time: string) => time.slice(0, 5))) : null
     if (dueDaily) {
-      const candidate = buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date: today, kind: 'pending', includePartial: prefs.remind_partial, slot: dueDaily })
+      const candidate = buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date: today, today, timeZone, kind: 'pending', includePartial: prefs.remind_partial, slot: dueDaily })
       if (candidate) candidates.push(candidate)
     }
     const dueOverdue = prefs.overdue_enabled && (!quiet || prefs.allow_overdue_during_quiet) ? dueLocalSlot(now, timeZone, (prefs.overdue_times ?? []).map((time: string) => time.slice(0, 5))) : null
     if (dueOverdue) {
-      const candidate = buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date: yesterday, kind: 'overdue', slot: dueOverdue })
+      const candidate = buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date: yesterday, today, timeZone, kind: 'overdue', slot: dueOverdue })
       if (candidate) candidates.push(candidate)
     }
     const motivationSlot = prefs.motivation_mode !== 'off' && !quiet ? dueLocalSlot(now, timeZone, (prefs.motivation_times ?? []).map((time: string) => time.slice(0, 5))) : null
@@ -102,9 +102,9 @@ export function ForegroundReminderMonitor({ enabled }: { enabled: boolean }) {
       const kind = match[1] as 'pending' | 'overdue'
       const date = match[2] as typeof today
       const candidate = kind === 'pending' && prefs.daily_enabled
-        ? buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date, kind, includePartial: prefs.remind_partial, slot: match[3]! })
+        ? buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date, today, timeZone, kind, includePartial: prefs.remind_partial, slot: match[3]! })
         : kind === 'overdue' && prefs.overdue_enabled
-          ? buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date, kind, slot: match[3]! }) : null
+          ? buildReminderCandidate({ trackers: eligibleTrackers, entries, holidays: holidaySet, date, today, timeZone, kind, slot: match[3]! }) : null
       if (candidate) stillRelevant.add(row.identity)
     }
     const dates = [today, yesterday]

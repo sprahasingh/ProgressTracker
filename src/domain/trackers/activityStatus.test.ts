@@ -35,8 +35,8 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09')).toBe('missed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', {}, entry('2026-10-09', false))).toBe('no-progress')
-    expect(state('2026-10-10', {}, skipped('2026-10-10'))).toBe('missed')
-    expect(state('2026-10-09', {}, skipped('2026-10-09'))).toBe('missed')
+    expect(state('2026-10-10', {}, skipped('2026-10-10'))).toBe('skipped')
+    expect(state('2026-10-09', {}, skipped('2026-10-09'))).toBe('skipped')
     expect(state('2026-10-09', {}, entry('2026-10-09', true), ['2026-10-09'])).toBe('holiday')
     expect(state('2026-10-10', {}, entry('2026-10-10', false))).toBe('no-progress')
   })
@@ -48,6 +48,16 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09', { schedule: { kind: 'none' } }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', { status: 'archived' }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true, '2026-10-11T00:00:00Z'))).toBe('missed')
+  })
+
+  it('requires Strict Mode holidays and rest days while Standard Mode holidays and rest days stay neutral', () => {
+    const strict = { strictMode: true }
+    expect(state('2026-10-09', {}, undefined, ['2026-10-09'])).toBe('holiday')
+    expect(state('2026-10-09', strict, undefined, ['2026-10-09'])).toBe('missed')
+    expect(state('2026-10-10', strict, undefined, ['2026-10-10'])).toBe('pending')
+    expect(state('2026-10-09', { ...strict, schedule: { kind: 'none' } })).toBe('missed')
+    expect(state('2026-10-10', { ...strict, schedule: { kind: 'none' } })).toBe('pending')
+    expect(state('2026-10-09', { schedule: { kind: 'none' } })).toBe('unscheduled')
   })
 
   it('distinguishes positive partial progress from zero while honoring explicit success rules', () => {
@@ -81,7 +91,7 @@ describe('shared activity status rules', () => {
 
   it('centralizes the required semantic labels, icons, hues, and light/dark token values', () => {
     expect(Object.fromEntries(Object.entries(ACTIVITY_STATUS_PRESENTATION).map(([key, value]) => [key, value.label]))).toMatchObject({
-      pending: 'Pending', completed: 'Completed', partial: 'Partially completed', 'no-progress': 'No progress', historical: 'Historical · outside tracker period', missed: 'Missed', holiday: 'Holiday', unscheduled: 'Rest day',
+      pending: 'Pending', completed: 'Completed', partial: 'Partially completed', 'no-progress': 'No progress', historical: 'Historical · outside tracker period', missed: 'Missed', skipped: 'Skipped', holiday: 'Holiday', unscheduled: 'Rest day',
     })
     expect(ACTIVITY_STATUS_PRESENTATION.pending.colorToken).toBe('--status-pending')
     expect(ACTIVITY_STATUS_PRESENTATION.completed.colorToken).toBe('--status-completed')
