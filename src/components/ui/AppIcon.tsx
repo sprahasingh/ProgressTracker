@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-upcoming' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-outside-period' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled' | 'status-inactive' | 'status-no-trackers'
+export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'privacy' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-upcoming' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-outside-period' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled' | 'status-inactive' | 'status-no-trackers'
 
 const paths: Record<AppIconName, ReactNode> = {
   today: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14l2.2 2.2L16 11" /></>,
@@ -9,6 +9,7 @@ const paths: Record<AppIconName, ReactNode> = {
   insights: <><path d="M4 19.5h16M6.5 16V11M11.5 16V5M16.5 16V8" /><path d="m5.5 8 5-3 5 3 4-3" /></>,
   holiday: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.7 4.7l1.4 1.4m11.8 11.8 1.4 1.4M2.5 12h2m15 0h2M4.7 19.3l1.4-1.4M17.9 6.1l1.4-1.4" /></>,
   settings: <><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="m19.4 13.5 1.1.9-1.5 2.6-1.4-.5a7.8 7.8 0 0 1-1.5.9l-.3 1.5h-3l-.3-1.5a7.8 7.8 0 0 1-1.5-.9l-1.4.5-1.5-2.6 1.1-.9a7 7 0 0 1 0-1.8l-1.1-.9 1.5-2.6 1.4.5a7.8 7.8 0 0 1 1.5-.9l.3-1.5h3l.3 1.5a7.8 7.8 0 0 1 1.5.9l1.4-.5 1.5 2.6-1.1.9a7 7 0 0 1 0 1.8Z" transform="translate(-1 -1)" /></>,
+  privacy: <><path d="M12 3 19 6v5c0 4.7-2.8 8-7 10-4.2-2-7-5.3-7-10V6l7-3Z" /><path d="m9 12 2 2 4-4" /></>,
   bin: <><path d="M4 7h16M9 7V4.5h6V7m-8 0 1 13h8l1-13M10 11v5m4-5v5" /></>,
   more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   account: <><circle cx="12" cy="8" r="3.5" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,

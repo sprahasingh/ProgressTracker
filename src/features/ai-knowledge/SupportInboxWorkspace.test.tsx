@@ -8,9 +8,9 @@ vi.mock('../feedback/supportApi', () => ({
   getSupportInboxThread: vi.fn(), listSupportInbox: vi.fn(), replyAsMaintainer: vi.fn(), setSupportThreadStatus: vi.fn(),
 }))
 
-const thread = { id: 'thread-1', user_id: 'user-1', category: 'support_query' as const, source: 'settings', subject: 'Tracker issue', original_message: 'It did not save.', status: 'open' as const, metadata: {}, email_status: 'accepted', maintainer_seen_at: null, maintainer_seen_by: null, created_at: '2026-10-12T00:00:00Z', last_activity_at: '2026-10-12T00:00:00Z', updated_at: '2026-10-12T00:00:00Z', user_email: 'person@example.com' }
+const thread = { id: 'thread-1', category: 'support_query' as const, source: 'settings', subject: 'Tracker issue', original_message: 'It did not save.', status: 'open' as const, metadata: {}, email_status: 'accepted', maintainer_seen_at: null, identity: null, created_at: '2026-10-12T00:00:00Z', last_activity_at: '2026-10-12T00:00:00Z', updated_at: '2026-10-12T00:00:00Z' }
 const list = { threads: [thread], total: 1, has_more: false, metrics: { total: 1, open: 1, waiting: 0, resolved: 0, incorrect_ai: 0, unread: 1 } }
-const detail = { thread, user_email: 'person@example.com', messages: [] }
+const detail = { thread, messages: [] }
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
@@ -21,9 +21,19 @@ describe('SupportInboxWorkspace', () => {
     const user = userEvent.setup()
     render(<SupportInboxWorkspace />)
     await user.click(await screen.findByText('Tracker issue'))
-    expect(await screen.findByText('person@example.com')).toBeInTheDocument()
+    expect(await screen.findByText('Anonymous')).toBeInTheDocument()
     expect(screen.getByText('It did not save.')).toBeInTheDocument()
     expect(screen.getByText('Unread')).toBeInTheDocument()
+  })
+
+  it('shows permitted account identity for an opted-in support request', async () => {
+    const identified = { ...thread, identity: { display_name: 'Ada Example', email: 'ada@example.com' } }
+    vi.mocked(listSupportInbox).mockResolvedValue({ ...list, threads: [identified] })
+    vi.mocked(getSupportInboxThread).mockResolvedValue({ thread: identified, messages: [] })
+    const user = userEvent.setup()
+    render(<SupportInboxWorkspace />)
+    await user.click(await screen.findByText('Tracker issue'))
+    expect(await screen.findByText('Ada Example · ada@example.com')).toBeInTheDocument()
   })
 
   it('switches from the mobile list to a long-subject detail and returns to the list', async () => {

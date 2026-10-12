@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { checkMaintainerAccess, invalidateVerifiedTopic, listAnswerFeedback, listKnowledge, reviewAnswerFeedback, ReviewApiError } from './aiKnowledgeApi'
+import { buildAnswerFeedbackListPayload, buildMaintainerAnswerFeedback } from '../../../supabase/functions/ai-help-review/feedbackResponse.ts'
 
 function clientFor({ token = 'session-token', result = { data: { authorized: true }, error: null } }: { token?: string; result?: { data: unknown; error: unknown } } = {}) {
   const invoke = vi.fn().mockResolvedValue(result)
@@ -65,6 +66,53 @@ describe('AI Knowledge review API client', () => {
     await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, code: 'incompatible_response', message: expect.stringContaining('incompatible answer feedback list') })
   })
 
+  it('accepts the current Edge Function envelope and keeps anonymous feedback identity-free', async () => {
+    const sourceRow = {
+      id: 'feedback-1', user_id: 'private-user-id', response_id: 'private-response-id', category: 'outdated',
+      explanation: 'This answer is outdated.', topic: 'settings', knowledge_version: 'bundle-v1', status: 'pending',
+      created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: false,
+      reviewer_id: 'private-reviewer-id', share_email: true,
+    }
+    const anonymousDto = buildMaintainerAnswerFeedback({
+      row: sourceRow,
+      identity: { display_name: 'Private Name', email: 'private@example.com' },
+      currentPreference: false,
+    })
+    const edgePayload = buildAnswerFeedbackListPayload({
+      knowledgeVersion: 'bundle-current', feedback: [anonymousDto],
+      pendingCount: 1, reviewedCount: 2, resolvedCount: 3, limit: 100, offset: 0,
+    })
+    const { client } = clientFor({ result: { data: edgePayload, error: null } })
+
+    const result = await listAnswerFeedback({ status: 'pending', category: 'outdated', limit: 100, offset: 0 }, client)
+
+    expect(result).toMatchObject({
+      current_knowledge_version: 'bundle-current',
+      counts: { pending: 1, reviewed: 2, resolved: 3 },
+      page: { limit: 100, offset: 0, has_more: false },
+    })
+    expect(result.feedback).toEqual([expect.objectContaining({ identity: null })])
+    expect(result.feedback[0]).not.toHaveProperty('user_id')
+    expect(result.feedback[0]).not.toHaveProperty('reviewer_id')
+    expect(result.feedback[0]).not.toHaveProperty('share_identity')
+    expect(result.feedback[0]).not.toHaveProperty('share_email')
+    expect(result.feedback[0]).not.toHaveProperty('response_id')
+    expect(JSON.stringify(result)).not.toContain('private@example.com')
+    expect(JSON.stringify(result)).not.toContain('private-response-id')
+  })
+
+  it('rejects the legacy knowledge_version envelope and recommends the missing Edge Function update', async () => {
+    const { client } = clientFor({ result: { data: {
+      knowledge_version: 'bundle-v1', feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 },
+      page: { limit: 100, offset: 0, has_more: false },
+    }, error: null } })
+    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({
+      status: 502,
+      code: 'incompatible_response',
+      message: 'The review service returned an incompatible answer feedback list. Deploy the latest ai-help-review function, then retry.',
+    })
+  })
+
   it('identifies an outdated Edge Function action and records only non-sensitive diagnostics', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const response = new Response(JSON.stringify({ error: 'Unsupported review action.', code: 'unsupported_action', secret: 'must not be logged' }), { status: 400 })
@@ -79,9 +127,16 @@ describe('AI Knowledge review API client', () => {
   })
 
   it('distinguishes a review service connection failure from an empty successful result', async () => {
-    const transport = Object.assign(new Error('network failed'), { name: 'FunctionsFetchError' })
-    const { client } = clientFor({ result: { data: null, error: { context: transport } } })
-    await expect(checkMaintainerAccess(client)).rejects.toMatchObject({ status: 0, message: expect.stringContaining('Could not connect') })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // This is the shape returned by supabase-js: the wrapper carries the
+    // FunctionsFetchError name, while the low-level TypeError is its context.
+    const transport = Object.assign(new Error('Failed to send a request to the Edge Function'), {
+      name: 'FunctionsFetchError', context: new TypeError('network details must not reach the UI or logs'),
+    })
+    const { client } = clientFor({ result: { data: null, error: transport } })
+    await expect(listKnowledge({ status: 'pending' }, client)).rejects.toMatchObject({ status: 0, code: 'network_error', message: expect.stringContaining('Could not connect') })
+    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({ status: 0, code: 'network_error', message: expect.stringContaining('Could not connect') })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('network details must not reach the UI or logs')
   })
 
   it('submits stale knowledge invalidation with its optimistic review timestamp and reason', async () => {

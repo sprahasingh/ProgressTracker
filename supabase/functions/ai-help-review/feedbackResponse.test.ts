@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAnswerFeedbackListPayload } from './feedbackResponse'
+import { buildAnswerFeedbackListPayload, buildMaintainerAnswerFeedback } from './feedbackResponse'
 
 describe('AI Help answer feedback response', () => {
   it('returns a versioned empty list with valid counts and paging metadata', () => {
@@ -17,5 +17,47 @@ describe('AI Help answer feedback response', () => {
     expect(buildAnswerFeedbackListPayload({
       knowledgeVersion: 'bundle-v2', feedback, pendingCount: 2, reviewedCount: 0, resolvedCount: 0, limit: 2, offset: 4,
     })).toMatchObject({ feedback, page: { limit: 2, offset: 4, has_more: true } })
+  })
+
+  it('strips account and response identifiers from anonymous maintainer DTOs', () => {
+    const row = {
+      id: 'feedback-1', user_id: 'account-secret', response_id: 'response-secret', category: 'outdated',
+      explanation: 'The instructions have changed.', topic: 'settings', knowledge_version: 'bundle-1',
+      status: 'pending', created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: false,
+      reviewer_id: 'maintainer-secret', share_email: true,
+    }
+    const dto = buildMaintainerAnswerFeedback({ row, identity: { display_name: 'Should be ignored', email: 'private@example.com' } })
+    expect(dto).toEqual({
+      id: 'feedback-1', category: 'outdated', explanation: 'The instructions have changed.', topic: 'settings',
+      knowledge_version: 'bundle-1', status: 'pending', created_at: row.created_at, reviewed_at: null, identity: null,
+    })
+    expect(dto).not.toHaveProperty('user_id')
+    expect(dto).not.toHaveProperty('response_id')
+    expect(dto).not.toHaveProperty('reviewer_id')
+  })
+
+  it('returns only consented profile fields for opted-in reports', () => {
+    const row = {
+      id: 'feedback-1', user_id: 'account-secret', response_id: 'response-1', category: 'outdated',
+      explanation: null, topic: 'settings', knowledge_version: 'bundle-1', status: 'pending',
+      created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: true,
+    }
+    expect(buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: { display_name: 'Ada User', email: 'ada@example.com' } })).toMatchObject({
+      identity: { display_name: 'Ada User', email: 'ada@example.com' }, response_id: 'response-1',
+    })
+    expect(buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: null }).identity).toEqual({ display_name: null, email: null })
+  })
+
+  it('withdraws disclosure when the current account preference is off or missing', () => {
+    const row = {
+      id: 'feedback-1', user_id: 'account-secret', response_id: 'response-secret', category: 'outdated',
+      explanation: null, topic: 'settings', knowledge_version: 'bundle-1', status: 'pending',
+      created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: true,
+    }
+    for (const currentPreference of [false, undefined]) {
+      const dto = buildMaintainerAnswerFeedback({ row, identity: { display_name: 'Ada', email: 'ada@example.com' }, currentPreference: currentPreference === true })
+      expect(dto.identity).toBeNull()
+      expect(dto).not.toHaveProperty('response_id')
+    }
   })
 })

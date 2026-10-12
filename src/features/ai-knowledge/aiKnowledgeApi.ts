@@ -47,8 +47,9 @@ export type ReviewCounts = { pending: number; approved: number; stale: number; r
 export type AnswerFeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
 export type AnswerFeedbackStatus = 'pending' | 'reviewed' | 'resolved'
 export type AnswerFeedback = {
-  id: string; user_id: string; response_id: string; category: AnswerFeedbackCategory; explanation: string | null
-  topic: string; knowledge_version: string; status: AnswerFeedbackStatus; created_at: string; reviewed_at: string | null; reviewer_id: string | null
+  id: string; response_id?: string; category: AnswerFeedbackCategory; explanation: string | null
+  topic: string; knowledge_version: string; status: AnswerFeedbackStatus; created_at: string; reviewed_at: string | null
+  identity: { display_name: string | null; email: string | null } | null
 }
 export type ReviewList = {
   knowledge_version: string
@@ -117,9 +118,12 @@ async function invokeReview<T>(action: Record<string, unknown>, suppliedClient?:
       if (typeof payload.code === 'string') code = payload.code
     } catch { /* Use a stable user-facing fallback for empty gateway responses. */ }
   }
-  const errorName = context instanceof Error ? context.name : error instanceof Error ? error.name : ''
+  // Supabase wraps fetch failures in FunctionsFetchError, with the underlying
+  // TypeError in `context`. Prefer the wrapper name so transport failures do
+  // not fall through to the generic request error.
+  const errorName = error instanceof Error ? error.name : context instanceof Error ? context.name : ''
   recordReviewFailure(String(action.action ?? 'unknown'), status, code, errorName || 'unknown')
-  if (!status && /FunctionsFetchError/.test(errorName)) throw new ReviewApiError(0, 'Could not connect to the AI Knowledge review service. Check your connection and retry.', 'network_error')
+  if (!status && /FunctionsFetchError/.test(errorName)) throw new ReviewApiError(0, 'Could not connect to the AI Knowledge review service. Check your connection and confirm this app origin is allowed for the review function, then retry.', 'network_error')
   if (!status && /FunctionsRelayError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service could not complete the request. Retry, and contact support if it continues.', 'relay_error')
   if (!status && /FunctionsHttpError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service returned an unreadable response. Retry, and contact support if it continues.', 'http_error')
   if (status === 401) {
@@ -191,17 +195,21 @@ export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all
     const result = value as { current_knowledge_version?: unknown; feedback?: unknown; counts?: Record<string, unknown>; page?: { limit?: unknown; offset?: unknown; has_more?: unknown } } | null
     const validCategories = ['helpful', 'factually_incorrect', 'outdated', 'wrong_instructions', 'wrong_contact', 'other']
     const validRows = Array.isArray(result?.feedback) && result.feedback.every((row) => isObject(row)
-      && typeof row.id === 'string' && typeof row.user_id === 'string' && typeof row.response_id === 'string'
+      && typeof row.id === 'string'
       && validCategories.includes(String(row.category)) && (row.explanation === null || typeof row.explanation === 'string')
       && typeof row.topic === 'string' && typeof row.knowledge_version === 'string'
       && ['pending', 'reviewed', 'resolved'].includes(String(row.status)) && typeof row.created_at === 'string'
       && (row.reviewed_at === null || typeof row.reviewed_at === 'string')
-      && (row.reviewer_id === null || typeof row.reviewer_id === 'string'))
+      && (row.identity === null || (isObject(row.identity)
+        && (row.identity.display_name === null || typeof row.identity.display_name === 'string')
+        && (row.identity.email === null || typeof row.identity.email === 'string')))
+      && (row.response_id === undefined || (typeof row.response_id === 'string' && row.identity !== null))
+      && !('user_id' in row) && !('reviewer_id' in row) && !('share_identity' in row) && !('share_email' in row))
     if (!result || typeof result.current_knowledge_version !== 'string' || !validRows
       || !result.counts || !['pending', 'reviewed', 'resolved'].every((key) => Number.isFinite(result.counts?.[key]))
       || !result.page || !Number.isFinite(result.page.limit) || !Number.isFinite(result.page.offset) || typeof result.page.has_more !== 'boolean') {
       recordReviewFailure('feedback_list', 502, 'incompatible_response', 'SchemaMismatch')
-      throw new ReviewApiError(502, 'The review service returned an incompatible answer feedback list. Deploy the matching ai-help-review function and database migrations, then retry.', 'incompatible_response')
+      throw new ReviewApiError(502, 'The review service returned an incompatible answer feedback list. Deploy the latest ai-help-review function, then retry.', 'incompatible_response')
     }
     return result as { current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }
   })

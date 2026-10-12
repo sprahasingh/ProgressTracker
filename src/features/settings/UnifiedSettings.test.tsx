@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SettingsPage } from './WorkspaceTimeZone'
 import { ToastProvider } from '../../components/ui/ToastProvider'
+import settingsStyles from '../../styles.css?raw'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), updateName: vi.fn(), changeEmail: vi.fn() }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: mocks.auth }))
@@ -49,9 +50,13 @@ describe('unified Settings authentication states', () => {
     expect(screen.queryByRole('button', { name: 'Delete Account' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Send Feedback' })).not.toBeInTheDocument()
     const sectionHeadings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
-    expect(sectionHeadings.indexOf('Calendar & Time')).toBeLessThan(sectionHeadings.indexOf('Appearance'))
-    expect(sectionHeadings.indexOf('Appearance')).toBeLessThan(sectionHeadings.indexOf('Notifications'))
-    expect(sectionHeadings.indexOf('Notifications')).toBeLessThan(sectionHeadings.indexOf('Sync & Data'))
+    expect(sectionHeadings).toEqual([
+      'Personal Information', 'Appearance', 'Calendar & Time', 'Notifications', 'Privacy',
+      'Security', 'Sync & Data', 'Feedback & Support', 'My Support Queries', 'Account Actions',
+    ])
+    const privacyTrigger = screen.getByRole('button', { name: 'Privacy' })
+    expect(privacyTrigger.querySelector('svg, .settings-privacy-icon')).toBeNull()
+    expect(privacyTrigger.lastElementChild).toHaveClass('settings-accordion-chevron')
     await user.click(screen.getByRole('button', { name: 'Sync & Data' }))
     expect(screen.getByText('Cloud synchronization controls')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Account Actions' }))
@@ -68,6 +73,44 @@ describe('unified Settings authentication states', () => {
     expect(await screen.findByRole('status', { name: /Name updated/ })).toHaveTextContent('Your profile name was saved.')
   })
 
+  it('uses identical accordion structure and supports keyboard expansion across all signed-in sections', async () => {
+    mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
+    const user = userEvent.setup()
+    render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
+    const expected = ['Personal Information', 'Appearance', 'Calendar & Time', 'Notifications', 'Privacy', 'Security', 'Sync & Data', 'Feedback & Support', 'My Support Queries', 'Account Actions']
+    for (const name of expected) {
+      const trigger = screen.getByRole('button', { name })
+      expect(trigger.querySelector('.settings-accordion-chevron')).toBeInTheDocument()
+      expect(trigger.firstElementChild?.querySelector('svg')).toBeNull()
+      trigger.focus()
+      await user.keyboard('{Enter}')
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      expect(document.getElementById(trigger.getAttribute('aria-controls')!)).not.toHaveAttribute('hidden')
+      await user.keyboard(' ')
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      expect(document.getElementById(trigger.getAttribute('aria-controls')!)).toHaveAttribute('hidden')
+    }
+  })
+
+  it.each([320, 375, 390, 430])('keeps Settings accordion layout constraints at %ipx and in either theme', (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
+    const { container } = render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
+    const settings = container.querySelector('.unified-settings')
+    expect(settings).toBeInTheDocument()
+    for (const theme of ['light', 'dark']) {
+      document.documentElement.dataset.theme = theme
+      for (const section of container.querySelectorAll('.settings-accordion')) {
+        expect(section).toHaveClass('settings-accordion')
+        expect(section.querySelector('.settings-accordion-trigger')).toBeInTheDocument()
+      }
+      expect(settingsStyles).toMatch(/\.unified-settings \.settings-accordion\s*\{[^}]*min-width:\s*0/s)
+      expect(settingsStyles).toMatch(/\.settings-accordion-panel\s*\{[^}]*min-width:\s*0/s)
+      expect(settingsStyles).toMatch(/\.settings-accordion-trigger\s*\{[^}]*width:\s*100%/s)
+    }
+    delete document.documentElement.dataset.theme
+  })
+
   it('opens the shared feedback dialog from Settings', async () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     const user = userEvent.setup()
@@ -75,8 +118,7 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Feedback & Support' }))
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
     expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: /Share my email with support/ })).toBeChecked()
-    expect(screen.getByText('Email shared with support: person@example.com')).toBeInTheDocument()
+    expect(screen.getByText('This request will be submitted anonymously to maintainers. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
   })
 
   it('validates email and reports the secure confirmation state', async () => {

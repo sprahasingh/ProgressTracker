@@ -3,16 +3,27 @@ import { evidenceFingerprints, sourcePaths, sourceVersion } from '../ai-help/_ge
 import { sourceIndex } from '../ai-help/_generated/sourceIndex.ts'
 import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, isMaintainer, normalizeMaintainerEmails, validateReviewEdits } from '../ai-help/learningCore.ts'
 import { mergeKnowledgePage } from '../_shared/knowledgePagination.ts'
-import { buildAnswerFeedbackListPayload } from './feedbackResponse.ts'
+import { buildAnswerFeedbackListPayload, buildMaintainerAnswerFeedback } from './feedbackResponse.ts'
+import { logReviewStage, reviewFailureLog, reviewFailureResponse } from './diagnostics.ts'
+import { runKnowledgeReconciliation } from './reconciliation.ts'
+import { resolveReviewListPagination } from './listPagination.ts'
 
 const ORIGINS = new Set((Deno.env.get('AI_HELP_REVIEW_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
   try { return new URL(item.trim()).origin } catch { return '' }
 }).filter(Boolean))
 const MAX_REVIEW_BODY_BYTES = 16 * 1024
 
-function logReviewDatabaseFailure(action: string, errors: Array<{ code?: string } | null | undefined>) {
-  const codes = errors.filter((error): error is { code?: string } => Boolean(error)).map((error) => error.code ?? 'unknown')
-  if (codes.length) console.error('AI_HELP_REVIEW_DATABASE_FAILURE', JSON.stringify({ action, codes }))
+function logReviewDatabaseFailure(action: string, errors: Array<{ operation: string; error: unknown }>) {
+  let operations: string[] = []
+  try {
+    operations = errors.filter(({ error }) => Boolean(error)).map(({ operation }) => operation)
+    const failures = errors.filter(({ error }) => Boolean(error))
+      .map(({ operation, error }) => reviewFailureLog(action, operation, error))
+    if (failures.length) console.error('AI_HELP_REVIEW_DATABASE_FAILURE', JSON.stringify({ action, failures }))
+  } catch {
+    try { console.log('AI_HELP_REVIEW_DATABASE_FAILURE_LOG_FALLBACK', JSON.stringify({ action, operations })) }
+    catch { /* Diagnostic output must not replace the action's intended response. */ }
+  }
 }
 
 async function readReviewBody(request: Request): Promise<string> {
@@ -64,8 +75,27 @@ async function safeMetric(admin: ReturnType<typeof createClient>, event: string)
   try { await admin.rpc('record_ai_help_metric', { p_event: event, p_feature_category: 'other' }) } catch { /* Do not expose metric storage errors. */ }
 }
 
+function metadataDisplayName(metadata: Record<string, unknown> | null | undefined) {
+  for (const value of [metadata?.display_name, metadata?.full_name, metadata?.name]) {
+    if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 120)
+  }
+  return null
+}
+
+async function consentedAnswerFeedbackIdentity(admin: ReturnType<typeof createClient>, userId: string) {
+  try {
+    const { data } = await admin.auth.admin.getUserById(userId)
+    return {
+      display_name: metadataDisplayName(data.user?.user_metadata as Record<string, unknown> | undefined),
+      email: data.user?.email_confirmed_at ? data.user.email ?? null : null,
+    }
+  } catch { return { display_name: null, email: null } }
+}
+
 Deno.serve(async (request) => {
+  logReviewStage('handler_entry')
   let requestAction = 'unknown'
+  let operation = 'request_validation'
   const originHeader = request.headers.get('origin')
   let origin = ''
   try { origin = originHeader ? new URL(originHeader).origin : '' } catch { /* Reject invalid origins below. */ }
@@ -93,7 +123,8 @@ Deno.serve(async (request) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
       body = value as Record<string, unknown>
     } catch { return json(400, { error: 'Invalid review request.' }, origin) }
-    requestAction = typeof body.action === 'string' ? body.action : 'unknown'
+    const knownActions = ['whoami', 'list', 'feedback_list', 'feedback_review', 'invalidate', 'get', 'revalidate', 'edit', 'approve', 'reject', 'defer']
+    requestAction = typeof body.action === 'string' && knownActions.includes(body.action) ? body.action : 'unknown'
 
     const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
     const url = Deno.env.get('SUPABASE_URL')
@@ -101,15 +132,25 @@ Deno.serve(async (request) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     if (!token || !url || !publishableKey || !serviceRoleKey) return json(401, { error: 'Maintainer sign-in is required.' }, origin)
 
+    operation = 'auth_verification_client_initialization'
     const verifier = createClient(url, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    operation = 'auth_user_verification'
     const { data, error } = await verifier.auth.getUser(token)
     const user = data.user
     if (error || !user?.email || !user.email_confirmed_at || !isMaintainer(user.email, normalizeMaintainerEmails(Deno.env.get('AI_HELP_MAINTAINER_EMAILS')))) {
       return json(403, { error: 'This account is not authorized to review AI Help knowledge.' }, origin)
     }
-    if (body.action === 'whoami') return json(200, { authorized: true }, origin)
+    logReviewStage('authorization_complete', requestAction)
+    if (body.action === 'whoami') {
+      logReviewStage('action_dispatch', requestAction)
+      return json(200, { authorized: true }, origin)
+    }
 
+    operation = 'admin_client_initialization'
+    logReviewStage('service_role_client_initialization_started', requestAction)
     const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    logReviewStage('service_role_client_initialization_complete', requestAction)
+    logReviewStage('action_dispatch', requestAction)
     if (body.action === 'feedback_list') {
       const allowedStatuses = ['pending', 'reviewed', 'resolved']
       const status = typeof body.status === 'string' ? body.status : 'pending'
@@ -119,18 +160,22 @@ Deno.serve(async (request) => {
       if (category !== 'all' && !categories.includes(category)) return json(400, { error: 'Unsupported feedback category.' }, origin)
       const limit = typeof body.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(body.limit))) : 50
       const offset = typeof body.offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.offset))) : 0
-      const combinedStatus = status === 'stale' || status === 'all'
-      const cursorProvided = typeof body.candidate_offset === 'number' || typeof body.verified_offset === 'number'
-      const legacyCombinedPage = combinedStatus && !cursorProvided
-      const candidateOffset = typeof body.candidate_offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.candidate_offset))) : combinedStatus ? Math.floor(offset / 2) : offset
-      const verifiedOffset = typeof body.verified_offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.verified_offset))) : combinedStatus ? Math.floor(offset / 2) : offset
-      try { await admin.from('support_feedback').delete().eq('category', 'ai_answer_feedback').lte('created_at', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()) } catch { /* Unified answer reports expire with their legacy 180-day retention window. */ }
-      try { await admin.from('ai_help_answer_feedback').delete().lte('expires_at', new Date().toISOString()) } catch { /* Feedback remains reviewable if retention cleanup is temporarily unavailable. */ }
+      operation = 'feedback_legacy_retention_cleanup'
+      try {
+        const { error: cleanupError } = await admin.from('support_feedback').delete().eq('category', 'ai_answer_feedback').lte('created_at', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString())
+        if (cleanupError) logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }])
+      } catch (cleanupError) { logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }]) }
+      operation = 'feedback_retention_cleanup'
+      try {
+        const { error: cleanupError } = await admin.from('ai_help_answer_feedback').delete().lte('expires_at', new Date().toISOString())
+        if (cleanupError) logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }])
+      } catch (cleanupError) { logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }]) }
       let query = admin.from('ai_help_answer_feedback')
-        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id')
+        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,share_identity')
       if (status !== 'all') query = query.eq('status', status)
       if (category !== 'all') query = query.eq('category', category)
       query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+      operation = 'feedback_list_queries'
       const [rows, pending, reviewed, resolved] = await Promise.all([
         query,
         admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
@@ -138,12 +183,34 @@ Deno.serve(async (request) => {
         admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
       ])
       if (rows.error || pending.error || reviewed.error || resolved.error) {
-        logReviewDatabaseFailure('feedback_list', [rows.error, pending.error, reviewed.error, resolved.error])
+        logReviewDatabaseFailure('feedback_list', [
+          { operation: 'feedback_rows', error: rows.error },
+          { operation: 'feedback_pending_count', error: pending.error },
+          { operation: 'feedback_reviewed_count', error: reviewed.error },
+          { operation: 'feedback_resolved_count', error: resolved.error },
+        ])
         return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
       }
+      const feedbackRows = rows.data ?? []
+      const feedbackUserIds = [...new Set(feedbackRows.map((row) => row.user_id).filter((id): id is string => typeof id === 'string'))]
+      const currentConsentedUsers = new Set<string>()
+      if (feedbackUserIds.length) {
+        const { data: preferences, error: preferenceError } = await admin.from('app_settings')
+          .select('user_id,share_identity').in('user_id', feedbackUserIds)
+        // A missing row or failed lookup must hide identity, while preserving
+        // the feedback listing itself.
+        if (!preferenceError) {
+          for (const preference of preferences ?? []) if (preference.share_identity === true) currentConsentedUsers.add(preference.user_id)
+        }
+      }
+      const feedback = await Promise.all((rows.data ?? []).map(async (row) => buildMaintainerAnswerFeedback({
+        row,
+        currentPreference: currentConsentedUsers.has(row.user_id),
+        identity: row.share_identity && currentConsentedUsers.has(row.user_id) ? await consentedAnswerFeedbackIdentity(admin, row.user_id) : null,
+      })))
       return json(200, buildAnswerFeedbackListPayload({
         knowledgeVersion: sourceVersion,
-        feedback: rows.data ?? [],
+        feedback,
         pendingCount: pending.count,
         reviewedCount: reviewed.count,
         resolvedCount: resolved.count,
@@ -156,21 +223,30 @@ Deno.serve(async (request) => {
       if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || (body.status !== 'reviewed' && body.status !== 'resolved')) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
       const { error: updateError } = await admin.rpc('review_unified_ai_answer_feedback', { p_legacy_id: body.id, p_status: body.status, p_reviewer_id: user.id })
       if (updateError) {
-        logReviewDatabaseFailure('feedback_review', [updateError])
+        logReviewDatabaseFailure('feedback_review', [{ operation: 'feedback_status_update', error: updateError }])
         return json(updateError.code === 'P0002' ? 404 : updateError.code === '40001' ? 409 : 503, { error: updateError.code === 'P0002' ? 'Feedback report not found.' : updateError.code === '40001' ? 'Feedback report changed. Refresh and retry.' : 'The feedback status could not be updated. Try again.' }, origin)
       }
       const { data, error: readError } = await admin.from('ai_help_answer_feedback')
-        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').eq('id', body.id).maybeSingle()
+        .select('id,status,reviewed_at').eq('id', body.id).maybeSingle()
       if (readError || !data) {
-        logReviewDatabaseFailure('feedback_review_refresh', [readError])
+        logReviewDatabaseFailure('feedback_review_refresh', [{ operation: 'feedback_refresh_read', error: readError }])
         return json(503, { error: 'The feedback report was saved, but its latest status could not be loaded.' }, origin)
       }
-      return json(200, { feedback: data }, origin)
+      return json(200, { feedback: { id: data.id, status: data.status, reviewed_at: data.reviewed_at } }, origin)
     }
 
-    const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: sourceVersion })
+    operation = 'knowledge_freshness_reconciliation'
+    const { error: freshnessError } = await runKnowledgeReconciliation(
+      admin.rpc.bind(admin),
+      evidenceFingerprints,
+      sourceVersion,
+      (stage) => {
+        operation = stage
+        logReviewStage(stage, requestAction)
+      },
+    )
     if (freshnessError) {
-      logReviewDatabaseFailure('knowledge_freshness', [freshnessError])
+      logReviewDatabaseFailure('knowledge_freshness', [{ operation: 'reconcile_ai_knowledge', error: freshnessError }])
       return json(503, { error: 'Knowledge freshness could not be checked. Try again later.' }, origin)
     }
 
@@ -189,6 +265,8 @@ Deno.serve(async (request) => {
     }
 
     if (body.action === 'list') {
+      operation = 'knowledge_list_filter_validation'
+      logReviewStage('knowledge_list_filter_validation_started', requestAction)
       const status = typeof body.status === 'string' ? body.status : 'pending'
       const allowedStatuses = ['pending', 'stale', 'verified', 'rejected']
       if (status !== 'all' && !allowedStatuses.includes(status)) return json(400, { error: 'Unsupported review status.' }, origin)
@@ -197,14 +275,27 @@ Deno.serve(async (request) => {
       const search = typeof body.search === 'string' ? body.search.trim().slice(0, 80).replace(/[,%()\\]/g, ' ').replace(/\s+/g, ' ') : ''
       const sort = body.sort === 'oldest' || body.sort === 'reviewed' ? body.sort : 'newest'
       const ascending = sort === 'oldest'
+      logReviewStage('knowledge_list_filter_validation_complete', requestAction)
+
+      operation = 'knowledge_list_pagination_resolution'
+      logReviewStage('knowledge_list_pagination_resolution_started', requestAction)
+      const pagination = resolveReviewListPagination({
+        status, limit, offset,
+        candidateOffset: body.candidate_offset,
+        verifiedOffset: body.verified_offset,
+      })
+      const { legacyCombinedPage, candidateOffset, verifiedOffset, legacyTableLimit, fetchLimit, candidateQueryOffset, verifiedQueryOffset } = pagination
+      logReviewStage('knowledge_list_pagination_resolution_complete', requestAction)
+
+      operation = 'knowledge_list_filter_construction'
+      logReviewStage('knowledge_list_filter_construction_started', requestAction)
       const searchFilter = `topic_id.ilike.%${search}%,title.ilike.%${search}%,explanation.ilike.%${search}%`
       // Combined views query each source independently, then merge a bounded
       // window by its display date. Cursors advance only for rows returned.
-      const legacyTableLimit = Math.ceil(limit / 2)
-      const fetchLimit = legacyCombinedPage ? legacyTableLimit : Math.min(101, limit + 1)
-      const candidateQueryOffset = legacyCombinedPage ? Math.floor(offset / 2) : candidateOffset
-      const verifiedQueryOffset = legacyCombinedPage ? Math.floor(offset / 2) : verifiedOffset
+      logReviewStage('knowledge_list_filter_construction_complete', requestAction)
 
+      operation = 'knowledge_list_candidate_query_construction'
+      logReviewStage('knowledge_list_candidate_query_construction_started', requestAction)
       let candidateQuery = admin.from('ai_knowledge_candidates')
         .select('id,topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,created_at,updated_at,reviewed_at,reviewer_id')
         .not('topic_id', 'is', null)
@@ -215,6 +306,9 @@ Deno.serve(async (request) => {
       candidateQuery = candidateQuery.order(sort === 'reviewed' ? 'reviewed_at' : 'created_at', { ascending, nullsFirst: false })
         .order('id', { ascending: true }).range(candidateQueryOffset, candidateQueryOffset + fetchLimit - 1)
 
+      logReviewStage('knowledge_list_candidate_query_construction_complete', requestAction)
+      operation = 'knowledge_list_verified_query_construction'
+      logReviewStage('knowledge_list_verified_query_construction_started', requestAction)
       let verifiedQuery = admin.from('ai_verified_knowledge')
         .select('topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,reviewed_at,stale_at,reviewer_id')
       if (status === 'verified' || status === 'stale') verifiedQuery = verifiedQuery.eq('status', status)
@@ -222,7 +316,10 @@ Deno.serve(async (request) => {
       if (search) verifiedQuery = verifiedQuery.or(searchFilter)
       verifiedQuery = verifiedQuery.order('reviewed_at', { ascending, nullsFirst: false })
         .order('topic_id', { ascending: true }).range(verifiedQueryOffset, verifiedQueryOffset + fetchLimit - 1)
+      logReviewStage('knowledge_list_verified_query_construction_complete', requestAction)
 
+      operation = 'knowledge_list_queries'
+      logReviewStage('knowledge_list_queries_started', requestAction)
       const [candidateResult, verifiedResult, metricQuery, pendingCount, approvedCount, staleCandidateCount, staleVerifiedCount, rejectedCount] = await Promise.all([
         candidateQuery,
         verifiedQuery,
@@ -233,12 +330,24 @@ Deno.serve(async (request) => {
         admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'stale').not('topic_id', 'is', null),
         admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'rejected').not('topic_id', 'is', null),
       ])
+      logReviewStage('knowledge_list_queries_complete', requestAction)
       const candidateRows = { data: candidateResult.data, error: candidateResult.error }
       const verifiedQueryResult = { data: verifiedResult.data, error: verifiedResult.error }
       if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleVerifiedCount.error || staleCandidateCount.error || rejectedCount.error) {
-        logReviewDatabaseFailure('knowledge_list', [candidateRows.error, verifiedQueryResult.error, metricQuery.error, pendingCount.error, approvedCount.error, staleVerifiedCount.error, staleCandidateCount.error, rejectedCount.error])
+        logReviewDatabaseFailure('knowledge_list', [
+          { operation: 'candidate_rows', error: candidateRows.error },
+          { operation: 'verified_rows', error: verifiedQueryResult.error },
+          { operation: 'learning_metrics', error: metricQuery.error },
+          { operation: 'pending_candidate_count', error: pendingCount.error },
+          { operation: 'approved_knowledge_count', error: approvedCount.error },
+          { operation: 'stale_candidate_count', error: staleCandidateCount.error },
+          { operation: 'stale_verified_count', error: staleVerifiedCount.error },
+          { operation: 'rejected_candidate_count', error: rejectedCount.error },
+        ])
         return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
       }
+      operation = 'knowledge_list_result_transformation'
+      logReviewStage('knowledge_list_result_transformation_started', requestAction)
       const verified = (verifiedQueryResult.data ?? []).map((entry) => {
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
@@ -251,14 +360,24 @@ Deno.serve(async (request) => {
           .slice(0, 3).map((entry) => ({ topic_id: entry.topic_id, title: entry.title, status: entry.status, match: entry.topic_id === candidate.topic_id ? 'same_topic' : 'shared_source' }))
         return { ...candidate, possible_duplicates: possibleDuplicates }
       })
+      logReviewStage('knowledge_list_result_transformation_complete', requestAction)
+
+      operation = 'knowledge_list_page_merge'
+      logReviewStage('knowledge_list_page_merge_started', requestAction)
       const page = legacyCombinedPage ? {
         candidates, verified, nextCandidateOffset: candidateOffset + candidates.length,
         nextVerifiedOffset: verifiedOffset + verified.length,
         hasMore: candidates.length === legacyTableLimit || verified.length === legacyTableLimit,
       } : mergeKnowledgePage({ candidates, verified, limit, candidateOffset, verifiedOffset, sort })
-      return json(200, { knowledge_version: sourceVersion, candidates: page.candidates, verified_knowledge: page.verified, metrics: metricQuery.data ?? [], counts: {
+      logReviewStage('knowledge_list_page_merge_complete', requestAction)
+
+      operation = 'knowledge_list_response_serialization'
+      logReviewStage('knowledge_list_response_serialization_started', requestAction)
+      const response = json(200, { knowledge_version: sourceVersion, candidates: page.candidates, verified_knowledge: page.verified, metrics: metricQuery.data ?? [], counts: {
         pending: pendingCount.count ?? 0, approved: approvedCount.count ?? 0, stale: (staleVerifiedCount.count ?? 0) + (staleCandidateCount.count ?? 0), rejected: rejectedCount.count ?? 0,
       }, page: { limit, offset, has_more: page.hasMore, next_candidate_offset: page.nextCandidateOffset, next_verified_offset: page.nextVerifiedOffset } }, origin)
+      logReviewStage('knowledge_list_response_serialization_complete', requestAction)
+      return response
     }
 
     if (body.action === 'get') {
@@ -355,12 +474,13 @@ Deno.serve(async (request) => {
     if (reviewError) return json(reviewError.code === '40001' ? 409 : 400, { error: reviewError.code === '40001' ? 'Candidate changed during review. Refresh and retry.' : 'The review could not be saved. Check the candidate fields and try again.' }, origin)
     return json(200, { result: review }, origin)
   } catch (cause) {
-    const error = cause instanceof Error ? cause as Error & { code?: unknown } : null
-    console.error('AI_HELP_REVIEW_UNEXPECTED_FAILURE', JSON.stringify({
-      action: requestAction,
-      error_name: error?.name ?? 'unknown',
-      code: typeof error?.code === 'string' ? error.code : undefined,
-    }))
-    return json(500, { error: 'The review request could not be completed.', code: 'unexpected_backend_failure' }, origin)
+    logReviewStage('outer_catch', requestAction)
+    return reviewFailureResponse(
+      requestAction,
+      operation,
+      cause,
+      (event, payload) => console.error(event, payload),
+      (body) => json(500, body, origin),
+    )
   }
 })

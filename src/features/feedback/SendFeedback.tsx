@@ -9,6 +9,7 @@ import { SUPPORT_EMAIL } from '../../config/supportContact'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { useAuth } from '../auth/AuthProvider'
 import { FeedbackSubmissionError, submitGeneralFeedback, type GeneralFeedbackCategory } from './feedbackService'
+import { getIdentitySharingPreference } from '../settings/identitySharing'
 
 const categoryLabels: Record<GeneralFeedbackCategory, string> = {
   bug_report: 'Bug report', feature_request: 'Feature request', general_feedback: 'General feedback', help_support: 'Help / Support',
@@ -19,7 +20,7 @@ function createRequestId() { return crypto.randomUUID() }
 function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: { open: boolean; onClose: () => void; signedIn: boolean; accountEmail?: string | null; source: 'settings' | 'ai_help_support' | 'other' }) {
   const [category, setCategory] = useState<GeneralFeedbackCategory>('general_feedback')
   const [message, setMessage] = useState('')
-  const [shareEmail, setShareEmail] = useState(true)
+  const [shareIdentity, setShareIdentity] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [retryAllowed, setRetryAllowed] = useState(true)
@@ -39,10 +40,16 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
     if (open) dialogRef.current?.focus({ preventScroll: true })
   }, [open])
   useEffect(() => {
+    let active = true
+    if (open && signedIn) void getIdentitySharingPreference().then((value) => { if (active) setShareIdentity(value) }).catch(() => { if (active) setShareIdentity(false) })
+    if (!open) setShareIdentity(false)
+    return () => { active = false }
+  }, [open, signedIn])
+  useEffect(() => {
     if (!open) {
       setCategory('general_feedback')
       setMessage('')
-      setShareEmail(true)
+      setShareIdentity(false)
       setBusy(false)
       setError('')
       setRetryAllowed(true)
@@ -72,7 +79,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
     const requestId = prior && prior.category === category && prior.message === cleanMessage ? prior.requestId : createRequestId()
     requestRef.current = { requestId, category, message: cleanMessage }
     try {
-      const result = await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId, source, shareEmail })
+      const result = await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId, source, shareEmail: true })
       setEmailStatus(result.deliveryStatus)
       setFeedbackId(result.feedbackId ?? '')
       window.dispatchEvent(new Event('progress-tracker:support-feedback-changed'))
@@ -110,9 +117,9 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
         <form id="general-feedback-form" className="send-feedback-content send-feedback-scroll" onSubmit={(event) => void submit(event)}>
         <label className="form-field" htmlFor="general-feedback-category"><span>Feedback type</span><select id="general-feedback-category" className="auth-input" value={category} onChange={(event) => setCategory(event.target.value as GeneralFeedbackCategory)} disabled={busy}><option value="bug_report">Bug report</option><option value="feature_request">Feature request</option><option value="general_feedback">General feedback</option><option value="help_support">Help / Support</option></select></label>
         <label className="form-field" htmlFor="general-feedback-message"><span>Your message</span><textarea id="general-feedback-message" className="auth-input send-feedback-textarea" value={message} onChange={(event) => setMessage(event.target.value.slice(0, 2000))} maxLength={2000} rows={6} placeholder="Tell us what's happening or what you'd like improved..." disabled={busy} required aria-describedby="send-feedback-privacy send-feedback-count" /></label>
-        <div className="send-feedback-meta"><small id="send-feedback-count">{message.length}/2,000</small>{signedIn && shareEmail && accountEmail && <small>Email shared with support: {accountEmail}</small>}</div>
-        {signedIn && <label className="send-feedback-share-email"><input type="checkbox" checked={shareEmail} onChange={(event) => setShareEmail(event.target.checked)} disabled={busy} /><span><strong>Share my email with support</strong><small>{shareEmail ? 'We may use this email to contact you. In-app replies remain available.' : 'Your email won’t be shared. Replies remain available in Notifications and My Support Queries.'}</small></span></label>}
-        <p className="settings-hint" id="send-feedback-privacy">Avoid passwords or access tokens. Your message is saved in Feedback &amp; Support.</p>
+        <div className="send-feedback-meta"><small id="send-feedback-count">{message.length}/2,000</small></div>
+        {signedIn && <p className="settings-hint" id="send-feedback-privacy">{shareIdentity ? `Your account name${accountEmail ? ` and email (${accountEmail})` : ''} will be visible to maintainers.` : 'This request will be submitted anonymously to maintainers.'} Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.</p>}
+        {!signedIn && <p className="settings-hint" id="send-feedback-privacy">Avoid passwords or access tokens. Your message is saved in Feedback &amp; Support.</p>}
         {!signedIn && <p className="send-feedback-error" role="status">Sign in to submit feedback here. You can still contact support using the fallback below.</p>}
         {error && <p className="send-feedback-error" role="alert">{error}</p>}
         {(error || !signedIn) && <section className="send-feedback-fallback" aria-label="Email support fallback"><p>{outcomeUncertain ? 'We could not confirm whether the message was accepted. To avoid a duplicate, automatic retry is disabled. Please email us directly if you still need help.' : "Couldn't send your feedback right now. You can email us directly instead."}</p><strong>{SUPPORT_EMAIL}</strong><div><a className="button button-secondary button-small" href={mailto}>Email Support</a><button type="button" className="button button-secondary button-small" onClick={() => void copyEmail()}>Copy Email</button></div>{copied && <small role="status">Support email copied.</small>}</section>}

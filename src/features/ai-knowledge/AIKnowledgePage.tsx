@@ -223,8 +223,8 @@ function KnowledgeWorkspace() {
     <SupportInboxWorkspace />
   </section>
 
-  if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
-    <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review knowledge and user-reported answer issues." />
+  if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page ai-knowledge-feedback-page" aria-labelledby="ai-knowledge-title">
+    <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" />
     <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
     <AnswerFeedbackWorkspace />
   </section>

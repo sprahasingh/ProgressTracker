@@ -20,6 +20,12 @@ npm run build:ai-help-bundle
 
 Do not manually edit generated files. Check that all three generated versions match and that the source paths in `sourceBundle.ts` correspond to indexed entries. The build reads only its explicit allowlist; the Edge Function cannot inspect the developer filesystem. Source import declaration lines are omitted from generated evidence, while the surrounding implementation and test excerpts remain indexed. This also prevents the local Edge bundler from interpreting browser-only imports found inside generated evidence as Edge modules.
 
+### Bundle versions are not approval records
+
+The displayed AI Help version is a content fingerprint over the app version, product guides, verified question catalog, included implementation and test sources, capabilities, routes, source relationships, and source-index format. Any included content change can produce a new version, including documentation or implementation edits that have nothing to do with a feedback report. A changed version does not mean a Knowledge Candidate was approved or that a reported issue was fixed.
+
+AI-generated Knowledge Candidates are stored as `pending`. Only an authorized maintainer action through `ai-help-review` can call `review_ai_knowledge_candidate` with the `approve` action and move that content into `ai_verified_knowledge`. Reconciliation can update bundle versions and mark evidence stale; it does not approve candidates. AI Help retrieves database topics only when their status is `verified`, and separately uses the maintained source bundle and reviewed documentation as evidence.
+
 ## Runtime evidence selection
 
 The request handler selects up to four relevant documentation sections. It automatically selects a bounded set of source-index excerpts when the docs have weak query coverage or the question asks for implementation-sensitive behavior, such as why a restriction exists, what happens after an edit, or how a conflict is handled. Source matches are ranked by query terms, term rarity, feature context, and implementation/test type. At most four snippets and 5,200 characters are sent to Groq. The prompt prefers implementation behavior over conflicting prose, while the final answer remains user-facing and does not expose code or paths.
@@ -48,7 +54,23 @@ Configure the allowlist as a Function secret. Use the maintainer's confirmed Sup
 supabase secrets set AI_HELP_MAINTAINER_EMAILS="maintainer@example.com"
 ```
 
+The review function also enforces its own browser-origin allowlist. Configure the exact origins that will open the maintainer dashboard; the function reads `AI_HELP_REVIEW_ALLOWED_ORIGINS` first and falls back to `AI_HELP_ALLOWED_ORIGINS` only when the review-specific secret is unset. An explicitly empty review-specific value takes precedence and rejects every browser origin. Origins contain only scheme, host, and port, with no path. For the documented GitHub Pages site and local Vite development server:
+
+```sh
+supabase secrets set AI_HELP_REVIEW_ALLOWED_ORIGINS="https://sprahasingh.github.io,http://localhost:5173"
+```
+
+Add `http://localhost:4173` only if you use Vite's local preview server. When updating this secret, include every origin that should retain access; setting it replaces the existing list. A rejected browser origin fails CORS before maintainer authentication or database queries run. A 403 preflight response without `Access-Control-Allow-Origin` appears in the browser as a network/fetch failure, so check the exact page origin against this setting.
+
 The review endpoint accepts authenticated JSON POST requests. A CLI workflow can use a maintainer's normal Supabase user access token and the public publishable key; never use a service-role key in a browser or review client. The responses do not include user questions or conversations.
+
+The separate `support-inbox` function uses `SUPPORT_FEEDBACK_ALLOWED_ORIGINS` for its browser CORS allowlist. If that secret is unset, it falls back to `AI_HELP_ALLOWED_ORIGINS`; an explicitly empty value overrides the fallback. To allow the production site and local Vite server, include both origins when setting the secret because setting it replaces the whole list:
+
+```sh
+supabase secrets set SUPPORT_FEEDBACK_ALLOWED_ORIGINS="https://sprahasingh.github.io,http://localhost:5173"
+```
+
+Add `http://localhost:4173` if you use the Vite preview server. This allowlist is independent of `AI_HELP_REVIEW_ALLOWED_ORIGINS`, which controls the `ai-help-review` function.
 
 ```sh
 curl "$SUPABASE_URL/functions/v1/ai-help-review" \
