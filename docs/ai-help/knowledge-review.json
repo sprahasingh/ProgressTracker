@@ -10,8 +10,8 @@
   },
   "sync-conflicts": {
     "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
-    "src/db/syncConflictRepository.ts": "8b6765fbcc08054cfb50d8dd72029acb439297d0ca4f8aeaedf7f670891b9d40",
-    "src/db/syncConflictRepository.test.ts": "0d0c2b2f0480e98265ff101260306bc239dfd24aec57a1c3b269a486f4807a75"
+    "src/db/syncConflictRepository.ts": "f9e76cd442e1c76c97c4f10b232a1416aa35a7b1138d52bc45f8bd7a5b718f4e",
+    "src/db/syncConflictRepository.test.ts": "ed84c8d2a93f2501057b48c2dcb734d5737868e2d0c727ed024e5888446372c3"
   },
   "account-signin": {
     "src/features/auth/AuthPage.tsx": "0232bd00ab21b6358be9f9205c07b64bdb4f5909b8e32c984218803630514928",
@@ -38,8 +38,8 @@
   },
   "sync-conflict-preserves-versions": {
     "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
-    "src/db/syncConflictRepository.ts": "8b6765fbcc08054cfb50d8dd72029acb439297d0ca4f8aeaedf7f670891b9d40",
-    "src/db/syncConflictRepository.test.ts": "0d0c2b2f0480e98265ff101260306bc239dfd24aec57a1c3b269a486f4807a75"
+    "src/db/syncConflictRepository.ts": "f9e76cd442e1c76c97c4f10b232a1416aa35a7b1138d52bc45f8bd7a5b718f4e",
+    "src/db/syncConflictRepository.test.ts": "ed84c8d2a93f2501057b48c2dcb734d5737868e2d0c727ed024e5888446372c3"
   },
   "sync-preference-scope": {
     "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
@@ -49,7 +49,7 @@
   "ai-help-private-data": {
     "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
     "supabase/functions/ai-help/index.ts": "9ad08ed9c364c10515badafba58b910b95002c133f580d66602776898513a297",
-    "supabase/functions/ai-help/assistantCore.ts": "e26a0433b07e829742cac66ebfc4b1a9509766212ea7a85922d1d8018581d9f9"
+    "supabase/functions/ai-help/assistantCore.ts": "fe4815b024b640bb87a40c02372c3ac4c9ad7f2cbcccfc78cff46712f5c099be"
   },
   "ai-help-suggested-offline": {
     "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
@@ -58,7 +58,7 @@
   "ai-help-typed-retrieval": {
     "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
     "supabase/functions/ai-help/index.ts": "9ad08ed9c364c10515badafba58b910b95002c133f580d66602776898513a297",
-    "supabase/functions/ai-help/assistantCore.ts": "e26a0433b07e829742cac66ebfc4b1a9509766212ea7a85922d1d8018581d9f9"
+    "supabase/functions/ai-help/assistantCore.ts": "fe4815b024b640bb87a40c02372c3ac4c9ad7f2cbcccfc78cff46712f5c099be"
   },
   "calendar-content": {
     "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
@@ -418,12 +418,12 @@
     "src/domain/trackers/progression.test.ts": "e3a184ceabb590e838efb4b88aa6952d835c992079b6b9b93322769d4c39d072"
   },
   "restore-deleted-tracker": {
-    "src/features/trackers/TrackerBinPage.tsx": "9428b1261d4a62e7390ab9fa726c2ebe1d2ea5978504841d404848fc7a6384da",
+    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b",
     "src/features/trackers/TrackerLibraryPage.tsx": "237b512a241324ebc237d77173317d43cc82b03211a8b41fd303431e191b7251",
-    "src/features/trackers/TrackerBinPage.test.tsx": "085fc4f55268fc394d5652e1c28baeb4fb4a1b25677252efcd3ab4dd938a7b6f"
+    "src/features/trackers/TrackerBinPage.test.tsx": "635f0c2d1ca79a45a48787c22dfa1a95d42103d197032fcfac20c12522435932"
   },
   "bin-retention": {
-    "src/features/trackers/TrackerBinPage.tsx": "9428b1261d4a62e7390ab9fa726c2ebe1d2ea5978504841d404848fc7a6384da",
+    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b",
     "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
   },
   "edit-tracker-history": {
@@ -433,7 +433,7 @@
   },
   "archive-tracker": {
     "src/features/trackers/TrackerLibraryPage.tsx": "237b512a241324ebc237d77173317d43cc82b03211a8b41fd303431e191b7251",
-    "src/features/trackers/TrackerBinPage.tsx": "9428b1261d4a62e7390ab9fa726c2ebe1d2ea5978504841d404848fc7a6384da"
+    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b"
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",

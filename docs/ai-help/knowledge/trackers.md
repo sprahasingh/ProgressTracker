@@ -27,7 +27,7 @@ Trackers deleted through the tracker flow appear in The Bin, where you can choos
 - src/features/trackers/TrackerBinPage.tsx
 - src/db/localRepository.ts
 **Answer:**
-Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan. Permanent deletion is disabled in this app build, so a tracker in The Bin is retained rather than immediately erased.
+Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan, or permanently deleted after server confirmation. Automatic cleanup is not configured, so do not expect trackers to be removed automatically after 30 days.
 
 ### ID: edit-tracker-history
 **Category:** trackers
