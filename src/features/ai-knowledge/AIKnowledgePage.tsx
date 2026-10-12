@@ -8,6 +8,7 @@ import { getCandidate, getVerifiedTopic, invalidateVerifiedTopic, listKnowledge,
 import type { CandidateFields, KnowledgeCandidate, ReviewCounts, ReviewDetail, ReviewSort, ReviewStatus, VerifiedTopic } from './aiKnowledgeApi'
 import type { MaintainerAccess } from './useMaintainerAccess'
 import { AnswerFeedbackWorkspace } from './AnswerFeedbackWorkspace'
+import { SupportInboxWorkspace } from './SupportInboxWorkspace'
 
 const tabs: Array<{ id: ReviewStatus; label: string; countKey: keyof ReviewCounts }> = [
   { id: 'pending', label: 'Pending', countKey: 'pending' },
@@ -27,7 +28,7 @@ function safeApiMessage(error: unknown) { return error instanceof Error ? error.
 
 function KnowledgeWorkspace() {
   const { notify } = useToast()
-  const [workspaceTab, setWorkspaceTab] = useState<'knowledge' | 'feedback'>('knowledge')
+  const [workspaceTab, setWorkspaceTab] = useState<'knowledge' | 'feedback' | 'support'>('knowledge')
   const [tab, setTab] = useState<ReviewStatus>('pending')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -191,11 +192,22 @@ function KnowledgeWorkspace() {
   }
   function updateField<K extends keyof EditableFields>(key: K, value: EditableFields[K]) { setFields((current) => current ? { ...current, [key]: value } : current) }
 
+  if (workspaceTab === 'support') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
+    <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="Feedback & Support" description="Manage user feedback and support conversations." />
+    <nav className="ai-knowledge-workspace-tabs" aria-label="Maintainer workspace">
+      <button type="button" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>
+      <button type="button" onClick={() => setWorkspaceTab('feedback')}>Answer Feedback</button>
+      <button type="button" aria-current="page" className="is-active">Feedback &amp; Support</button>
+    </nav>
+    <SupportInboxWorkspace />
+  </section>
+
   if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review knowledge and user-reported answer issues." />
     <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
       <button type="button" aria-current="false" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>
       <button type="button" aria-current="page" className="is-active">Answer Feedback</button>
+      <button type="button" onClick={() => setWorkspaceTab('support')}>Feedback &amp; Support</button>
     </nav>
     <AnswerFeedbackWorkspace />
   </section>
@@ -205,6 +217,7 @@ function KnowledgeWorkspace() {
     <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
       <button type="button" aria-current="page" className="is-active">Knowledge candidates</button>
       <button type="button" aria-current="false" onClick={() => setWorkspaceTab('feedback')}>Answer Feedback</button>
+      <button type="button" onClick={() => setWorkspaceTab('support')}>Feedback &amp; Support</button>
     </nav>
     <p className="ai-knowledge-intro">Candidates are proposed automatically from current product evidence. Each one stays pending until a maintainer reviews and approves it.</p>
     <div className="ai-knowledge-counts" aria-label="Knowledge review counts">

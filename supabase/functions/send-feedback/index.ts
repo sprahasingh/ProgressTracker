@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
-import { deliverFeedbackEmail, validateFeedbackSubmission } from './feedbackCore.ts'
+import { validateFeedbackSubmission } from './feedbackCore.ts'
+import { deliverPendingSupportEmail } from '../_shared/supportFeedbackDelivery.ts'
 
 const allowedOrigins = new Set((Deno.env.get('SUPPORT_FEEDBACK_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((value) => {
   try { return new URL(value.trim()).origin } catch { return '' }
@@ -55,12 +56,9 @@ Deno.serve(async (request) => {
   const url = Deno.env.get('SUPABASE_URL')
   const publishableKey = Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const brevoKey = Deno.env.get('BREVO_API_KEY')
-  const fromEmail = Deno.env.get('FEEDBACK_FROM_EMAIL')
-  if (!url || !publishableKey || !serviceRoleKey || !brevoKey || !fromEmail) {
-    console.error('SUPPORT_FEEDBACK_CONFIGURATION_MISSING', JSON.stringify({ supabase: Boolean(url && publishableKey && serviceRoleKey), provider: Boolean(brevoKey && fromEmail) }))
-    return json(503, { error: 'Feedback sending is not configured yet. You can email support directly below.' }, origin)
-  }
+  const brevoKey = Deno.env.get('BREVO_API_KEY') ?? ''
+  const fromEmail = Deno.env.get('FEEDBACK_FROM_EMAIL') ?? ''
+  if (!url || !publishableKey || !serviceRoleKey) return json(503, { error: 'Feedback could not be saved right now. Please retry shortly.' }, origin)
 
   let value: unknown
   try { value = await readBody(request) } catch (error) {
@@ -76,54 +74,28 @@ Deno.serve(async (request) => {
   if (identityError || !identity.user?.id) return json(401, { error: 'Your session expired. Sign in again to send feedback.' }, origin)
 
   const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
-  const { data: reservation, error: reserveError } = await admin.rpc('begin_support_feedback_submission', {
-    p_user_id: identity.user.id, p_request_id: submission.requestId,
+  const category = submission.category === 'help_support' ? 'support_query' : submission.category
+  const source = submission.source ?? 'settings'
+  const subject = submission.subject ?? (submission.message.split('\n')[0]!.slice(0, 160) || 'ProgressTracker feedback')
+  const { data: saved, error: saveError } = await admin.rpc('submit_unified_support_feedback', {
+    p_user_id: identity.user.id, p_request_id: submission.requestId, p_category: category,
+    p_source: source, p_subject: subject, p_message: submission.message,
   })
-  if (reserveError || !reservation) {
-    console.error('SUPPORT_FEEDBACK_RESERVATION_FAILED', JSON.stringify({ databaseCode: reserveError?.code ?? 'empty_response' }))
-    return json(503, { error: 'Feedback could not be sent right now. Your message is still here; retry or email support directly.' }, origin)
+  if (saveError || !saved?.feedback_id) {
+    if (saveError?.code === 'P4290') return json(429, { accepted: false, error: 'You have sent several feedback messages recently. Please wait a little before trying again.', retryAfterSeconds: 900 }, origin)
+    console.error('SUPPORT_FEEDBACK_PERSISTENCE_FAILED', JSON.stringify({ databaseCode: saveError?.code ?? 'empty_response' }))
+    return json(503, { error: 'Feedback could not be saved right now. Your message is still here; please retry.' }, origin)
   }
-  if (reservation.accepted === true) return json(200, { accepted: true, duplicate: true }, origin)
-  if (reservation.uncertain === true) return json(503, { error: 'We couldn’t confirm whether Brevo accepted this message. To avoid sending a duplicate, automatic retry is disabled. Please email support directly if you still need help.', uncertain: true, retryable: false }, origin)
-  if (reservation.processing === true) return json(503, { error: 'This feedback request is still being processed. Its status is not confirmed yet, so automatic retry is paused to prevent a duplicate.', uncertain: true, retryable: false }, origin)
-  if (reservation.allowed !== true) return json(429, { error: 'You have sent several feedback messages recently. Please wait a little before trying again.', retryAfterSeconds: reservation.retry_after_seconds, retryable: true }, origin)
-
-  const result = await deliverFeedbackEmail(submission, { userId: identity.user.id, email: identity.user.email ?? null }, {
-    apiKey: brevoKey,
-    from: fromEmail,
-    to: PUBLIC_SUPPORT_EMAIL,
-    appVersion: Deno.env.get('SUPPORT_FEEDBACK_APP_VERSION') ?? '0.1.0',
-  })
-  if (!result.accepted) {
-    const { error: outcomeError } = await admin.rpc('resolve_support_feedback_submission', {
-      p_user_id: identity.user.id,
-      p_request_id: submission.requestId,
-      p_delivery_state: result.outcome,
+  let deliveryStatus: string = saved.email_status ?? 'pending'
+  try {
+    deliveryStatus = await deliverPendingSupportEmail(admin, saved.feedback_id, { userId: identity.user.id, email: identity.user.email ?? null }, {
+      apiKey: brevoKey, from: fromEmail, to: PUBLIC_SUPPORT_EMAIL,
+      appVersion: Deno.env.get('SUPPORT_FEEDBACK_APP_VERSION') ?? '0.1.0',
     })
-    if (outcomeError) {
-      console.error('SUPPORT_FEEDBACK_OUTCOME_FAILED', JSON.stringify({ databaseCode: outcomeError.code ?? 'unknown', outcome: result.outcome }))
-      await recordSupportOutcome(admin, submission, 'support_query_uncertain')
-      return json(503, { error: 'Feedback status could not be saved. To avoid a duplicate, automatic retry is paused; please email support directly if needed.', uncertain: true, retryable: false }, origin)
-    }
-    await recordSupportOutcome(admin, submission, result.outcome === 'uncertain' ? 'support_query_uncertain' : 'support_query_failed')
-    console.error('SUPPORT_FEEDBACK_PROVIDER_FAILED', JSON.stringify({ status: result.status, retryable: result.retryable, category: submission.category }))
-    return json(result.status === 429 ? 429 : 503, {
-      error: result.outcome === 'uncertain'
-        ? 'We couldn’t confirm whether Brevo accepted this message. To avoid sending a duplicate, automatic retry is disabled. Please email support directly if you still need help.'
-        : 'Brevo rejected this feedback request. You can retry safely or email support directly.',
-      uncertain: result.outcome === 'uncertain',
-      retryable: result.retryable,
-    }, origin)
+  } catch (error) {
+    console.error('SUPPORT_FEEDBACK_DELIVERY_FAILED', JSON.stringify({ code: error instanceof Error ? error.message : 'unknown' }))
   }
-
-  const { error: completeError } = await admin.rpc('complete_support_feedback_submission', {
-    p_user_id: identity.user.id, p_request_id: submission.requestId,
-  })
-  if (completeError) {
-    console.error('SUPPORT_FEEDBACK_COMPLETION_FAILED', JSON.stringify({ databaseCode: completeError.code ?? 'unknown' }))
-    await recordSupportOutcome(admin, submission, 'support_query_uncertain')
-    return json(503, { error: 'The email provider accepted your message, but its status could not be confirmed. Retry safely or use email support.' }, origin)
-  }
-  await recordSupportOutcome(admin, submission, 'support_query_accepted')
-  return json(200, { accepted: true, duplicate: false, deliveryStatus: 'provider_accepted' }, origin)
+  const metric = deliveryStatus === 'accepted' ? 'support_query_accepted' : deliveryStatus === 'uncertain' ? 'support_query_uncertain' : 'support_query_failed'
+  await recordSupportOutcome(admin, submission, metric)
+  return json(200, { accepted: true, duplicate: saved.duplicate === true, feedbackId: saved.feedback_id, deliveryStatus }, origin)
 })

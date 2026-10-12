@@ -128,18 +128,11 @@ Deno.serve(async (request) => {
 
     if (body.action === 'feedback_review') {
       if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || (body.status !== 'reviewed' && body.status !== 'resolved')) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
-      const { data, error: updateError } = await admin.from('ai_help_answer_feedback').update({ status: body.status, reviewed_at: new Date().toISOString(), reviewer_id: user.id })
-        .eq('id', body.id).eq('status', 'pending')
-        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').maybeSingle()
-      if (updateError) return json(503, { error: 'The feedback status could not be updated. Try again.' }, origin)
-      if (!data) {
-        const { data: existing, error: readError } = await admin.from('ai_help_answer_feedback')
-          .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').eq('id', body.id).maybeSingle()
-        if (readError) return json(503, { error: 'The feedback report could not be checked. Try again.' }, origin)
-        if (!existing) return json(404, { error: 'Feedback report not found.' }, origin)
-        if (existing.status !== body.status) return json(409, { error: 'Feedback report changed. Refresh and retry.' }, origin)
-        return json(200, { feedback: existing }, origin)
-      }
+      const { error: updateError } = await admin.rpc('review_unified_ai_answer_feedback', { p_legacy_id: body.id, p_status: body.status, p_reviewer_id: user.id })
+      if (updateError) return json(updateError.code === 'P0002' ? 404 : updateError.code === '40001' ? 409 : 503, { error: updateError.code === 'P0002' ? 'Feedback report not found.' : updateError.code === '40001' ? 'Feedback report changed. Refresh and retry.' : 'The feedback status could not be updated. Try again.' }, origin)
+      const { data, error: readError } = await admin.from('ai_help_answer_feedback')
+        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').eq('id', body.id).maybeSingle()
+      if (readError || !data) return json(503, { error: 'The feedback report was saved, but its latest status could not be loaded.' }, origin)
       return json(200, { feedback: data }, origin)
     }
 
