@@ -97,7 +97,7 @@ Deno.serve(async (request) => {
       return json(503, { error: 'Feedback could not be saved right now. Try again shortly.' }, origin)
     }
     if (data?.rate_limited) return json(429, { error: 'Too many feedback reports. Try again later.' }, origin)
-    let deliveryStatus = data?.category === 'helpful' ? 'not_required' : 'pending'
+    let deliveryStatus = value.category === 'helpful' ? 'not_required' : 'pending'
     if (typeof data?.unified_feedback_id === 'string') {
       try {
         deliveryStatus = await deliverPendingSupportEmail(admin, data.unified_feedback_id, { userId: identity.user.id, email: identity.user.email ?? null }, {

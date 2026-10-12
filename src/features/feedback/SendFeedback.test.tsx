@@ -18,7 +18,7 @@ function renderAction(initialEntries = ['/settings']) {
 describe('Send Feedback', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
   beforeEach(() => {
-    mocks.submit.mockReset().mockResolvedValue(undefined)
+    mocks.submit.mockReset().mockResolvedValue({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
     mocks.auth = { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } }
   })
 
@@ -34,7 +34,7 @@ describe('Send Feedback', () => {
   })
 
   it('preserves a failed message and retries with a stable idempotency key', async () => {
-    mocks.submit.mockRejectedValueOnce(new Error('Feedback service is unavailable.')).mockResolvedValueOnce(undefined)
+    mocks.submit.mockRejectedValueOnce(new Error('Feedback service is unavailable.')).mockResolvedValueOnce({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
     const user = userEvent.setup()
     renderAction()
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
@@ -46,14 +46,14 @@ describe('Send Feedback', () => {
     expect(screen.getByRole('link', { name: 'Email Support' })).toHaveAttribute('href', expect.stringContaining(encodeURIComponent('The tracker did not save.')))
     const firstInput = mocks.submit.mock.calls[0]?.[1]
     await user.click(screen.getByRole('button', { name: 'Try Again' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Feedback sent. Thank you for helping improve ProgressTracker!')
+    expect(await screen.findByText('Feedback saved. Thank you for helping improve ProgressTracker!')).toBeInTheDocument()
     expect(mocks.submit).toHaveBeenCalledTimes(2)
     expect(mocks.submit.mock.calls[1]?.[1].requestId).toBe(firstInput.requestId)
   })
 
   it('prevents a second submission while one is in flight', async () => {
     let resolveSubmission!: () => void
-    mocks.submit.mockImplementation(() => new Promise<void>((resolve) => { resolveSubmission = resolve }))
+    mocks.submit.mockImplementation(() => new Promise((resolve) => { resolveSubmission = () => resolve({ deliveryStatus: 'pending' }) }))
     const user = userEvent.setup()
     renderAction()
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))

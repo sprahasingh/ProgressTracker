@@ -192,7 +192,7 @@ function KnowledgeWorkspace() {
   }
   function updateField<K extends keyof EditableFields>(key: K, value: EditableFields[K]) { setFields((current) => current ? { ...current, [key]: value } : current) }
 
-  if (workspaceTab === 'support') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
+  if (workspaceTab === 'support') return <section className="tracker-page ai-knowledge-page support-inbox-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="Feedback & Support" description="Manage user feedback and support conversations." />
     <nav className="ai-knowledge-workspace-tabs" aria-label="Maintainer workspace">
       <button type="button" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>

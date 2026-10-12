@@ -17,7 +17,10 @@ export async function submitGeneralFeedback(client: SupabaseClient | null, input
     body: { category: input.category, message: input.message, request_id: input.requestId, source: input.source ?? 'settings', ...(input.subject ? { subject: input.subject } : {}) },
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!error && result?.accepted === true) return { feedbackId: result.feedbackId, deliveryStatus: result.deliveryStatus ?? 'pending' }
+  if (!error && result?.accepted === true) return {
+    ...(typeof result.feedbackId === 'string' ? { feedbackId: result.feedbackId } : {}),
+    deliveryStatus: result.deliveryStatus ?? 'pending',
+  }
   let message = result?.error ?? ''
   let status = 0
   let retryAfterSeconds: number | undefined

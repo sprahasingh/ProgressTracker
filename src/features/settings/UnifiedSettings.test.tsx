@@ -69,7 +69,7 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Change email' }))
     await user.type(screen.getByLabelText('New email address'), 'invalid')
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email address.')
+    expect(await screen.findByText('Enter a valid email address.')).toHaveAttribute('role', 'alert')
     expect(mocks.changeEmail).not.toHaveBeenCalled()
     await user.clear(screen.getByLabelText('New email address'))
     await user.type(screen.getByLabelText('New email address'), 'next@example.com')
