@@ -17,9 +17,18 @@ describe('submitGeneralFeedback', () => {
     const backend = client({ access_token: 'session-token' }, { data: { accepted: true }, error: null })
     await expect(submitGeneralFeedback(backend, input)).resolves.toEqual({ deliveryStatus: 'pending' })
     expect(backend.functions.invoke).toHaveBeenCalledWith('send-feedback', {
-      body: { category: input.category, message: input.message, request_id: input.requestId, source: 'settings' },
+      body: { category: input.category, message: input.message, request_id: input.requestId, source: 'settings', share_email: true },
       headers: { Authorization: 'Bearer session-token' },
     })
+  })
+
+  it('sends the explicit email-sharing choice and defaults older callers to sharing enabled', async () => {
+    const optedOut = client({ access_token: 'session-token' }, { data: { accepted: true }, error: null })
+    await submitGeneralFeedback(optedOut, { ...input, shareEmail: false })
+    expect(optedOut.functions.invoke).toHaveBeenCalledWith('send-feedback', expect.objectContaining({ body: expect.objectContaining({ share_email: false }) }))
+    const compatibility = client({ access_token: 'session-token' }, { data: { accepted: true }, error: null })
+    await submitGeneralFeedback(compatibility, input)
+    expect(compatibility.functions.invoke).toHaveBeenCalledWith('send-feedback', expect.objectContaining({ body: expect.objectContaining({ share_email: true }) }))
   })
 
   it('rejects missing sessions before calling the function', async () => {

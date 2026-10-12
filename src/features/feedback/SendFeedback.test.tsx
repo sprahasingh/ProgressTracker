@@ -33,6 +33,22 @@ describe('Send Feedback', () => {
     expect(send).toBeEnabled()
   })
 
+  it('defaults email sharing on, hides the address when opted out, and submits the opt-out', async () => {
+    const user = userEvent.setup()
+    renderAction()
+    await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
+    const checkbox = screen.getByRole('checkbox', { name: /Share my email with support/ })
+    expect(checkbox).toBeChecked()
+    expect(screen.getByText(/Email shared with support: person@example.com/)).toBeInTheDocument()
+    await user.click(checkbox)
+    expect(screen.queryByText(/person@example.com/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Notifications and My Support Queries/)).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Your message' }), 'Please reply in the app.')
+    await user.click(screen.getByRole('dialog').querySelector('footer button[type="submit"]') as HTMLButtonElement)
+    await screen.findByText('Feedback saved. Thank you for helping improve ProgressTracker!')
+    expect(mocks.submit.mock.calls[0]?.[1]).toMatchObject({ shareEmail: false })
+  })
+
   it('preserves a failed message and retries with a stable idempotency key', async () => {
     mocks.submit.mockRejectedValueOnce(new Error('Feedback service is unavailable.')).mockResolvedValueOnce({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
     const user = userEvent.setup()

@@ -5,7 +5,9 @@ const valid = { category: 'bug_report', message: '  The page froze after saving.
 
 describe('general feedback validation and email delivery', () => {
   it('validates category, message length, and idempotency UUID', () => {
-    expect(validateFeedbackSubmission(valid)).toEqual({ category: 'bug_report', message: 'The page froze after saving.', requestId: valid.request_id })
+    expect(validateFeedbackSubmission(valid)).toEqual({ category: 'bug_report', message: 'The page froze after saving.', requestId: valid.request_id, shareEmail: true })
+    expect(validateFeedbackSubmission({ ...valid, share_email: false })?.shareEmail).toBe(false)
+    expect(validateFeedbackSubmission({ ...valid, share_email: 'false' })).toBeNull()
     expect(validateFeedbackSubmission({ ...valid, message: '  ' })).toBeNull()
     expect(validateFeedbackSubmission({ ...valid, message: 'x'.repeat(2001) })).toBeNull()
     expect(validateFeedbackSubmission({ ...valid, category: 'other' })).toBeNull()
@@ -19,6 +21,13 @@ describe('general feedback validation and email delivery', () => {
     expect(email.html).toContain('&lt;script&gt;')
     expect(email.subject).toBe('[ProgressTracker Feedback] Bug Report')
     expect(email.replyTo).toBe('person@example.com')
+  })
+
+  it('does not include the account address in support email content or Reply-To after opt-out', () => {
+    const email = buildFeedbackEmail(validateFeedbackSubmission({ ...valid, share_email: false })!, { userId: 'user-1', email: 'person@example.com' }, new Date('2026-10-12T00:00:00Z'), '0.1.0')
+    expect(email.replyTo).toBeNull()
+    expect(email.text).not.toContain('person@example.com')
+    expect(email.html).not.toContain('person@example.com')
   })
 
   it('uses Brevo authentication and request fields with the verified sender and fixed support recipient', async () => {

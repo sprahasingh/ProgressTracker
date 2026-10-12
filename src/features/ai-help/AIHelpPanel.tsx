@@ -9,7 +9,7 @@ import { SUPPORT_EMAIL } from '../../config/supportContact'
 import { FeedbackSubmissionError, type GeneralFeedbackResult } from '../feedback/feedbackService'
 import { suggestionsByRoute, type ChatMessage, type FeedbackCategory, type HelpRoute } from './aiHelpService'
 
-type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string) => Promise<GeneralFeedbackResult>; triggerRef: RefObject<HTMLButtonElement | null> }
+type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string, shareEmail: boolean) => Promise<GeneralFeedbackResult>; triggerRef: RefObject<HTMLButtonElement | null> }
 const internalLinks = new Map([['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History'], ['/bin', 'The Bin']])
 
 function renderInline(text: string, onNavigate?: () => void) {
@@ -78,6 +78,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
   const endRef = useRef<HTMLDivElement>(null)
   const [showJump, setShowJump] = useState(false)
   const [supportDetails, setSupportDetails] = useState('')
+  const [supportShareEmail, setSupportShareEmail] = useState(true)
   const [supportBusy, setSupportBusy] = useState(false)
   const [supportError, setSupportError] = useState('')
   const [supportAccepted, setSupportAccepted] = useState(false)
@@ -107,6 +108,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
   useEffect(() => { if (nearBottom) endRef.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' }) }, [messages, loading, nearBottom])
   useEffect(() => {
     if (!supportOpen) return
+    setSupportShareEmail(true)
     setSupportAccepted(false)
     setSupportError('')
     setSupportDetails('')
@@ -133,7 +135,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
     const requestId = requestIdRef.current?.content === message ? requestIdRef.current.id : crypto.randomUUID()
     requestIdRef.current = { content: message, id: requestId }
     try {
-      const result = await onSupportSubmit(message, requestId)
+      const result = await onSupportSubmit(message, requestId, supportShareEmail)
       setSupportEmailStatus(result.deliveryStatus)
       setSupportFeedbackId(result.feedbackId ?? '')
       window.dispatchEvent(new Event('progress-tracker:support-feedback-changed'))
@@ -173,7 +175,8 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
           <textarea id="ai-help-support-message" value={supportDraft} maxLength={1800} rows={3} onChange={(event) => { onSupportDraftChange(event.target.value.slice(0, 1800)); requestIdRef.current = null; setSupportError('') }} disabled={supportBusy} required />
           <label htmlFor="ai-help-support-details">Additional details <small>Optional. Don’t include passwords, sign-in links, or private tracker data.</small></label>
           <textarea id="ai-help-support-details" value={supportDetails} maxLength={1000} rows={2} placeholder="Add details if needed" onChange={(event) => { setSupportDetails(event.target.value.slice(0, 1000)); requestIdRef.current = null; setSupportError('') }} disabled={supportBusy} />
-          <p className="ai-help-support-destination">To: {SUPPORT_EMAIL}. Your signed-in account email is used only as the reply address. Only the text shown above will be sent.</p>
+          <label className="ai-help-share-email"><input type="checkbox" checked={supportShareEmail} onChange={(event) => setSupportShareEmail(event.target.checked)} disabled={supportBusy} /><span><strong>Share my email with support</strong><small>{supportShareEmail ? 'Support can contact you by email as well as reply in the app.' : 'You can still see replies in Notifications and My Support Queries.'}</small></span></label>
+          <p className="ai-help-support-destination">Don’t include passwords, sign-in links, or private tracker details. Your query and replies stay in My Support Queries.</p>
           {supportError && <p className="ai-help-support-error" role="alert">{supportError}</p>}
         </>}</div>
         {!supportAccepted && <footer><button type="button" className="button button-secondary button-small" onClick={() => { if (!supportBusy) { onSupportOpen(false); setSupportError('') } }} disabled={supportBusy}>Cancel</button><button type="submit" className="button button-primary button-small" disabled={supportBusy || !supportDraft.trim()}>{supportBusy ? 'Sending…' : 'Send Query'}</button></footer>}

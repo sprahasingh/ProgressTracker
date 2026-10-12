@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type GeneralFeedbackCategory = 'bug_report' | 'feature_request' | 'general_feedback' | 'help_support'
-export type GeneralFeedbackInput = { category: GeneralFeedbackCategory; message: string; requestId: string; source?: 'settings' | 'ai_help_support' | 'other'; subject?: string }
+export type GeneralFeedbackInput = { category: GeneralFeedbackCategory; message: string; requestId: string; source?: 'settings' | 'ai_help_support' | 'other'; subject?: string; shareEmail?: boolean }
 export type GeneralFeedbackResult = { feedbackId?: string; deliveryStatus: 'accepted' | 'pending' | 'failed' | 'uncertain' | 'not_required' }
 
 export class FeedbackSubmissionError extends Error {
@@ -14,7 +14,7 @@ export async function submitGeneralFeedback(client: SupabaseClient | null, input
   const token = data.session?.access_token
   if (sessionError || !token) throw new FeedbackSubmissionError('Sign in again to send feedback. You can email support directly below.', 401)
   const { data: result, error } = await client.functions.invoke<{ accepted?: boolean; error?: string; retryAfterSeconds?: number; uncertain?: boolean; retryable?: boolean; feedbackId?: string; deliveryStatus?: GeneralFeedbackResult['deliveryStatus'] }>('send-feedback', {
-    body: { category: input.category, message: input.message, request_id: input.requestId, source: input.source ?? 'settings', ...(input.subject ? { subject: input.subject } : {}) },
+    body: { category: input.category, message: input.message, request_id: input.requestId, source: input.source ?? 'settings', share_email: input.shareEmail ?? true, ...(input.subject ? { subject: input.subject } : {}) },
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!error && result?.accepted === true) return {
@@ -38,6 +38,16 @@ export async function submitGeneralFeedback(client: SupabaseClient | null, input
       if (payload.uncertain === true) uncertain = true
       if (typeof payload.retryable === 'boolean') retryable = payload.retryable
     } catch { /* Keep a stable fallback for non-JSON gateway failures. */ }
+    if (!message) {
+      if (status === 401) message = 'Your sign-in expired. Sign in again to send feedback.'
+      else if (status === 400) message = 'Check the feedback form and try again.'
+      else if (status === 429) message = 'You have sent several feedback messages recently. Please wait before trying again.'
+      else if (status === 404) message = 'Feedback is temporarily unavailable in this app version. Please try again shortly.'
+      else if (status >= 500) message = 'Feedback could not be saved right now. Your message is still here; please retry.'
+    }
+  } else if (error) {
+    status = 0
+    message = 'Could not connect to Feedback & Support. Check your connection and retry.'
   }
   throw new FeedbackSubmissionError(message || "Couldn't send your feedback right now. You can email us directly instead.", status, retryAfterSeconds, uncertain, retryable)
 }

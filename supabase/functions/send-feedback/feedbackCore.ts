@@ -7,8 +7,8 @@ export const feedbackCategoryLabels: Record<DeliveryCategory, string> = {
   help_support: 'Help / Support', ai_answer_feedback: 'AI Answer Feedback',
 }
 
-export type FeedbackSubmission = { category: DeliveryCategory; message: string; requestId: string; source?: string; subject?: string; feedbackId?: string; submittedAt?: string; evidenceContext?: { answerCategory?: string; topic?: string; knowledgeVersion?: string; responseId?: string } }
-export type FeedbackIdentity = { userId: string; email: string | null }
+export type FeedbackSubmission = { category: DeliveryCategory; message: string; requestId: string; source?: string; subject?: string; feedbackId?: string; submittedAt?: string; shareEmail?: boolean; evidenceContext?: { answerCategory?: string; topic?: string; knowledgeVersion?: string; responseId?: string } }
+export type FeedbackIdentity = { userId: string; email: string | null; shareEmail?: boolean }
 
 const emailPattern = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -17,11 +17,12 @@ const credentialPattern = /(?:password|passcode)\s+(?:is\s+)?[:=]?\s*\S+|(?:acce
 export function validateFeedbackSubmission(value: unknown): FeedbackSubmission | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
-  if (Object.keys(input).some((key) => !['category', 'message', 'request_id', 'source', 'subject'].includes(key))) return null
+  if (Object.keys(input).some((key) => !['category', 'message', 'request_id', 'source', 'subject', 'share_email'].includes(key))) return null
   if (typeof input.category !== 'string' || !feedbackCategories.includes(input.category as FeedbackCategory)) return null
   if (typeof input.message !== 'string' || input.message.trim().length < 1 || input.message.trim().length > 2000) return null
   if (input.source !== undefined && !['settings','ai_help_support','other'].includes(String(input.source))) return null
   if (input.subject !== undefined && (typeof input.subject !== 'string' || input.subject.trim().length < 1 || input.subject.trim().length > 160)) return null
+  if (input.share_email !== undefined && typeof input.share_email !== 'boolean') return null
   if (credentialPattern.test(input.message)) return null
   if (typeof input.request_id !== 'string' || !uuidPattern.test(input.request_id)) return null
   return {
@@ -30,6 +31,7 @@ export function validateFeedbackSubmission(value: unknown): FeedbackSubmission |
     requestId: input.request_id,
     ...(typeof input.source === 'string' ? { source: input.source } : {}),
     ...(typeof input.subject === 'string' ? { subject: input.subject.trim() } : {}),
+    shareEmail: input.share_email !== false,
   }
 }
 
@@ -43,7 +45,7 @@ export function escapeEmailHtml(value: string): string {
 
 export function buildFeedbackEmail(input: FeedbackSubmission, identity: FeedbackIdentity, sentAt: Date, appVersion: string) {
   const category = feedbackCategoryLabels[input.category]
-  const replyEmail = validReplyAddress(identity.email)
+  const replyEmail = input.shareEmail === false || identity.shareEmail === false ? null : validReplyAddress(identity.email)
   const timestamp = sentAt.toISOString()
   const message = input.message
   const escapedMessage = escapeEmailHtml(message)
