@@ -38,6 +38,20 @@ describe('MySupportQueries', () => {
     expect(screen.queryByRole('button', { name: 'Send Reply' })).not.toBeInTheDocument()
   })
 
+  it('shows the compact query list without an empty detail, then returns to it from a conversation', async () => {
+    vi.mocked(listMySupportThreads).mockResolvedValue({ threads: [thread] })
+    vi.mocked(getMySupportThread).mockResolvedValue(detail)
+    const user = userEvent.setup()
+    render(<MemoryRouter><MySupportQueries /></MemoryRouter>)
+    expect(await screen.findByRole('navigation', { name: 'Your support queries' })).toBeInTheDocument()
+    expect(screen.queryByText('Select a support query to view the conversation.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Goal did not save/ }))
+    expect(await screen.findByText('Please refresh and try again.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Back to queries/ }))
+    expect(screen.getByRole('navigation', { name: 'Your support queries' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: /Conversation:/ })).not.toBeInTheDocument()
+  })
+
   it('shows only a retryable error when the list request fails, then performs a fresh request', async () => {
     vi.mocked(listMySupportThreads).mockRejectedValueOnce(new Error('Could not connect to Support. Check your connection and retry.')).mockResolvedValueOnce({ threads: [] })
     const user = userEvent.setup()

@@ -1,7 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { validateFeedbackExplanation } from './feedbackCore.ts'
-import { deliverPendingSupportEmail } from '../_shared/supportFeedbackDelivery.ts'
-import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
 
 const origins = new Set((Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((value) => {
   try { return new URL(value.trim()).origin } catch { return '' }
@@ -97,18 +95,7 @@ Deno.serve(async (request) => {
       return json(503, { error: 'Feedback could not be saved right now. Try again shortly.' }, origin)
     }
     if (data?.rate_limited) return json(429, { error: 'Too many feedback reports. Try again later.' }, origin)
-    let deliveryStatus = value.category === 'helpful' ? 'not_required' : 'pending'
-    if (typeof data?.unified_feedback_id === 'string') {
-      try {
-        deliveryStatus = await deliverPendingSupportEmail(admin, data.unified_feedback_id, { userId: identity.user.id, email: identity.user.email ?? null }, {
-          apiKey: Deno.env.get('BREVO_API_KEY') ?? '', from: Deno.env.get('FEEDBACK_FROM_EMAIL') ?? '',
-          to: PUBLIC_SUPPORT_EMAIL, appVersion: Deno.env.get('SUPPORT_FEEDBACK_APP_VERSION') ?? '0.1.0',
-        })
-      } catch (deliveryError) {
-        console.error('AI_HELP_FEEDBACK_DELIVERY_FAILED', JSON.stringify({ code: deliveryError instanceof Error ? deliveryError.message : 'unknown' }))
-      }
-    }
-    return json(200, { accepted: data?.accepted === true, duplicate: data?.duplicate === true, feedbackId: data?.unified_feedback_id, deliveryStatus }, origin)
+    return json(200, { accepted: data?.accepted === true, duplicate: data?.duplicate === true, deliveryStatus: 'not_required' }, origin)
   } catch {
     return json(500, { error: 'Feedback could not be submitted. Try again shortly.' }, origin)
   }

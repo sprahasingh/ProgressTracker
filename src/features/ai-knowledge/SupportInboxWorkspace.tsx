@@ -3,7 +3,7 @@ import { getSupportInboxThread, listSupportInbox, replyAsMaintainer, retrySuppor
 
 const categories: Array<{ id: SupportCategory | 'all'; label: string }> = [
   { id: 'all', label: 'All feedback' }, { id: 'support_query', label: 'Support queries' }, { id: 'bug_report', label: 'Bug reports' },
-  { id: 'feature_request', label: 'Feature requests' }, { id: 'general_feedback', label: 'General feedback' }, { id: 'ai_answer_feedback', label: 'AI answer feedback' },
+  { id: 'feature_request', label: 'Feature requests' }, { id: 'general_feedback', label: 'General feedback' },
 ]
 const statuses: Array<{ id: SupportStatus | 'all'; label: string }> = [
   { id: 'all', label: 'All statuses' }, { id: 'open', label: 'Open' }, { id: 'in_progress', label: 'In progress' }, { id: 'waiting_for_user', label: 'Waiting for user' }, { id: 'resolved', label: 'Resolved' },
@@ -68,8 +68,11 @@ export function SupportInboxWorkspace() {
     if (!detail || busy) return
     setBusy(true); setError('')
     try {
-      await setSupportThreadStatus(detail.thread.id, next, detail.thread.updated_at)
-      setRefreshKey((value) => value + 1)
+      const confirmed = await setSupportThreadStatus(detail.thread.id, next, detail.thread.updated_at)
+      const latest = await getSupportInboxThread(detail.thread.id)
+      if (latest.thread.status !== confirmed.status) throw new Error('The status was saved, but the refreshed conversation does not match. Refresh before continuing.')
+      setDetail(latest)
+      await reload()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The status could not be updated.') }
     finally { setBusy(false) }
   }
@@ -85,13 +88,16 @@ export function SupportInboxWorkspace() {
   return <section className="support-inbox-workspace" aria-labelledby="support-inbox-title">
     <header className="ai-feedback-heading"><div><h2 id="support-inbox-title">Feedback &amp; Support</h2><p>Review in-app feedback and continue support conversations. Opening a thread marks it reviewed.</p></div><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Refresh</button></header>
     <div className="ai-knowledge-counts support-inbox-metrics" aria-label="Feedback overview">
-      {[['Total feedback', result?.metrics.total], ['Open', result?.metrics.open], ['Waiting for user', result?.metrics.waiting], ['Resolved', result?.metrics.resolved], ['Unread', result?.metrics.unread], ['Incorrect AI answers', result?.metrics.incorrect_ai]].map(([label, count]) => <div className="ai-knowledge-count" key={label as string}><span>{label}</span><strong>{count ?? '—'}</strong></div>)}
+      {[['Total feedback', result?.metrics.total], ['Open', result?.metrics.open], ['Waiting for user', result?.metrics.waiting], ['Resolved', result?.metrics.resolved], ['Unread', result?.metrics.unread]].map(([label, count]) => <div className="ai-knowledge-count" key={label as string}><span>{label}</span><strong>{count ?? '—'}</strong></div>)}
     </div>
     <div className="ai-knowledge-workspace-tabs support-inbox-categories" aria-label="Feedback categories">{categories.map((item) => <button type="button" key={item.id} aria-pressed={category === item.id} className={category === item.id ? 'is-active' : ''} onClick={() => setCategory(item.id)}>{item.label}</button>)}<button type="button" aria-pressed={status === 'resolved'} className={status === 'resolved' ? 'is-active' : ''} onClick={() => setStatus(status === 'resolved' ? 'all' : 'resolved')}>Resolved</button></div>
+    <label className="support-mobile-category"><span>Feedback category</span><select value={category} onChange={(event) => setCategory(event.target.value as SupportCategory | 'all')}>{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
     <section className="surface ai-knowledge-browser support-inbox-browser" aria-label="Feedback inbox">
       <div className="ai-knowledge-toolbar"><label className="support-search"><span>Search subject</span><input className="auth-input" value={search} onChange={(event) => setSearch(event.target.value)} maxLength={80} placeholder="Search feedback" /></label><label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as SupportStatus | 'all')}>{statuses.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Sort</span><select value={sort} onChange={(event) => setSort(event.target.value as 'newest' | 'oldest')}><option value="newest">Most recent activity</option><option value="oldest">Oldest activity</option></select></label></div>
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
-      {loading && !result ? <p className="ai-knowledge-loading" role="status">Loading feedback…</p> : !result?.threads.length ? <div className="ai-knowledge-empty"><h3>No feedback in this view</h3><p>Try another category or status.</p></div> : <div className="support-inbox-layout">
+      {loading && !result ? <p className="ai-knowledge-loading" role="status">Loading feedback…</p> : !result ? error ? null : <div className="ai-knowledge-empty"><h3>No feedback in this view</h3><p>Try another category or status.</p></div> : result.threads.length === 0 && !error ? <div className="ai-knowledge-empty"><h3>No feedback in this view</h3><p>Try another category or status.</p></div> : <>
+      {error && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
+      <div className="support-inbox-layout">
         <div className="support-inbox-list" role="list" aria-label="Feedback records">{result.threads.map((thread) => <button type="button" role="listitem" key={thread.id} className={`support-inbox-row${selectedId === thread.id ? ' is-active' : ''}`} onClick={() => setSelectedId(thread.id)}>
           <span className="support-inbox-row-title"><strong>{thread.subject}</strong>{!thread.maintainer_seen_at && <span className="support-unread">New</span>}</span><span>{labelCategory(thread.category)} · {thread.source.replaceAll('_',' ')}</span><span>{thread.user_email ?? 'Deleted account'} · {dateLabel(thread.created_at)}</span><span className={`support-status is-${thread.status}`}>{labelStatus(thread.status)}</span><small>Email: {thread.email_status.replaceAll('_',' ')}</small>
         </button>)}</div>
@@ -106,7 +112,8 @@ export function SupportInboxWorkspace() {
           <label className="support-status-control"><span>Thread status</span><select value={detail.thread.status} disabled={busy} onChange={(event) => void updateStatus(event.target.value as SupportStatus)}>{statuses.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           {['pending','failed'].includes(detail.thread.email_status) && <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => void retryEmail()}>{detail.thread.email_status === 'pending' ? 'Send pending support email notification' : 'Retry support email notification'}</button>}
         </article> : <div className="support-thread-detail support-thread-empty"><p>Select feedback to view its message and conversation.</p></div>}
-      </div>}
+      </div>
+      </>}
       {loading && result && <p role="status">Refreshing feedback…</p>}
     </section>
   </section>

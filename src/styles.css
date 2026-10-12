@@ -291,6 +291,7 @@ a { color: inherit; text-decoration: none; }
   .ai-help-composer { margin-right: 10px; margin-left: 10px; }
   .ai-help-privacy { margin-bottom: 8px; }
 }
+
 @media (max-width: 380px) {
   .topbar { padding-right: 10px; padding-left: 10px; }
   .topbar-sync-state { display: none; }
@@ -2778,3 +2779,41 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .support-inbox-browser .ai-knowledge-toolbar { align-items: stretch; }
   .support-inbox-browser .ai-knowledge-toolbar > label { min-width: 0; flex: 1 1 130px; }
 }
+
+/* Responsive overrides for support and AI Knowledge are intentionally scoped. */
+.ai-knowledge-mobile-nav, .support-mobile-category { display: none; }
+.ai-knowledge-page, .ai-feedback-workspace, .support-inbox-workspace, .support-inbox-browser,
+.support-inbox-layout, .support-thread-panel, .support-user-layout { min-width: 0; }
+.support-inbox-metrics { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); overflow: visible; }
+.support-inbox-metrics .ai-knowledge-count { min-width: 0; white-space: normal; }
+.support-inbox-metrics .ai-knowledge-count span { overflow-wrap: anywhere; }
+.support-inbox-row > *, .ai-feedback-row > *, .support-thread-detail > *, .support-admin-thread * { min-width: 0; max-width: 100%; }
+.support-admin-thread textarea, .support-reply-form textarea { width: 100%; }
+@media (max-width: 640px) {
+  .ai-knowledge-page > .ai-knowledge-workspace-tabs { display: none; }
+  .ai-knowledge-mobile-nav { display: grid; gap: 5px; margin: 10px 0 14px; }
+  .ai-knowledge-mobile-nav select, .support-mobile-category select { width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink); font: inherit; }
+  .support-inbox-categories { display: none; }
+  .support-mobile-category { display: grid; gap: 5px; color: var(--ink-muted); font-size: 12px; }
+  .support-inbox-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 5px; }
+  .support-inbox-metrics .ai-knowledge-count { justify-content: space-between; min-height: 48px; padding: 7px; font-size: 11px; }
+  .support-inbox-browser > .ai-knowledge-toolbar { align-items: stretch; }
+  .support-inbox-browser > .ai-knowledge-toolbar > label { min-width: 0; width: 100%; flex: 1 1 100%; }
+  .support-inbox-browser > .ai-knowledge-toolbar select, .support-inbox-browser > .ai-knowledge-toolbar input { width: 100%; max-width: none; }
+  .support-inbox-layout { grid-template-columns: minmax(0, 1fr); }
+  .support-inbox-list { max-height: min(52vh, 460px); }
+  .support-inbox-row { overflow-wrap: anywhere; }
+  .support-admin-meta, .support-thread-original dl { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .support-thread-detail { overflow-wrap: anywhere; }
+  .support-status-control { display: grid; grid-template-columns: 1fr; }
+  .support-status-control select { width: 100%; min-height: 42px; }
+  .support-thread-list { max-height: none; }
+  .support-user-layout.has-selection .support-thread-list { display: none; }
+  .support-user-layout:not(.has-selection) .support-thread-panel { display: none; }
+  .support-user-layout.has-selection .support-thread-panel { display: grid; gap: 10px; }
+  .support-back-to-queries { justify-self: start; }
+  .support-detail-loading { min-height: 100px; display: grid; place-items: center; color: var(--ink-muted); }
+  .support-thread-list .support-list-heading { margin: 0 0 2px; font-size: 15px; }
+.support-user-layout:not(.has-selection) { grid-template-columns: minmax(0, 1fr); }
+}
+

@@ -44,5 +44,9 @@ export type SupportInboxList = { threads: Array<SupportThread & { user_email?: s
 export const listSupportInbox = (filters: SupportInboxFilters, client?: SupabaseClient | null) => invoke<SupportInboxList>({ action: 'list_admin', ...filters, limit: 25 }, client)
 export const getSupportInboxThread = (feedbackId: string, client?: SupabaseClient | null) => invoke<SupportThreadDetail>({ action: 'get_admin', feedback_id: feedbackId }, client)
 export const replyAsMaintainer = (feedbackId: string, message: string, requestId: string, client?: SupabaseClient | null) => invoke<{ accepted: boolean; duplicate: boolean; status: SupportStatus }>({ action: 'reply_admin', feedback_id: feedbackId, message, request_id: requestId }, client)
-export const setSupportThreadStatus = (feedbackId: string, status: SupportStatus, expectedUpdatedAt: string, client?: SupabaseClient | null) => invoke<{ status: SupportStatus }>({ action: 'set_status', feedback_id: feedbackId, status, expected_updated_at: expectedUpdatedAt }, client)
+export async function setSupportThreadStatus(feedbackId: string, status: SupportStatus, expectedUpdatedAt: string, client?: SupabaseClient | null): Promise<{ status: SupportStatus }> {
+  const result = await invoke<{ status: SupportStatus }>({ action: 'set_status', feedback_id: feedbackId, status, expected_updated_at: expectedUpdatedAt }, client)
+  if (!result || result.status !== status) throw new SupportApiError(502, 'The server did not confirm the requested status. Refresh the conversation and try again.')
+  return result
+}
 export const retrySupportEmail = (feedbackId: string, client?: SupabaseClient | null) => invoke<{ accepted: boolean; deliveryStatus: string }>({ action: 'retry_email', feedback_id: feedbackId }, client)

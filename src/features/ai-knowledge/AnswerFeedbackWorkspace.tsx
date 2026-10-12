@@ -19,6 +19,7 @@ export function AnswerFeedbackWorkspace() {
   const [counts, setCounts] = useState<Record<AnswerFeedbackStatus, number>>({ pending: 0, reviewed: 0, resolved: 0 })
   const [currentVersion, setCurrentVersion] = useState('')
   const [loading, setLoading] = useState(true)
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState('')
   const [refresh, setRefresh] = useState(0)
@@ -33,6 +34,7 @@ export function AnswerFeedbackWorkspace() {
       setRows(result.feedback)
       setCounts(result.counts)
       setCurrentVersion(result.current_knowledge_version)
+      setHasLoaded(true)
     }).catch((cause: unknown) => {
       if (active) setError(cause instanceof Error ? cause.message : 'Answer feedback could not be loaded.')
     }).finally(() => { if (active) setLoading(false) })
@@ -52,16 +54,18 @@ export function AnswerFeedbackWorkspace() {
 
   return <section className="ai-feedback-workspace" aria-labelledby="ai-feedback-title">
     <header className="ai-feedback-heading"><div><h2 id="ai-feedback-title">Answer Feedback</h2><p>Reports include a category and optional note only. They do not include the conversation or assistant answer text.</p></div><button type="button" className="button button-secondary button-small" onClick={reload}>Refresh</button></header>
-    <div className="ai-knowledge-counts" aria-label="Answer feedback counts">
+    {hasLoaded && <div className="ai-knowledge-counts" aria-label="Answer feedback counts">
       {(['pending', 'reviewed', 'resolved'] as const).map((key) => <button type="button" key={key} className={`ai-knowledge-count${status === key ? ' is-active' : ''}`} onClick={() => setStatus(key)}><span>{key === 'pending' ? 'Needs review' : key[0]!.toLocaleUpperCase() + key.slice(1)}</span><strong>{counts[key]}</strong></button>)}
-    </div>
+    </div>}
     <div className="surface ai-knowledge-browser">
       <div className="ai-knowledge-toolbar ai-feedback-toolbar">
         <label><span>Category</span><select value={category} onChange={(event) => setCategory(event.target.value as AnswerFeedbackCategory | 'all')}>{categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
         <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as AnswerFeedbackStatus | 'all')}>{statuses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       </div>
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button className="button button-secondary button-small" type="button" onClick={reload}>Retry</button></div>}
-      {loading ? <div className="ai-knowledge-loading" role="status">Loading answer feedback…</div> : rows.length === 0 ? <div className="ai-knowledge-empty"><h3>No feedback reports in this view</h3><p>New reports appear here after a user submits feedback on an AI Help answer.</p></div> : <div className="ai-feedback-list">
+      {loading && !hasLoaded ? <div className="ai-knowledge-loading" role="status">Loading answer feedback…</div> : <>
+      {error && hasLoaded && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
+      {!error && rows.length === 0 ? <div className="ai-knowledge-empty"><h3>No feedback reports in this view</h3><p>New reports appear here after a user submits feedback on an AI Help answer.</p></div> : rows.length > 0 && <div className="ai-feedback-list">
         {rows.map((row) => <article className="ai-feedback-row" key={row.id}>
           <header><div><strong>{labelFor(row.category)}</strong><span className={`ai-knowledge-status is-${row.status === 'pending' ? 'pending' : 'verified'}`}>{row.status}</span></div><time dateTime={row.created_at}>{displayDate(row.created_at)}</time></header>
           {row.explanation ? <p className="ai-feedback-explanation">{row.explanation}</p> : <p className="ai-feedback-muted">No optional note was supplied.</p>}
@@ -70,6 +74,7 @@ export function AnswerFeedbackWorkspace() {
           {row.reviewer_id && <small>Reviewed by maintainer {row.reviewer_id.slice(0, 8)} · {row.reviewed_at ? displayDate(row.reviewed_at) : 'date unavailable'}</small>}
         </article>)}
       </div>}
+      </>}
     </div>
   </section>
 }

@@ -47,6 +47,14 @@ function pageItems(candidates: KnowledgeCandidate[], verified: VerifiedTopic[], 
   })
 }
 
+function WorkspaceNavigation({ active, onChange }: { active: 'knowledge' | 'feedback' | 'support'; onChange: (value: 'knowledge' | 'feedback' | 'support') => void }) {
+  const options = [{ id: 'knowledge' as const, label: 'Knowledge Candidates' }, { id: 'feedback' as const, label: 'Answer Feedback' }, { id: 'support' as const, label: 'Feedback & Support' }]
+  return <>
+    <nav className="ai-knowledge-workspace-tabs" aria-label="Maintainer workspace">{options.map((item) => <button type="button" key={item.id} aria-current={active === item.id ? 'page' : undefined} className={active === item.id ? 'is-active' : ''} onClick={() => onChange(item.id)}>{item.label}</button>)}</nav>
+    <label className="ai-knowledge-mobile-nav"><span className="sr-only">Maintainer workspace</span><select value={active} onChange={(event) => onChange(event.target.value as typeof active)}>{options.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+  </>
+}
+
 function KnowledgeWorkspace() {
   const { notify } = useToast()
   const [workspaceTab, setWorkspaceTab] = useState<'knowledge' | 'feedback' | 'support'>('knowledge')
@@ -56,6 +64,7 @@ function KnowledgeWorkspace() {
   const [sort, setSort] = useState<ReviewSort>('newest')
   const [items, setItems] = useState<Item[]>([])
   const [counts, setCounts] = useState<ReviewCounts>({ pending: 0, approved: 0, stale: 0, rejected: 0 })
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [knowledgeVersion, setKnowledgeVersion] = useState('')
   const [candidateOffset, setCandidateOffset] = useState(0)
   const [verifiedOffset, setVerifiedOffset] = useState(0)
@@ -86,6 +95,7 @@ function KnowledgeWorkspace() {
       if (!active) return
       setItems(pageItems(result.candidates, result.verified_knowledge, sort))
       setCounts(result.counts)
+      setHasLoaded(true)
       setKnowledgeVersion(result.knowledge_version)
       setHasMore(result.page.has_more)
       setCandidateOffset(result.page.next_candidate_offset ?? (tab === 'stale' ? Math.floor(result.page.offset / 2) : result.page.offset) + result.candidates.length)
@@ -209,32 +219,20 @@ function KnowledgeWorkspace() {
 
   if (workspaceTab === 'support') return <section className="tracker-page ai-knowledge-page support-inbox-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="Feedback & Support" description="Manage user feedback and support conversations." />
-    <nav className="ai-knowledge-workspace-tabs" aria-label="Maintainer workspace">
-      <button type="button" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>
-      <button type="button" onClick={() => setWorkspaceTab('feedback')}>Answer Feedback</button>
-      <button type="button" aria-current="page" className="is-active">Feedback &amp; Support</button>
-    </nav>
+    <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
     <SupportInboxWorkspace />
   </section>
 
   if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review knowledge and user-reported answer issues." />
-    <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
-      <button type="button" aria-current="false" onClick={() => setWorkspaceTab('knowledge')}>Knowledge candidates</button>
-      <button type="button" aria-current="page" className="is-active">Answer Feedback</button>
-      <button type="button" onClick={() => setWorkspaceTab('support')}>Feedback &amp; Support</button>
-    </nav>
+    <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
     <AnswerFeedbackWorkspace />
   </section>
 
   return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review and manage the knowledge your AI assistant uses." />
-    <nav className="ai-knowledge-workspace-tabs" aria-label="AI Knowledge workspace">
-      <button type="button" aria-current="page" className="is-active">Knowledge candidates</button>
-      <button type="button" aria-current="false" onClick={() => setWorkspaceTab('feedback')}>Answer Feedback</button>
-      <button type="button" onClick={() => setWorkspaceTab('support')}>Feedback &amp; Support</button>
-    </nav>
-    <p className="ai-knowledge-intro">Candidates are proposed automatically from current product evidence. Each one stays pending until a maintainer reviews and approves it.</p>
+    <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
+    <p className="ai-knowledge-intro">AI Help may suggest candidates during conversations using current indexed product evidence. Suggestions stay pending until a maintainer checks and approves them.</p>
     {knowledgeVersion && <p className="ai-knowledge-current-version">Current source bundle <code>{knowledgeVersion}</code></p>}
     <div className="ai-knowledge-counts" role="tablist" aria-label="Filter by review status" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -246,7 +244,7 @@ function KnowledgeWorkspace() {
       document.getElementById(`ai-knowledge-tab-${next.id}`)?.focus()
     }}>
       {tabs.map(({ id, label, countKey }) => <button type="button" role="tab" id={`ai-knowledge-tab-${id}`} aria-controls="ai-knowledge-panel" tabIndex={tab === id ? 0 : -1} aria-label={label} aria-selected={tab === id} key={id} className={`ai-knowledge-count${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}>
-        <span>{label}</span><strong>{counts[countKey]}</strong>
+        <span>{label}</span><strong>{hasLoaded ? counts[countKey] : '—'}</strong>
       </button>)}
     </div>
     <section id="ai-knowledge-panel" role="tabpanel" aria-labelledby={`ai-knowledge-tab-${tab}`} className="surface ai-knowledge-browser" aria-label="Knowledge entries" tabIndex={0}>
@@ -259,9 +257,10 @@ function KnowledgeWorkspace() {
         </div>
       </div>
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button className="button button-secondary button-small" type="button" onClick={refresh}>Retry</button></div>}
-      {loading ? <div className="ai-knowledge-loading" role="status">Loading knowledge entries…</div>
-        : visibleItems.length === 0 ? <div className="ai-knowledge-empty"><h2>No {tabs.find((item) => item.id === tab)?.label.toLowerCase()} knowledge</h2><p>{search ? 'Try a different search, or clear the search field.' : 'There are no entries in this view yet.'}</p></div>
-          : <div className="ai-knowledge-list">{visibleItems.map((item) => {
+      {loading && items.length === 0 ? <div className="ai-knowledge-loading" role="status">Loading knowledge entries…</div> : <>
+        {error && items.length > 0 && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
+        {!error && visibleItems.length === 0 ? <div className="ai-knowledge-empty"><h2>No {tabs.find((item) => item.id === tab)?.label.toLowerCase()} knowledge</h2><p>{search ? 'Try a different search, or clear the search field.' : 'There are no entries in this view yet.'}</p></div>
+          : visibleItems.length > 0 && <div className="ai-knowledge-list">{visibleItems.map((item) => {
             const value = item.value
             const entryStatus = value.status
             return <button type="button" className="ai-knowledge-row" key={itemKey(item)} onClick={(event) => openDetail(item, event)}>
@@ -270,6 +269,7 @@ function KnowledgeWorkspace() {
               <span className="ai-knowledge-row-date">{item.kind === 'candidate' ? `Added ${displayDate(item.value.created_at)}` : `Reviewed ${displayDate(item.value.reviewed_at)}`}</span>
             </button>
           })}</div>}
+      </>}
       {!loading && hasMore && <div className="ai-knowledge-load-more"><button className="button button-secondary button-small" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button></div>}
     </section>
 

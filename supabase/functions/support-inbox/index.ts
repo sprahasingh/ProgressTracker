@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isMaintainer, normalizeMaintainerEmails } from '../ai-help/learningCore.ts'
 import { deliverPendingSupportEmail } from '../_shared/supportFeedbackDelivery.ts'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
-import { consentedMaintainerEmail, supportReplyRpc } from './supportInboxCore.ts'
+import { consentedMaintainerEmail, supportReplyRpc, supportStatusRpcFailure } from './supportInboxCore.ts'
 
 const allowedOrigins = new Set((Deno.env.get('SUPPORT_FEEDBACK_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
   try { return new URL(item.trim()).origin } catch { return '' }
@@ -104,16 +104,17 @@ Deno.serve(async (request) => {
       let query = admin.from('support_feedback').select(fields, { count: 'exact' })
       if (status !== 'all') query = query.eq('status', status)
       if (category !== 'all') query = query.eq('category', category)
+      if (category === 'all') query = query.neq('category', 'ai_answer_feedback')
       if (search) query = query.or(`subject.ilike.%${search}%,original_message.ilike.%${search}%`)
       const { data, error, count } = await query.order('last_activity_at', { ascending: sort === 'oldest' }).range(offset, offset + limit - 1)
       if (error) return json(503, { error: 'Feedback inbox could not be loaded.' }, origin)
       const [total, open, waiting, resolved, incorrect, unread] = await Promise.all([
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }),
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }).in('status', ['open','in_progress']),
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }).eq('status', 'waiting_for_user'),
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }).eq('category', 'ai_answer_feedback').neq('metadata->>answer_category', 'helpful'),
-        admin.from('support_feedback').select('id', { count: 'exact', head: true }).is('maintainer_seen_at', null),
+        admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback'),
+        admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback').in('status', ['open','in_progress']),
+        admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback').eq('status', 'waiting_for_user'),
+        admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback').eq('status', 'resolved'),
+        admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).neq('category', 'helpful').eq('status', 'pending'),
+        admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback').is('maintainer_seen_at', null),
       ])
       if ([total,open,waiting,resolved,incorrect,unread].some((item) => item.error)) return json(503, { error: 'Feedback inbox metrics could not be loaded.' }, origin)
       const threads = await Promise.all((data ?? []).map(async (thread) => {
@@ -141,7 +142,10 @@ Deno.serve(async (request) => {
       if (typeof body.feedback_id !== 'string' || !uuid.test(body.feedback_id) || typeof body.status !== 'string' || !statuses.has(body.status)) return json(400, { error: 'Choose a valid support status.' }, origin)
       if (typeof body.expected_updated_at !== 'string' || !Number.isFinite(Date.parse(body.expected_updated_at))) return json(400, { error: 'Refresh this conversation before changing its status.' }, origin)
       const { data, error } = await admin.rpc('support_set_status', { p_feedback_id: body.feedback_id, p_status: body.status, p_maintainer_id: user.id, p_expected_updated_at: body.expected_updated_at })
-      if (error) return json(error.code === 'P0002' ? 404 : error.code === '40001' ? 409 : 503, { error: error.code === '40001' ? 'This conversation changed. Refresh before changing its status.' : 'The feedback status could not be updated.' }, origin)
+      if (error) {
+        const failure = supportStatusRpcFailure(error.code)
+        return json(failure.status, { error: failure.error }, origin)
+      }
       return json(200, data)
     }
     if (body.action === 'retry_email') {

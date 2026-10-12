@@ -12,7 +12,7 @@ const thread = { id: 'thread-1', user_id: 'user-1', category: 'support_query' as
 const list = { threads: [thread], total: 1, has_more: false, metrics: { total: 1, open: 1, waiting: 0, resolved: 0, incorrect_ai: 0, unread: 1 } }
 const detail = { thread, user_email: 'person@example.com', messages: [] }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('SupportInboxWorkspace', () => {
   it('shows actual inbox metrics and opens user feedback details', async () => {
@@ -38,5 +38,29 @@ describe('SupportInboxWorkspace', () => {
     await user.click(screen.getByRole('button', { name: 'Send Reply' }))
     await waitFor(() => expect(replyAsMaintainer).toHaveBeenCalledWith('thread-1', 'Please retry the update.', expect.any(String)))
     expect(screen.getByLabelText('Thread status')).toBeInTheDocument()
+  })
+
+  it('requires server confirmation and reloads the selected thread after a status change', async () => {
+    const resolved = { ...thread, status: 'resolved' as const, updated_at: '2026-10-12T00:03:00Z' }
+    vi.mocked(listSupportInbox).mockResolvedValueOnce(list).mockResolvedValueOnce({ ...list, threads: [resolved], metrics: { ...list.metrics, open: 0, resolved: 1 } })
+    vi.mocked(getSupportInboxThread).mockResolvedValueOnce(detail).mockResolvedValueOnce({ ...detail, thread: resolved })
+    vi.mocked(setSupportThreadStatus).mockResolvedValue({ status: 'resolved' })
+    const user = userEvent.setup()
+    render(<SupportInboxWorkspace />)
+    await user.click(await screen.findByText('Tracker issue'))
+    const select = await screen.findByLabelText('Thread status')
+    await user.selectOptions(select, 'resolved')
+    await waitFor(() => expect(setSupportThreadStatus).toHaveBeenCalledWith('thread-1', 'resolved', thread.updated_at))
+    await waitFor(() => expect(getSupportInboxThread).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/This conversation is resolved/)).toBeInTheDocument()
+    expect(listSupportInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a useful error and does not present an empty inbox when loading fails', async () => {
+    vi.mocked(listSupportInbox).mockRejectedValue(new Error('Could not connect to Support. Check your connection and retry.'))
+    render(<SupportInboxWorkspace />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not connect to Support')
+    expect(screen.queryByText('No feedback in this view')).not.toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
   })
 })

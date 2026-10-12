@@ -9,6 +9,11 @@ const ORIGINS = new Set((Deno.env.get('AI_HELP_REVIEW_ALLOWED_ORIGINS') ?? Deno.
 }).filter(Boolean))
 const MAX_REVIEW_BODY_BYTES = 16 * 1024
 
+function logReviewDatabaseFailure(action: string, errors: Array<{ code?: string } | null | undefined>) {
+  const codes = errors.filter((error): error is { code?: string } => Boolean(error)).map((error) => error.code ?? 'unknown')
+  if (codes.length) console.error('AI_HELP_REVIEW_DATABASE_FAILURE', JSON.stringify({ action, codes }))
+}
+
 async function readReviewBody(request: Request): Promise<string> {
   if (Number(request.headers.get('content-length') ?? 0) > MAX_REVIEW_BODY_BYTES) throw new RangeError('oversized')
   if (!request.body) return ''
@@ -129,22 +134,34 @@ Deno.serve(async (request) => {
         admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'reviewed'),
         admin.from('ai_help_answer_feedback').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
       ])
-      if (rows.error || pending.error || reviewed.error || resolved.error) return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
+      if (rows.error || pending.error || reviewed.error || resolved.error) {
+        logReviewDatabaseFailure('feedback_list', [rows.error, pending.error, reviewed.error, resolved.error])
+        return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
+      }
       return json(200, { current_knowledge_version: knowledgeVersion, feedback: rows.data ?? [], counts: { pending: pending.count ?? 0, reviewed: reviewed.count ?? 0, resolved: resolved.count ?? 0 }, page: { limit, offset, has_more: (rows.data?.length ?? 0) === limit } }, origin)
     }
 
     if (body.action === 'feedback_review') {
       if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || (body.status !== 'reviewed' && body.status !== 'resolved')) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
       const { error: updateError } = await admin.rpc('review_unified_ai_answer_feedback', { p_legacy_id: body.id, p_status: body.status, p_reviewer_id: user.id })
-      if (updateError) return json(updateError.code === 'P0002' ? 404 : updateError.code === '40001' ? 409 : 503, { error: updateError.code === 'P0002' ? 'Feedback report not found.' : updateError.code === '40001' ? 'Feedback report changed. Refresh and retry.' : 'The feedback status could not be updated. Try again.' }, origin)
+      if (updateError) {
+        logReviewDatabaseFailure('feedback_review', [updateError])
+        return json(updateError.code === 'P0002' ? 404 : updateError.code === '40001' ? 409 : 503, { error: updateError.code === 'P0002' ? 'Feedback report not found.' : updateError.code === '40001' ? 'Feedback report changed. Refresh and retry.' : 'The feedback status could not be updated. Try again.' }, origin)
+      }
       const { data, error: readError } = await admin.from('ai_help_answer_feedback')
         .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id').eq('id', body.id).maybeSingle()
-      if (readError || !data) return json(503, { error: 'The feedback report was saved, but its latest status could not be loaded.' }, origin)
+      if (readError || !data) {
+        logReviewDatabaseFailure('feedback_review_refresh', [readError])
+        return json(503, { error: 'The feedback report was saved, but its latest status could not be loaded.' }, origin)
+      }
       return json(200, { feedback: data }, origin)
     }
 
     const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: sourceVersion })
-    if (freshnessError) return json(503, { error: 'Knowledge freshness could not be checked. Try again later.' }, origin)
+    if (freshnessError) {
+      logReviewDatabaseFailure('knowledge_freshness', [freshnessError])
+      return json(503, { error: 'Knowledge freshness could not be checked. Try again later.' }, origin)
+    }
 
     if (body.action === 'invalidate') {
       if (typeof body.topic_id !== 'string' || typeof body.expected_reviewed_at !== 'string' || typeof body.reason !== 'string' || body.reason.trim().length < 8 || body.reason.trim().length > 300) {
@@ -207,7 +224,10 @@ Deno.serve(async (request) => {
       ])
       const candidateRows = { data: candidateResult.data, error: candidateResult.error }
       const verifiedQueryResult = { data: verifiedResult.data, error: verifiedResult.error }
-      if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleVerifiedCount.error || staleCandidateCount.error || rejectedCount.error) return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
+      if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleVerifiedCount.error || staleCandidateCount.error || rejectedCount.error) {
+        logReviewDatabaseFailure('knowledge_list', [candidateRows.error, verifiedQueryResult.error, metricQuery.error, pendingCount.error, approvedCount.error, staleVerifiedCount.error, staleCandidateCount.error, rejectedCount.error])
+        return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
+      }
       const verified = (verifiedQueryResult.data ?? []).map((entry) => {
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
