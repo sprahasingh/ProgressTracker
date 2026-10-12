@@ -11,18 +11,31 @@ import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
 import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
 import { useMaintainerAccess } from '../features/ai-knowledge/useMaintainerAccess'
 
-const primaryNavigation = [
-  { to: '/', label: 'Today', icon: 'today', matches: ['/'], end: true },
-  { to: '/trackers', label: 'Trackers', icon: 'trackers', matches: ['/trackers', '/goals'] },
-  { to: '/calendar', label: 'Calendar', icon: 'calendar', matches: ['/calendar', '/history'] },
-  { to: '/dashboard', label: 'Insights', icon: 'insights', matches: ['/dashboard', '/analytics', '/achievements'] },
+type NavigationDestination = {
+  group: 'primary' | 'more'
+  to: string
+  label: string
+  icon: AppIconName
+  matches?: readonly string[]
+  end?: boolean
+  requiresMaintainer?: boolean
+}
+
+const navigationConfiguration: readonly NavigationDestination[] = [
+  { group: 'primary', to: '/', label: 'Today', icon: 'today', matches: ['/'], end: true },
+  { group: 'primary', to: '/trackers', label: 'Trackers', icon: 'trackers', matches: ['/trackers', '/goals'] },
+  { group: 'primary', to: '/calendar', label: 'Calendar', icon: 'calendar', matches: ['/calendar', '/history'] },
+  { group: 'primary', to: '/dashboard', label: 'Insights', icon: 'insights', matches: ['/dashboard', '/analytics', '/achievements'] },
+  { group: 'more', to: '/holidays', label: 'Holidays & breaks', icon: 'holiday' },
+  { group: 'more', to: '/settings', label: 'Settings', icon: 'settings' },
+  { group: 'more', to: '/bin', label: 'Bin', icon: 'bin' },
+  { group: 'more', to: '/ai-knowledge', label: 'AI Knowledge', icon: 'spark', requiresMaintainer: true },
 ]
 
-const mobileMoreNavigation = [
-  { to: '/holidays', label: 'Holidays & breaks' },
-  { to: '/bin', label: 'Bin' },
-  { to: '/settings', label: 'Settings' },
-]
+const primaryNavigation = navigationConfiguration.filter((destination) => destination.group === 'primary')
+const moreNavigation = navigationConfiguration.filter((destination) => destination.group === 'more')
+
+const contextualNavigation = { to: '/auth', label: 'Account & sync', icon: 'account' } as const
 
 function routeMatches(pathname: string, destinations: readonly string[]) {
   return destinations.some((path) => path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`))
@@ -90,6 +103,12 @@ export function AppShell() {
   const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
   const accountSettingsHref = status === 'signed-in' ? '/settings#personal-information' : '/auth'
   const syncSettingsHref = status === 'signed-in' ? '/settings#sync-data' : '/auth'
+  const canSeeAiKnowledge = status === 'signed-in' && maintainerAccess.status === 'authorized'
+  const checkingAiKnowledgeAccess = status === 'loading' || (status === 'signed-in' && ['checking', 'error'].includes(maintainerAccess.status))
+  const aiKnowledgeRouteActive = routeMatches(location.pathname, ['/ai-knowledge'])
+  const visibleMoreNavigation = moreNavigation.filter(({ requiresMaintainer }) => !requiresMaintainer || canSeeAiKnowledge)
+  const showAccountNavigation = status === 'local-only' || status === 'signed-out'
+  const moreRouteActive = visibleMoreNavigation.some(({ to }) => routeMatches(location.pathname, [to])) || (checkingAiKnowledgeAccess && aiKnowledgeRouteActive)
   const workspaceOwnerVerified = workspaceUserId === expectedWorkspaceUserId
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceOwnerVerified
   const guestChoiceReady = !sessionTransitionPending && status === 'signed-in' && workspaceStatus === 'needs-guest-choice' && workspaceOwnerVerified
@@ -120,22 +139,22 @@ export function AppShell() {
 
         <div className="sidebar-scroll">
           <nav className="nav-list" aria-label="Primary navigation">
-          {primaryNavigation.map(({ to, label, icon, matches, end }) => {
+          {primaryNavigation.map(({ to, label, icon, matches = [], end = false }) => {
             const active = routeMatches(location.pathname, matches)
             return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`nav-link${active ? ' active' : ''}`}>
-              <AppIcon className="nav-icon" name={icon as AppIconName} />
+              <AppIcon className="nav-icon" name={icon} />
               {label}
             </NavLink>
           })}
           </nav>
-          <div className="sidebar-secondary" aria-label="More destinations">
+          <nav className="sidebar-secondary" aria-label="More destinations">
             <span className="nav-caption nav-caption-secondary">MORE</span>
-            <NavLink to="/holidays" className="nav-link secondary-link"><AppIcon className="nav-icon" name="holiday" />Holidays & breaks</NavLink>
-            <NavLink to="/settings" className="nav-link secondary-link"><AppIcon className="nav-icon" name="settings" />Settings</NavLink>
-            <NavLink to="/bin" className="nav-link secondary-link"><AppIcon className="nav-icon" name="bin" />Bin</NavLink>
-            {status === 'signed-in' && maintainerAccess.status === 'authorized' && <NavLink to="/ai-knowledge" className="nav-link secondary-link"><AppIcon className="nav-icon" name="spark" />AI Knowledge</NavLink>}
-            {status !== 'signed-in' && <NavLink to="/auth" className="nav-link secondary-link"><AppIcon className="nav-icon" name="account" />Account & sync</NavLink>}
-          </div>
+            {visibleMoreNavigation.map(({ to, label, icon }) => <NavLink key={to} to={to} className="nav-link secondary-link"><AppIcon className="nav-icon" name={icon} />{label}</NavLink>)}
+            {checkingAiKnowledgeAccess && <div className={`nav-link secondary-link nav-access-pending${aiKnowledgeRouteActive ? ' active' : ''}`} role="status" aria-disabled="true" aria-current={aiKnowledgeRouteActive ? 'page' : undefined} aria-label="Checking AI Knowledge access">
+              <AppIcon className="nav-icon" name="spark" />AI Knowledge
+            </div>}
+            {showAccountNavigation && <NavLink to={contextualNavigation.to} className="nav-link secondary-link"><AppIcon className="nav-icon" name={contextualNavigation.icon} />{contextualNavigation.label}</NavLink>}
+          </nav>
           <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
         </div>
       </aside>
@@ -176,13 +195,13 @@ export function AppShell() {
           ) : <WorkspaceTimeZoneProvider ownerUserId={expectedWorkspaceUserId}><ForegroundReminderMonitor enabled={workspaceReady} /><Outlet context={maintainerAccess} /></WorkspaceTimeZoneProvider>}
         </div>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {primaryNavigation.map(({ to, label, icon, matches, end }) => {
+          {primaryNavigation.map(({ to, label, icon, matches = [], end = false }) => {
             const active = routeMatches(location.pathname, matches)
             return <NavLink key={to} to={to} end={end} aria-current={active ? 'page' : undefined} className={`mobile-nav-link${active ? ' active' : ''}`}>
-              <AppIcon className="mobile-nav-icon" name={icon as AppIconName} /><small>{label}</small>
+              <AppIcon className="mobile-nav-icon" name={icon} /><small>{label}</small>
             </NavLink>
           })}
-          <div className={`mobile-more${moreOpen ? ' is-open' : ''}`} ref={moreRef}>
+          <div className={`mobile-more${moreRouteActive ? ' has-active-route' : ''}${moreOpen ? ' is-open' : ''}`} ref={moreRef}>
             <button ref={moreTriggerRef} type="button" aria-label="More destinations" aria-haspopup="menu" aria-expanded={moreOpen} aria-controls={moreOpen ? 'mobile-more-menu' : undefined} className="mobile-more-trigger" onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
@@ -192,12 +211,19 @@ export function AppShell() {
                   requestAnimationFrame(() => moreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
                 }
               }
-            }} onClick={() => setMoreOpen((value) => !value)}><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></button>
+            }} aria-current={moreRouteActive ? 'page' : undefined} onClick={() => setMoreOpen((value) => !value)}><AppIcon className="mobile-nav-icon" name="more" /><small>More</small></button>
             {moreOpen && <div ref={moreMenuRef} id="mobile-more-menu" className="mobile-more-menu" role="menu" aria-label="More destinations" onKeyDown={handleMoreMenuKeyDown}>
-              {[...mobileMoreNavigation, ...(status === 'signed-in' && maintainerAccess.status === 'authorized' ? [{ to: '/ai-knowledge', label: 'AI Knowledge' }] : []), ...(status === 'signed-in' ? [] : [{ to: '/auth', label: 'Account & sync' }])].map(({ to, label }) => <NavLink key={to} to={to} onClick={(event) => {
+              {visibleMoreNavigation.map(({ to, label, icon }) => <NavLink key={to} to={to} role="menuitem" className={({ isActive }) => `mobile-more-item${isActive ? ' active' : ''}`} aria-current={routeMatches(location.pathname, [to]) ? 'page' : undefined} onClick={(event) => {
                 setMoreOpen(false)
                 event.currentTarget.blur()
-              }} role="menuitem">{label}</NavLink>)}
+              }}><AppIcon className="mobile-more-icon" name={icon} />{label}</NavLink>)}
+              {checkingAiKnowledgeAccess && <div role="menuitem" aria-disabled="true" aria-current={aiKnowledgeRouteActive ? 'page' : undefined} className={`mobile-more-item nav-access-pending${aiKnowledgeRouteActive ? ' active' : ''}`} aria-label="Checking AI Knowledge access">
+                <AppIcon className="mobile-more-icon" name="spark" />AI Knowledge
+              </div>}
+              {showAccountNavigation && <NavLink to={contextualNavigation.to} role="menuitem" className={({ isActive }) => `mobile-more-item${isActive ? ' active' : ''}`} aria-current={routeMatches(location.pathname, [contextualNavigation.to]) ? 'page' : undefined} onClick={(event) => {
+                setMoreOpen(false)
+                event.currentTarget.blur()
+              }}><AppIcon className="mobile-more-icon" name={contextualNavigation.icon} />{contextualNavigation.label}</NavLink>}
             </div>}
           </div>
         </nav>

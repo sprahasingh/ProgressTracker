@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { CalendarPage } from './CalendarPage'
@@ -46,9 +46,16 @@ describe('Calendar page', () => {
     const guideButton = screen.getByRole('button', { name: /Status guide.*Show all statuses/ })
     expect(guideButton).toHaveAttribute('aria-expanded', 'false')
     expect(guideButton).toHaveAttribute('aria-controls', 'calendar-status-guide-content')
+    const collapsedStatuses = Array.from(guideButton.querySelectorAll('.calendar-status-guide-item'))
+    expect(collapsedStatuses.map((item) => item.textContent?.trim())).toEqual(['Completed', 'Missed', 'Holiday', 'Pending'])
+    expect(collapsedStatuses.map((item) => item.querySelector('.calendar-dot svg')?.getAttribute('data-icon'))).toEqual([
+      'status-completed', 'status-missed', 'status-holiday', 'status-pending',
+    ])
     expect(screen.queryByLabelText('Activity status legend')).not.toBeVisible()
     const user = userEvent.setup()
-    await user.click(guideButton)
+    guideButton.focus()
+    await user.keyboard('{Enter}')
+    expect(guideButton).toHaveFocus()
     expect(guideButton).toHaveAttribute('aria-expanded', 'true')
     const legend = screen.getByLabelText('Activity status legend')
     expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
@@ -64,11 +71,16 @@ describe('Calendar page', () => {
     expect(guideButton).toHaveAttribute('aria-expanded', 'false')
     expect(legend).not.toBeVisible()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
+    expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', `/history?date=${today}`)
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
     expect(screen.getByRole('button', { name: new RegExp(calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })) })).toHaveClass('completed')
 
-    await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))
+    const previousDayButton = screen.getByRole('button', { name: new RegExp(previousDateLabel) })
+    previousDayButton.focus()
+    await user.keyboard('{Enter}')
+    expect(previousDayButton).toHaveFocus()
+    expect(previousDayButton).toHaveAttribute('aria-pressed', 'true')
     // A date before this tracker was created is outside its period, not a rest day or miss.
     await screen.findAllByText('Outside period')
     expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Outside period')
@@ -89,6 +101,26 @@ describe('Calendar page', () => {
     expect(screen.getByText(/1 completed · 0 partial/)).toBeInTheDocument()
   })
 
+  it('changes the displayed month and keeps the selected day within that month', async () => {
+    mocks.listTrackers.mockResolvedValue([tracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+    const current = new Date(`${today}T00:00:00.000Z`)
+    const targetMonthDate = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() - 1, 1))
+    const targetMonth = targetMonthDate.toISOString().slice(0, 7)
+    const lastDay = new Date(Date.UTC(targetMonthDate.getUTCFullYear(), targetMonthDate.getUTCMonth() + 1, 0)).getUTCDate()
+    const selectedDay = Math.min(Number(today.slice(8, 10)), lastDay)
+    const expectedDate = `${targetMonth}-${String(selectedDay).padStart(2, '0')}`
+    await screen.findByRole('table', { name: 'Daily activity calendar' })
+
+    fireEvent.change(screen.getByLabelText('Month'), { target: { value: targetMonth } })
+
+    expect(screen.getByLabelText('Month')).toHaveValue(targetMonth)
+    expect(await screen.findByRole('heading', { name: new RegExp(calendarDateLabel(expectedDate, { weekday: 'long', month: 'long', day: 'numeric' })) })).toBeInTheDocument()
+    expect(container.querySelector(`.calendar-day-selected .calendar-cell-status`)).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('colors a holiday date tile and keeps its recorded check-in visible', async () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
@@ -107,8 +139,9 @@ describe('Calendar page', () => {
     mocks.listAccountHolidays.mockResolvedValue([])
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
-    expect(await screen.findByText('Pending')).toBeInTheDocument()
+    expect(await screen.findAllByText('Pending')).toHaveLength(2)
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open check-in' })).toHaveAttribute('href', '/')
   })
 
   it('labels future opportunities Upcoming and dates outside the active period Outside period', async () => {
