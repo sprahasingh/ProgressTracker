@@ -74,3 +74,76 @@ Use the account screen to request an email sign-in link or choose password sign-
 - src/db/workspaceBackup.test.ts
 **Answer:**
 Settings provides a local workspace backup you can download as JSON and restore into the same guest workspace or account. Restore previews changes, adds missing records, skips identical records, and stops if it finds a conflicting ID or date. Keep the backup file private.
+
+### ID: signout-local-data
+**Category:** accounts-sync
+**Question:** What happens to local workspace data when I sign out?
+**Aliases:**
+- Does signing out erase check-ins from this device?
+- Will my local progress remain after sign-out?
+**Keywords:** sign out, local workspace, check-ins, data, account
+**Suggestible:** true
+**Sources:**
+- src/features/auth/AuthProvider.tsx
+- src/db/localRepository.ts
+**Answer:**
+Signing out ends the account session; it does not itself delete the local workspace records. Account data remains associated with its local workspace, and the app uses a workspace-selection step when choosing guest data after sign-out.
+
+### ID: offline-sync-later
+**Category:** accounts-sync
+**Question:** What happens to a check-in I save while offline?
+**Aliases:**
+- Will my offline entry upload when I reconnect?
+- Does a disconnected check-in stay on this device?
+**Keywords:** offline check-in, pending sync, reconnect, local storage
+**Suggestible:** true
+**Sources:**
+- src/db/localRepository.ts
+- src/services/supabase/syncEngine.ts
+- src/features/auth/AuthProvider.tsx
+**Answer:**
+The check-in is saved locally and its account-sync work remains pending until a connection is available. It may not appear on another device before synchronization completes.
+
+### ID: sync-deletion
+**Category:** accounts-sync
+**Question:** Does clearing a check-in sync to my other devices?
+**Aliases:**
+- Will a cleared entry disappear from my other device?
+- Does a check-in deletion upload when I reconnect?
+**Keywords:** clear check-in, sync, other devices, deletion marker
+**Suggestible:** true
+**Sources:**
+- src/db/localRepository.ts
+- src/services/supabase/syncEngine.ts
+**Answer:**
+For a signed-in account, clearing queues a deletion update for synchronization. Other devices reflect the change after they synchronize with the account; while offline, they may still show their earlier local copy.
+
+### ID: sync-conflict-preserves-versions
+**Category:** accounts-sync
+**Question:** What information is kept when two device edits conflict?
+**Aliases:**
+- Does sync keep both versions of a conflict?
+- Can ProgressTracker merge conflicting tracker changes automatically?
+**Keywords:** sync conflict, local version, remote version, revision, resolution
+**Suggestible:** true
+**Sources:**
+- src/services/supabase/syncEngine.ts
+- src/db/syncConflictRepository.ts
+- src/db/syncConflictRepository.test.ts
+**Answer:**
+When a revision conflict cannot be reconciled safely, the sync flow records the conflicting local and remote data for you to resolve. It does not silently blend incompatible changes. Review the conflict before choosing which version to keep.
+
+### ID: sync-preference-scope
+**Category:** accounts-sync
+**Question:** Do workspace time zone and appearance settings sync between devices?
+**Aliases:**
+- Will my theme and calendar time zone follow me to another device?
+- Are workspace display preferences stored in my account?
+**Keywords:** settings, time zone, appearance, sync, devices
+**Suggestible:** true
+**Sources:**
+- src/features/settings/WorkspaceTimeZone.tsx
+- src/features/settings/appearance.ts
+- src/features/settings/UnifiedSettings.test.tsx
+**Answer:**
+No. The workspace time zone and appearance preferences are stored locally and currently do not synchronize between devices. Set them separately in each workspace.

@@ -105,3 +105,46 @@ Custom check-in fields add context to an entry, such as a note or selected answe
 - src/features/shared/TrackerEntryFields.tsx
 **Answer:**
 New tracker measures use Yes/No or Quantity values. Existing trackers may also contain legacy measure types such as Duration or Checklist, which remain supported for their saved history.
+
+### ID: checkin-empty-versus-zero-status
+**Category:** check-ins
+**Question:** Why can a saved zero show no progress instead of a missed day?
+**Aliases:**
+- Is a zero entry treated as unchecked?
+- How does Calendar distinguish zero from no check-in?
+**Keywords:** zero, no progress, missed, saved entry, activity status
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/activityStatus.ts
+- src/features/calendar/CalendarPage.tsx
+**Answer:**
+A saved zero is an entry, so it is different from an unchecked date, which has no saved entry. Calendar evaluates the zero against the tracker’s success rule and may show No progress; a missed status describes an elapsed opportunity without a qualifying result.
+
+### ID: checkin-resave-same-date
+**Category:** check-ins
+**Question:** What happens if I save a check-in again for the same date?
+**Aliases:**
+- Can a tracker have two check-ins on one day?
+- Does saving another entry replace my check-in for that date?
+**Keywords:** same date, edit, save, latest revision, check-in
+**Suggestible:** true
+**Sources:**
+- src/db/localRepository.ts
+- src/domain/trackers/planning.ts
+**Answer:**
+The app keeps one active check-in per tracker and date. Saving again updates that date’s entry, and calculations use the latest live revision rather than adding a second daily record.
+
+### ID: checkin-note-vs-measure
+**Category:** check-ins
+**Question:** Does a check-in note count as a measure value?
+**Aliases:**
+- Can a note contribute to my numeric goal?
+- Are custom answers included in tracker statistics?
+**Keywords:** note, custom field, measure, metric, goal progress
+**Suggestible:** true
+**Sources:**
+- src/features/trackers/TrackerConfigurationEditor.tsx
+- src/features/shared/TrackerEntryFields.tsx
+- src/domain/trackers/analytics.ts
+**Answer:**
+No. A note or custom check-in answer adds context to the entry. Goal calculations and measure statistics use tracker measure values, not those custom fields.

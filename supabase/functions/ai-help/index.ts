@@ -5,7 +5,7 @@ import { evidenceFingerprints, sourcePaths, sourceRelationships, sourceVersion }
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
 import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle.ts'
 import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, rankVerifiedCatalog, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, retrieveVerifiedCatalog, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, retrieveVerifiedCatalog, selectRelevantCatalogKnowledge, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
 import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
 import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
@@ -113,7 +113,7 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   }
   const verifiedCatalogAnswer = retrieveVerifiedCatalog(question, verifiedQuestionCatalog)
   if (verifiedCatalogAnswer) {
-    const topic = ({ 'getting-started': 'trackers', 'check-ins': 'history', streaks: 'schedules', statistics: 'analytics', history: 'history', holidays: 'schedules', goals: 'goals', calendar: 'analytics', notifications: 'notifications', 'accounts-sync': 'sync', 'settings-privacy': 'settings', 'ai-help': 'privacy' } as Record<string, string>)[verifiedCatalogAnswer.category] ?? 'other'
+    const topic = ({ 'getting-started': 'trackers', 'check-ins': 'history', streaks: 'schedules', statistics: 'analytics', history: 'history', holidays: 'schedules', goals: 'goals', calendar: 'analytics', insights: 'analytics', notifications: 'notifications', 'accounts-sync': 'sync', 'settings-privacy': 'settings', 'ai-help': 'privacy' } as Record<string, string>)[verifiedCatalogAnswer.category] ?? 'other'
     return { answer: verifiedCatalogAnswer.answer, links: [], followUps: [], topic, knowledge_version: knowledgeVersion }
   }
   const credentials: ProviderCredential[] = [
@@ -149,7 +149,7 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   if (verifiedResolution.conflict) await recordLearningMetric(admin, 'conflicting_knowledge', verifiedResolution.featureCategory)
   const verified = verifiedResolution.entries
   const relevantVerified = renderVerifiedKnowledge(verified)
-  const catalogMatches = rankVerifiedCatalog(question, verifiedQuestionCatalog).slice(0, 2).filter(({ promptScore }) => promptScore >= 0.28)
+  const catalogMatches = selectRelevantCatalogKnowledge(question, verifiedQuestionCatalog, 2)
   const relevantCatalog = catalogMatches.map(({ entry }) => `VERIFIED Q&A ${entry.id} (${entry.category})\nQuestion: ${entry.question}\nAliases: ${entry.aliases.join('; ')}\nAnswer: ${entry.answer}\nSources: ${entry.sources.join(', ')}`).join('\n\n')
   const allVerified = [relevantCatalog, relevantVerified].filter(Boolean).join('\n\n')
   const linkIds = selectRelevantLinkIds(question, history).filter((id) => id in APP_LINKS)

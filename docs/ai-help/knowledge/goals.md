@@ -60,3 +60,80 @@ Yes. A goal can use a deadline to bound its planned date range, especially for c
 - src/domain/trackers/goalPlanning.test.ts
 **Answer:**
 The goal plan reports its target as complete when no planned work remains. The Goals page also shows the tracker’s saved status, so the displayed status can depend on both the goal state and plan. A milestone is a checkpoint within a plan; reaching one does not by itself mean the overall target is complete.
+
+### ID: goal-daily-missing
+**Category:** goals
+**Question:** How does a daily goal plan treat a missing date?
+**Aliases:**
+- Does a missed day count as meeting my daily target?
+- What happens to a daily target when I do not check in?
+**Keywords:** daily goal, missing, missed, target, schedule
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/planning.ts
+- src/domain/trackers/goalPlanning.test.ts
+**Answer:**
+A past scheduled date without a usable check-in is treated as missed in the daily plan. Today remains pending while it is still open, and rest days, holidays, and future dates are shown separately rather than as missed opportunities.
+
+### ID: goal-cumulative-snapshot
+**Category:** goals
+**Question:** Do snapshot check-ins add together toward a cumulative goal?
+**Aliases:**
+- Are repeated snapshot values summed for a total goal?
+- Which entries count toward cumulative progress?
+**Keywords:** cumulative goal, snapshot, incremental, total progress
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/planning.ts
+- src/features/trackers/GoalPlanningEditor.tsx
+- src/domain/trackers/goalPlanning.test.ts
+**Answer:**
+No. Cumulative progress sums entries configured as incremental. Snapshot values describe a level at a point in time and are not added together across dates.
+
+### ID: goal-clearing-entry
+**Category:** goals
+**Question:** Does clearing a check-in change goal progress?
+**Aliases:**
+- Will a deleted entry reduce my goal total?
+- Does removing a historical check-in recalculate the goal?
+- Can clearing a check-in change my goal progress?
+- Will my goal total go down if I clear an entry?
+- Does removing a check-in update the Goals page?
+**Keywords:** goal progress, clear check-in, delete entry, recalculate
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/planning.ts
+- src/db/localRepository.ts
+- src/features/history/HistoryPage.tsx
+**Answer:**
+Goal progress is calculated from active saved entries, so clearing a check-in can change the displayed progress or pacing. The effect depends on the plan and whether that entry contributes a qualifying value.
+
+### ID: goal-target-change
+**Category:** goals
+**Question:** What happens if I change a goal target?
+**Aliases:**
+- Does editing my target change saved check-ins?
+- Will a new goal target recalculate my plan?
+**Keywords:** goal target, edit plan, recalculation, saved progress
+**Suggestible:** true
+**Sources:**
+- src/features/goals/GoalsPage.tsx
+- src/features/trackers/GoalPlanningEditor.tsx
+- src/domain/trackers/planning.ts
+**Answer:**
+The plan and its remaining pace are recalculated against the new target and existing saved progress. Changing the target does not rewrite the check-ins themselves.
+
+### ID: goal-metric-unit
+**Category:** goals
+**Question:** Where does a goal’s unit come from?
+**Aliases:**
+- How does a goal know whether progress is pages or minutes?
+- Can I choose a different unit for goal progress?
+**Keywords:** goal, measure, unit, metric, quantity
+**Suggestible:** true
+**Sources:**
+- src/features/goals/GoalsPage.tsx
+- src/domain/trackers/planning.ts
+- src/features/trackers/GoalPlanningEditor.tsx
+**Answer:**
+The goal uses the unit of its linked tracker measure. Choose or edit the measure’s unit in tracker configuration; the goal plan displays values in that unit rather than converting them.
