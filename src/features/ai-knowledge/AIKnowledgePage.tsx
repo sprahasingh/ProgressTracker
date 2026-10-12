@@ -25,6 +25,27 @@ type EditableFields = CandidateFields
 function itemKey(item: Item) { return item.kind === 'candidate' ? `candidate:${item.value.id}` : `topic:${item.value.topic_id}` }
 function displayDate(value: string | null | undefined) { return value ? new Date(value).toLocaleString() : 'Not reviewed' }
 function safeApiMessage(error: unknown) { return error instanceof Error ? error.message : 'The request could not be completed. Try again.' }
+function itemDate(item: Item, sort: ReviewSort) {
+  if (item.kind === 'topic') return item.value.reviewed_at
+  if (sort === 'reviewed') return item.value.reviewed_at
+  return item.value.created_at
+}
+function pageItems(candidates: KnowledgeCandidate[], verified: VerifiedTopic[], sort: ReviewSort): Item[] {
+  const items: Item[] = [
+    ...candidates.map((value) => ({ kind: 'candidate' as const, value })),
+    ...verified.map((value) => ({ kind: 'topic' as const, value })),
+  ]
+  const direction = sort === 'oldest' ? 1 : -1
+  return items.sort((left, right) => {
+    const leftDate = itemDate(left, sort)
+    const rightDate = itemDate(right, sort)
+    if (sort === 'reviewed' && (leftDate === null || rightDate === null)) {
+      if (leftDate === null && rightDate !== null) return 1
+      if (rightDate === null && leftDate !== null) return -1
+    }
+    return direction * ((leftDate ? Date.parse(leftDate) : 0) - (rightDate ? Date.parse(rightDate) : 0)) || itemKey(left).localeCompare(itemKey(right))
+  })
+}
 
 function KnowledgeWorkspace() {
   const { notify } = useToast()
@@ -35,6 +56,9 @@ function KnowledgeWorkspace() {
   const [sort, setSort] = useState<ReviewSort>('newest')
   const [items, setItems] = useState<Item[]>([])
   const [counts, setCounts] = useState<ReviewCounts>({ pending: 0, approved: 0, stale: 0, rejected: 0 })
+  const [knowledgeVersion, setKnowledgeVersion] = useState('')
+  const [candidateOffset, setCandidateOffset] = useState(0)
+  const [verifiedOffset, setVerifiedOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -58,20 +82,14 @@ function KnowledgeWorkspace() {
     let active = true
     setLoading(true)
     setError('')
-    void listKnowledge({ status: tab, search, sort, limit: PAGE_SIZE, offset: 0 }).then((result) => {
+    void listKnowledge({ status: tab, search, sort, limit: PAGE_SIZE, offset: 0, candidate_offset: 0, verified_offset: 0 }).then((result) => {
       if (!active) return
-      const next: Item[] = [
-        ...result.candidates.map((value) => ({ kind: 'candidate' as const, value })),
-        ...result.verified_knowledge.map((value) => ({ kind: 'topic' as const, value })),
-      ]
-      next.sort((left, right) => {
-        const leftDate = sort === 'reviewed' ? left.value.reviewed_at ?? (left.kind === 'candidate' ? left.value.created_at : '') : left.kind === 'candidate' ? left.value.created_at : left.value.reviewed_at
-        const rightDate = sort === 'reviewed' ? right.value.reviewed_at ?? (right.kind === 'candidate' ? right.value.created_at : '') : right.kind === 'candidate' ? right.value.created_at : right.value.reviewed_at
-        return (sort === 'oldest' ? 1 : -1) * (Date.parse(leftDate) - Date.parse(rightDate))
-      })
-      setItems(next)
+      setItems(pageItems(result.candidates, result.verified_knowledge, sort))
       setCounts(result.counts)
+      setKnowledgeVersion(result.knowledge_version)
       setHasMore(result.page.has_more)
+      setCandidateOffset(result.page.next_candidate_offset ?? (tab === 'stale' ? Math.floor(result.page.offset / 2) : result.page.offset) + result.candidates.length)
+      setVerifiedOffset(result.page.next_verified_offset ?? (tab === 'stale' ? Math.floor(result.page.offset / 2) : result.page.offset) + result.verified_knowledge.length)
     }).catch((cause) => {
       if (active) setError(safeApiMessage(cause))
     }).finally(() => { if (active) setLoading(false) })
@@ -137,16 +155,13 @@ function KnowledgeWorkspace() {
     setLoadingMore(true)
     setError('')
     try {
-      const result = await listKnowledge({ status: tab, search, sort, limit: PAGE_SIZE, offset: items.length })
-      const next: Item[] = [...result.candidates.map((value) => ({ kind: 'candidate' as const, value })), ...result.verified_knowledge.map((value) => ({ kind: 'topic' as const, value }))]
-      next.sort((left, right) => {
-        const leftDate = sort === 'reviewed' ? left.value.reviewed_at ?? (left.kind === 'candidate' ? left.value.created_at : '') : left.kind === 'candidate' ? left.value.created_at : left.value.reviewed_at
-        const rightDate = sort === 'reviewed' ? right.value.reviewed_at ?? (right.kind === 'candidate' ? right.value.created_at : '') : right.kind === 'candidate' ? right.value.created_at : right.value.reviewed_at
-        return (sort === 'oldest' ? 1 : -1) * (Date.parse(leftDate) - Date.parse(rightDate))
-      })
+      const result = await listKnowledge({ status: tab, search, sort, limit: PAGE_SIZE, offset: items.length, candidate_offset: candidateOffset, verified_offset: verifiedOffset })
+      const next = pageItems(result.candidates, result.verified_knowledge, sort)
       setItems((current) => [...current, ...next.filter((item) => !current.some((existing) => itemKey(existing) === itemKey(item)))])
       setHasMore(result.page.has_more)
       setCounts(result.counts)
+      setCandidateOffset(result.page.next_candidate_offset ?? candidateOffset + result.candidates.length)
+      setVerifiedOffset(result.page.next_verified_offset ?? verifiedOffset + result.verified_knowledge.length)
     } catch (cause) { setError(safeApiMessage(cause)) }
     finally { setLoadingMore(false) }
   }
@@ -220,16 +235,22 @@ function KnowledgeWorkspace() {
       <button type="button" onClick={() => setWorkspaceTab('support')}>Feedback &amp; Support</button>
     </nav>
     <p className="ai-knowledge-intro">Candidates are proposed automatically from current product evidence. Each one stays pending until a maintainer reviews and approves it.</p>
-    <div className="ai-knowledge-counts" aria-label="Knowledge review counts">
-      {tabs.map(({ id, label, countKey }) => <button type="button" key={id} className={`ai-knowledge-count${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}>
+    {knowledgeVersion && <p className="ai-knowledge-current-version">Current source bundle <code>{knowledgeVersion}</code></p>}
+    <div className="ai-knowledge-counts" role="tablist" aria-label="Filter by review status" onKeyDown={(event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const current = tabs.findIndex((item) => item.id === tab)
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length
+      const next = tabs[nextIndex]!
+      setTab(next.id)
+      document.getElementById(`ai-knowledge-tab-${next.id}`)?.focus()
+    }}>
+      {tabs.map(({ id, label, countKey }) => <button type="button" role="tab" id={`ai-knowledge-tab-${id}`} aria-controls="ai-knowledge-panel" tabIndex={tab === id ? 0 : -1} aria-label={label} aria-selected={tab === id} key={id} className={`ai-knowledge-count${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}>
         <span>{label}</span><strong>{counts[countKey]}</strong>
       </button>)}
     </div>
-    <section className="surface ai-knowledge-browser" aria-label="Knowledge entries">
+    <section id="ai-knowledge-panel" role="tabpanel" aria-labelledby={`ai-knowledge-tab-${tab}`} className="surface ai-knowledge-browser" aria-label="Knowledge entries" tabIndex={0}>
       <div className="ai-knowledge-toolbar">
-        <div className="ai-knowledge-tabs" role="tablist" aria-label="Filter by review status">
-          {tabs.map(({ id, label }) => <button type="button" role="tab" aria-selected={tab === id} key={id} onClick={() => setTab(id)}>{label}</button>)}
-        </div>
         <div className="ai-knowledge-tools">
           <label><span className="sr-only">Search topic and knowledge text</span><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setSearch(searchInput.trim()) }} placeholder="Search knowledge" /></label>
           <button className="button button-secondary button-small" type="button" onClick={() => setSearch(searchInput.trim())}>Search</button>

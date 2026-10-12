@@ -36,7 +36,7 @@ function cloudShape(preferences: NotificationPreferences) {
   return { ...preferences, daily_times: preferences.daily_times, overdue_times: preferences.overdue_times, motivation_times: preferences.motivation_times }
 }
 
-export function NotificationsSettings() {
+export function NotificationsSettings({ embedded = false }: { embedded?: boolean }) {
   const { status, user, pushOwnershipStatus, pushOwnershipMessage } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const location = useLocation()
@@ -443,9 +443,17 @@ export function NotificationsSettings() {
     }
   }
 
-  if (status !== 'signed-in') return <section className="settings-section notification-settings" aria-label="Notifications"><h2>Notifications</h2><p>Account reminder preferences require sign-in. Guest tracking remains local and unchanged.</p></section>
+  if (status !== 'signed-in') return embedded ? <div className="notification-settings"><p>Account reminder preferences require sign-in. Guest tracking remains local and unchanged.</p></div> : <section className="settings-section notification-settings" aria-label="Notifications"><h2>Notifications</h2><p>Account reminder preferences require sign-in. Guest tracking remains local and unchanged.</p></section>
+  if (embedded) return <div data-ai-capability="notifications.preferences" className="notification-settings" id="notifications-content">
+    {renderNotificationSettingsBody()}
+  </div>
   return <section data-ai-capability="notifications.preferences" className="settings-section notification-settings" id="notifications" aria-labelledby="notifications-heading">
     <h2 id="notifications-heading">Notifications</h2>
+    {renderNotificationSettingsBody()}
+  </section>
+
+  function renderNotificationSettingsBody() {
+    return <>
     <p id="notification-settings-status" aria-live="polite">{saving ? 'Saving notification preferences…' : statusText}</p>
     <h3 className="notification-status-heading">Delivery status</h3>
     <div className="notification-capability" aria-label="Notification delivery status">
@@ -506,7 +514,8 @@ export function NotificationsSettings() {
         {(pushState !== 'unsupported' && pushState !== 'permission-denied' || (capabilities.notificationApi && capabilities.permission === 'default') || capabilities.permission === 'granted') && <div className="notification-actions">{pushState !== 'unsupported' && pushState !== 'permission-denied' && <button className="button button-secondary button-small" disabled={pushBusy} onClick={() => void registerDevice(true)}>{pushBusy ? 'Registering…' : pushState === 'failed' ? 'Retry registration' : capabilities.permission === 'granted' ? 'Register this device' : 'Enable device registration'}</button>}{pushState === 'unsupported' && capabilities.notificationApi && capabilities.permission === 'default' && <button className="button button-secondary button-small" onClick={() => void requestDevicePermission()}>Enable on this device</button>}{pushState === 'registered' && <button className="button button-secondary button-small" disabled={pushBusy} onClick={() => void disableDevice()}>Remove device registration</button>}{capabilities.permission === 'granted' && capabilities.notificationApi && <button className="button button-secondary button-small" onClick={() => void sendTest()}>Send test notification</button>}</div>}
       </NotificationAccordion>
     </div>
-  </section>
+    </>
+  }
 }
 
 function NotificationAccordion({ id, title, summary, expanded, onToggle, children }: { id: NotificationGroup; title: string; summary: string; expanded: boolean; onToggle: () => void; children: ReactNode }) {

@@ -5,7 +5,7 @@ import { getMySupportThread, listMySupportThreads, replyToMySupportThread, type 
 const statusLabel: Record<SupportThread['status'], string> = { open: 'Open', in_progress: 'In progress', waiting_for_user: 'Waiting for you', resolved: 'Resolved' }
 const dateLabel = (value: string) => new Date(value).toLocaleString()
 
-export function MySupportQueries() {
+export function MySupportQueries({ embedded = false }: { embedded?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedId = searchParams.get('support') ?? ''
   const [threads, setThreads] = useState<SupportThread[]>([])
@@ -52,8 +52,9 @@ export function MySupportQueries() {
     finally { setBusy(false) }
   }
 
-  return <section ref={sectionRef} tabIndex={-1} className="settings-section support-queries" id="my-support-queries" aria-labelledby="my-support-queries-title">
-    <h2 id="my-support-queries-title">My Support Queries</h2>
+  const Container = embedded ? 'div' : 'section'
+  return <Container ref={(node: HTMLElement | null) => { sectionRef.current = node }} tabIndex={-1} className={embedded ? 'support-queries support-queries-embedded' : 'settings-section support-queries'} id={embedded ? undefined : 'my-support-queries'} aria-labelledby={embedded ? undefined : 'my-support-queries-title'}>
+    {!embedded && <h2 id="my-support-queries-title">My Support Queries</h2>}
     <p>In-app queries and replies stay in your account. Resolved conversations are read-only; start a new query if you need more help.</p>
     {notice && !loading && !listError && <p className="settings-hint" role="status">{notice}</p>}
     {loading ? <p role="status">Loading your support queries…</p> : listError ? <div className="support-load-error"><p className="auth-error" role="alert">{listError}</p><button type="button" className="button button-secondary button-small" onClick={() => void reload()}>Try again</button></div> : threads.length === 0 && selectedId && detailError ? <div className="support-load-error"><p className="auth-error" role="alert">{detailError}</p><button type="button" className="button button-secondary button-small" onClick={() => { setDetailError(''); void getMySupportThread(selectedId).then(setDetail).catch((cause) => setDetailError(cause instanceof Error ? cause.message : 'This support query is unavailable.')) }}>Try again</button></div> : threads.length === 0 ? <p className="settings-hint">You have no tracked support queries yet. Use Feedback &amp; Support above to send one.</p> : <div className="support-user-layout">
@@ -68,5 +69,5 @@ export function MySupportQueries() {
         {detail.thread.status === 'resolved' ? <p className="settings-hint">This conversation is resolved. Send a new support query to continue.</p> : <form className="support-reply-form" onSubmit={(event) => void sendReply(event)}><label className="form-field"><span>Reply to support</span><textarea className="auth-input" rows={3} maxLength={4000} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy} /></label><button type="submit" className="button button-primary button-medium" disabled={busy || !draft.trim()}>{busy ? 'Sending…' : 'Send Reply'}</button></form>}
       </article> : <div className="support-thread-detail support-thread-empty">{detailError ? <><p className="auth-error" role="alert">{detailError}</p>{selectedId && <button type="button" className="button button-secondary button-small" onClick={() => { setDetailError(''); void getMySupportThread(selectedId).then(setDetail).catch((cause) => setDetailError(cause instanceof Error ? cause.message : 'This support query is unavailable.')) }}>Try again</button>}</> : <p>Select a support query to view the conversation.</p>}</div>}
     </div>}
-  </section>
+  </Container>
 }
