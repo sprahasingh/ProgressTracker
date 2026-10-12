@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from './activityStatus'
+import { localCalendarDate } from '../../features/shared/localDates'
 import tokens from '../../styles/tokens.css?raw'
 import styles from '../../styles.css?raw'
 
@@ -31,20 +32,20 @@ function contrast(hexA: string, hexB: string): number {
 describe('shared activity status rules', () => {
   it('uses explicit activity precedence without changing recorded history', () => {
     expect(state('2026-10-10')).toBe('pending')
-    expect(state('2026-10-12')).toBe('pending')
+    expect(state('2026-10-12')).toBe('upcoming')
     expect(state('2026-10-09')).toBe('missed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', {}, entry('2026-10-09', false))).toBe('no-progress')
     expect(state('2026-10-10', {}, skipped('2026-10-10'))).toBe('skipped')
     expect(state('2026-10-09', {}, skipped('2026-10-09'))).toBe('skipped')
-    expect(state('2026-10-09', {}, entry('2026-10-09', true), ['2026-10-09'])).toBe('holiday')
+    expect(state('2026-10-09', {}, entry('2026-10-09', true), ['2026-10-09'])).toBe('completed')
     expect(state('2026-10-10', {}, entry('2026-10-10', false))).toBe('no-progress')
   })
 
   it('keeps rest and inactive dates neutral while retaining saved historical outcomes', () => {
-    expect(state('2026-10-10', { schedule: { kind: 'none' } })).toBe('unscheduled')
-    expect(state('2026-10-09', { status: 'paused' })).toBe('unscheduled')
-    expect(state('2026-10-09', { schedule: { kind: 'none' } }, skipped('2026-10-09'))).toBe('unscheduled')
+    expect(state('2026-10-10', { schedule: { kind: 'none' } })).toBe('rest-day')
+    expect(state('2026-10-09', { status: 'paused' })).toBe('inactive')
+    expect(state('2026-10-09', { schedule: { kind: 'none' } }, skipped('2026-10-09'))).toBe('skipped')
     expect(state('2026-10-09', { schedule: { kind: 'none' } }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', { status: 'archived' }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-09', {}, entry('2026-10-09', true, '2026-10-11T00:00:00Z'))).toBe('missed')
@@ -56,8 +57,9 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09', strict, undefined, ['2026-10-09'])).toBe('missed')
     expect(state('2026-10-10', strict, undefined, ['2026-10-10'])).toBe('pending')
     expect(state('2026-10-09', { ...strict, schedule: { kind: 'none' } })).toBe('missed')
+    expect(state('2026-10-12', strict)).toBe('upcoming')
     expect(state('2026-10-10', { ...strict, schedule: { kind: 'none' } })).toBe('pending')
-    expect(state('2026-10-09', { schedule: { kind: 'none' } })).toBe('unscheduled')
+    expect(state('2026-10-09', { schedule: { kind: 'none' } })).toBe('rest-day')
   })
 
   it('distinguishes positive partial progress from zero while honoring explicit success rules', () => {
@@ -78,20 +80,60 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09', { startDate: '2026-10-10' }, entry('2026-10-09', true))).toBe('historical')
     expect(state('2026-10-09', { startDate: '2026-10-08' }, entry('2026-10-09', true))).toBe('completed')
     expect(state('2026-10-11', { deadline: '2026-10-10' }, entry('2026-10-11', true))).toBe('historical')
-    expect(state('2026-10-09', { startDate: '2026-10-10' })).toBe('unscheduled')
+    expect(state('2026-10-09', { startDate: '2026-10-10' })).toBe('outside-period')
+    const bounded = { startDate: '2026-10-08', deadline: '2026-10-10' }
+    expect(state('2026-10-07', bounded)).toBe('outside-period')
+    expect(state('2026-10-08', bounded)).toBe('missed')
+    expect(state('2026-10-10', bounded)).toBe('pending')
+    expect(state('2026-10-11', bounded)).toBe('outside-period')
   })
 
-  it('keeps future dates pending and elapsed dates missed across month and year boundaries', () => {
+  it('classifies today, future, and elapsed opportunities across month and year boundaries', () => {
     expect(state('2026-12-31', {}, undefined, undefined, '2027-01-01')).toBe('missed')
-    expect(state('2027-01-01', {}, undefined, undefined, '2026-12-31')).toBe('pending')
+    expect(state('2027-01-01', {}, undefined, undefined, '2026-12-31')).toBe('upcoming')
     expect(state('2027-01-01', {}, entry('2027-01-01', false), undefined, '2026-12-31')).toBe('no-progress')
     expect(state('2027-01-01', {}, undefined, ['2027-01-01'], '2026-12-31')).toBe('holiday')
-    expect(state('2027-01-01', { schedule: { kind: 'none' } }, undefined, undefined, '2026-12-31')).toBe('unscheduled')
+    expect(state('2027-01-01', { schedule: { kind: 'none' } }, undefined, undefined, '2026-12-31')).toBe('rest-day')
+  })
+
+  it('keeps schedule, period, holiday, entry outcome, and lifecycle facts distinct', () => {
+    const rest = { schedule: { kind: 'none' } } as const
+    const strict = { strictMode: true }
+    expect(state('2026-10-08', { createdAt: '2026-10-10T00:00:00Z' })).toBe('outside-period')
+    expect(state('2026-10-11', { deadline: '2026-10-10' })).toBe('outside-period')
+    expect(state('2026-10-10', rest)).toBe('rest-day')
+    expect(state('2026-10-10', rest, entry('2026-10-10', true))).toBe('completed')
+    expect(state('2026-10-10', rest, skipped('2026-10-10'))).toBe('skipped')
+    expect(state('2026-10-09', { ...strict, ...rest })).toBe('missed')
+    expect(state('2026-10-09', strict, undefined, ['2026-10-09'])).toBe('missed')
+    expect(state('2026-10-09', strict, entry('2026-10-09', true), ['2026-10-09'])).toBe('completed')
+    expect(state('2026-10-09', strict, skipped('2026-10-09'), ['2026-10-09'])).toBe('skipped')
+    expect(state('2026-10-10', {}, undefined, ['2026-10-10'])).toBe('holiday')
+    expect(state('2026-10-08', { startDate: '2026-10-10' }, undefined, ['2026-10-08'])).toBe('outside-period')
+    expect(state('2026-10-12', {}, entry('2026-10-12', false))).toBe('no-progress')
+    expect(state('2026-10-09', { status: 'archived' })).toBe('inactive')
+    expect(state('2026-10-09', {}, entry('2026-10-09', true, '2026-10-11T00:00:00Z'))).toBe('missed')
+  })
+
+  it('uses workspace-local dates across timezone and daylight-saving boundaries', () => {
+    const lateUtc = new Date('2026-10-09T23:30:00.000Z')
+    const tokyoToday = localCalendarDate(lateUtc, 'Asia/Tokyo')
+    expect(tokyoToday).toBe('2026-10-10')
+    expect(state('2026-10-10', {}, undefined, undefined, tokyoToday)).toBe('pending')
+    expect(state('2026-10-09', {}, undefined, undefined, tokyoToday)).toBe('missed')
+
+    const beforeSpringForward = localCalendarDate(new Date('2026-03-08T04:30:00.000Z'), 'America/New_York')
+    const afterSpringForward = localCalendarDate(new Date('2026-03-08T07:30:00.000Z'), 'America/New_York')
+    expect(beforeSpringForward).toBe('2026-03-07')
+    expect(afterSpringForward).toBe('2026-03-08')
+    const yearStart = { createdAt: '2026-01-01T00:00:00.000Z' }
+    expect(state('2026-03-08', yearStart, undefined, undefined, beforeSpringForward)).toBe('upcoming')
+    expect(state('2026-03-08', yearStart, undefined, undefined, afterSpringForward)).toBe('pending')
   })
 
   it('centralizes the required semantic labels, icons, hues, and light/dark token values', () => {
     expect(Object.fromEntries(Object.entries(ACTIVITY_STATUS_PRESENTATION).map(([key, value]) => [key, value.label]))).toMatchObject({
-      pending: 'Pending', completed: 'Completed', partial: 'Partially completed', 'no-progress': 'No progress', historical: 'Historical · outside tracker period', missed: 'Missed', skipped: 'Skipped', holiday: 'Holiday', unscheduled: 'Rest day',
+      pending: 'Pending', upcoming: 'Upcoming', completed: 'Completed', partial: 'Partial', 'no-progress': 'No progress', historical: 'Historical entry', 'outside-period': 'Outside period', missed: 'Missed', skipped: 'Skipped', holiday: 'Holiday', 'rest-day': 'Rest day', inactive: 'Tracker inactive', 'no-trackers': 'No active trackers', unscheduled: 'Rest day',
     })
     expect(ACTIVITY_STATUS_PRESENTATION.pending.colorToken).toBe('--status-pending')
     expect(ACTIVITY_STATUS_PRESENTATION.completed.colorToken).toBe('--status-completed')

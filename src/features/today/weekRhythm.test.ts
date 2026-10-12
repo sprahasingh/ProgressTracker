@@ -4,8 +4,8 @@ import { getWeekRhythmState } from './weekRhythm'
 const futureOpportunity = { isHoliday: false, scheduled: 2, done: 0, hasPartial: false, hasSkipped: false, isToday: false, isFuture: true }
 
 describe('week rhythm day state', () => {
-  it('keeps an upcoming scheduled day pending instead of missed', () => {
-    expect(getWeekRhythmState(futureOpportunity)).toBe('pending')
+  it('labels a future required date upcoming instead of pending or missed', () => {
+    expect(getWeekRhythmState(futureOpportunity)).toBe('upcoming')
   })
 
   it('marks only an elapsed incomplete opportunity as missed', () => {
@@ -21,9 +21,9 @@ describe('week rhythm day state', () => {
     expect(getWeekRhythmState({ ...futureOpportunity, hasNoProgress: true, isToday: true, isFuture: false })).toBe('no-progress')
   })
 
-  it('renders an explicit intentional miss as missed, while future legacy marks remain pending', () => {
-    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true })).toBe('pending')
-    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isFuture: false })).toBe('missed')
-    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isToday: true, isFuture: false })).toBe('missed')
+  it('keeps an explicit skip distinct from a derived miss', () => {
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true })).toBe('skipped')
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isFuture: false })).toBe('skipped')
+    expect(getWeekRhythmState({ ...futureOpportunity, hasSkipped: true, isToday: true, isFuture: false })).toBe('skipped')
   })
 })

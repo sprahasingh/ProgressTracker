@@ -2838,6 +2838,41 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .ai-knowledge-empty, .ai-knowledge-loading { padding: 24px 14px; }
 }
 
+/* Activity status vocabulary additions. These reuse the neutral palette so the
+   new context labels remain quiet and work in both themes. */
+.status-upcoming { --status-bg: var(--status-pending-surface); --status-stroke: var(--status-pending-border); --status-fg: var(--status-upcoming); }
+.status-outside-period, .status-historical, .status-inactive, .status-no-trackers { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-outside); }
+.status-no-progress { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-neutral-ink); }
+.status-rest-day { --status-bg: var(--status-rest-surface); --status-stroke: var(--status-rest-border); --status-fg: var(--status-rest-ink); }
+.calendar-status-key { margin: 12px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink-muted); }
+.calendar-status-key > details > summary { min-height: 38px; padding: 11px 14px; border-top: 1px solid var(--line); cursor: pointer; font-size: 11px; font-weight: 650; }
+.calendar-status-key .calendar-legend { margin: 0; border: 0; border-radius: 14px; }
+.calendar-status-key .calendar-context-legend { padding-top: 0; }
+.calendar-aggregate-hint, .calendar-mixed-note { margin: 8px 0 14px; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.calendar-cell-status.mixed { outline: 2px dotted currentColor; outline-offset: -4px; }
+.calendar-mixed-indicator { position: absolute; top: 0; right: 4px; font-size: 18px; line-height: 1; }
+.activity-calendar .calendar-cell-status.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
+.activity-calendar .calendar-cell-status.outside-period, .activity-calendar .calendar-cell-status.historical, .activity-calendar .calendar-cell-status.inactive, .activity-calendar .calendar-cell-status.no-trackers { background: var(--status-neutral-surface); color: var(--status-outside); }
+.activity-calendar .calendar-cell-status { position: relative; }
+.activity-calendar .calendar-cell-status.rest-day { background: var(--status-rest-surface); color: var(--status-rest-ink); }
+.activity-calendar .calendar-cell-status.no-progress { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.calendar-status-mark.no-progress { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.calendar-status-mark.rest-day { background: var(--status-rest-surface); color: var(--status-rest-ink); }
+.calendar-dot.no-progress { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.calendar-dot.rest-day { background: var(--status-rest-surface); color: var(--status-rest-ink); }
+.today-state.no-progress svg, .calendar-dot.no-progress svg, .calendar-cell-status.no-progress .calendar-cell-mark { color: var(--status-neutral); }
+.today-state.rest-day svg, .calendar-dot.rest-day svg, .calendar-cell-status.rest-day .calendar-cell-mark { color: var(--status-rest); }
+.today-state.upcoming svg, .calendar-dot.upcoming svg, .calendar-cell-status.upcoming .calendar-cell-mark { color: var(--status-upcoming); }
+.today-state.outside-period svg, .today-state.historical svg, .today-state.inactive svg, .today-state.no-trackers svg { color: var(--status-outside); }
+.calendar-status-mark.rest-day { background: var(--status-rest-surface); color: var(--status-rest-ink); }
+.calendar-status-mark.outside-period, .calendar-status-mark.historical, .calendar-status-mark.inactive { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.calendar-status-mark.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
+.calendar-dot.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
+.calendar-dot.outside-period, .calendar-dot.historical, .calendar-dot.inactive, .calendar-dot.no-trackers { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
+.holiday-about { margin: 14px 0 24px; padding: 14px 18px; }
+.holiday-about h2 { margin: 0 0 4px; color: var(--ink); font-size: 13px; }
+.holiday-about p { margin: 0; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+
 
 /* Recent missing check-ins are an informational review surface, not an error state. */
 .history-missing-section { display: grid; gap: 12px; margin: 18px 0 24px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface-raised); }

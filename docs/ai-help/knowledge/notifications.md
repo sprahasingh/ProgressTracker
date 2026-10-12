@@ -57,7 +57,7 @@ The app can highlight unresolved check-in opportunities in its foreground experi
 - src/features/notifications/ForegroundReminderMonitor.tsx
 - src/features/notifications/reminderRules.ts
 **Answer:**
-The overdue reminder checks unresolved opportunities from yesterday. It does not scan every historical date. History separately offers a review of missing opportunities from the previous seven completed days.
+The overdue reminder checks unresolved required opportunities from yesterday. It does not scan every historical date. Future opportunities are Upcoming and do not trigger overdue reminders. History separately offers a review of missing opportunities from the previous seven completed days.
 
 ### ID: reminder-dismissal
 **Category:** notifications

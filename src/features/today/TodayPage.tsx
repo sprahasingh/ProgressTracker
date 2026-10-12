@@ -156,10 +156,11 @@ export function TodayPage() {
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
   const completedCount = trackers.filter((tracker) => {
     const entry = entryByTracker.get(tracker.id)
-    return getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, timeZone }) === 'completed' || tracker.strictMode === true && Boolean(entry && qualifiesForStreak(tracker, entry))
+    return getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, timeZone }) === 'completed'
   }).length
   const partialCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'partial').length
-  const missedCount = trackers.filter((tracker) => ['missed', 'skipped'].includes(getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }))).length
+  const missedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'missed').length
+  const skippedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'skipped').length
   const remainingCount = Math.max(0, trackers.length - completedCount - missedCount)
   const allComplete = trackers.length > 0 && completedCount === trackers.length
   const selectedTracker = activityTrackers.find((tracker) => tracker.id === selectedActivity?.trackerId)
@@ -183,13 +184,13 @@ export function TodayPage() {
     const entryFor = (tracker: StoredTrackerDefinition) => weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date)
     const statuses = opportunities.map((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }))
     const strictQualified = strictRequired.filter((tracker) => { const entry = entryFor(tracker); return Boolean(entry && qualifiesForStreak(tracker, entry)) }).length
-    const done = opportunities.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }) === 'completed' || strictRequired.some((strict) => strict.id === tracker.id && Boolean(entryFor(tracker) && qualifiesForStreak(tracker, entryFor(tracker)!)))).length
+    const done = opportunities.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }) === 'completed').length
     const partial = statuses.some((status) => status === 'partial')
     const noProgress = statuses.some((status) => status === 'no-progress')
     const hasSkipped = opportunities.some((tracker) => entryFor(tracker)?.outcome === 'skipped')
     const isRest = !isHoliday && opportunities.length === 0
     const state = isHoliday ? 'holiday' : isRest ? 'rest' : getWeekRhythmState({ isHoliday, scheduled: opportunities.length, done, hasPartial: partial, hasNoProgress: noProgress, hasSkipped, isToday, isFuture: date > today })
-    const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'no-progress' ? 'no progress' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : 'pending'
+    const statusLabel = state === 'complete' ? 'Completed' : state === 'partial' ? 'Partial' : state === 'no-progress' ? 'No progress' : state === 'missed' ? 'Missed' : state === 'skipped' ? 'Skipped' : state === 'holiday' ? 'Holiday' : state === 'rest' ? 'Rest day' : state === 'upcoming' ? 'Upcoming' : 'Pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, strictRequired: strictRequired.length, strictQualified, done, isToday, isHoliday, state, statusLabel }
   }), [today, weekStart, allTrackers, weekEntries, holidayDates])
 
@@ -200,7 +201,7 @@ export function TodayPage() {
       await refresh()
       notify({
         kind: authStatus === 'signed-in' && isOnline === false ? 'warning' : 'success',
-        title: authStatus === 'signed-in' && isOnline === false ? 'Saved on this device' : outcome === 'skipped' ? 'Marked as missed' : wasSaved ? 'Check-in updated' : 'Check-in saved',
+        title: authStatus === 'signed-in' && isOnline === false ? 'Saved on this device' : outcome === 'skipped' ? 'Marked as skipped' : wasSaved ? 'Check-in updated' : 'Check-in saved',
         description: authStatus === 'signed-in' && isOnline === false
           ? 'Saved on this device. It will sync when your account is online.'
           : 'Your progress has been saved on this device.',
@@ -232,17 +233,17 @@ export function TodayPage() {
       {!loading && !loadError && activityTrackers.length > 0 && <details className="week-rhythm-disclosure"><summary>Your last 7 days</summary><section className="week-rhythm surface" aria-labelledby="week-rhythm-title">
         <header className="week-rhythm-heading"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR PATTERN</span><h2 id="week-rhythm-title">A week of little wins</h2><InfoButton title="Weekly pattern" summary="The date tile keeps its Holiday or Rest day label even when Strict Mode requires a check-in." description="Standard Mode treats holidays and unscheduled rest days as neutral for streaks. Strict Mode requires qualifying progress on every calendar date, including those days. The accessible day label reports how many strict opportunities qualified. A voluntary check-in does not change the date’s primary status." /></div><span className="week-rhythm-count">{weekPattern.filter((day) => day.done > 0).length}<small> / 7 days</small></span></header>
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
-          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}${day.isToday ? ' today-date' : ''}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} completed` : ''}${day.strictRequired > 0 ? `, ${day.strictQualified} of ${day.strictRequired} Strict Mode opportunities qualified` : ''}${day.isToday ? ', today' : ''}`}>
+          {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}${day.isToday ? ' today-date' : ''}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} met their configured success rule` : ''}${day.strictRequired > 0 ? `, ${day.strictQualified} of ${day.strictRequired} Strict Mode opportunities qualified` : ''}${day.isToday ? ', today' : ''}`}>
             <span className="week-rhythm-weekday">{calendarDateLabel(day.date, { weekday: 'short' })}</span>
-            <span className="week-rhythm-mark" aria-hidden="true">{day.state === 'holiday' ? <ActivityStatusIcon status="holiday" /> : day.state === 'rest' ? <ActivityStatusIcon status="unscheduled" /> : day.state === 'complete' ? <ActivityStatusIcon status="completed" /> : day.state === 'partial' ? <ActivityStatusIcon status="partial" /> : day.state === 'no-progress' ? <ActivityStatusIcon status="no-progress" /> : day.state === 'missed' ? <ActivityStatusIcon status="missed" /> : <ActivityStatusIcon status="pending" />}</span>
+            <span className="week-rhythm-mark" aria-hidden="true">{day.state === 'holiday' ? <ActivityStatusIcon status="holiday" /> : day.state === 'rest' ? <ActivityStatusIcon status="rest-day" /> : day.state === 'complete' ? <ActivityStatusIcon status="completed" /> : day.state === 'partial' ? <ActivityStatusIcon status="partial" /> : day.state === 'no-progress' ? <ActivityStatusIcon status="no-progress" /> : day.state === 'skipped' ? <ActivityStatusIcon status="skipped" /> : day.state === 'missed' ? <ActivityStatusIcon status="missed" /> : day.state === 'upcoming' ? <ActivityStatusIcon status="upcoming" /> : <ActivityStatusIcon status="pending" />}</span>
             <span className="week-rhythm-date">{Number(day.date.slice(-2))}</span>
           </div>)}
         </div>
         <p className="week-rhythm-caption">Rest days are part of your rhythm too.</p>
       </section></details>}
       {!loading && !loadError && trackers.length > 0 && <section className={`today-overview surface${allComplete ? ' all-handled' : ''}`} aria-label="Today at a glance">
-        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All done for today!' : 'No scheduled activity remains.' : `${remainingCount} ${remainingCount === 1 ? 'activity' : 'activities'} still actionable`}</h2><p>{completedCount} completed · {partialCount} partially complete · {loggedCount} of {trackers.length} checked in{missedCount ? ` · ${missedCount} marked missed` : ''}.</p></div>
-        <div className="today-progress" role="img" aria-label={`${completedCount} of ${trackers.length} scheduled activities completed`}><span>{completedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? completedCount / trackers.length * 100 : 0}%` }} /></div><small>completed today</small></div>
+        <div className="today-overview-copy"><span className="eyebrow"><span className="eyebrow-line" /> TODAY AT A GLANCE</span><h2>{remainingCount === 0 ? allComplete ? 'All done for today!' : 'No scheduled activity remains.' : `${remainingCount} ${remainingCount === 1 ? 'activity' : 'activities'} still actionable`}</h2><p>{completedCount} completed · {partialCount} partial · {loggedCount} of {trackers.length} checked in{missedCount ? ` · ${missedCount} missed` : ''}{skippedCount ? ` · ${skippedCount} skipped` : ''}.</p></div>
+        <div className="today-progress" role="img" aria-label={`${completedCount} of ${trackers.length} scheduled activities met their success rule`}><span>{completedCount}<small> / {trackers.length}</small></span><div className="today-progress-track"><i style={{ width: `${trackers.length ? completedCount / trackers.length * 100 : 0}%` }} /></div><small>success rules met</small></div>
       </section>}
       {!loading && !loadError && upcomingGoals.length > 0 && <section className="today-upcoming-goals" aria-labelledby="today-upcoming-title">
         <header><div><span className="eyebrow"><span className="eyebrow-line" /> NEXT UP</span><h2 id="today-upcoming-title">Coming up soon</h2></div><Link to="/goals">All goals <span aria-hidden="true">→</span></Link></header>
@@ -320,7 +321,7 @@ export function TodayPage() {
         status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet, timeZone })}
         canEdit={Boolean(selectedEntry) || selectedTracker.status === 'active' && selectedTracker.deletedAt === null && isTrackerInActivePeriod(selectedTracker, selectedActivity.date, timeZone)}
         historical={selectedActivity.date < today} onSave={save} onClear={clear} onClose={() => { const key = `${selectedTracker.id}:${selectedActivity.date}`; setSelectedActivity(null); window.setTimeout(() => cardTriggers.current.get(key)?.focus(), 0) }} />}
-      {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Missed · marked intentionally' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}
+      {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Skipped · intentionally saved' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}
     </section>
   )
 }
@@ -417,20 +418,20 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
 
   return createPortal(<div ref={backdropRef} className="today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
-      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}{holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'unscheduled' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
+      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)} · {ACTIVITY_STATUS_PRESENTATION[status].label}{holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
       <div className="today-detail-content">
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={entries} holidays={holidays} />
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>
-          {(holidays.has(today) || status === 'unscheduled') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
-          {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was marked missed intentionally. Recording progress will replace the missed status.</p>}
+          {(holidays.has(today) || status === 'rest-day') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
+          {entry?.outcome === 'skipped' && <p className="today-detail-notice">This check-in was intentionally skipped. Recording progress will replace the skipped outcome.</p>}
           <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as missed (breaks streak)</button><small>This records an intentional missed commitment.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
+      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
     </section>
   </div>, document.body)
 }

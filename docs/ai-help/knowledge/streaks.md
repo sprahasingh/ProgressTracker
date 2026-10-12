@@ -72,7 +72,7 @@ Your current streak describes your ongoing qualifying run. Your longest streak i
 - src/domain/trackers/progression.test.ts
 - src/features/history/HistoryPage.tsx
 **Answer:**
-No. A skipped entry records an intentional miss and does not qualify as a successful check-in. On a counted opportunity it breaks the qualifying streak, subject to the tracker’s mode and schedule rules.
+No. A Skipped entry is a saved intentional outcome, not a derived Missed date or a recorded No progress check-in. It does not qualify for a streak on a required opportunity. Standard Mode rest days and holidays are excluded from the streak; Strict Mode requires qualifying activity on every in-period date.
 
 ### ID: streak-zero-quantity
 **Category:** streaks

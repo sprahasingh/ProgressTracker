@@ -90,7 +90,7 @@ describe('local check-in history', () => {
     expect(screen.getByText('4 km')).toBeInTheDocument()
     expect(screen.getByText('Park loop')).toBeInTheDocument()
     expect(screen.getAllByText('Completed · success rule met')).toHaveLength(2)
-    expect(screen.getByText('Skipped · marked intentionally')).toBeInTheDocument()
+    expect(screen.getByText('Skipped · intentionally saved')).toBeInTheDocument()
     expect(screen.getByText('Rested today')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Tracker'), yoga.id)
@@ -120,7 +120,7 @@ describe('local check-in history', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
 
     expect(await screen.findByText('No progress · progress saved')).toBeInTheDocument()
-    expect(screen.getByText('Historical · outside tracker period · progress saved')).toBeInTheDocument()
+    expect(screen.getByText('Historical entry · success rule met')).toBeInTheDocument()
     expect(screen.getByText(/2 check-ins · 0 met the current success rule · 1 outside the current tracker period/)).toBeInTheDocument()
     expect(screen.getByText('0 km')).toBeInTheDocument()
     expect(screen.getByText('4 km')).toBeInTheDocument()

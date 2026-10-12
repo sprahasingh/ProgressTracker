@@ -130,12 +130,12 @@ const allowedLinkLabels = new Map([
 ])
 
 const answers: Array<{ terms: string[]; answer: string }> = [
-  { terms: ['streak', 'miss sunday', 'miss a day'], answer: 'A streak counts consecutive scheduled check-in days that meet the tracker’s success rule. Days outside the tracker schedule do not break the streak. A missed scheduled day does.' },
+  { terms: ['streak', 'miss sunday', 'miss a day'], answer: 'A streak counts consecutive required opportunities that meet the tracker’s success rule. In Standard Mode, unscheduled rest days and holidays do not break the streak; in Strict Mode, every active date is an opportunity. A missed required date breaks the run.' },
   { terms: ['cumulative', 'daily goal', 'goal target', 'total goal'], answer: 'A daily goal asks you to reach a target on each scheduled day. A cumulative goal adds progress over a date range toward one total, and needs a deadline. Milestones show progress along the way.' },
   { terms: ['success rule', 'qualify', 'minimum', 'threshold'], answer: 'A success rule decides whether a check-in qualifies. It can compare measure values with thresholds and combine conditions. The rule is evaluated against the values recorded for that check-in.' },
   { terms: ['offline', 'sync', 'synchronization'], answer: 'ProgressTracker saves check-ins locally so you can keep working offline. When you are signed in and online, pending changes synchronize with your account.' },
   { terms: ['completion rate', 'analytics', 'history'], answer: 'History preserves recorded check-ins and their measure context. Analytics summarizes progress across the selected period; retired measures remain part of historical views.' },
-  { terms: ['schedule', 'scheduled'], answer: 'A tracker schedule defines which days count as expected check-in days. Streaks and completion summaries use that schedule when interpreting missed days.' },
+  { terms: ['schedule', 'scheduled'], answer: 'A tracker schedule defines expected check-in days in Standard Mode. Strict Mode requires a qualifying check-in on every active date, including rest days and holidays. Streak and completion summaries use the applicable opportunities when interpreting missed days.' },
 ]
 
 export function getLocalHelpAnswer(question: string, history: ChatMessage[] = []): string | null {
