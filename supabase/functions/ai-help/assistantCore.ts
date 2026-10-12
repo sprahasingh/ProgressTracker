@@ -53,7 +53,45 @@ export function socialConversationReply(question: string): string | null {
   return null
 }
 
-const stopWords = new Set(['about', 'also', 'are', 'can', 'does', 'for', 'from', 'how', 'into', 'is', 'it', 'me', 'my', 'of', 'please', 'the', 'this', 'that', 'there', 'they', 'what', 'when', 'where', 'which', 'who', 'why', 'with', 'you', 'your'])
+const stopWords = new Set(['about', 'also', 'am', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'could', 'did', 'do', 'does', 'for', 'from', 'had', 'has', 'have', 'how', 'if', 'in', 'into', 'is', 'it', 'me', 'my', 'of', 'on', 'or', 'our', 'please', 'should', 'the', 'then', 'this', 'that', 'there', 'they', 'to', 'was', 'were', 'what', 'when', 'where', 'which', 'who', 'why', 'will', 'with', 'would', 'you', 'your'])
+
+const catalogSynonymGroups = [
+  ['archive', 'archived', 'inactive', 'pause', 'paused'],
+  ['blank', 'empty', 'unfilled'],
+  ['calendar', 'month', 'monthview', 'calendarview'],
+  ['checkin', 'entry', 'log', 'record', 'submission'],
+  ['clear', 'delete', 'remove'],
+  ['create', 'created', 'creation', 'made', 'new'],
+  ['dismiss', 'silence', 'close', 'ignore'],
+  ['erase', 'erased', 'delete', 'deleted', 'permanent', 'forever'],
+  ['hide', 'hidden', 'retire', 'retired', 'stopusing', 'discontinue'],
+  ['historical', 'past', 'old', 'earlier', 'previous'],
+  ['laptop', 'phone', 'device', 'computer'],
+  ['guest', 'local'],
+  ['longest', 'best', 'personalbest'],
+  ['missed', 'unchecked', 'notlogged', 'unrecorded'],
+  ['missed', 'absent', 'emptydate'],
+  ['notification', 'reminder', 'alert'],
+  ['percentage', 'percent', 'rate', 'consistency'],
+  ['qualify', 'qualified', 'qualifying', 'successful', 'success'],
+  ['edit', 'change', 'update', 'modify'],
+  ['reenter', 'recordagain', 'logagain', 'resave', 'restore'],
+  ['streak', 'run', 'series', 'chain'],
+  ['start', 'begin', 'begins', 'beginning'],
+  ['zero', 'nil'],
+  ['amount', 'quantity', 'number', 'numeric', 'value'],
+]
+
+function catalogTermMatches(queryTerm: string, promptTerms: Set<string>): boolean {
+  if (promptTerms.has(queryTerm)) return true
+  return catalogSynonymGroups.some((group) => group.includes(queryTerm) && group.some((term) => promptTerms.has(term)))
+}
+
+function asksForPersonalProgress(question: string): boolean {
+  const normalized = canonicalize(question).toLocaleLowerCase()
+  return /\b(?:how many|what(?:'s| is| are) my|show me my|tell me my)\b/.test(normalized)
+    && /\b(?:number|amount|value|score|progress|pages?|minutes?|streak|percentage|rate|entries?|check.?ins?)\b/.test(normalized)
+}
 
 // Small, general language bridges for common ways users describe the same
 // application concepts. These add low-weight search terms; they do not add
@@ -298,7 +336,8 @@ export function rankKnowledgeDocuments(question: string, history: AssistantHisto
 }
 
 function queryCurrentTerms(question: string) {
-  return [...new Set(tokenize(canonicalize(question)).filter((term) => !stopWords.has(term))) ]
+  const normalized = canonicalize(question).replace(/\b(?:cleared|clearing)\b/g, 'clear').replace(/\b(?:erasing|erased|erases)\b/g, 'erase').replace(/\bpermanently\b/g, 'permanent').replace(/\b0(?:\.0+)?\b/g, 'zero').replace(/\bmonth(?:ly)? view\b/g, 'calendar').replace(/\bno saved (?:entry|record)\b/g, 'unchecked').replace(/\bstopped using\b/g, 'retired').replace(/\bbring(?:ing)? back\b/g, 'restore')
+  return [...new Set(tokenize(normalized).filter((term) => !stopWords.has(term))) ]
 }
 
 /** Conservative lexical retrieval for curated Q&A; aliases carry more weight than answer prose. */
@@ -309,26 +348,60 @@ export function rankVerifiedCatalog(question: string, entries: readonly CatalogK
     const prompts = [entry.question, ...entry.aliases]
     const promptScores = prompts.map((prompt) => {
       const terms = new Set(queryCurrentTerms(prompt))
-      const overlap = [...query].filter((term) => terms.has(term)).length
+      const overlap = [...query].filter((term) => catalogTermMatches(term, terms)).length
       const precision = overlap / query.size
       const recall = overlap / Math.max(terms.size, 1)
       return 0.62 * precision + 0.38 * recall
     })
     const bestPrompt = Math.max(...promptScores)
+    const queryCoverage = Math.max(...prompts.map((prompt) => {
+      const terms = new Set(queryCurrentTerms(prompt))
+      return [...query].filter((term) => catalogTermMatches(term, terms)).length / query.size
+    }))
     const keywords = new Set(tokenize(canonicalize(entry.keywords.join(' '))))
     const keywordCoverage = [...query].filter((term) => keywords.has(term)).length / query.size
-    return { entry, score: bestPrompt + Math.min(0.12, keywordCoverage * 0.12), promptScore: bestPrompt }
+    return { entry, score: bestPrompt + Math.min(0.12, keywordCoverage * 0.12), promptScore: bestPrompt, queryCoverage }
   }).sort((a, b) => b.score - a.score)
 }
 
+function splitCatalogIntents(question: string): string[] {
+  return question.split(/\s+(?:and|but|plus)\s+(?=(?:does|do|is|are|can|could|will|would|what|why|how|whether)\b)|[;?]+/i)
+    .map((part) => part.trim()).filter((part) => queryCurrentTerms(part).length >= 2)
+}
+
+const catalogContextTerms = new Set(['account', 'calendar', 'checkin', 'completion', 'date', 'entry', 'goal', 'history', 'holiday', 'measure', 'metric', 'mode', 'note', 'notification', 'percentage', 'rate', 'reminder', 'streak', 'strict', 'standard', 'sync', 'time', 'tracker', 'zone'])
+
+export function selectRelevantCatalogKnowledge(question: string, entries: readonly CatalogKnowledge[], limit = 2) {
+  const intents = splitCatalogIntents(question)
+  if (intents.length <= 1) return rankVerifiedCatalog(question, entries).slice(0, limit).filter(({ promptScore }) => promptScore >= 0.28)
+  const matches = new Map<string, { entry: (typeof entries)[number]; score: number; promptScore: number }>()
+  for (const [index, intent] of intents.entries()) {
+    const context = index ? queryCurrentTerms(intents.slice(0, index).join(' ')).filter((term) => catalogContextTerms.has(term)).join(' ') : ''
+    const intentResults = rankVerifiedCatalog(`${context} ${intent}`, entries)
+    for (const result of intentResults.slice(0, 2)) {
+      if (result.promptScore < 0.28) continue
+      const previous = matches.get(result.entry.id)
+      if (!previous || result.score > previous.score) matches.set(result.entry.id, result)
+    }
+  }
+  for (const result of rankVerifiedCatalog(question, entries).slice(0, 4)) {
+    const previous = matches.get(result.entry.id)
+    if (!previous || result.score > previous.score) matches.set(result.entry.id, result)
+  }
+  return [...matches.values()].sort((a, b) => b.score - a.score).slice(0, 4)
+}
+
 export function retrieveVerifiedCatalog(question: string, entries: readonly CatalogKnowledge[]) {
+  if (splitCatalogIntents(question).length > 1) return null
+  if (asksForPersonalProgress(question)) return null
+  if (/\b(?:note|journal)\b/.test(canonicalize(question)) && /\b(?:permanent(?:ly)?|forever|erase|erased|storage|backup)\b/.test(canonicalize(question))) return null
   const ranked = rankVerifiedCatalog(question, entries)
   const best = ranked[0]
   const next = ranked[1]
   const normalized = canonicalize(question).replace(/[^a-z0-9]+/g, ' ').trim()
   const exactPrompt = entries.some((entry) => [entry.question, ...entry.aliases].some((prompt) => canonicalize(prompt).replace(/[^a-z0-9]+/g, ' ').trim() === normalized))
   if (queryCurrentTerms(question).length < 2 && !exactPrompt) return null
-  if (!best || best.promptScore < 0.58 || (next && best.promptScore - next.promptScore < 0.08 && next.promptScore >= 0.58)) return null
+  if (!best || best.promptScore < 0.58 || best.queryCoverage < 0.68 || (next && best.promptScore - next.promptScore < 0.08 && next.promptScore >= 0.58 && next.queryCoverage >= 0.68)) return null
   return { ...best.entry, score: best.score }
 }
 
@@ -392,6 +465,30 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
   }
   if (/\b(?:rpc|function|role|permission|invoke|execute)\b/.test(normalizedQuestion) && /\b(?:maintainer|service_role|authenticated)\b/.test(normalizedQuestion)) {
     preferredPaths.push('supabase/migrations/20261030000200_unified_feedback_support.sql', 'supabase/functions/support-inbox/index.ts')
+  }
+  if (/\b(?:nothing to log|no entry|unchecked|blank date)\b/.test(normalizedQuestion) && /\b(?:miss|count|status|date)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/domain/trackers/activityStatus.ts', 'src/domain/trackers/missingCheckIns.ts')
+  }
+  if (/\bholiday\b/.test(normalizedQuestion) && /\b(?:count|streak|routine|progress|qualif|affect)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/domain/trackers/progression.ts', 'src/domain/trackers/planning.ts', 'src/domain/holidays.ts')
+  }
+  if (/\bstreak\b/.test(normalizedQuestion) && /\b(?:rule|change|old|historical|entry|check.?in)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/domain/trackers/invariants.ts', 'src/domain/trackers/progression.ts')
+  }
+  if (/\b(?:success|successful|qualif|meets? the rule)\b/.test(normalizedQuestion) && /\b(?:check.?in|entry|tracker)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/domain/trackers/progression.ts', 'src/domain/trackers/planning.ts')
+  }
+  if (/\bchecklist\b/.test(normalizedQuestion) && /\b(?:target|limit|count|more|allowed|items?)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/domain/trackers/schema.ts', 'src/features/trackers/GoalPlanningEditor.tsx')
+  }
+  if (/\b(?:retire|retired|remove|removing|hide|hidden|stop using)\b/.test(normalizedQuestion) && /\b(?:measure|metric)\b/.test(normalizedQuestion) && /\b(?:old|past|historical|entry|check.?in|history)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/features/history/HistoryPage.tsx', 'src/domain/trackers/types.ts', 'src/domain/trackers/analytics.ts')
+  }
+  if (/\b(?:local workspace|local data|offline data)\b/.test(normalizedQuestion) && /\b(?:sign.?out|log.?out|account)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/features/auth/AuthProvider.tsx', 'src/db/localRepository.ts')
+  }
+  if (/\bemail\b/.test(normalizedQuestion) && /\b(?:change|confirm|confirmation|new address|verification)\b/.test(normalizedQuestion)) {
+    preferredPaths.push('src/features/auth/authService.ts', 'src/features/auth/AuthPage.tsx')
   }
   const { frequencies, byEntry, fileTerms: cachedFileTerms } = getSourceTermCache(entries)
   const ranked = entries.map((entry, index) => {

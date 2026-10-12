@@ -65,3 +65,9 @@ For each question, pass only when the assistant answers the current intent, incl
 ## Limits of this evaluation
 
 The checklist is a maintained acceptance set, not a transcript of live answers. Unit tests use mocked Groq responses and prove the deterministic boundaries around retrieval, prompt construction, citations, links, follow-ups, retries, and privacy. They do not prove that a live model always follows instructions, answers factually, or meets a latency target. Run any approved live quality evaluation separately with non-private prompts; do not include tracker values or journals.
+
+## Local retrieval evaluations
+
+`scripts/ai-help-catalog-evaluation.json` is a separate catalog retrieval set. It contains exact questions, held-out paraphrases, multi-part questions, ambiguous requests, and unsupported requests; its questions are not added to the catalog aliases. Run it with `npx vitest run supabase/functions/ai-help/catalogEvaluation.test.ts`. The test reports catalog Recall@1 and Recall@3, strong direct-route precision, incorrect deterministic routing, abstention, and multi-part coverage. These are local deterministic retrieval measures; they do not evaluate a live model response.
+
+`supabase/functions/ai-help/sourceRetrievalBenchmark.test.ts` measures source-code evidence retrieval independently. Its 25-question source baseline, supplementary 20-question wording set, paraphrase set, high-lexical-drift set, and frozen held-out set have separate denominators. Supplementary source targets should be updated only when code inspection establishes that an expected source path was wrong. The tests retrieve local bundled excerpts and make no provider request.

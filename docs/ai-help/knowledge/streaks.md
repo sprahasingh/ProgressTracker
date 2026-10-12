@@ -58,3 +58,32 @@ In Standard Mode, only scheduled check-in dates are opportunities, so unschedule
 - src/domain/trackers/progression.test.ts
 **Answer:**
 Your current streak describes your ongoing qualifying run. Your longest streak is the best qualifying run found in the tracker’s history, so a current streak ending does not erase that record.
+
+### ID: streak-skipped
+**Category:** streaks
+**Question:** Does marking a check-in as skipped count toward a streak?
+**Aliases:**
+- Is an intentionally missed entry a completed day?
+- Does “Marked missed intentionally” qualify for a streak?
+**Keywords:** skipped, marked missed, streak, qualifying entry
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/progression.ts
+- src/domain/trackers/progression.test.ts
+- src/features/history/HistoryPage.tsx
+**Answer:**
+No. A skipped entry records an intentional miss and does not qualify as a successful check-in. On a counted opportunity it breaks the qualifying streak, subject to the tracker’s mode and schedule rules.
+
+### ID: streak-zero-quantity
+**Category:** streaks
+**Question:** Does recording zero keep a streak alive?
+**Aliases:**
+- Can a zero quantity value qualify for a streak?
+- Why did my zero entry not count toward my streak?
+**Keywords:** zero, quantity, streak qualification, success rule
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/progression.ts
+- src/domain/trackers/progression.test.ts
+**Answer:**
+A numeric zero does not qualify through the default streak rule, which requires a finite value greater than zero. A tracker with an explicit streak qualification uses that configured rule instead, so check its settings when the result is unexpected.

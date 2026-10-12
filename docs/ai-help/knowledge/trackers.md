@@ -119,3 +119,31 @@ Retiring a measure removes it from future check-ins while keeping its definition
 - src/features/trackers/TrackerSetupPage.test.tsx
 **Answer:**
 Open Trackers, choose the tracker’s edit action, update its supported settings, then save. You can change configuration such as its schedule and add measures, while saved measure types and their historical meaning are protected.
+
+### ID: tracker-created-active-date
+**Category:** trackers
+**Question:** Does a tracker count dates before I created it?
+**Aliases:**
+- Does its start date include days before the tracker existed?
+- Why does a tracker created today start counting today?
+**Keywords:** tracker creation date, start date, active period, workspace time zone
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/planning.ts
+- src/domain/trackers/activePeriod.test.ts
+**Answer:**
+No. The effective active period starts on the later of the configured start date and the tracker’s creation date in the workspace time zone. Earlier dates are outside the tracker’s active period.
+
+### ID: archived-checkin-history
+**Category:** trackers
+**Question:** Can I edit check-ins after archiving a tracker?
+**Aliases:**
+- Is archived tracker history read-only?
+- Does archiving keep old entries but stop edits?
+**Keywords:** archived tracker, check-in, history, read-only, archive
+**Suggestible:** true
+**Sources:**
+- src/features/history/HistoryPage.tsx
+- src/features/trackers/TrackerLibraryPage.tsx
+**Answer:**
+Archiving keeps the tracker’s saved history, but its check-ins are read-only while the tracker is archived. Restore it to active status if you need to edit its check-ins again.

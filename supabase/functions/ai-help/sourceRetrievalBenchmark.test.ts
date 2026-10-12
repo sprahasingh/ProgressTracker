@@ -88,7 +88,9 @@ const necessarySources: Record<string, readonly string[]> = {
 }
 
 // Supplementary phrasing sample. It is reported separately from the unchanged
-// benchmark and is not used to set its pass threshold.
+// benchmark and is not used to set its pass threshold. H7 targets AuthProvider
+// because it implements sign-out and workspace selection; WorkspaceBackup only
+// handles export/restore and was not the authoritative source for that intent.
 const supplementaryWording = [
   ['H1', 'When a day has nothing to log, does the app count it as a miss?', 'src/domain/trackers/activityStatus.ts'],
   ['H2', 'If I check off a holiday, will it still count toward the routine?', 'src/domain/trackers/progression.ts'],
@@ -96,7 +98,7 @@ const supplementaryWording = [
   ['H4', 'Why does the goal show how much I should do each scheduled day?', 'src/domain/trackers/planning.ts'],
   ['H5', 'Can my schedule skip Sundays?', 'src/domain/trackers/planning.ts'],
   ['H6', 'Where does the workspace remember the timezone I chose?', 'src/features/settings/WorkspaceTimeZone.tsx'],
-  ['H7', 'What stays in the local workspace if I sign out?', 'src/features/auth/WorkspaceBackup.tsx'],
+  ['H7', 'What stays in the local workspace if I sign out?', 'src/features/auth/AuthProvider.tsx'],
   ['H8', 'Can I stop future notifications without losing my completed check-ins?', 'src/features/notifications/NotificationsSettings.tsx'],
   ['H9', 'Why did the app keep my previous value after I edited a tracker?', 'src/features/trackers/TrackerSetupPage.tsx'],
   ['H10', 'How does the app decide whether a specific check-in is a success?', 'src/domain/trackers/progression.ts'],
@@ -260,6 +262,7 @@ describe('AI Help source retrieval benchmark', () => {
     const results = answerable.map(([id, question, expected]) => ({ id, expected: expected!, paths: selectedPaths(question) }))
     const score = results.filter(({ expected, paths }) => paths.includes(expected)).length
     console.warn(`Supplementary wording Recall@4 ${score}/${results.length} (five unsupported questions were excluded)`)
+    for (const result of results.filter(({ expected, paths }) => !paths.includes(expected))) console.warn(`Supplementary miss ${result.id}: expected ${result.expected}; retrieved ${result.paths.join(', ')}`)
     const unsupported = supplementaryWording.filter(([, , expected]) => expected === null).map(([id, question]) => ({ id, paths: selectedPaths(question) }))
     console.warn(`Unsupported-query retrieval returned source context for ${unsupported.filter(({ paths }) => paths.length > 0).length}/5; this is retrieval only, not a measured model abstention rate.`)
   })

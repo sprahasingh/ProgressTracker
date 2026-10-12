@@ -157,7 +157,7 @@ const knowledge = await Promise.all(docs.map(async ([slug, title, path]) => ({
 })))
 const catalogDir = resolve(root, 'docs/ai-help/knowledge')
 const catalogFiles = (await readdir(catalogDir)).filter((name) => name.endsWith('.md')).sort()
-const allowedCategories = new Set(['getting-started', 'trackers', 'check-ins', 'streaks', 'statistics', 'history', 'holidays', 'goals', 'calendar', 'notifications', 'accounts-sync', 'settings-privacy', 'ai-help'])
+const allowedCategories = new Set(['getting-started', 'trackers', 'check-ins', 'streaks', 'statistics', 'history', 'holidays', 'goals', 'calendar', 'notifications', 'accounts-sync', 'settings-privacy', 'ai-help', 'insights'])
 const catalog = []
 const field = (block, label) => {
   const match = block.match(new RegExp(`\\*\\*${label}:\\*\\*[ \\t]*\\n([\\s\\S]*?)(?=\\n\\*\\*[A-Z][A-Za-z ]+:\\*\\*|$)`))
