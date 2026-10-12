@@ -217,6 +217,21 @@ function KnowledgeWorkspace() {
   }
   function updateField<K extends keyof EditableFields>(key: K, value: EditableFields[K]) { setFields((current) => current ? { ...current, [key]: value } : current) }
 
+  async function openLinkedCandidate(candidateId: string) {
+    try {
+      const result = await getCandidate(candidateId)
+      if (!result.candidate) throw new Error('The linked candidate could not be loaded.')
+      setWorkspaceTab('knowledge')
+      setTab(result.candidate.status)
+      setSelected({ kind: 'candidate', value: result.candidate })
+      setDetail(result)
+      setFields({ topic_id: result.candidate.topic_id, title: result.candidate.title, explanation: result.candidate.explanation,
+        detailed_explanation: result.candidate.detailed_explanation, feature_category: result.candidate.feature_category, source_refs: result.candidate.source_refs })
+    } catch (cause) {
+      notify({ kind: 'error', title: 'Candidate unavailable', description: safeApiMessage(cause) })
+    }
+  }
+
   if (workspaceTab === 'support') return <section className="tracker-page ai-knowledge-page support-inbox-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="Feedback & Support" description="Manage user feedback and support conversations." />
     <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
@@ -226,14 +241,14 @@ function KnowledgeWorkspace() {
   if (workspaceTab === 'feedback') return <section className="tracker-page ai-knowledge-page ai-knowledge-feedback-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" />
     <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
-    <AnswerFeedbackWorkspace />
+    <AnswerFeedbackWorkspace onOpenCandidate={(candidateId) => void openLinkedCandidate(candidateId)} />
   </section>
 
   return <section className="tracker-page ai-knowledge-page" aria-labelledby="ai-knowledge-title">
     <PageHeader headingId="ai-knowledge-title" eyebrow="MAINTAINER TOOLS" title="AI Knowledge" description="Review and manage the knowledge your AI assistant uses." />
     <WorkspaceNavigation active={workspaceTab} onChange={setWorkspaceTab} />
     <p className="ai-knowledge-intro">AI Help may suggest candidates during conversations using current indexed product evidence. Suggestions stay pending until a maintainer checks and approves them.</p>
-    {knowledgeVersion && <p className="ai-knowledge-current-version">Current source bundle <code>{knowledgeVersion}</code></p>}
+    {knowledgeVersion && <div className="ai-knowledge-current-version"><span>Knowledge content version: <strong>{knowledgeVersion.split('+', 1)[0] || knowledgeVersion}</strong></span><details><summary>Technical bundle details</summary><p>Generated source bundle identifier: <code>{knowledgeVersion}</code></p></details></div>}
     <div className="ai-knowledge-counts" role="tablist" aria-label="Filter by review status" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
       event.preventDefault()

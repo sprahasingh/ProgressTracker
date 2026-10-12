@@ -39,10 +39,14 @@ afterEach(() => {
 
 describe('AI Knowledge dashboard', () => {
   it('shows counts and server-filtered knowledge rows', async () => {
-    mocks.list.mockResolvedValue({ candidates: [candidate], verified_knowledge: [], counts: { pending: 1, approved: 3, stale: 2, rejected: 0 }, page: { limit: 50, offset: 0, has_more: false } })
+    mocks.list.mockResolvedValue({ knowledge_version: '0.1.0+0592eabb3aa5', candidates: [candidate], verified_knowledge: [], counts: { pending: 1, approved: 3, stale: 2, rejected: 0 }, page: { limit: 50, offset: 0, has_more: false } })
     renderPage()
     expect(await screen.findByRole('button', { name: /Measures/ })).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('Knowledge content version:').parentElement).toHaveTextContent('0.1.0')
+    expect(screen.getByText('0.1.0+0592eabb3aa5')).not.toBeVisible()
+    await userEvent.click(screen.getByText('Technical bundle details'))
+    expect(screen.getByText('0.1.0+0592eabb3aa5')).toBeVisible()
     expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending', limit: 50, offset: 0 }))
   })
 

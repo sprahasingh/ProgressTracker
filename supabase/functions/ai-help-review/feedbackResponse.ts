@@ -1,5 +1,6 @@
 export function buildAnswerFeedbackListPayload<T>(input: {
   knowledgeVersion: string
+  candidateSourceRefs: string[]
   feedback: T[]
   pendingCount: number | null
   reviewedCount: number | null
@@ -9,6 +10,7 @@ export function buildAnswerFeedbackListPayload<T>(input: {
 }) {
   return {
     current_knowledge_version: input.knowledgeVersion,
+    candidate_source_refs: input.candidateSourceRefs,
     feedback: input.feedback,
     counts: {
       pending: input.pendingCount ?? 0,
@@ -35,11 +37,14 @@ export function buildMaintainerAnswerFeedback(input: {
     created_at: string
     reviewed_at: string | null
     share_identity: boolean
+    knowledge_decision: string
+    knowledge_candidate_id: string | null
     reviewer_id?: string | null
     share_email?: boolean
   }
   identity: AnswerFeedbackIdentity | null
   currentPreference: boolean
+  candidate?: { id: string; title: string; status: string } | null
 }) {
   const { row, identity } = input
   const discloseIdentity = row.share_identity && input.currentPreference
@@ -50,6 +55,8 @@ export function buildMaintainerAnswerFeedback(input: {
     topic: row.topic,
     knowledge_version: row.knowledge_version,
     status: row.status,
+    knowledge_decision: row.knowledge_decision,
+    candidate: input.candidate ?? null,
     created_at: row.created_at,
     reviewed_at: row.reviewed_at,
     identity: discloseIdentity ? identity ?? { display_name: null, email: null } : null,

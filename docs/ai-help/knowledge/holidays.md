@@ -87,7 +87,7 @@ Removing the holiday makes the date subject to the tracker’s usual mode and sc
 - src/features/today/TodayPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-Yes. A holiday does not prevent a check-in from being saved. Calendar offers a voluntary check-in on a holiday, and the saved entry remains visible; whether it qualifies for a streak depends on the tracker’s mode and success rule.
+Yes. A holiday does not prevent a check-in from being saved. Calendar offers a voluntary check-in on an active tracker’s holiday, and the saved entry remains visible. In Standard Mode, the entry is saved and included in applicable metrics, but the holiday does not add a scheduled streak opportunity. In Strict Mode, the holiday remains a required opportunity, and the entry counts toward the streak only if it meets the tracker’s streak qualification.
 
 ### ID: holiday-standard-v-strict
 **Category:** holidays

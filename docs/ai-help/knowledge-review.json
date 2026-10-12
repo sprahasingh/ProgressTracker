@@ -61,20 +61,20 @@
     "supabase/functions/ai-help/assistantCore.ts": "e26a0433b07e829742cac66ebfc4b1a9509766212ea7a85922d1d8018581d9f9"
   },
   "calendar-content": {
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9",
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
     "src/domain/trackers/activityHeatmap.ts": "ad029d851bfa41dc646e48a4ef8798046026aba4b3b14283675c5fed936f0a11"
   },
   "calendar-activity-statuses": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9"
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48"
   },
   "calendar-inspect-past-date": {
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9",
-    "src/features/calendar/CalendarPage.test.tsx": "520d493e351be71666f103f83a51a99718592282e7d418c0e1c29253ce8e0650"
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
+    "src/features/calendar/CalendarPage.test.tsx": "77a0272a0a9fbb707755df90fbb9543bef6081fc0d93993ba2da1321b5431353"
   },
   "calendar-rest-day": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9"
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48"
   },
   "calendar-zero-activity": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
@@ -82,14 +82,14 @@
   },
   "calendar-holiday-entry": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9"
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48"
   },
   "heatmap-normalized": {
     "src/domain/trackers/activityHeatmap.ts": "ad029d851bfa41dc646e48a4ef8798046026aba4b3b14283675c5fed936f0a11",
     "src/features/dashboard/DashboardPage.tsx": "7d6c464fde40f1ec2a933640f2c62770fd3cb05d907f33a034ea002f9e8ca736"
   },
   "calendar-versus-history": {
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9",
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
     "src/features/history/HistoryPage.tsx": "ebf88f78337b9de789d1d81097a99810f94e26889f528712152f9975834ad4d1"
   },
   "skipped-vs-unchecked": {
@@ -129,7 +129,7 @@
   },
   "checkin-empty-versus-zero-status": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9"
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48"
   },
   "checkin-resave-same-date": {
     "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
@@ -264,7 +264,7 @@
     "src/domain/trackers/analytics.ts": "f314aeb5a9f078ba98dd81c8c110e6641bd0eef72d5e8b81687e6e2d922b4a44"
   },
   "holiday-log-progress": {
-    "src/features/calendar/CalendarPage.tsx": "045cd7a90a776a3e97e9ee12a7e6c8d2ebdd5090ecd640792e95e8e0d39be0a9",
+    "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
     "src/features/today/TodayPage.tsx": "d3b72a6665fd08a4d5eeb77060e8a1d1e82105e20f77bffd78c8a75566c5cf46",
     "src/domain/trackers/progression.ts": "d92c25266345d6ac97fec7358ac469010fcfa58e9482e6b88a29fc91554f6041"
   },
