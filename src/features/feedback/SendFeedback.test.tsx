@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SendFeedbackAction } from './SendFeedback'
 import { FeedbackSubmissionError } from './feedbackService'
@@ -131,5 +131,31 @@ describe('Send Feedback', () => {
     expect(textarea).toHaveValue('Mobile draft stays here.')
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(dialog.querySelector('footer button[type="submit"]')).toBeEnabled()
+    expect(dialog.style.height).toBe('')
+    expect(dialog.querySelector('form')?.nextElementSibling?.tagName).toBe('FOOTER')
+    expect(dialog.querySelector('form')).toHaveClass('send-feedback-scroll')
+    expect(dialog.querySelector('footer')).toBeVisible()
+  })
+
+  it('keeps the long feedback draft and both actions available as the simulated keyboard shrinks the viewport', async () => {
+    const viewport = new EventTarget() as VisualViewport
+    Object.defineProperties(viewport, { height: { configurable: true, writable: true, value: 820 }, width: { configurable: true, writable: true, value: 390 }, offsetTop: { configurable: true, writable: true, value: 0 }, offsetLeft: { configurable: true, writable: true, value: 0 } })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    const user = userEvent.setup()
+    renderAction(['/calendar'])
+    await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
+    const dialog = screen.getByRole('dialog')
+    const message = screen.getByRole('textbox', { name: 'Your message' })
+    fireEvent.change(message, { target: { value: 'x'.repeat(1800) } })
+    Object.defineProperty(viewport, 'height', { configurable: true, writable: true, value: 310 })
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, writable: true, value: 28 })
+    viewport.dispatchEvent(new Event('resize'))
+    expect(message).toHaveValue('x'.repeat(1800))
+    expect(dialog.parentElement).toHaveStyle({ top: '28px', height: '310px' })
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    expect(dialog.querySelector('footer button[type="submit"]')).toBeEnabled()
+    await user.click(message)
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/calendar')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })

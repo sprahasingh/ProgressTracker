@@ -81,6 +81,16 @@ describe('local check-in history', () => {
     expect(screen.queryByText(/Success rule met/)).not.toBeInTheDocument()
   })
 
+  it('does not count or render check-ins whose tracker is no longer visible', async () => {
+    await localRepository.saveTracker(definition)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { distance: 4 }, note: 'Retained while tracker was binned' })
+    await db.trackers.delete(definition.id)
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+
+    expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
+    expect(screen.getByText('0 check-ins · 0 met the success rule')).toBeInTheDocument()
+  })
+
   it('offers retry when the local history read fails', async () => {
     const user = userEvent.setup()
     vi.spyOn(localRepository, 'listTrackerEntriesBetween').mockRejectedValueOnce(new Error('IndexedDB unavailable'))

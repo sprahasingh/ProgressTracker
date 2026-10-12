@@ -103,7 +103,7 @@ export async function submitAnswerFeedback(client: SupabaseClient | null, input:
 
 const allowedLinkLabels = new Map([
   ['/', 'Today'], ['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'],
-  ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings'],
+  ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings'], ['/bin', 'The Bin'],
 ])
 
 const answers: Array<{ terms: string[]; answer: string }> = [

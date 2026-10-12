@@ -103,6 +103,7 @@ export function CalendarPage() {
     const daysInMonth = new Date(Date.UTC(year!, monthNumber!, 0)).getUTCDate()
     const entries = (visibleData?.entries ?? []).filter((entry) => !selectedTracker || entry.trackerId === selectedTracker.id)
     const trackers = selectedTracker ? [selectedTracker] : visibleData?.trackers ?? []
+    const visibleTrackerIds = new Set(trackers.filter((tracker) => tracker.deletedAt === null).map((tracker) => tracker.id))
     const holidays = new Set(visibleData?.holidays ?? [])
     return Array.from({ length: daysInMonth }, (_, index) => {
       const date = `${month}-${String(index + 1).padStart(2, '0')}` as CalendarDate
@@ -124,7 +125,7 @@ export function CalendarPage() {
             : partial > 0 ? 'partial'
               : pending > 0 ? 'pending'
                 : 'completed'
-      return { date, completed, partial, missed, pending, entries: entries.filter((entry) => entry.date === date).length, holiday, visualStatus }
+      return { date, completed, partial, missed, pending, entries: entries.filter((entry) => entry.date === date && visibleTrackerIds.has(entry.trackerId)).length, holiday, visualStatus }
     })
   }, [month, today, visibleData, selectedTracker, timeZone])
   const selectedSummary = summaries.find((day) => day.date === selectedDate)

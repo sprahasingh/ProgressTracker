@@ -38,6 +38,10 @@ function isFollowUp(question: string): boolean {
 
 export type HelpIntent = 'troubleshooting' | 'instructions' | 'comparison' | 'deeper_detail' | 'clarification' | 'explanation'
 
+export function shouldUseDeterministicAnswer(topic: string, question: string): boolean {
+  return topic === 'account' && /\b(?:support email|contact support|contact you|reach support|support address|email for support)\b/i.test(question)
+}
+
 export function deterministicProductAnswer(question: string, history: AssistantHistoryItem[], supportEmail: string): { answer: string; topic: string } | null {
   const normalized = canonicalize(question).toLocaleLowerCase()
   const contextual = isFollowUp(question) ? history.filter((entry) => entry.role === 'user').slice(-2).map(({ content }) => canonicalize(content).toLocaleLowerCase()).join(' ') : ''
