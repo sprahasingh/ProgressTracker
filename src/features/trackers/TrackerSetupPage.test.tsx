@@ -421,21 +421,43 @@ describe('tracker setup flow', () => {
     const existing = datedTracker('history-date-range', 'goal', '2026-01-05')
     await localRepository.saveTracker(existing)
     const savedEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-05', outcome: 'recorded', values: { done: true }, note: 'Keep this history' })
+    const nextSavedEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-06', outcome: 'recorded', values: { done: false }, note: 'Keep this too' })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     renderSetup(`/trackers/${existing.id}/edit`)
     fireEvent.change(await screen.findByLabelText('Start date'), { target: { value: '2026-01-07' } })
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 saved check-in record'))
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('remain in History'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('affects 2 check-ins from 2026-01-05–2026-01-06'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('keep these entries in History'))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('will not count toward current-period streaks'))
     expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-05', milestones: [{ id: 'milestone-1', title: 'First step' }] })
     expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { done: true }, note: 'Keep this history' })
+    expect(await db.trackerEntries.get(nextSavedEntry.id)).toMatchObject({ date: '2026-01-06', values: { done: false }, note: 'Keep this too' })
 
     confirm.mockReturnValue(true)
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-07' }))
     expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { done: true } })
+    expect(await db.trackerEntries.get(nextSavedEntry.id)).toMatchObject({ date: '2026-01-06', values: { done: false } })
+  })
+
+  it('confirms a deadline moved earlier when it excludes saved check-ins', async () => {
+    const existing = datedTracker('deadline-history-range', 'goal', '2026-01-05', '2026-01-10')
+    await localRepository.saveTracker(existing)
+    const affected = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-10', outcome: 'recorded', values: { done: true }, note: 'Keep after deadline edit' })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await screen.findByText('Edit goal')
+    const deadlineInput = document.querySelector<HTMLInputElement>('.tracker-deadline-field input')!
+    expect(deadlineInput).toHaveValue('2026-01-10')
+    fireEvent.change(deadlineInput, { target: { value: '2026-01-09' } })
+    confirm.mockClear()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Changing the deadline to 2026-01-09 affects 1 check-in from 2026-01-10'))
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ deadline: '2026-01-10' })
+    expect(await db.trackerEntries.get(affected.id)).toMatchObject({ date: '2026-01-10', values: { done: true }, note: 'Keep after deadline edit' })
   })
 
   it('preserves saved goal allocations and recorded progress when the new start moves past a planned date', async () => {

@@ -75,6 +75,21 @@ describe('local check-in history', () => {
     expect(screen.getByText('Before retirement')).toBeInTheDocument()
   })
 
+  it('labels zero progress and retained pre-start entries without counting either as current success', async () => {
+    const today = localCalendarDate()
+    const yesterday = shiftCalendarDate(today, -1)
+    await localRepository.saveTracker({ ...definition, startDate: today })
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: today, outcome: 'recorded', values: { distance: 0 }, note: 'No distance' })
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: yesterday, outcome: 'recorded', values: { distance: 4 }, note: 'Before the new start' })
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+
+    expect(await screen.findByText('No progress · progress saved')).toBeInTheDocument()
+    expect(screen.getByText('Historical · outside tracker period · progress saved')).toBeInTheDocument()
+    expect(screen.getByText(/2 check-ins · 0 met the current success rule · 1 outside the current tracker period/)).toBeInTheDocument()
+    expect(screen.getByText('0 km')).toBeInTheDocument()
+    expect(screen.getByText('4 km')).toBeInTheDocument()
+  })
+
   it('shows a useful empty message without synthetic history', async () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
@@ -88,7 +103,7 @@ describe('local check-in history', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
 
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
-    expect(screen.getByText('0 check-ins · 0 met the success rule')).toBeInTheDocument()
+    expect(screen.getByText('0 check-ins · 0 met the current success rule')).toBeInTheDocument()
   })
 
   it('offers retry when the local history read fails', async () => {

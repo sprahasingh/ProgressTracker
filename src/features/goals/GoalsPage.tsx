@@ -13,7 +13,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, metricObservationForMilestone, trackerActiveStartDate, trackerCreationDate, type GoalPlanDayState } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, metricObservationForMilestone, trackerActiveStartDate, trackerCreationDate, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -131,9 +131,11 @@ export function GoalsPage() {
           const planningToday = localCalendarDate(new Date(), planningTimeZone)
           const recorded = goalEntries.filter((entry) => entry.outcome === 'recorded')
           const latest = goalEntries[0]
+          const historicalEntryCount = goalEntries.filter((entry) => !isTrackerInActivePeriod(tracker, entry.date, planningTimeZone)).length
           const overdue = tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < planningToday)
           const state = overdue ? 'Overdue' : tracker.status === 'completed' ? 'Completed' : tracker.status === 'paused' ? 'Paused' : tracker.status === 'archived' ? 'Archived' : 'In progress'
-          const latestQualified = latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
+          const latestInPeriod = Boolean(latest && isTrackerInActivePeriod(tracker, latest.date, planningTimeZone))
+          const latestQualified = latestInPeriod && latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
           const startDate = trackerActiveStartDate(tracker, planningTimeZone)
           const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
@@ -242,8 +244,8 @@ export function GoalsPage() {
               </ul>
             </section></details>}
             <LazyDisclosure className="goal-history-disclosure" summary="History and activity"><div className="goal-card-summary">
-              <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}</span>
-              <span>{latest ? `${latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
+              <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}{historicalEntryCount ? ` · ${historicalEntryCount} outside current period` : ''}</span>
+              <span>{latest ? `${latestInPeriod ? latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · ' : 'Latest historical check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
             </div></LazyDisclosure>
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>

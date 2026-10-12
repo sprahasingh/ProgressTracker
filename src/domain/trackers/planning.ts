@@ -191,7 +191,7 @@ export function calculateCumulativeMetricPlan(input: {
   const progressValues: number[] = []
   for (const [date, entry] of latest) {
     const timestamp = parseDate(date)
-    if (timestamp < start || timestamp > asOf || entry.outcome !== 'recorded') continue
+    if (timestamp < start || timestamp > deadline || timestamp > asOf || entry.outcome !== 'recorded') continue
     const value = numericMetricValue(metric, entry.values[metric.id])
     // Incremental progress on a rest date remains real progress; the schedule controls pace only.
     if (value !== null) progressValues.push(value)

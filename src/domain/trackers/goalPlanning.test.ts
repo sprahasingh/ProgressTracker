@@ -96,6 +96,15 @@ describe('cumulative deadline planning', () => {
     expect(entries).toEqual([historical, current])
   })
 
+  it('excludes retained entries after the tracker deadline from cumulative goal progress', () => {
+    const boundedTracker = { ...tracker, deadline: '2026-10-06' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: boundedTracker, entries: [entry('2026-10-05', 4), entry('2026-10-07', 20)],
+      metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-08', progressSemantics: 'incremental',
+    })
+    expect(plan.actualProgress).toBe(4)
+  })
+
   it('sums only explicit increments, counts rest-day work, replaces edits, and ignores tombstones and skipped rows', () => {
     const plan = calculateCumulativeMetricPlan({
       tracker, metricId: 'pages', totalTarget: 100, startDate: '2026-10-01', asOfDate: '2026-10-07', progressSemantics: 'incremental',

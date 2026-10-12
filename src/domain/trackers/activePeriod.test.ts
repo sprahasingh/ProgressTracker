@@ -25,6 +25,7 @@ describe('workspace-local tracker active periods', () => {
     expect(isTrackerInActivePeriod(tracker, '2026-10-01', timeZone)).toBe(false)
     expect(isTrackerInActivePeriod(tracker, '2026-10-02', timeZone)).toBe(true)
     expect(getTrackerActivityStatus({ tracker, date: '2026-10-01', today: '2026-10-02', timeZone })).toBe('unscheduled')
+    expect(getTrackerActivityStatus({ tracker, entry: { ...entry, date: '2026-10-01' }, date: '2026-10-01', today: '2026-10-02', timeZone })).toBe('historical')
     expect(getTrackerActivityStatus({ tracker, entry, date: '2026-10-02', today: '2026-10-02', timeZone })).toBe('completed')
     expect(calculateTrackerAnalytics(tracker, [entry], '2026-10-01', '2026-10-02', new Set(), timeZone).scheduledCount).toBe(1)
     const heatmap = calculateActivityHeatmap({ trackers: [tracker], entries: [entry], startDate: '2026-10-01', endDate: '2026-10-02', timeZone })

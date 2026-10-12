@@ -44,12 +44,12 @@ describe('Calendar page', () => {
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
     const legend = screen.getByLabelText('Activity status legend')
     expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      'Pending', 'Completed', 'Partially completed', 'Missed', 'Holiday', 'Rest day',
+      'Pending', 'Completed', 'Partially completed', 'No progress', 'Historical · outside tracker period', 'Missed', 'Holiday', 'Rest day',
     ])
     expect(legend.querySelector('.calendar-dot.holiday [data-icon="status-holiday"]')).toBeInTheDocument()
     expect(legend.querySelector('.calendar-dot.unscheduled [data-icon="status-unscheduled"]')).toBeInTheDocument()
     expect(Array.from(legend.querySelectorAll('.calendar-dot svg')).map((icon) => icon.getAttribute('data-icon'))).toEqual([
-      'status-pending', 'status-completed', 'status-partial', 'status-missed', 'status-holiday', 'status-unscheduled',
+      'status-pending', 'status-completed', 'status-partial', 'status-no-progress', 'status-historical', 'status-missed', 'status-holiday', 'status-unscheduled',
     ])
     expect(legend.querySelector('.calendar-dot.partial path[fill="currentColor"]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)

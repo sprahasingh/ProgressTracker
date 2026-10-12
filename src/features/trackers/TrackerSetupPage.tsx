@@ -14,7 +14,7 @@ import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
-import { isTrackerScheduledOccurrence, trackerCreationDate } from '../../domain/trackers/planning'
+import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import type { CalendarDate } from '../../db/models'
@@ -387,23 +387,32 @@ export function TrackerSetupPage() {
       if (!window.confirm(message)) return
     }
     if (existing && parsed.data.startDate) {
-      const createdDate = trackerCreationDate(existing, timeZone)
-      const oldActiveStart = existing.startDate && existing.startDate > createdDate ? existing.startDate : createdDate
-      const newActiveStart = parsed.data.startDate > createdDate ? parsed.data.startDate : createdDate
-      if (newActiveStart > oldActiveStart) {
-        const excludedEnd = shiftCalendarDate(newActiveStart as CalendarDate, -1)
-        if (excludedEnd >= oldActiveStart) {
-          let excludedCount: number
-          try {
-            const entries = await localRepository.listTrackerEntriesBetween(oldActiveStart as CalendarDate, excludedEnd)
-            excludedCount = entries.filter((entry) => entry.trackerId === existing.id).length
-          } catch {
-            const message = 'Could not verify saved check-ins before the new start date. Nothing was saved; please try again.'
-            setError(message)
-      notify({ kind: 'error', title: 'Could not verify check-ins', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
-            return
-          }
-          if (excludedCount > 0 && !window.confirm(`Moving the start date forward will leave ${excludedCount} saved check-in record${excludedCount === 1 ? '' : 's'} before the new active date. The records will remain in History, but date-based streak and goal calculations will use the new start date. Continue?`)) return
+      const nextPeriod = { ...existing, startDate: parsed.data.startDate, deadline: parsed.data.deadline || undefined }
+      const narrowsStart = trackerActiveStartDate(nextPeriod, timeZone) > trackerActiveStartDate(existing, timeZone)
+      const narrowsDeadline = Boolean(nextPeriod.deadline && (!existing.deadline || nextPeriod.deadline < existing.deadline))
+      if (narrowsStart || narrowsDeadline) {
+        let excludedEntries: Awaited<ReturnType<typeof localRepository.listTrackerEntriesForTracker>>
+        try {
+          const entries = await localRepository.listTrackerEntriesForTracker(existing.id)
+          excludedEntries = entries.filter((entry) => isTrackerInActivePeriod(existing, entry.date, timeZone) && !isTrackerInActivePeriod(nextPeriod, entry.date, timeZone))
+        } catch {
+          const message = 'Could not verify saved check-ins against the new tracker period. Nothing was saved; please try again.'
+          setError(message)
+          notify({ kind: 'error', title: 'Could not verify check-ins', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
+          return
+        }
+        if (excludedEntries.length > 0) {
+          const affectedDates = excludedEntries.map((entry) => entry.date).sort()
+          const affectedRange = affectedDates[0] === affectedDates.at(-1)
+            ? affectedDates[0]
+            : `${affectedDates[0]}–${affectedDates.at(-1)}`
+          const periodChange = parsed.data.startDate !== existing.startDate && parsed.data.deadline !== existing.deadline
+            ? `Changing the start date to ${parsed.data.startDate} and deadline to ${parsed.data.deadline || 'none'}`
+            : parsed.data.startDate !== existing.startDate
+              ? `Changing the start date to ${parsed.data.startDate}`
+              : `Changing the deadline to ${parsed.data.deadline || 'none'}`
+          const message = `Existing check-ins are outside the new tracker period. ${periodChange} affects ${excludedEntries.length} check-in${excludedEntries.length === 1 ? '' : 's'} from ${affectedRange}.\n\nChoose OK to keep these entries in History. They will not count toward current-period streaks, completion rates, or goal progress. Their dates and values will remain unchanged. Choose Cancel to leave the tracker unchanged.`
+          if (!window.confirm(message)) return
         }
       }
     }
@@ -567,7 +576,7 @@ export function TrackerSetupPage() {
     : null
   return (
     <section className="tracker-page tracker-setup-page" aria-labelledby="tracker-setup-title">
-      <PageHeader headingId="tracker-setup-title" eyebrow={existing ? 'MAKE IT YOURS' : undefined} title={existing ? `Edit ${kindOptions.find((item) => item.kind === existing.kind)?.title.toLowerCase()}` : 'Create a tracker'} description={existing ? 'Update your setup. Saved check-ins and history stay unchanged.' : undefined} />
+      <PageHeader headingId="tracker-setup-title" eyebrow={existing ? 'MAKE IT YOURS' : undefined} title={existing ? `Edit ${kindOptions.find((item) => item.kind === existing.kind)?.title.toLowerCase()}` : 'Create a tracker'} description={existing ? 'Update your setup. Saved check-in dates and values stay unchanged; results may recalculate from these settings.' : undefined} />
       <Surface className="tracker-form-card">
         <form className="tracker-form tracker-setup-form" onSubmit={submit} onChangeCapture={(event) => {
           setDirty(true)

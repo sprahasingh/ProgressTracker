@@ -14,6 +14,7 @@ export type MetricAnalytics = {
 export type TrackerAnalytics = {
   tracker: TrackerDefinition
   entryCount: number
+  historicalCount: number
   recordedCount: number
   skippedCount: number
   qualifiedCount: number
@@ -57,7 +58,9 @@ export function calculateTrackerAnalytics(
     const current = latestByDate.get(entry.date)
     if (!current || entry.updatedAt > current.updatedAt || (entry.updatedAt === current.updatedAt && entry.id > current.id)) latestByDate.set(entry.date, entry)
   }
-  const trackerEntries = [...latestByDate.values()].filter((entry) => entry.deletedAt === null).sort((a, b) => a.date.localeCompare(b.date))
+  const allEntries = [...latestByDate.values()].filter((entry) => entry.deletedAt === null).sort((a, b) => a.date.localeCompare(b.date))
+  const trackerEntries = allEntries.filter((entry) => isTrackerInActivePeriod(tracker, entry.date, timeZone))
+  const historicalCount = allEntries.length - trackerEntries.length
   const recorded = trackerEntries.filter((entry) => entry.outcome === 'recorded')
   const qualifiedEntries = recorded.filter((entry) => !holidays.has(entry.date) && evaluateTrackerEntry(tracker, entry).qualified)
   const activeSchedule = tracker.status === 'active' && tracker.deletedAt === null
@@ -90,6 +93,7 @@ export function calculateTrackerAnalytics(
   return {
     tracker,
     entryCount: trackerEntries.length,
+    historicalCount,
     recordedCount: recorded.length,
     skippedCount: trackerEntries.filter((entry) => entry.outcome === 'skipped').length,
     qualifiedCount: qualifiedEntries.length,

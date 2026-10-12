@@ -180,10 +180,11 @@ export function TodayPage() {
     const strictQualified = strictRequired.filter((tracker) => { const entry = entryFor(tracker); return Boolean(entry && qualifiesForStreak(tracker, entry)) }).length
     const done = opportunities.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }) === 'completed' || strictRequired.some((strict) => strict.id === tracker.id && Boolean(entryFor(tracker) && qualifiesForStreak(tracker, entryFor(tracker)!)))).length
     const partial = statuses.some((status) => status === 'partial')
+    const noProgress = statuses.some((status) => status === 'no-progress')
     const hasSkipped = opportunities.some((tracker) => entryFor(tracker)?.outcome === 'skipped')
     const isRest = !isHoliday && scheduled.length === 0
-    const state = isHoliday ? 'holiday' : isRest ? 'rest' : getWeekRhythmState({ isHoliday, scheduled: opportunities.length, done, hasPartial: partial, hasSkipped, isToday, isFuture: date > today })
-    const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : 'pending'
+    const state = isHoliday ? 'holiday' : isRest ? 'rest' : getWeekRhythmState({ isHoliday, scheduled: opportunities.length, done, hasPartial: partial, hasNoProgress: noProgress, hasSkipped, isToday, isFuture: date > today })
+    const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'no-progress' ? 'no progress' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : 'pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, strictRequired: strictRequired.length, strictQualified, done, isToday, isHoliday, state, statusLabel }
   }), [today, weekStart, allTrackers, weekEntries, holidayDates])
 
@@ -228,7 +229,7 @@ export function TodayPage() {
         <div className="week-rhythm-days" role="list" aria-label="Check-in pattern for the last seven days">
           {weekPattern.map((day) => <div className={`week-rhythm-day ${day.state}${day.isToday ? ' today-date' : ''}`} key={day.date} role="listitem" aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${day.statusLabel}${day.scheduled > 0 ? `, ${day.done} of ${day.scheduled} completed` : ''}${day.strictRequired > 0 ? `, ${day.strictQualified} of ${day.strictRequired} Strict Mode opportunities qualified` : ''}${day.isToday ? ', today' : ''}`}>
             <span className="week-rhythm-weekday">{calendarDateLabel(day.date, { weekday: 'short' })}</span>
-            <span className="week-rhythm-mark" aria-hidden="true">{day.state === 'holiday' ? <ActivityStatusIcon status="holiday" /> : day.state === 'rest' ? <ActivityStatusIcon status="unscheduled" /> : day.state === 'complete' ? <ActivityStatusIcon status="completed" /> : day.state === 'partial' ? <ActivityStatusIcon status="partial" /> : day.state === 'missed' ? <ActivityStatusIcon status="missed" /> : <ActivityStatusIcon status="pending" />}</span>
+            <span className="week-rhythm-mark" aria-hidden="true">{day.state === 'holiday' ? <ActivityStatusIcon status="holiday" /> : day.state === 'rest' ? <ActivityStatusIcon status="unscheduled" /> : day.state === 'complete' ? <ActivityStatusIcon status="completed" /> : day.state === 'partial' ? <ActivityStatusIcon status="partial" /> : day.state === 'no-progress' ? <ActivityStatusIcon status="no-progress" /> : day.state === 'missed' ? <ActivityStatusIcon status="missed" /> : <ActivityStatusIcon status="pending" />}</span>
             <span className="week-rhythm-date">{Number(day.date.slice(-2))}</span>
           </div>)}
         </div>
