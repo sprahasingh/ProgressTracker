@@ -571,15 +571,15 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await screen.findByRole('heading', { name: 'Daily reading' })
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
-    await user.click(await screen.findByRole('button', { name: /Mark as missed/ }))
+    await user.click(await screen.findByRole('button', { name: /Mark as skipped/ }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Skipped' })).toBeInTheDocument())
-    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 marked missed')
+    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 skipped')
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'skipped' })
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Skipped' }))
-    expect(screen.getByText(/marked missed intentionally/)).toBeInTheDocument()
+    expect(screen.getByText(/intentionally skipped/)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Pages'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Partially completed' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Partial' })).toBeInTheDocument())
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 3 } })
   })
 
@@ -658,7 +658,7 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     expect(await screen.findByRole('region', { name: 'Today at a glance' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('0 of 1 checked in')
-    expect(screen.getByRole('img', { name: '0 of 1 scheduled activities completed' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '0 of 1 scheduled activities met their success rule' })).toBeInTheDocument()
   })
 
   it('surfaces active goal deadlines without mixing goals into today’s scheduled check-in count', async () => {

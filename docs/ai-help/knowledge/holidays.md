@@ -43,7 +43,7 @@ Deleting a holiday removes that date’s break from future calculations. Any che
 - src/domain/trackers/planning.ts
 - src/domain/holidays.ts
 **Answer:**
-In Standard Mode, a holiday removes that date from scheduled streak opportunities. In Strict Mode, dates remain daily opportunities, so a holiday by itself does not excuse a missed day. A saved qualifying check-in on a holiday still counts in Strict Mode.
+In Standard Mode, a holiday removes that date from scheduled streak opportunities. In Strict Mode, dates remain daily opportunities, so a holiday by itself does not excuse a missed day. A saved check-in remains visible in either mode; a qualifying one counts in Strict Mode. Goal plans use their own schedule rules.
 
 ### ID: holiday-all-trackers
 **Category:** holidays
@@ -57,7 +57,7 @@ In Standard Mode, a holiday removes that date from scheduled streak opportunitie
 - src/domain/holidays.ts
 - src/features/holidays/HolidaysPage.tsx
 **Answer:**
-Yes. Holidays are workspace-wide dates, not tracker-specific settings. Their effect on opportunities still depends on each tracker’s mode: Standard Mode pauses scheduled opportunities, while Strict Mode counts every active date.
+Yes. Holidays are workspace-wide dates, not tracker-specific settings. Tracker opportunity behavior depends on mode: Standard Mode pauses scheduled opportunities, while Strict Mode counts every active date. Goal plans account for holidays according to their own planning rules.
 
 ### ID: holiday-remove-recalculates
 **Category:** holidays

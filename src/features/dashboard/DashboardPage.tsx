@@ -173,7 +173,10 @@ export function DashboardPage() {
                 const history = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
                 const streak = streakByTracker.get(tracker.id)!
                 const latest = history[0]
+                const latestStatus = latest ? getTrackerActivityStatus({ tracker, entry: latest, date: latest.date, today, holidays: new Set(data.holidays), timeZone }) : null
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
+                const latestStatusClass = latest?.outcome === 'skipped' ? 'skipped' : latestStatus === 'historical' ? 'status-historical' : latestStatus === 'partial' ? 'status-partial' : latestStatus === 'no-progress' ? 'status-no-progress' : latestResult ? 'status-completed' : 'status-no-progress'
+                const latestStatusLabel = latest?.outcome === 'skipped' ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Skipped · intentionally saved` : latestResult ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Recorded · success rule met` : latestStatus === 'partial' ? 'Partial · progress saved, success rule not met' : latestStatus === 'historical' ? 'Historical entry · recorded, success rule not met' : 'No progress · saved, success rule not met'
                 const currentEntry = history.find((entry) => entry.date === today)
                 const calculatedStatus = getTrackerActivityStatus({ tracker, entry: currentEntry, date: today, today, holidays: new Set(data.holidays), timeZone })
                 const status = calculatedStatus
@@ -190,7 +193,7 @@ export function DashboardPage() {
                     <span><strong>{streak.longest}</strong><small>personal best <InfoButton title="Personal best" summary="The longest uninterrupted run of qualifying days in this tracker’s saved history." description={tracker.strictMode ? 'This uses every calendar day within the tracker period, including holidays and rest days. Changing Strict Mode recalculates the value from saved entries; entries are not changed.' : 'This counts qualifying scheduled days. Missed days break the run; holidays and rest days pause it. Changing Strict Mode recalculates this value from saved entries.'} /></small></span>
                   </div>
                   <div className="dashboard-latest-state" aria-label="Latest check-in"><strong>Latest check-in</strong>
-                    {latest ? <><span>{calendarDateLabel(latest.date, { month: 'short', day: 'numeric', year: 'numeric' })}</span><span className={`history-outcome ${latest.outcome === 'skipped' ? 'status-missed' : latestResult ? 'status-completed' : 'status-no-progress'}`}>{latest.outcome === 'skipped' ? 'Marked missed intentionally' : latestResult ? 'Recorded · success rule met' : 'Recorded · success rule not met'}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : latest.note || 'No values recorded'}</span></> : <span>No check-ins yet</span>}
+                    {latest ? <><span>{calendarDateLabel(latest.date, { month: 'short', day: 'numeric', year: 'numeric' })}</span><span className={`history-outcome ${latestStatusClass}`}>{latestStatusLabel}</span><span>{latest.outcome === 'recorded' ? summarizeValues(tracker, latest) : latest.note || 'No values recorded'}</span></> : <span>No check-ins yet</span>}
                   </div>
                 </Surface>
               })}

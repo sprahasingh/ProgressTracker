@@ -1,29 +1,32 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 
-export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'missed' | 'skipped' | 'holiday' | 'unscheduled'
+export type ActivityStatus = 'pending' | 'upcoming' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'outside-period' | 'missed' | 'skipped' | 'holiday' | 'rest-day' | 'inactive' | 'no-trackers' | 'unscheduled'
 
 /** Shared words and marks for activity status across calendars and day summaries. */
 export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: string; colorToken: string }> = {
   pending: { label: 'Pending', colorToken: '--status-pending' },
+  upcoming: { label: 'Upcoming', colorToken: '--status-upcoming' },
   completed: { label: 'Completed', colorToken: '--status-completed' },
-  partial: { label: 'Partially completed', colorToken: '--status-partial' },
-  'no-progress': { label: 'No progress', colorToken: '--status-pending' },
-  historical: { label: 'Historical · outside tracker period', colorToken: '--status-pending' },
+  partial: { label: 'Partial', colorToken: '--status-partial' },
+  'no-progress': { label: 'No progress', colorToken: '--status-neutral' },
+  historical: { label: 'Historical entry', colorToken: '--status-neutral' },
+  'outside-period': { label: 'Outside period', colorToken: '--status-outside' },
   missed: { label: 'Missed', colorToken: '--status-missed' },
   skipped: { label: 'Skipped', colorToken: '--status-neutral' },
   holiday: { label: 'Holiday', colorToken: '--status-holiday' },
+  'rest-day': { label: 'Rest day', colorToken: '--status-rest' },
+  /** Legacy planning presentation alias; activity selectors return rest-day. */
   unscheduled: { label: 'Rest day', colorToken: '--status-rest' },
+  inactive: { label: 'Tracker inactive', colorToken: '--status-neutral' },
+  'no-trackers': { label: 'No active trackers', colorToken: '--status-neutral' },
 }
 
 /**
- * Precedence: Standard Mode holidays mask scheduled status; deleted entries are
- * treated as absent; a deliberately skipped opportunity is distinct from a derived miss;
- * entries outside the inclusive tracker period remain historical; valid
- * recorded entries are evaluated; inactive or unscheduled
- * dates are neutral; other active opportunities are pending today/future and
- * missed in the past. Recorded history remains visible if its tracker is now
- * paused or archived.
+ * Entry outcomes take precedence over schedule context so recorded and skipped
+ * activity remains visible on rest days and holidays. Period context is distinct
+ * from a true rest day. Missing opportunities are classified by workspace-local
+ * date: today is pending, future is upcoming, and elapsed dates are missed.
  */
 export function getTrackerActivityStatus(input: {
   tracker: TrackerDefinition
@@ -35,23 +38,26 @@ export function getTrackerActivityStatus(input: {
 }): ActivityStatus {
   const { tracker, entry, date, today } = input
   const strict = tracker.strictMode === true
-  if (input.holidays?.has(date) && !strict) return 'holiday'
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) {
-    return entry && entry.deletedAt === null ? 'historical' : 'unscheduled'
+    return entry && entry.deletedAt === null ? 'historical' : 'outside-period'
   }
+  const holiday = input.holidays?.has(date) ?? false
   if (entry && entry.deletedAt !== null) {
-    if (tracker.status !== 'active' || (!strict && !isTrackerScheduledOccurrence(tracker, date, input.timeZone))) return 'unscheduled'
-    return date < today ? 'missed' : 'pending'
+    if (!strict && holiday) return 'holiday'
+    if (tracker.status !== 'active') return 'inactive'
+    if (!strict && !isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return 'rest-day'
+    return date < today ? 'missed' : date === today ? 'pending' : 'upcoming'
   }
   if (entry?.outcome === 'recorded') {
     if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
     return hasPositiveProgress(tracker, entry) ? 'partial' : 'no-progress'
   }
-  const requiredOpportunity = strict || isTrackerScheduledOccurrence(tracker, date, input.timeZone)
-  if (!requiredOpportunity) return 'unscheduled'
   if (entry?.outcome === 'skipped') return 'skipped'
-  if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'unscheduled'
-  return date < today ? 'missed' : 'pending'
+  if (holiday && !strict) return 'holiday'
+  if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'inactive'
+  const requiredOpportunity = strict || isTrackerScheduledOccurrence(tracker, date, input.timeZone)
+  if (!requiredOpportunity) return 'rest-day'
+  return date < today ? 'missed' : date === today ? 'pending' : 'upcoming'
 }
 
 /** A saved value counts as progress only when it records a positive/affirmative action. */

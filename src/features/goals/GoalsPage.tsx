@@ -167,7 +167,7 @@ export function GoalsPage() {
               })}
             </ul>}
             {tracker.schemaVersion >= 2 && tracker.goalPlanning && <LazyDisclosure className="goal-plan-disclosure" summary="View daily plan"><section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
-              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, missed, rest, and upcoming dates have distinct markers. Intentional missed marks are included with missed days. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
+              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, missed, skipped, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
@@ -176,13 +176,15 @@ export function GoalsPage() {
                   const plan = calculateDailyRecurringMetricPlan({ tracker, entries: goalEntries, metricId, target, asOfDate: planningToday, startDate, holidays: holidayDates, timeZone: planningTimeZone })
                   const todayEntry = goalEntries.find((entry) => entry.date === planningToday && entry.deletedAt === null)
                   const todayValue = goalMetricValue(metric, todayEntry)
-                  const missed = plan.days.filter((day) => ['missed', 'skipped', 'below-target'].includes(day.state)).length
+                  const missed = plan.days.filter((day) => day.state === 'missed').length
+                  const skipped = plan.days.filter((day) => day.state === 'skipped').length
+                  const belowTarget = plan.days.filter((day) => day.state === 'below-target').length
                   return <div className="goal-daily-metric" key={metricId}>
                     <div className="goal-plan-metric-heading"><strong>{metric.name}</strong><span>{formatTrackerNumber(target)}{metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''} per scheduled day</span></div>
                     <dl className="goal-today-plan-summary"><div><dt>Today’s target</dt><dd>{formatTrackerNumber(target)}{metric.unit ? ` ${metric.unit}` : ''}</dd></div><div><dt>Completed today</dt><dd>{formatTrackerNumber(todayValue)}{metric.unit ? ` ${metric.unit}` : ''}</dd></div>{metric.thresholds?.direction !== 'decrease' && <div><dt>Remaining today</dt><dd>{formatTrackerNumber(Math.max(0, target - todayValue))}{metric.unit ? ` ${metric.unit}` : ''}</dd></div>}<div><dt>Scheduled days remaining</dt><dd>{plan.scheduledDaysRemaining}</dd></div></dl>
-                    <p>{plan.consistencyPercent === null ? 'No completed scheduled opportunities yet' : `${plan.metCount} of ${plan.elapsedOpportunities} scheduled days met target · ${plan.consistencyPercent}% consistency`}{missed ? ` · ${missed} missed or below target` : ''} · {plan.scheduledDaysRemaining} scheduled days remaining in this view</p>
+                    <p>{plan.consistencyPercent === null ? 'No completed scheduled opportunities yet' : `${plan.metCount} of ${plan.elapsedOpportunities} scheduled days met target · ${plan.consistencyPercent}% consistency`}{missed ? ` · ${missed} missed` : ''}{belowTarget ? ` · ${belowTarget} below target` : ''}{skipped ? ` · ${skipped} skipped` : ''} · {plan.scheduledDaysRemaining} scheduled days remaining in this view</p>
                     <GoalPlanDayList days={plan.days} metricName={metric.name} />
-                    <div className="goal-plan-legend"><span>Met</span><span>Below / missed</span><span>Rest</span><span>Upcoming</span></div>
+                    <div className="goal-plan-legend"><span>Met</span><span>Partial · below target</span><span>Missed</span><span>Skipped</span><span>Rest</span><span>Upcoming</span></div>
                   </div>
                 })}</div>
                 : Object.entries(tracker.goalPlanning.cumulativeTargets).length === 0
@@ -306,13 +308,15 @@ function cumulativeStatusLabel(status: string, paceStatus: string): string {
 }
 
 function goalDayStatusLabel(status: string): string {
-  if (status === 'met') return 'completed'
-  if (status === 'below-target') return 'partially completed'
-  if (status === 'missed') return 'missed'
-  if (status === 'holiday') return 'holiday'
-  if (status === 'rest') return 'rest day'
-  if (status === 'pending' || status === 'future') return 'pending'
-  return 'missed · marked intentionally'
+  if (status === 'met') return 'Met'
+  if (status === 'below-target') return 'Partial'
+  if (status === 'missed') return 'Missed'
+  if (status === 'holiday') return 'Holiday'
+  if (status === 'rest') return 'Rest day'
+  if (status === 'pending') return 'Pending'
+  if (status === 'future') return 'Upcoming'
+  if (status === 'skipped') return 'Skipped · intentionally saved'
+  return status
 }
 
 function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {
@@ -348,7 +352,8 @@ function goalPlanActivityStatus(state: GoalPlanDayState) {
   if (state === 'below-target') return 'partial'
   if (state === 'holiday') return 'holiday'
   if (state === 'rest') return 'unscheduled'
-  if (state === 'future' || state === 'pending') return 'pending'
-  if (state === 'skipped') return 'missed'
+  if (state === 'future') return 'upcoming'
+  if (state === 'pending') return 'pending'
+  if (state === 'skipped') return 'skipped'
   return state
 }

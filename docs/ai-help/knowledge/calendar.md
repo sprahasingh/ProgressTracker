@@ -26,7 +26,7 @@ The calendar lets you navigate dates and review tracker activity for the selecte
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-Completed means a recorded entry met the success rule; Partially completed or No progress means it did not. Pending is an open current or future opportunity, Missed is an elapsed opportunity without a qualifying result, Historical is outside the tracker’s current period, Rest day is unscheduled, and Holiday is a workspace break.
+Completed means a saved recorded check-in met the configured success rule. Partial means it has positive progress but misses that rule; No progress means a saved recorded check-in has no qualifying positive progress. Missed is derived when a required past date has no active saved entry, while Skipped is an intentional saved outcome. Pending is for an open opportunity today; Upcoming is a future opportunity. Rest day is an in-period date excluded by the schedule in Standard Mode. Outside period has no current opportunity; a saved entry there is shown as a Historical entry. Holiday is a workspace-wide date. The visible legend names every status, including context states. In All Trackers, a date summarizes active trackers; mixed statuses are marked on the cell and selecting the date shows each tracker’s result. The summary and saved-entry count use that same tracker scope. Selecting one tracker, including a paused or archived tracker, shows its retained activity.
 
 ### ID: calendar-inspect-past-date
 **Category:** calendar
@@ -54,7 +54,7 @@ Open Calendar, navigate to the month, and select the date. The selected-day pane
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-An unscheduled day is shown as a Rest day for that tracker. The combined calendar can include different trackers with different schedules, so a date may be a rest day for one tracker and an opportunity for another.
+In Standard Mode, an in-period date excluded by the tracker’s schedule is a Rest day. Strict Mode makes every in-period date an opportunity, including schedule rest days. Dates before the effective start or after the deadline are Outside period, not Rest days. Saved check-ins remain visible on rest days and outside the active period.
 
 ### ID: calendar-zero-activity
 **Category:** calendar
@@ -82,7 +82,7 @@ A saved zero is a recorded value, so it is different from an empty date. Whether
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-Yes. The date keeps its Holiday status, while saved check-ins remain available in the selected-day details and History. A holiday changes opportunity status; it does not clear the entry.
+Yes. The selected-day details and History retain saved check-ins. Standard Mode’s holiday marker can appear alongside the saved outcome; Strict Mode still requires activity, so a missing past check-in can be Missed on a holiday.
 
 ### ID: heatmap-normalized
 **Category:** calendar

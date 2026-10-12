@@ -14,7 +14,7 @@
 - src/domain/trackers/types.ts
 - src/features/history/HistoryPage.tsx
 **Answer:**
-A skipped day is an explicitly saved check-in marked as skipped. An unchecked date has no saved check-in. History can identify past missing opportunities from their schedule; a skipped entry is already a saved record and is not missing.
+A skipped day is an explicitly saved check-in marked as skipped. An unchecked past date has no saved entry and is shown as Missed only if it was a required opportunity. A saved recorded check-in that fails its success rule remains distinct: it appears as Partial when it has positive progress, or No progress when it does not. Missed is derived and is never saved automatically.
 
 ### ID: edit-past-checkin
 **Category:** check-ins
@@ -62,18 +62,18 @@ Yes. Zero is a recorded numeric value and can be included in observations. A bla
 
 ### ID: mark-missed
 **Category:** check-ins
-**Question:** What happens when I mark a check-in as missed?
+**Question:** What happens when I mark a check-in as skipped?
 **Aliases:**
 - Is marking a day missed different from leaving it blank?
-- Does Mark as missed break my streak?
-**Keywords:** mark as missed, skipped, outcome, unchecked, streak
+- Does Mark as skipped break my streak?
+**Keywords:** mark as skipped, skipped, outcome, unchecked, streak
 **Suggestible:** true
 **Sources:**
 - src/domain/trackers/types.ts
 - src/domain/trackers/progression.ts
 - src/features/today/TodayPage.tsx
 **Answer:**
-Mark as missed saves an intentional skipped outcome for that date, and it breaks the streak. Leaving a date unchecked creates no saved entry; a past date can then appear in missing check-in review if it was an opportunity.
+Mark as skipped saves an intentional skipped outcome for that date. It is not the same as a derived Missed date or a saved No progress result. On a required opportunity, it does not qualify for a streak. Leaving a date unchecked creates no saved entry; after a required date elapses, it can appear as Missed.
 
 ### ID: custom-checkin-fields
 **Category:** check-ins

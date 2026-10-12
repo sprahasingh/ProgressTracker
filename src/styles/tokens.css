@@ -54,6 +54,8 @@
   --focus-ring: #b83a22;
   --disabled-opacity: 0.55;
   --status-pending: #555b65;
+  --status-upcoming: #707781;
+  --status-outside: #78716c;
   --status-completed: #1e6539;
   --status-partial: #80500c;
   --status-missed: #9f3039;
@@ -117,6 +119,8 @@
   --focus-ring: #ffad82;
   --disabled-opacity: 0.55;
   --status-pending: #a1a1aa;
+  --status-upcoming: #b3b3bd;
+  --status-outside: #b3aaa0;
   --status-completed: #b7e5c4;
   --status-partial: #eed6ab;
   --status-missed: #efb9b9;

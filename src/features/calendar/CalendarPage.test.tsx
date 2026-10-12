@@ -14,6 +14,7 @@ vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({
 
 const today = new Date().toISOString().slice(0, 10)
 const previousDate = new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)
+const upcomingDate = new Date(Date.parse(`${today}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
 const previousDateLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${previousDate}T00:00:00.000Z`))
 const tracker = {
   schemaVersion: 1, id: 'calendar-habit', name: 'Morning walk', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -44,12 +45,12 @@ describe('Calendar page', () => {
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
     const legend = screen.getByLabelText('Activity status legend')
     expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-      'Pending', 'Completed', 'Partially completed', 'No progress', 'Historical · outside tracker period', 'Missed', 'Skipped', 'Holiday', 'Rest day',
+      'Completed', 'Partial', 'No progress', 'Missed', 'Skipped', 'Pending', 'Upcoming', 'Holiday', 'Rest day', 'Outside period', 'Historical entry', 'Tracker inactive', 'No active trackers',
     ])
     expect(legend.querySelector('.calendar-dot.holiday [data-icon="status-holiday"]')).toBeInTheDocument()
-    expect(legend.querySelector('.calendar-dot.unscheduled [data-icon="status-unscheduled"]')).toBeInTheDocument()
+    expect(legend.querySelector('.calendar-dot.rest-day [data-icon="status-unscheduled"]')).toBeInTheDocument()
     expect(Array.from(legend.querySelectorAll('.calendar-dot svg')).map((icon) => icon.getAttribute('data-icon'))).toEqual([
-      'status-pending', 'status-completed', 'status-partial', 'status-no-progress', 'status-historical', 'status-missed', 'status-skipped', 'status-holiday', 'status-unscheduled',
+      'status-completed', 'status-partial', 'status-no-progress', 'status-missed', 'status-skipped', 'status-pending', 'status-upcoming', 'status-holiday', 'status-unscheduled', 'status-outside-period', 'status-historical', 'status-inactive', 'status-no-trackers',
     ])
     expect(legend.querySelector('.calendar-dot.partial path[fill="currentColor"]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
@@ -59,8 +60,9 @@ describe('Calendar page', () => {
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))
-    // A date before this tracker was created is neutral rather than an artificial miss.
-    expect(await screen.findAllByText('Missed')).toHaveLength(1)
+    // A date before this tracker was created is outside its period, not a rest day or miss.
+    await screen.findAllByText('Outside period')
+    expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Outside period')
   })
 
   it('filters date status counts and tracker details to the selected tracker', async () => {
@@ -87,7 +89,7 @@ describe('Calendar page', () => {
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
     expect(screen.getByText(/Holiday · Standard Mode expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
-    expect(screen.getByText(/Holiday · Progress recorded: Done/)).toBeInTheDocument()
+    expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
   })
 
   it('marks an unrecorded scheduled date as pending, rather than rest or missed', async () => {
@@ -98,6 +100,18 @@ describe('Calendar page', () => {
 
     expect(await screen.findByText('Pending')).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
+  })
+
+  it('labels future opportunities Upcoming and dates outside the active period Outside period', async () => {
+    const oldTracker = { ...tracker, createdAt: '2026-01-01T00:00:00.000Z', startDate: today }
+    mocks.listTrackers.mockResolvedValue([oldTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${upcomingDate}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/Upcoming/)).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.upcoming')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: new RegExp(calendarDateLabel(previousDate, { weekday: 'long', month: 'long', day: 'numeric' })) }))
+    expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Outside period')
   })
 
   it('shows Strict Mode misses on holidays and labels an intentional skip separately', async () => {
@@ -116,7 +130,7 @@ describe('Calendar page', () => {
     mocks.listTrackerEntriesBetween.mockResolvedValue([{ ...entry, date: previousDate, outcome: 'skipped', values: {} }])
     mocks.listAccountHolidays.mockResolvedValue([])
     const skippedCalendar = render(<MemoryRouter initialEntries={[`/calendar?date=${previousDate}`]}><CalendarPage /></MemoryRouter>)
-    expect(await screen.findByText(/Skipped · marked intentionally/)).toBeInTheDocument()
+    expect(await screen.findByText(/Skipped · intentionally saved/)).toBeInTheDocument()
     expect(skippedCalendar.container.querySelector('.calendar-cell-status.skipped')).toBeInTheDocument()
   })
 
@@ -131,11 +145,35 @@ describe('Calendar page', () => {
 
     await screen.findByText('Morning walk', { selector: 'strong' })
     const day = container.querySelector('.calendar-day-today .calendar-cell-status')
-    expect(day).toHaveAttribute('aria-label', expect.not.stringContaining('2 saved check-ins'))
-    expect(day).toHaveAttribute('aria-label', expect.stringContaining('1 saved check-in'))
+    expect(day).toHaveAttribute('aria-label', expect.not.stringContaining('2 active tracker check-ins'))
+    expect(day).toHaveAttribute('aria-label', expect.stringContaining('1 active tracker check-in'))
   })
 
-  it('keeps a mixed completed and pending date pending instead of calling it partially completed', async () => {
+  it('uses active trackers for aggregate counts while preserving selected inactive history', async () => {
+    const paused = { ...tracker, id: 'calendar-paused', name: 'Paused walk', status: 'paused' }
+    const pausedEntry = { ...entry, id: 'paused-entry', trackerId: paused.id }
+    mocks.listTrackers.mockResolvedValue([tracker, paused])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry, pausedEntry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/1 completed · 0 partial/)).toBeInTheDocument()
+    expect(screen.getByText(/1 active tracker check-in/)).toBeInTheDocument()
+    expect(screen.getByText('Paused walk', { selector: 'strong' })).toBeInTheDocument()
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Tracker' }), paused.id)
+    expect(await screen.findByText(/1 completed · 0 partial/)).toBeInTheDocument()
+    expect(screen.getByText(/1 saved tracker check-in/)).toBeInTheDocument()
+  })
+
+  it('uses a neutral no-trackers tile when the workspace has no active trackers', async () => {
+    mocks.listTrackers.mockResolvedValue([])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+    await screen.findByText(/No active trackers/)
+    expect(container.querySelector('.calendar-cell-status.no-trackers')).toBeInTheDocument()
+  })
+
+  it('keeps a mixed completed and pending date identifiable as an aggregate', async () => {
     const secondTracker = { ...tracker, id: 'calendar-habit-two', name: 'Read a book' }
     mocks.listTrackers.mockResolvedValue([tracker, secondTracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
@@ -145,6 +183,26 @@ describe('Calendar page', () => {
     await screen.findByText('Morning walk', { selector: 'strong' })
     const cell = container.querySelector('.calendar-day-today .calendar-cell-status')
     expect(cell).toHaveClass('pending')
+    expect(cell).toHaveClass('mixed')
+    expect(cell).toHaveAttribute('aria-label', expect.stringContaining('mixed statuses across active trackers'))
     expect(cell).not.toHaveClass('partial')
+  })
+
+  it('marks completed dates mixed when other active trackers are resting or outside their period', async () => {
+    const restTracker = { ...tracker, id: 'calendar-rest', name: 'Resting tracker', schedule: { kind: 'none' } }
+    const outsideTracker = { ...tracker, id: 'calendar-outside', name: 'Expired tracker', deadline: previousDate }
+    mocks.listTrackers.mockResolvedValue([tracker, restTracker, outsideTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    await screen.findByText('Morning walk', { selector: 'strong' })
+    const cell = container.querySelector('.calendar-day-today .calendar-cell-status')
+    expect(cell).toHaveClass('completed', 'mixed')
+    expect(cell).toHaveAttribute('aria-label', expect.stringContaining('mixed statuses across active trackers'))
+    expect(cell).toHaveAttribute('aria-label', expect.stringContaining('1 rest day, 0 historical entries, 1 tracker outside period'))
+    expect(screen.getByText('Mixed statuses across active trackers; see each tracker below.')).toBeInTheDocument()
+    expect(screen.getByText('Resting tracker', { selector: 'strong' }).parentElement).toHaveTextContent('Rest day')
+    expect(screen.getByText('Expired tracker', { selector: 'strong' }).parentElement).toHaveTextContent('Outside period')
   })
 })

@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled'
+export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-upcoming' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-outside-period' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled' | 'status-inactive' | 'status-no-trackers'
 
 const paths: Record<AppIconName, ReactNode> = {
   today: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14l2.2 2.2L16 11" /></>,
@@ -26,14 +26,18 @@ const paths: Record<AppIconName, ReactNode> = {
   lock: <><rect x="4.5" y="10" width="15" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
   'chevron-down': <><path d="m6 9 6 6 6-6" /></>,
   'status-pending': <><circle cx="12" cy="12" r="7.5" /></>,
+  'status-upcoming': <><rect x="4" y="5.5" width="16" height="15" rx="2" /><path d="M8 3.5v4M16 3.5v4M4 10h16M12 13v3l2 1" /></>,
   'status-completed': <><path d="m5 12.5 4.5 4L19 7" /></>,
   'status-partial': <><path d="M12 4.5a7.5 7.5 0 1 0 0 15V4.5Z" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="7.5" /></>,
-  'status-no-progress': <><circle cx="12" cy="12" r="7.5" /><path d="M8.5 12h7" /></>,
+  'status-no-progress': <><circle cx="12" cy="12" r="7.5" /><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" /></>,
   'status-historical': <><circle cx="12" cy="12" r="7.5" /><path d="M12 7.5V12l3 2" /></>,
   'status-missed': <><path d="M12 4v9M12 17.5v.5" /></>,
-  'status-skipped': <><circle cx="12" cy="12" r="7.5" /><path d="M8.5 12h7" /></>,
+  'status-skipped': <><circle cx="12" cy="12" r="7.5" /><path d="m9 9 6 6m0-6-6 6" /></>,
   'status-holiday': <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.7 4.7l1.4 1.4m11.8 11.8 1.4 1.4M2.5 12h2m15 0h2M4.7 19.3l1.4-1.4M17.9 6.1l1.4-1.4" /></>,
   'status-unscheduled': <><path d="M6 12h12" /></>,
+  'status-outside-period': <><path d="M5 4v16M19 4v16M9 8h6M9 12h6M9 16h6" /></>,
+  'status-inactive': <><circle cx="12" cy="12" r="7.5" /><path d="M12 8v4l2.5 1.5" /></>,
+  'status-no-trackers': <><circle cx="9" cy="9" r="4" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 8h5M18.5 5.5v5" /></>,
   spark: <><path d="m12 3 1.8 6.2L20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8L12 3Z" /><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
 }
 
