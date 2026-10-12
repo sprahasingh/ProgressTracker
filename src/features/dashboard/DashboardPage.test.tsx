@@ -55,6 +55,7 @@ describe('local progress dashboard', () => {
     const strictCard = screen.getByRole('heading', { name: 'Strict tracker' }).closest('.dashboard-tracker-card')!
     const emptyCard = screen.getByRole('heading', { name: 'No entries' }).closest('.dashboard-tracker-card')!
     expect(standardCard).toHaveTextContent('Today')
+    expect(standardCard).not.toHaveTextContent('Snapshot')
     expect(standardCard).toHaveTextContent('Holiday')
     expect(standardCard).toHaveTextContent(calendarDateLabel(twoDaysAgo))
     expect(standardCard.querySelector('.dashboard-tracker-stats span strong')).toHaveTextContent('1')
@@ -66,6 +67,10 @@ describe('local progress dashboard', () => {
     expect(emptyCard).toHaveTextContent('Holiday')
     expect(emptyCard).toHaveTextContent('No check-ins yet')
     expect(emptyCard).not.toHaveTextContent('Ready when you are')
+    const streakHelp = within(standardCard as HTMLElement).getByRole('button', { name: 'More about Current streak' })
+    expect(streakHelp).toBeInTheDocument()
+    fireEvent.click(streakHelp)
+    expect(await screen.findByRole('dialog', { name: 'Current streak' })).toBeInTheDocument()
   })
 
   it('does not display a cleared historical check-in as the latest entry', async () => {

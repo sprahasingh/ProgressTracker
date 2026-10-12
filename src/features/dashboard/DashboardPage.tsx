@@ -183,7 +183,7 @@ export function DashboardPage() {
                 const statusClass = status
                 const currentStatusLabel = today < trackerActiveStartDate(tracker, timeZone) ? 'Not started' : tracker.deadline && today > tracker.deadline ? 'Tracking period ended' : status === 'holiday' && tracker.strictMode ? 'Holiday · check-in still required' : ACTIVITY_STATUS_PRESENTATION[status].label
                 return <Surface key={tracker.id} className={`dashboard-tracker-card status-card status-${statusClass}`}>
-                  <div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ' · Standard'}</span><span>Snapshot · {calendarDateLabel(today, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+                  <div className="dashboard-tracker-card-top"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ' · Standard'}</span></div>
                   <h3>{tracker.name}</h3>
                   <div className="dashboard-current-status"><span>Today · {calendarDateLabel(today, { month: 'short', day: 'numeric' })}</span><strong className={`history-outcome ${statusClass}`}>{currentStatusLabel}</strong></div>
                   <div className="dashboard-tracker-stats">
