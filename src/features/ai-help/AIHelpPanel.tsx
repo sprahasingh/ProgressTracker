@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { Link } from 'react-router-dom'
 import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
-import { useModalLayer } from '../../components/ui/useModalLayer'
+import { hasModalLayerAbove, useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
@@ -96,6 +96,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
   useEffect(() => {
     if (mobile) return
     const closeOutside = (event: PointerEvent) => {
+      if (hasModalLayerAbove(panelRef.current)) return
       if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) onClose()
     }
     document.addEventListener('pointerdown', closeOutside)
@@ -141,7 +142,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
   }
 
   return <div className={`ai-help-backdrop${mobile ? ' is-mobile' : ''}`} onMouseDown={(event) => { if (mobile && event.target === event.currentTarget) onClose() }}>
-    <section ref={panelRef} className={`ai-help-panel${mobile ? ' is-mobile' : ''}`} role={mobile ? 'dialog' : 'region'} aria-modal={mobile || undefined} aria-labelledby="ai-help-title" aria-describedby="ai-help-subtitle" tabIndex={-1} onKeyDown={(event) => { if (event.key === 'Escape' && !mobile) { event.preventDefault(); onClose() } }}>
+    <section ref={panelRef} className={`ai-help-panel${mobile ? ' is-mobile' : ''}`} role={mobile ? 'dialog' : 'region'} aria-modal={mobile || undefined} aria-labelledby="ai-help-title" aria-describedby="ai-help-subtitle" tabIndex={-1} onKeyDown={(event) => { if (event.key === 'Escape' && !mobile && !hasModalLayerAbove(panelRef.current)) { event.preventDefault(); onClose() } }}>
       <header className="ai-help-header">
         <span className="ai-help-mark"><AppIcon name="spark" /></span>
         <div className="ai-help-heading"><h2 id="ai-help-title">Ask ProgressTracker</h2><p id="ai-help-subtitle">Help with features and how things work</p></div>
