@@ -364,6 +364,22 @@ describe('account-scoped sync engine', () => {
     expect(await db.syncConflicts.where('ownerUserId').equals('sync-user').count()).toBe(0)
   })
 
+  it('preserves stale check-in edits when the server rejects an archived parent', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('archived-parent')
+    await localRepository.saveTracker(definition)
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `tracker:${definition.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: definition.id, serverRevision: 4 })
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'offline check-in' })
+    const { client, rpc } = fakeClient({ rpcError: { message: 'Archived trackers cannot receive new or edited check-ins.' } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, conflicts: 0 })
+    expect(rpc).toHaveBeenCalledOnce()
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({
+      status: 'pending', payload: { note: 'offline check-in' }, lastError: expect.stringContaining('Archived trackers'),
+    })
+  })
+
   it('does not upload child entries when their parent has a revision conflict', async () => {
     await activateWorkspace('sync-user')
     const definition = tracker()

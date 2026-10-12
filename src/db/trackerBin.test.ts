@@ -44,6 +44,35 @@ describe('synchronized tracker Bin', () => {
     await expect(db.trackerEntries.where('trackerId').equals('request-tracker').count()).resolves.toBe(1)
   })
 
+  it('removes guest tracker child records and queued references without touching other trackers', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    await activateWorkspace(null)
+    await localRepository.saveTracker({ ...tracker, id: 'guest-permanent-delete' })
+    await localRepository.saveTracker({ ...tracker, id: 'guest-unrelated' })
+    const deletedEntry = await localRepository.saveTrackerEntry({ trackerId: 'guest-permanent-delete', date: '2026-10-01', outcome: 'recorded', values: {}, note: 'delete this' })
+    const unrelatedEntry = await localRepository.saveTrackerEntry({ trackerId: 'guest-unrelated', date: '2026-10-01', outcome: 'recorded', values: {}, note: 'keep this' })
+    await localRepository.deleteTracker('guest-permanent-delete')
+    const queuedAt = new Date().toISOString()
+    await db.syncOperations.bulkPut([
+      { id: 'guest-stale-parent', ownerUserId: null, entity: 'tracker', entityId: 'guest-permanent-delete', operation: 'upsert', expectedRevision: null, payload: { ...tracker, id: 'guest-permanent-delete', deletedAt: new Date().toISOString() }, createdAt: queuedAt, attempts: 0, status: 'pending', lastError: null },
+      { id: 'guest-stale-child', ownerUserId: null, entity: 'tracker_entry', entityId: deletedEntry.id, operation: 'upsert', expectedRevision: null, payload: deletedEntry, createdAt: queuedAt, attempts: 0, status: 'pending', lastError: null },
+      { id: 'guest-unrelated-child', ownerUserId: null, entity: 'tracker_entry', entityId: unrelatedEntry.id, operation: 'upsert', expectedRevision: null, payload: unrelatedEntry, createdAt: queuedAt, attempts: 0, status: 'pending', lastError: null },
+    ])
+    await db.syncConflicts.put({ id: 'guest-child-conflict', ownerUserId: 'former-owner', entity: 'tracker_entry', entityId: deletedEntry.id, localPayload: deletedEntry, remoteRecord: null, detectedAt: new Date().toISOString() })
+    await db.syncConflicts.put({ id: 'unrelated-child-conflict', ownerUserId: 'former-owner', entity: 'tracker_entry', entityId: unrelatedEntry.id, localPayload: unrelatedEntry, remoteRecord: null, detectedAt: new Date().toISOString() })
+
+    await expect(localRepository.requestPermanentDeletion('guest-permanent-delete')).resolves.toBe('deleted')
+
+    await expect(db.trackers.get('guest-permanent-delete')).resolves.toBeUndefined()
+    await expect(db.trackerEntries.get(deletedEntry.id)).resolves.toBeUndefined()
+    await expect(db.syncOperations.filter((operation) => (operation.payload as { trackerId?: string } | undefined)?.trackerId === 'guest-permanent-delete').count()).resolves.toBe(0)
+    await expect(db.syncConflicts.get('guest-child-conflict')).resolves.toBeUndefined()
+    await expect(db.trackers.get('guest-unrelated')).resolves.toMatchObject({ deletedAt: null })
+    await expect(db.trackerEntries.get(unrelatedEntry.id)).resolves.toMatchObject({ note: 'keep this' })
+    await expect(db.syncOperations.get('guest-unrelated-child')).resolves.toMatchObject({ payload: { trackerId: 'guest-unrelated' } })
+    await expect(db.syncConflicts.get('unrelated-child-conflict')).resolves.toBeDefined()
+  })
+
   it('keeps the durable account ledger authoritative over an old workspace backup', async () => {
     await activateWorkspace('bin-backup-owner')
     await localRepository.saveTracker({ ...tracker, id: 'backup-deleted-tracker' })
@@ -70,6 +99,23 @@ describe('synchronized tracker Bin', () => {
 
     await expect(localRepository.listTrackers()).resolves.toEqual([])
     await expect(db.trackerVerification.get('quarantined-expired')).resolves.toBeDefined()
+  })
+
+  it('blocks a stale Bin copy when the account deletion ledger already contains the tracker', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    await activateWorkspace('ledger-stale-owner')
+    const stale = { ...tracker, id: 'ledger-stale-tracker', deletedAt: '2026-10-01T00:00:00.000Z' }
+    await db.trackers.put(stale)
+    await db.permanentDeletionLedger.put({ key: 'ledger-stale-owner:ledger-stale-tracker', ownerUserId: 'ledger-stale-owner', trackerId: stale.id, permanentlyDeletedAt: '2026-10-10T00:00:00.000Z' })
+
+    await expect(localRepository.getTracker(stale.id)).resolves.toBeUndefined()
+    await expect(localRepository.listDeletedTrackers()).resolves.toEqual([])
+    await expect(localRepository.restoreTracker(stale.id)).rejects.toThrow(/permanently deleted from the account/)
+    await expect(db.trackers.get(stale.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await db.trackers.put({ ...stale, deletedAt: null })
+    await expect(localRepository.getTracker(stale.id)).resolves.toBeUndefined()
+    await expect(localRepository.saveTracker({ ...stale, deletedAt: null })).rejects.toThrow(/permanently deleted from the account/)
+    await expect(localRepository.saveTrackerEntry({ trackerId: stale.id, date: '2026-10-11', outcome: 'recorded', values: {}, note: 'stale write' })).rejects.toThrow(/permanently deleted from the account/)
   })
 
   it('purges only records belonging to the tracker even if another entry reuses its UUID', async () => {

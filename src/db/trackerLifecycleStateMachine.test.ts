@@ -6,7 +6,6 @@ import { calculateTrackerAnalytics } from '../domain/trackers/analytics'
 import { calculateStreak } from '../domain/trackers/progression'
 import { getTrackerActivityStatus } from '../domain/trackers/activityStatus'
 
-const seed = 0x51a7e
 const baseTracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'lifecycle-machine', name: 'Lifecycle routine', description: '', kind: 'habit', status: 'active', categoryId: null,
   tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: '2026-10-01', deadline: '2026-10-20',
@@ -14,11 +13,12 @@ const baseTracker: StoredTrackerDefinition = {
   qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true }, customFields: [], milestones: [],
   createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
+const operationCount = import.meta.env.VITE_TRACKER_LIFECYCLE_STRESS === 'true' ? 2_500 : 150
 
 afterEach(async () => { db.close(); await db.delete() })
 
 describe('tracker lifecycle state machine', () => {
-  it('preserves explicit values across deterministic edits, archive, Bin, and restoration', async () => {
+  it.each([0x51a7e, 0x20a610, 0xdeadbeef, 0x20261012])('preserves lifecycle invariants for deterministic seed %i', async (seed) => {
     await activateWorkspace('lifecycle-machine-owner')
     await localRepository.saveTracker(baseTracker)
     const original = [
@@ -30,10 +30,10 @@ describe('tracker lifecycle state machine', () => {
     const history: string[] = []
     let expectedValues = new Map(original.map((entry) => [entry.date, JSON.stringify({ values: entry.values, note: entry.note })]))
     let binned = false
-    for (let step = 0; step < 40; step += 1) {
+    for (let step = 0; step < operationCount; step += 1) {
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0
-      const action = state % 4
-      const actionLabel = ['change-period', 'edit-entry', 'toggle-archive', 'toggle-bin'][action]!
+      const action = state % 9
+      const actionLabel = ['change-period', 'edit-entry', 'toggle-archive', 'toggle-bin', 'change-deadline', 'change-recurrence', 'rename', 'invalid-deadline', 'repeat-check-in'][action]!
       history.push(actionLabel)
       try {
         if (action === 0 && !binned) {
@@ -52,6 +52,27 @@ describe('tracker lifecycle state machine', () => {
         } else if (action === 3) {
           if (binned) { await localRepository.restoreTracker(baseTracker.id); binned = false }
           else { await localRepository.deleteTracker(baseTracker.id); binned = true }
+        } else if (!binned && action >= 4) {
+          const tracker = await localRepository.getTracker(baseTracker.id)
+          if (tracker && action === 4) {
+            await localRepository.saveTracker({ ...tracker, deadline: tracker.deadline === '2026-10-20' ? '2026-10-10' : '2026-10-20' })
+          } else if (tracker && action === 5) {
+            await localRepository.saveTracker({ ...tracker, schedule: tracker.schedule.kind === 'every-day' ? { kind: 'weekdays' } : { kind: 'every-day' } })
+          } else if (tracker && action === 6) {
+            await localRepository.saveTracker({ ...tracker, name: `Routine ${step}`, description: `Updated in seeded run ${seed}` })
+          } else if (tracker && action === 7) {
+            const before = await db.trackers.get(baseTracker.id)
+            await expect(localRepository.saveTracker({ ...tracker, deadline: '2026-09-30' })).rejects.toThrow()
+            expect(await db.trackers.get(baseTracker.id)).toEqual(before)
+          } else if (tracker && action === 8 && tracker.status === 'active') {
+            const entry = await localRepository.getTrackerEntry(baseTracker.id, '2026-10-07')
+            if (entry) {
+              const firstWrite = await localRepository.saveTrackerEntry({ trackerId: baseTracker.id, date: entry.date, outcome: entry.outcome, values: entry.values, note: entry.note })
+              const repeatedWrite = await localRepository.saveTrackerEntry({ trackerId: baseTracker.id, date: entry.date, outcome: entry.outcome, values: entry.values, note: entry.note })
+              expect(repeatedWrite.id).toBe(firstWrite.id)
+              expectedValues.set(entry.date, JSON.stringify({ values: repeatedWrite.values, note: repeatedWrite.note }))
+            }
+          }
         }
       } catch (error) {
         throw new Error(`seed=${seed}; step=${step}; sequence=${history.join(',')}; cause=${String(error)}`)
@@ -82,5 +103,5 @@ describe('tracker lifecycle state machine', () => {
     const restored = await localRepository.getTracker(baseTracker.id)
     expect(restored).toMatchObject({ deletedAt: null, metrics: baseTracker.metrics })
     expect(await localRepository.listTrackerEntriesForTracker(baseTracker.id)).toHaveLength(2)
-  })
+  }, operationCount > 150 ? 90_000 : 5_000)
 })

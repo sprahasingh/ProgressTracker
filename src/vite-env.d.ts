@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   /** Enable schema v4 numeric precision writes after the hosted migration is verified. */
   readonly VITE_ENABLE_TRACKER_SCHEMA_V4?: string
   readonly VITE_ENABLE_PERMANENT_DELETION?: string
+  readonly VITE_TRACKER_LIFECYCLE_STRESS?: string
 }
 
 interface ImportMeta {
