@@ -1,18 +1,35 @@
 # Automatic tracker Bin cleanup
 
-The cleanup function already exists. Migration `20261013000200_schedule_tracker_bin_cleanup.sql` installs or corrects one active daily pg_cron job at 03:00 UTC. It does not turn on the protected cleanup control. The function returns without deleting anything while `tracker_deletion_cleanup_control.enabled` is false or its row is absent.
+## Overview
 
-The database cleanup switch and the frontend wording gate are separate. Keep `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP=false` until the production job has run successfully with the database switch off and an operator has explicitly enabled the switch. Then build and deploy the frontend with the flag set to `true` so the Bin copy matches the database behavior.
+The database cleanup routine permanently removes account-owned trackers that have been in the Bin for 30 days. It runs in bounded batches and retains the deletion ledger so stale devices cannot restore purged records. The scheduled job and the protected database control are separate: both must be active for scheduled cleanup to delete data.
 
-## Review and apply
+The frontend flag `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP` controls whether the Bin describes automatic cleanup. It does not enable or disable database deletion.
 
-Do not apply this migration to production until explicitly approved. After approval, apply it through the normal Supabase migration workflow. If pg_cron is not enabled for the project, enable it in **Dashboard → Database → Extensions**, then rerun the migration. Supabase Cron uses the `pg_cron` extension and records schedules and execution history in `cron.job` and `cron.job_run_details` ([Supabase Cron documentation](https://supabase.com/docs/guides/cron)).
+## Current deployment status
 
-Before enabling deletion, confirm the database parameter `cron.timezone` is `GMT`, `UTC`, or `Etc/UTC`. pg_cron defaults to GMT; if the project overrides it, set it to UTC in the Supabase database configuration and restart the database as required before relying on the 03:00 UTC schedule ([pg_cron configuration](https://github.com/citusdata/pg_cron/blob/main/README.md#setting-up-pg_cron)).
+The following hosted status was reported during the latest review:
 
-## Read-only verification
+- Migration `20261101000100_schedule_tracker_bin_cleanup.sql` has been applied.
+- The `progress-tracker-bin-cleanup` job is installed and active for 03:00 UTC daily (08:30 IST).
+- The protected database cleanup control has been explicitly enabled.
+- The last reported eligible tracker count was zero. The check date was not recorded here.
+- A successful scheduled execution has not been confirmed.
+- The production frontend flag has not been independently verified.
 
-Confirm the extension and timezone:
+Because execution success is unconfirmed, verify the latest run before treating cleanup as operationally confirmed. The GitHub Pages workflow currently does not pass `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP` to its build step. Setting a repository variable alone therefore does not configure that production build; the deployment configuration must be updated before relying on the Bin wording gate.
+
+## How automatic cleanup works
+
+The migration installs one active daily pg_cron job named `progress-tracker-bin-cleanup`, scheduled at `0 3 * * *`. It creates the cleanup control row disabled if the row is absent, but preserves an existing row. The routine does nothing while the control is disabled. In the hosted deployment described above, the control is enabled.
+
+Cleanup is server-side. The purge and finalization functions are not executable by ordinary authenticated users. The manual permanent-delete RPC and the frontend's `VITE_ENABLE_PERMANENT_DELETION` flag are separate features.
+
+## Verify the scheduled job
+
+Run these read-only checks in the intended Supabase project. Do not select tracker content.
+
+Confirm pg_cron and its timezone:
 
 ```sql
 select e.extname, n.nspname as extension_schema,
@@ -22,7 +39,7 @@ join pg_namespace n on n.oid = e.extnamespace
 where e.extname = 'pg_cron';
 ```
 
-Confirm exactly one active daily job:
+Confirm exactly one active daily job with the expected command:
 
 ```sql
 select jobid, jobname, schedule, active, username, command
@@ -30,7 +47,7 @@ from cron.job
 where jobname = 'progress-tracker-bin-cleanup';
 ```
 
-Confirm the latest job execution succeeded while cleanup is still disabled:
+Check recent execution results. A successful execution must be recorded before enabling cleanup in another environment:
 
 ```sql
 select d.status, d.return_message, d.start_time, d.end_time
@@ -41,7 +58,7 @@ order by d.start_time desc
 limit 5;
 ```
 
-Confirm the protected cleanup switch remains off before activation:
+Confirm the database switch:
 
 ```sql
 select enabled, updated_at
@@ -49,11 +66,13 @@ from public.tracker_deletion_cleanup_control
 where id = true;
 ```
 
-Estimate the current eligible count without reading tracker content or changing data by running [`count_expired_tracker_bin.sql`](../../supabase/verification/count_expired_tracker_bin.sql).
+Estimate the eligible count without reading tracker content or changing data by running [`count_expired_tracker_bin.sql`](../../supabase/verification/count_expired_tracker_bin.sql).
 
-## Explicit activation
+## Enable cleanup in another environment
 
-Only after the migration is applied, `cron.timezone` is UTC-equivalent, exactly one job is active at `0 3 * * *`, and a job run has succeeded with the control off, an authorized operator can enable the database switch. The guarded block refuses activation if those conditions are not met:
+Apply the migration through the normal Supabase migration workflow. If pg_cron is not installed, enable it in **Dashboard → Database → Extensions** before applying the migration. Confirm `cron.timezone` is `GMT`, `UTC`, or `Etc/UTC`; pg_cron defaults to GMT. Supabase records schedules and execution history in `cron.job` and `cron.job_run_details` ([Supabase Cron documentation](https://supabase.com/docs/guides/cron), [pg_cron configuration](https://github.com/citusdata/pg_cron/blob/main/README.md#setting-up-pg_cron)).
+
+Keep the database switch off while checking the schedule and waiting for a successful execution. Once the migration, timezone, exactly one active job, and a successful run have been verified, an authorized operator can enable the database control with this guarded block:
 
 ```sql
 do $$
@@ -85,11 +104,11 @@ end;
 $$;
 ```
 
-Afterward, set `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP=true` in the production frontend build environment and deploy that frontend through the normal release process. The database cleanup remains enabled independently of this UI flag.
+Configure the frontend build with `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP=true` only after the database cleanup is active. The flag is read at build time. Confirm that the deployment workflow passes it into the build; the current GitHub Pages workflow does not.
 
-## Rollback
+## Disable or roll back
 
-To stop further scheduled cleanup, first disable the database switch, then unschedule the job. This does not restore trackers already permanently deleted:
+First disable the database switch, then unschedule the job. This stops future scheduled purges but cannot restore trackers already deleted:
 
 ```sql
 update public.tracker_deletion_cleanup_control
@@ -101,4 +120,11 @@ from cron.job
 where jobname = 'progress-tracker-bin-cleanup';
 ```
 
-Set `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP=false` in the next frontend build and deploy it so the Bin stops claiming automatic deletion. The extension may remain installed; the manual permanent-deletion RPC is unaffected.
+Set `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP=false` in the next frontend build so the Bin no longer describes automatic removal. The frontend flag does not stop database cleanup. The pg_cron extension may remain installed, and manual permanent deletion remains separate.
+
+## Important safety notes
+
+- Do not enable the database control until the schedule and a successful run have been verified.
+- The 30-day period is enforced by the database routine. Do not change the threshold as part of routine activation or rollback.
+- Cleanup is permanent. Disabling the control does not recover already purged data.
+- Do not grant ordinary users execution on the purge or finalization functions.
