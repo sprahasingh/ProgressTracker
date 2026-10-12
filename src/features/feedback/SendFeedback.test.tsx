@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { SendFeedbackAction } from './SendFeedback'
 import { FeedbackSubmissionError } from './feedbackService'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import feedbackStyles from '../../styles.css?raw'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn(), auth: { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } } }))
 vi.mock('./feedbackService', async (importOriginal) => ({ ...await importOriginal<typeof import('./feedbackService')>(), submitGeneralFeedback: mocks.submit }))
@@ -20,6 +21,14 @@ describe('Send Feedback', () => {
   beforeEach(() => {
     mocks.submit.mockReset().mockResolvedValue({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
     mocks.auth = { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } }
+  })
+
+  it('uses a centered, blurred overlay and keeps the modal itself outside the backdrop filter', () => {
+    expect(feedbackStyles).toMatch(/\.send-feedback-backdrop\s*\{[^}]*display:\s*grid[^}]*place-items:\s*center/s)
+    expect(feedbackStyles).toMatch(/\.send-feedback-backdrop\s*\{[^}]*backdrop-filter:\s*blur\(8px\)[^}]*-webkit-backdrop-filter:\s*blur\(8px\)[^}]*|\.send-feedback-backdrop\s*\{[^}]*-webkit-backdrop-filter:\s*blur\(8px\)[^}]*backdrop-filter:\s*blur\(8px\)[^}]*\}/s)
+    expect(feedbackStyles).toMatch(/\.send-feedback-dialog\s*\{[^}]*height:\s*auto[^}]*max-height:\s*min\(760px,\s*var\(--modal-max-height,\s*85vh\)\)/s)
+    expect(feedbackStyles).not.toMatch(/\.send-feedback-dialog\s*\{[^}]*backdrop-filter:/s)
+    expect(feedbackStyles).toContain('max(16px, env(safe-area-inset-top')
   })
 
   it('requires a message and allows changing the feedback type', async () => {
@@ -141,9 +150,12 @@ describe('Send Feedback', () => {
     const textarea = screen.getByRole('textbox', { name: 'Your message' })
     await user.type(textarea, 'Mobile draft stays here.')
     expect(backdrop.style.height).toBe('720px')
+    expect(backdrop.style.getPropertyValue('--modal-max-height')).toBe('612px')
+    expect(document.body.style.overflow).toBe('hidden')
     Object.defineProperty(viewport, 'height', { configurable: true, writable: true, value: 390 })
     viewport.dispatchEvent(new Event('resize'))
     expect(backdrop.style.height).toBe('390px')
+    expect(backdrop.style.getPropertyValue('--modal-max-height')).toBe('331px')
     expect(textarea).toHaveValue('Mobile draft stays here.')
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(dialog.querySelector('footer button[type="submit"]')).toBeEnabled()

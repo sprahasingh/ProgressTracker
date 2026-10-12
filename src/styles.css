@@ -300,13 +300,13 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* Unified Send Feedback dialog */
-.send-feedback-backdrop { position: fixed; z-index: 1900; inset: 0; display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, #000 46%, transparent); }
-.send-feedback-dialog { display: flex; width: min(520px, 100%); height: auto; max-height: min(760px, calc(var(--modal-visible-height, 100dvh) - 40px)); min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-card); }
+.send-feedback-backdrop { position: fixed; z-index: 1900; inset: 0; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); background: color-mix(in srgb, #171411 48%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.send-feedback-dialog { display: flex; width: min(520px, 100%); height: auto; max-height: min(760px, var(--modal-max-height, 85vh)); min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-card); }
 .send-feedback-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .send-feedback-heading h2 { margin: 3px 0 0; font-size: 20px; font-weight: 700; }
 .send-feedback-eyebrow { color: var(--accent-strong); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
 .send-feedback-content { display: grid; gap: 14px; padding: 18px 20px 20px; }
-.send-feedback-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.send-feedback-scroll { min-height: 0; flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .send-feedback-textarea { min-height: 140px; resize: vertical; }
 .send-feedback-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin-top: -10px; color: var(--ink-muted); font-size: 11px; }
 .send-feedback-share-email, .ai-help-share-email { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--ink); cursor: pointer; }
@@ -327,8 +327,8 @@ a { color: inherit; text-decoration: none; }
 .send-feedback-fallback > small { color: var(--ink-muted); }
 .send-feedback-dialog :focus-visible { outline: 3px solid color-mix(in srgb, var(--focus-ring) 72%, transparent); outline-offset: 2px; }
 @media (max-width: 760px) {
-  .send-feedback-backdrop { place-items: center; padding: max(12px, env(safe-area-inset-top, 0px)) 12px calc(76px + max(12px, env(safe-area-inset-bottom, 0px))); }
-  .send-feedback-dialog { width: min(520px, 100%); height: auto; max-height: calc(var(--modal-visible-height, 100dvh) - max(12px, env(safe-area-inset-top, 0px)) - 76px - max(12px, env(safe-area-inset-bottom, 0px))); border-radius: 20px; }
+  .send-feedback-backdrop { place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  .send-feedback-dialog { width: min(520px, 100%); height: auto; max-height: min(760px, var(--modal-max-height, 85vh)); border-radius: 20px; }
   .send-feedback-heading { padding: 14px 16px; }
   .send-feedback-content { gap: 12px; padding: 15px 16px 18px; }
   .send-feedback-actions { gap: 9px; padding: 10px 16px max(12px, env(safe-area-inset-bottom, 0px)); }
