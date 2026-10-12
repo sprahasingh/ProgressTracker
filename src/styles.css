@@ -757,16 +757,17 @@ a { color: inherit; text-decoration: none; }
 .dashboard-tracker-title { margin: 0 0 13px; padding: 3px 2px; }
 .dashboard-tracker-title h2 { font-size: 25px; }
 .dashboard-tracker-list { display: grid; gap: 11px; }
-.dashboard-tracker-card { min-width: 0; padding: 17px; }
-.dashboard-tracker-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-subtle); font-size: 9px; }
-.dashboard-tracker-card h3 { margin: 13px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 400; overflow-wrap: anywhere; }
-.dashboard-current-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; color: var(--ink-subtle); font-size: 10px; }
-.dashboard-tracker-stats { display: flex; gap: 25px; margin-top: 15px; }
+.dashboard-tracker-card { min-width: 0; padding: 14px 17px; }
+.dashboard-tracker-card-top { display: flex; align-items: center; gap: 8px; color: var(--ink-subtle); font-size: 9px; }
+.dashboard-tracker-card h3 { margin: 8px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 400; overflow-wrap: anywhere; }
+.dashboard-current-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--ink-subtle); font-size: 10px; }
+.dashboard-tracker-stats { display: flex; gap: 25px; margin-top: 9px; }
 .dashboard-tracker-stats span { display: grid; gap: 3px; }
 .dashboard-tracker-stats strong { color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 400; }
 .dashboard-tracker-stats small { color: var(--ink-subtle); font-size: 9px; }
-.dashboard-latest-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 10px; line-height: 1.5; }
+.dashboard-latest-state { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 10px; line-height: 1.5; }
 .dashboard-latest-state > strong { flex-basis: 100%; color: var(--ink); font-size: 11px; }
+.dashboard-latest-state > span { min-width: 0; overflow-wrap: anywhere; }
 .dashboard-latest-state a { color: var(--accent); }
 .history-page > .surface { margin-top: 24px; }
 .history-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 29px 0 19px; }
@@ -2616,7 +2617,9 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .heatmap-detail > span { flex: 1; }
 .heatmap-detail-close { flex: 0 0 32px; width: 32px; height: 32px; margin: -5px -5px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 22px; cursor: pointer; }
 .calendar-selected-streak { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; color: var(--ink-muted); font-size: 13px; }
-.dashboard-tracker-stats small { display: flex; align-items: center; gap: 2px; }
+.dashboard-tracker-stats small { display: flex; align-items: center; gap: 1px; }
+.dashboard-tracker-stats .info-button { width: 40px; height: 40px; flex: 0 0 40px; margin: 0 0 0 -7px; }
+.dashboard-tracker-stats .info-button-icon { width: 17px; height: 17px; }
 .dashboard-stat-label { display: flex; align-items: center; gap: 2px; }
 .achievement-stats-row span { display: inline-flex; align-items: center; }
 @media (max-width: 430px) {
