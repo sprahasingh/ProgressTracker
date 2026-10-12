@@ -9,8 +9,74 @@ const categories: Array<{ value: AnswerFeedbackCategory | 'all'; label: string }
 const statuses: Array<{ value: AnswerFeedbackStatus | 'all'; label: string }> = [
   { value: 'pending', label: 'Needs review' }, { value: 'reviewed', label: 'Reviewed' }, { value: 'resolved', label: 'Resolved' }, { value: 'all', label: 'All statuses' },
 ]
-const labelFor = (value: string) => categories.find((item) => item.value === value)?.label ?? value
-const displayDate = (value: string) => new Date(value).toLocaleString()
+const topicLabels: Record<string, string> = {
+  core: 'Core AI Help', trackers: 'Trackers', goals: 'Goals', schedules: 'Schedules', history: 'History',
+  analytics: 'Analytics', sync: 'Sync', privacy: 'Privacy', account: 'Account', notifications: 'Notifications', settings: 'Settings', other: 'Other',
+}
+const categoryLabel = (value: string) => categories.find((item) => item.value === value)?.label ?? 'Unknown feedback category'
+const statusLabel = (value: AnswerFeedbackStatus) => statuses.find((item) => item.value === value)?.label ?? 'Needs review'
+const topicLabel = (value: string) => topicLabels[value] ?? 'Unknown topic'
+
+function displayDate(value: string | null | undefined) {
+  if (!value) return 'Date unavailable'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function CopyIdentifier({ label, value }: { label: string; value: string }) {
+  const [message, setMessage] = useState('')
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value)
+      setMessage(`${label} copied.`)
+    } catch {
+      setMessage('Copy is unavailable in this browser.')
+    }
+  }
+  return <span className="ai-feedback-copy"><button type="button" className="button button-secondary button-small" onClick={() => void copy()} aria-label={`Copy ${label}`}>Copy</button>{message && <span role="status">{message}</span>}</span>
+}
+
+function TechnicalValue({ label, value, copy = false }: { label: string; value: string; copy?: boolean }) {
+  return <div><dt>{label}</dt><dd><code>{value || 'Unavailable'}</code>{copy && value && <CopyIdentifier label={label} value={value} />}</dd></div>
+}
+
+function FeedbackCard({ row, currentVersion, busy, onMark }: {
+  row: AnswerFeedback
+  currentVersion: string
+  busy: boolean
+  onMark: (row: AnswerFeedback, next: 'reviewed' | 'resolved') => void
+}) {
+  const versionChanged = Boolean(row.knowledge_version && currentVersion && row.knowledge_version !== currentVersion)
+  return <article className="ai-feedback-row" aria-label={`${categoryLabel(row.category)} feedback, ${statusLabel(row.status)}`}>
+    <header>
+      <div className="ai-feedback-card-heading">
+        <strong>{categoryLabel(row.category)}</strong>
+        <span className={`ai-knowledge-status is-${row.status}`} aria-label={`Status: ${statusLabel(row.status)}`}>{statusLabel(row.status)}</span>
+      </div>
+      <time dateTime={row.created_at}>{displayDate(row.created_at)}</time>
+    </header>
+    <p className="ai-feedback-explanation">{row.explanation?.trim() || <span className="ai-feedback-muted">No additional details provided.</span>}</p>
+    <p className="ai-feedback-topic"><span>AI Help topic</span><strong>{topicLabel(row.topic)}</strong></p>
+    <p className="ai-feedback-identity"><span>Submitted by</span><strong>{row.identity
+      ? [row.identity.display_name, row.identity.email].filter((value): value is string => Boolean(value)).join(' · ') || 'Identity shared'
+      : 'Submitted anonymously'}</strong></p>
+    {versionChanged && <p className="ai-feedback-version-note"><strong>AI Help version changed since this feedback was submitted.</strong><small>This does not necessarily mean the reported issue has been fixed.</small></p>}
+    {row.status === 'pending' && <footer>
+      <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => onMark(row, 'reviewed')}>{busy ? 'Saving…' : 'Mark reviewed'}</button>
+      <button type="button" className="button button-primary button-small" disabled={busy} onClick={() => onMark(row, 'resolved')}>{busy ? 'Saving…' : 'Mark resolved'}</button>
+    </footer>}
+    {row.status !== 'pending' && row.reviewed_at && <p className="ai-feedback-reviewed-date">{row.status === 'resolved' ? 'Closed' : 'Reviewed'} {displayDate(row.reviewed_at)}</p>}
+    <details className="ai-feedback-technical">
+      <summary>Technical details</summary>
+      <dl>
+        <TechnicalValue label="Reported bundle identifier" value={row.knowledge_version} copy />
+        <TechnicalValue label="Current bundle identifier" value={currentVersion} copy />
+        <TechnicalValue label="Feedback identifier" value={row.id} copy />
+        {row.identity && row.response_id && <TechnicalValue label="Response identifier" value={row.response_id} copy />}
+      </dl>
+    </details>
+  </article>
+}
 
 export function AnswerFeedbackWorkspace() {
   const [status, setStatus] = useState<AnswerFeedbackStatus | 'all'>('pending')
@@ -53,9 +119,9 @@ export function AnswerFeedbackWorkspace() {
   }
 
   return <section className="ai-feedback-workspace" aria-labelledby="ai-feedback-title">
-    <header className="ai-feedback-heading"><div><h2 id="ai-feedback-title">Answer Feedback</h2><p>Reports include a category and optional note only. They do not include the conversation or assistant answer text.</p></div><button type="button" className="button button-secondary button-small" onClick={reload}>Refresh</button></header>
+    <header className="ai-feedback-heading"><div><h2 id="ai-feedback-title">Answer Feedback</h2><p>Needs review means not yet investigated. Reviewed means examined by a maintainer. Resolved means addressed or otherwise closed.</p></div><button type="button" className="button button-secondary button-small" onClick={reload} disabled={loading}>Refresh</button></header>
     {hasLoaded && <div className="ai-knowledge-counts" aria-label="Answer feedback counts">
-      {(['pending', 'reviewed', 'resolved'] as const).map((key) => <button type="button" key={key} className={`ai-knowledge-count${status === key ? ' is-active' : ''}`} onClick={() => setStatus(key)}><span>{key === 'pending' ? 'Needs review' : key[0]!.toLocaleUpperCase() + key.slice(1)}</span><strong>{counts[key]}</strong></button>)}
+      {(['pending', 'reviewed', 'resolved'] as const).map((key) => <button type="button" key={key} className={`ai-knowledge-count${status === key ? ' is-active' : ''}`} aria-pressed={status === key} onClick={() => setStatus(key)}><span>{statusLabel(key)}</span><strong>{counts[key]}</strong></button>)}
     </div>}
     <div className="surface ai-knowledge-browser">
       <div className="ai-knowledge-toolbar ai-feedback-toolbar">
@@ -65,16 +131,10 @@ export function AnswerFeedbackWorkspace() {
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button className="button button-secondary button-small" type="button" onClick={reload}>Retry</button></div>}
       {loading && <div className="ai-knowledge-loading" role="status">{hasLoaded ? 'Refreshing answer feedback…' : 'Loading answer feedback…'}</div>}
       {!loading && <>
-      {error && hasLoaded && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
-      {!error && rows.length === 0 ? <div className="ai-knowledge-empty"><h3>No feedback reports in this view</h3><p>New reports appear here after a user submits feedback on an AI Help answer.</p></div> : rows.length > 0 && <div className="ai-feedback-list">
-        {rows.map((row) => <article className="ai-feedback-row" key={row.id}>
-          <header><div><strong>{labelFor(row.category)}</strong><span className={`ai-knowledge-status is-${row.status === 'pending' ? 'pending' : 'verified'}`}>{row.status}</span></div><time dateTime={row.created_at}>{displayDate(row.created_at)}</time></header>
-          {row.explanation ? <p className="ai-feedback-explanation">{row.explanation}</p> : <p className="ai-feedback-muted">No optional note was supplied.</p>}
-          <dl><div><dt>Topic</dt><dd>{row.topic}</dd></div><div><dt>Reported bundle</dt><dd><code>{row.knowledge_version}</code></dd></div><div><dt>Current bundle</dt><dd><code>{currentVersion}</code></dd></div><div><dt>Response</dt><dd><code>{row.response_id.slice(0, 8)}</code></dd></div><div><dt>User</dt><dd><code>{row.user_id.slice(0, 8)}</code></dd></div></dl>
-          {row.status === 'pending' && <footer><button type="button" className="button button-secondary button-small" disabled={Boolean(busyId)} onClick={() => void mark(row, 'reviewed')}>{busyId === row.id ? 'Saving…' : 'Mark reviewed'}</button><button type="button" className="button button-primary button-small" disabled={Boolean(busyId)} onClick={() => void mark(row, 'resolved')}>{busyId === row.id ? 'Saving…' : 'Mark resolved'}</button></footer>}
-          {row.reviewer_id && <small>Reviewed by maintainer {row.reviewer_id.slice(0, 8)} · {row.reviewed_at ? displayDate(row.reviewed_at) : 'date unavailable'}</small>}
-        </article>)}
-      </div>}
+        {error && hasLoaded && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
+        {!error && rows.length === 0 ? <div className="ai-knowledge-empty"><h3>No feedback reports in this view</h3><p>New reports appear here after a user submits feedback on an AI Help answer.</p></div> : rows.length > 0 && <div className="ai-feedback-list">
+          {rows.map((row) => <FeedbackCard key={row.id} row={row} currentVersion={currentVersion} busy={Boolean(busyId)} onMark={(item, next) => void mark(item, next)} />)}
+        </div>}
       </>}
     </div>
   </section>

@@ -15,6 +15,7 @@ import { NotificationsSettings } from '../notifications/NotificationsSettings'
 import { getAuthRedirectUrl } from '../auth/authRedirect'
 import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { MySupportQueries } from '../feedback/MySupportQueries'
+import { IdentitySharingSettings } from './IdentitySharingSettings'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -114,12 +115,12 @@ export function SettingsPage() {
 
   useLayoutEffect(() => {
     const sectionFromHash = location.hash.slice(1)
-    const validSections = ['personal-information', 'security', 'calendar-time', 'appearance', 'notifications', 'sync-data', 'account-actions', 'feedback-support', 'my-support-queries']
+    const validSections = ['personal-information', 'privacy', 'security', 'calendar-time', 'appearance', 'notifications', 'sync-data', 'account-actions', 'feedback-support', 'my-support-queries']
     const requestedSection = new URLSearchParams(location.search).has('support') ? 'my-support-queries' : sectionFromHash
     setExpandedSection(validSections.includes(requestedSection) ? requestedSection : null)
   }, [location.pathname, location.search, location.hash, auth.user?.id])
 
-  function section(id: string, title: string, content: ReactNode) {
+  function section(id: string, title: ReactNode, content: ReactNode) {
     const expanded = expandedSection === id
     const panelId = `settings-panel-${id}`
     return <section className="settings-accordion" id={id} key={id}>
@@ -193,21 +194,22 @@ export function SettingsPage() {
       {requestedEmail && <p className="settings-hint" role="status">Email change pending for <strong>{requestedEmail}</strong>. Check the new inbox and, if requested, approve the change from your current inbox too. This page will show the new address when confirmation is complete.</p>}
       {profileError && <p className="auth-error" role="alert">{profileError}</p>}
     </div>)}
-    {section('security', 'Security', <p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p>)}
-    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
     {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
     {section('notifications', 'Notifications', <NotificationsSettings embedded />)}
+    {section('privacy', 'Privacy', <IdentitySharingSettings />)}
+    {section('security', 'Security', <p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p>)}
     {section('sync-data', 'Sync & Data', <AuthPage embedded />)}
-    {section('account-actions', 'Account Actions', <div className="account-actions"><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></div>)}
     {section('feedback-support', 'Feedback & Support', <><p>In-app feedback is saved to your support history and sent to ProgressTracker support. Email Support below is an external email option and is not tracked here.</p><SendFeedbackAction /></>)}
     {section('my-support-queries', 'My Support Queries', <MySupportQueries embedded />)}
+    {section('account-actions', 'Account Actions', <div className="account-actions"><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></div>)}
   </section>
 
   return <section className="tracker-page settings-page unified-settings" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
-    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
     {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
     {section('feedback-support', 'Feedback & Support', <><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></>)}
   </section>
 }

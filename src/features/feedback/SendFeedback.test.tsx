@@ -6,10 +6,11 @@ import { FeedbackSubmissionError } from './feedbackService'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import feedbackStyles from '../../styles.css?raw'
 
-const mocks = vi.hoisted(() => ({ submit: vi.fn(), auth: { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } } }))
+const mocks = vi.hoisted(() => ({ submit: vi.fn(), identityPreference: vi.fn(), auth: { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } } }))
 vi.mock('./feedbackService', async (importOriginal) => ({ ...await importOriginal<typeof import('./feedbackService')>(), submitGeneralFeedback: mocks.submit }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => mocks.auth }))
 vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({}) }))
+vi.mock('../settings/identitySharing', () => ({ getIdentitySharingPreference: mocks.identityPreference }))
 
 function CurrentPath() { return <div data-testid="current-path">{useLocation().pathname}</div> }
 function renderAction(initialEntries = ['/settings']) {
@@ -20,6 +21,7 @@ describe('Send Feedback', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
   beforeEach(() => {
     mocks.submit.mockReset().mockResolvedValue({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
+    mocks.identityPreference.mockReset().mockResolvedValue(false)
     mocks.auth = { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } }
   })
 
@@ -42,20 +44,23 @@ describe('Send Feedback', () => {
     expect(send).toBeEnabled()
   })
 
-  it('defaults email sharing on, hides the address when opted out, and submits the opt-out', async () => {
+  it('explains whether the current request is anonymous or identity-shared', async () => {
     const user = userEvent.setup()
     renderAction()
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
-    const checkbox = screen.getByRole('checkbox', { name: /Share my email with support/ })
-    expect(checkbox).toBeChecked()
-    expect(screen.getByText(/Email shared with support: person@example.com/)).toBeInTheDocument()
-    await user.click(checkbox)
-    expect(screen.queryByText(/person@example.com/)).not.toBeInTheDocument()
-    expect(screen.getByText(/Notifications and My Support Queries/)).toBeInTheDocument()
+    expect(screen.getByText(/submitted anonymously to maintainers/i)).toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: 'Your message' }), 'Please reply in the app.')
     await user.click(screen.getByRole('dialog').querySelector('footer button[type="submit"]') as HTMLButtonElement)
     await screen.findByText('Feedback saved. Thank you for helping improve ProgressTracker!')
-    expect(mocks.submit.mock.calls[0]?.[1]).toMatchObject({ shareEmail: false })
+    expect(mocks.submit.mock.calls[0]?.[1]).toMatchObject({ shareEmail: true })
+  })
+
+  it('shows the account email only when the cloud privacy preference is enabled', async () => {
+    mocks.identityPreference.mockResolvedValue(true)
+    const user = userEvent.setup()
+    renderAction()
+    await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
+    expect(await screen.findByText('Your account name and email (person@example.com) will be visible to maintainers. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
   })
 
   it('preserves a failed message and retries with a stable idempotency key', async () => {

@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isMaintainer, normalizeMaintainerEmails } from '../ai-help/learningCore.ts'
 import { deliverPendingSupportEmail } from '../_shared/supportFeedbackDelivery.ts'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
-import { consentedMaintainerEmail, supportReplyRpc, supportStatusRpcFailure } from './supportInboxCore.ts'
+import { buildMaintainerReplyResponse, buildSupportMaintainerMessage, buildSupportMaintainerThread, consentedMaintainerEmail, supportReplyRpc, supportStatusRpcFailure } from './supportInboxCore.ts'
 
 const allowedOrigins = new Set((Deno.env.get('SUPPORT_FEEDBACK_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
   try { return new URL(item.trim()).origin } catch { return '' }
@@ -64,8 +64,21 @@ Deno.serve(async (request) => {
       return json(403, { error: 'This account is not authorized to manage feedback and support.' }, origin)
     }
     const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
-    const fields = 'id,user_id,category,source,subject,original_message,status,metadata,email_status,share_email,maintainer_seen_at,maintainer_seen_by,last_activity_at,created_at,updated_at'
+    const fields = 'id,user_id,category,source,subject,original_message,status,metadata,email_status,share_email,share_identity,maintainer_seen_at,maintainer_seen_by,last_activity_at,created_at,updated_at'
     const messages = async (id: string) => admin.from('support_feedback_messages').select('id,feedback_id,sender_user_id,sender_role,body,request_id,created_at').eq('feedback_id', id).order('created_at', { ascending: true })
+    const supportIdentity = async (thread: { user_id: string | null; share_identity: boolean; share_email: boolean }, currentPreference: boolean) => {
+      if (!thread.user_id || !thread.share_identity || !currentPreference) return null
+      try {
+        const { data } = await admin.auth.admin.getUserById(thread.user_id)
+        const metadata = data.user?.user_metadata as Record<string, unknown> | undefined
+        const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name]
+          .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))?.trim().slice(0, 120) ?? null
+        return {
+          display_name: displayName,
+          email: consentedMaintainerEmail(thread.share_email && Boolean(data.user?.email_confirmed_at), data.user?.email),
+        }
+      } catch { return { display_name: null, email: null } }
+    }
 
     if (body.action === 'list_mine') {
       const { data, error } = await admin.from('support_feedback').select(fields).eq('user_id', user.id).neq('category', 'ai_answer_feedback').order('last_activity_at', { ascending: false }).limit(100)
@@ -84,12 +97,19 @@ Deno.serve(async (request) => {
       }
       const { data: threadMessages, error: messageError } = await messages(thread.id)
       if (messageError) return json(503, { error: 'Conversation messages could not be loaded.' }, origin)
-      let userEmail: string | null = null
-      if (body.action === 'get_admin' && thread.user_id && thread.share_email) {
-        const { data: account } = await admin.auth.admin.getUserById(thread.user_id)
-        userEmail = consentedMaintainerEmail(Boolean(thread.share_email && account.user?.email_confirmed_at), account.user?.email)
+      if (body.action === 'get_admin') {
+        const { data: preference, error: preferenceError } = thread.user_id
+          ? await admin.from('app_settings').select('share_identity').eq('user_id', thread.user_id).maybeSingle()
+          : { data: null, error: null }
+        const currentPreference = !preferenceError && preference?.share_identity === true
+        const identity = await supportIdentity(thread, currentPreference)
+        const reviewedThread = { ...thread, maintainer_seen_at: new Date().toISOString() }
+        return json(200, {
+          thread: buildSupportMaintainerThread(reviewedThread, identity, currentPreference),
+          messages: (threadMessages ?? []).map(buildSupportMaintainerMessage),
+        }, origin)
       }
-      return json(200, { thread: body.action === 'get_admin' ? { ...thread, maintainer_seen_at: new Date().toISOString(), maintainer_seen_by: user.id } : thread, messages: threadMessages ?? [], ...(body.action === 'get_admin' ? { user_email: userEmail } : {}) }, origin)
+      return json(200, { thread, messages: threadMessages ?? [] }, origin)
     }
     if (body.action === 'list_admin') {
       const status = typeof body.status === 'string' ? body.status : 'all'
@@ -117,11 +137,15 @@ Deno.serve(async (request) => {
         admin.from('support_feedback').select('id', { count: 'exact', head: true }).neq('category', 'ai_answer_feedback').is('maintainer_seen_at', null),
       ])
       if ([total,open,waiting,resolved,incorrect,unread].some((item) => item.error)) return json(503, { error: 'Feedback inbox metrics could not be loaded.' }, origin)
-      const threads = await Promise.all((data ?? []).map(async (thread) => {
-        if (!thread.user_id || !thread.share_email) return { ...thread, user_email: null }
-        const { data: account } = await admin.auth.admin.getUserById(thread.user_id)
-        return { ...thread, user_email: consentedMaintainerEmail(Boolean(thread.share_email && account.user?.email_confirmed_at), account.user?.email) }
-      }))
+      const threadRows = data ?? []
+      const userIds = [...new Set(threadRows.map((thread) => thread.user_id).filter((id): id is string => typeof id === 'string'))]
+      const currentConsentedUsers = new Set<string>()
+      if (userIds.length) {
+        const { data: preferences, error: preferenceError } = await admin.from('app_settings').select('user_id,share_identity').in('user_id', userIds)
+        if (!preferenceError) for (const preference of preferences ?? []) if (preference.share_identity === true) currentConsentedUsers.add(preference.user_id)
+      }
+      const threads = await Promise.all((data ?? []).map(async (thread) =>
+        buildSupportMaintainerThread(thread, await supportIdentity(thread, currentConsentedUsers.has(thread.user_id)), currentConsentedUsers.has(thread.user_id))))
       return json(200, { threads, total: count ?? 0, has_more: (data?.length ?? 0) === limit, metrics: { total: total.count ?? 0, open: open.count ?? 0, waiting: waiting.count ?? 0, resolved: resolved.count ?? 0, incorrect_ai: incorrect.count ?? 0, unread: unread.count ?? 0 } }, origin)
     }
     if (body.action === 'reply_mine' || body.action === 'reply_admin') {
@@ -135,6 +159,9 @@ Deno.serve(async (request) => {
       if (body.action === 'reply_mine') {
         try { emailStatus = await deliverPendingSupportEmail(admin, body.feedback_id, { userId: user.id, email: user.email_confirmed_at ? user.email ?? null : null }, { apiKey: Deno.env.get('BREVO_API_KEY') ?? '', from: Deno.env.get('FEEDBACK_FROM_EMAIL') ?? '', to: PUBLIC_SUPPORT_EMAIL, appVersion: Deno.env.get('SUPPORT_FEEDBACK_APP_VERSION') ?? '0.1.0' }) }
         catch (deliveryError) { console.error('SUPPORT_REPLY_DELIVERY_FAILED', JSON.stringify({ code: deliveryError instanceof Error ? deliveryError.message : 'unknown' })) }
+      }
+      if (body.action === 'reply_admin') {
+        return json(200, buildMaintainerReplyResponse(result), origin)
       }
       return json(200, { ...result, emailStatus }, origin)
     }

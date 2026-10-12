@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from './IconButton'
 import { AppIcon } from './AppIcon'
@@ -6,15 +7,17 @@ import { useModalLayer } from './useModalLayer'
 
 type Props = {
   title: string
-  summary: string
-  description: string
+  summary?: string
+  description?: string
   label?: string
+  content?: ReactNode
+  compact?: boolean
 }
 
 const OPEN_INFO_EVENT = 'progress-tracker:open-info'
 
 /** One accessible, viewport-aware popover shared by every information control. */
-export function InfoButton({ title, summary, description, label = `More about ${title}` }: Props) {
+export function InfoButton({ title, summary, description, label = `More about ${title}`, content, compact = false }: Props) {
   const id = useId()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -24,7 +27,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
   const [presentation, setPresentation] = useState<'anchored' | 'sheet'>('anchored')
   const [position, setPosition] = useState({ top: -1000, left: -1000 })
 
-  useModalLayer(open && presentation === 'sheet', popoverRef, () => {
+  useModalLayer(open && presentation === 'sheet' && !compact, popoverRef, () => {
     restoreTriggerFocus.current = true
     setOpen(false)
   })
@@ -66,12 +69,19 @@ export function InfoButton({ title, summary, description, label = `More about ${
       const aboveSpace = Math.max(0, anchor.top - viewTop - margin - gap)
       const fitsBelow = naturalHeight <= belowSpace
       const fitsAbove = naturalHeight <= aboveSpace
-      const useSheet = mobile && !fitsBelow && !fitsAbove
+      const useSheet = !compact && mobile && !fitsBelow && !fitsAbove
       setPresentation(useSheet ? 'sheet' : 'anchored')
       if (useSheet) {
         const maxHeight = Math.max(120, viewBottom - viewTop - margin)
         popover.style.maxHeight = `${maxHeight}px`
         setPosition({ top: Math.max(viewTop + margin, viewBottom - Math.min(naturalHeight, maxHeight)), left: viewLeft + 12 })
+        return
+      }
+      if (compact && !fitsBelow && !fitsAbove) {
+        const maxHeight = Math.max(0, Math.min(420, viewBottom - viewTop - margin * 2))
+        popover.style.maxHeight = `${maxHeight}px`
+        const top = Math.max(viewTop + margin, Math.min(anchor.bottom + gap, viewBottom - maxHeight))
+        setPosition({ top, left: Math.min(Math.max(viewLeft + margin, anchor.left), viewLeft + viewWidth - panel.width - margin) })
         return
       }
       popover.style.maxHeight = `${Math.max(120, Math.min(520, viewHeight - 24))}px`
@@ -150,7 +160,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
     {open && createPortal(<div
       ref={popoverRef}
       id={`info-popover-${id}`}
-      className="info-popover"
+      className={`info-popover${compact ? ' is-compact' : ''}`}
       role="dialog"
       aria-modal={presentation === 'sheet' ? 'true' : undefined}
       aria-labelledby={`info-title-${id}`}
@@ -159,9 +169,9 @@ export function InfoButton({ title, summary, description, label = `More about ${
     >
       <div className="info-popover-heading"><IconButton ref={closeRef} className="info-dialog-close" label="Close explanation" onClick={() => { restoreTriggerFocus.current = true; setOpen(false) }}><AppIcon name="close" /></IconButton></div>
       <div className="info-popover-content">
-        <p className="info-dialog-summary">{summary}</p>
+        {!content && summary && <p className="info-dialog-summary">{summary}</p>}
         <h2 id={`info-title-${id}`}>{title}</h2>
-        <p className="info-dialog-description">{description}</p>
+        {content ?? <p className="info-dialog-description">{description}</p>}
       </div>
     </div>, document.body)}
   </>

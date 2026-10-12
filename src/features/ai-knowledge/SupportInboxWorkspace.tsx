@@ -12,8 +12,10 @@ const labelStatus = (status: SupportStatus) => statuses.find((item) => item.id =
 const labelCategory = (category: SupportCategory) => categories.find((item) => item.id === category)?.label ?? category
 const dateLabel = (value: string) => new Date(value).toLocaleString()
 
-type InboxThread = SupportThread & { user_email?: string | null }
-type InboxResult = Omit<SupportInboxList, 'threads'> & { threads: InboxThread[] }
+type InboxResult = SupportInboxList
+const identityLabel = (identity: SupportThread['identity']) => identity
+  ? [identity.display_name, identity.email].filter((value): value is string => Boolean(value)).join(' · ') || 'Identity shared'
+  : 'Anonymous'
 
 export function SupportInboxWorkspace() {
   const [category, setCategory] = useState<SupportCategory | 'all'>('all')
@@ -130,7 +132,7 @@ export function SupportInboxWorkspace() {
       <div className={`support-inbox-layout${selectedId ? ' has-selection' : ''}`}>
         <div className="support-inbox-list-region"><div className="support-inbox-list" role="list" aria-label="Feedback records">{result.threads.map((thread) => <div role="listitem" key={thread.id}>
           <button type="button" className={`support-inbox-row${selectedId === thread.id ? ' is-active' : ''}`} onClick={(event) => openThread(thread.id, event.currentTarget)}>
-            <span className="support-inbox-row-title"><strong>{thread.subject}</strong>{!thread.maintainer_seen_at && <span className="support-unread">New</span>}</span><span>{labelCategory(thread.category)} · {thread.source.replaceAll('_',' ')}</span><span>{thread.user_email ?? 'Deleted account'} · {dateLabel(thread.created_at)}</span><span className={`support-status is-${thread.status}`}>{labelStatus(thread.status)}</span><small>Email: {thread.email_status.replaceAll('_',' ')}</small>
+            <span className="support-inbox-row-title"><strong>{thread.subject}</strong>{!thread.maintainer_seen_at && <span className="support-unread">New</span>}</span><span>{labelCategory(thread.category)} · {thread.source.replaceAll('_',' ')}</span><span>{identityLabel(thread.identity)} · {dateLabel(thread.created_at)}</span><span className={`support-status is-${thread.status}`}>{labelStatus(thread.status)}</span><small>Email: {thread.email_status.replaceAll('_',' ')}</small>
           </button>
         </div>)}</div>
         {result.has_more && <button className="button button-secondary button-small support-inbox-load-more" type="button" disabled={loading} onClick={() => void loadMore()}>{loading ? 'Loading…' : 'Load more feedback'}</button>}</div>
@@ -139,9 +141,9 @@ export function SupportInboxWorkspace() {
         {detail ? <article className="support-thread-detail support-admin-thread" aria-label={`Feedback detail: ${detail.thread.subject}`}>
           <button ref={mobileBackButton} type="button" className="button button-secondary button-small support-back-to-inbox" onClick={backToList}>Back to feedback</button>
           <header><div><h3>{detail.thread.subject}</h3><span className="support-status is-open">{labelCategory(detail.thread.category)}</span></div><time dateTime={detail.thread.created_at}>{dateLabel(detail.thread.created_at)}</time></header>
-          <dl className="support-admin-meta"><div><dt>From</dt><dd>{detail.user_email ?? 'Deleted account'}</dd></div><div><dt>Source</dt><dd>{detail.thread.source.replaceAll('_',' ')}</dd></div><div><dt>Email notification</dt><dd>{detail.thread.email_status.replaceAll('_',' ')}</dd></div><div><dt>Status</dt><dd>{labelStatus(detail.thread.status)}</dd></div></dl>
+          <dl className="support-admin-meta"><div><dt>Submitted by</dt><dd>{identityLabel(detail.thread.identity)}</dd></div><div><dt>Source</dt><dd>{detail.thread.source.replaceAll('_',' ')}</dd></div><div><dt>Email notification</dt><dd>{detail.thread.email_status.replaceAll('_',' ')}</dd></div><div><dt>Status</dt><dd>{labelStatus(detail.thread.status)}</dd></div></dl>
           <section className="support-thread-original"><h4>Original feedback</h4><p>{detail.thread.original_message}</p></section>
-          {detail.thread.category === 'ai_answer_feedback' && <section className="support-thread-original"><h4>AI answer context</h4><dl><div><dt>Category</dt><dd>{String(detail.thread.metadata.answer_category ?? '')}</dd></div><div><dt>Topic</dt><dd>{String(detail.thread.metadata.topic ?? '')}</dd></div><div><dt>Knowledge bundle</dt><dd>{String(detail.thread.metadata.knowledge_version ?? '')}</dd></div><div><dt>Response ID</dt><dd>{String(detail.thread.metadata.response_id ?? '')}</dd></div></dl></section>}
+          {detail.thread.category === 'ai_answer_feedback' && <section className="support-thread-original"><h4>AI answer context</h4><dl><div><dt>Category</dt><dd>{String(detail.thread.metadata.answer_category ?? '')}</dd></div><div><dt>Topic</dt><dd>{String(detail.thread.metadata.topic ?? '')}</dd></div><div><dt>Knowledge bundle</dt><dd>{String(detail.thread.metadata.knowledge_version ?? '')}</dd></div></dl></section>}
           <ol className="support-messages">{detail.messages.map((message) => <li key={message.id} className={`support-message is-${message.sender_role}`}><strong>{message.sender_role === 'maintainer' ? 'Support team' : 'User follow-up'}</strong><p>{message.body}</p><time dateTime={message.created_at}>{dateLabel(message.created_at)}</time></li>)}</ol>
           {detail.thread.status === 'resolved' ? <p className="settings-hint">This conversation is resolved. Change its status before sending another reply.</p> : <form className="support-reply-form" onSubmit={(event) => void sendReply(event)}><label className="form-field"><span>Reply to user</span><textarea className="auth-input" value={reply} onChange={(event) => setReply(event.target.value)} rows={4} maxLength={4000} disabled={busy} /></label><button className="button button-primary button-medium" type="submit" disabled={busy || !reply.trim()}>{busy ? 'Sending…' : 'Send Reply'}</button></form>}
           <label className="support-status-control"><span>Thread status</span><select value={detail.thread.status} disabled={busy} onChange={(event) => void updateStatus(event.target.value as SupportStatus)}>{statuses.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>

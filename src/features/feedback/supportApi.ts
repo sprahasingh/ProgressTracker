@@ -3,9 +3,10 @@ import { getSupabaseClient } from '../../services/supabase/client'
 
 export type SupportStatus = 'open' | 'in_progress' | 'waiting_for_user' | 'resolved'
 export type SupportCategory = 'support_query' | 'bug_report' | 'feature_request' | 'general_feedback' | 'ai_answer_feedback'
-export type SupportMessage = { id: string; feedback_id: string; sender_user_id: string | null; sender_role: 'user' | 'maintainer'; body: string; created_at: string }
-export type SupportThread = { id: string; user_id: string | null; category: SupportCategory; source: string; subject: string; original_message: string; status: SupportStatus; metadata: Record<string, unknown>; email_status: string; share_email?: boolean; maintainer_seen_at?: string | null; maintainer_seen_by?: string | null; created_at: string; last_activity_at: string; updated_at: string }
-export type SupportThreadDetail = { thread: SupportThread; messages: SupportMessage[]; user_email?: string | null }
+export type SupportIdentity = { display_name: string | null; email: string | null }
+export type SupportMessage = { id: string; feedback_id?: string; sender_user_id?: string | null; sender_role: 'user' | 'maintainer'; body: string; request_id?: string; created_at: string }
+export type SupportThread = { id: string; user_id?: string | null; category: SupportCategory; source: string; subject: string; original_message: string; status: SupportStatus; metadata: Record<string, unknown>; email_status: string; share_email?: boolean; identity?: SupportIdentity | null; maintainer_seen_at?: string | null; maintainer_seen_by?: string | null; created_at: string; last_activity_at: string; updated_at: string }
+export type SupportThreadDetail = { thread: SupportThread; messages: SupportMessage[] }
 
 export class SupportApiError extends Error { constructor(readonly status: number, message: string) { super(message) } }
 
@@ -40,7 +41,7 @@ export const getMySupportThread = (feedbackId: string, client?: SupabaseClient |
 export const replyToMySupportThread = (feedbackId: string, message: string, requestId: string, client?: SupabaseClient | null) => invoke<{ accepted: boolean; duplicate: boolean; emailStatus: string }>({ action: 'reply_mine', feedback_id: feedbackId, message, request_id: requestId }, client)
 
 export type SupportInboxFilters = { status: SupportStatus | 'all'; category: SupportCategory | 'all'; search: string; offset?: number; sort?: 'newest' | 'oldest' }
-export type SupportInboxList = { threads: Array<SupportThread & { user_email?: string | null }>; total: number; has_more: boolean; metrics: { total: number; open: number; waiting: number; resolved: number; incorrect_ai: number; unread: number } }
+export type SupportInboxList = { threads: SupportThread[]; total: number; has_more: boolean; metrics: { total: number; open: number; waiting: number; resolved: number; incorrect_ai: number; unread: number } }
 export const listSupportInbox = (filters: SupportInboxFilters, client?: SupabaseClient | null) => invoke<SupportInboxList>({ action: 'list_admin', ...filters, limit: 25 }, client)
 export const getSupportInboxThread = (feedbackId: string, client?: SupabaseClient | null) => invoke<SupportThreadDetail>({ action: 'get_admin', feedback_id: feedbackId }, client)
 export const replyAsMaintainer = (feedbackId: string, message: string, requestId: string, client?: SupabaseClient | null) => invoke<{ accepted: boolean; duplicate: boolean; status: SupportStatus }>({ action: 'reply_admin', feedback_id: feedbackId, message, request_id: requestId }, client)

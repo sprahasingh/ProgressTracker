@@ -106,12 +106,42 @@ describe('InfoButton', () => {
     expect(left + panelWidth).toBeLessThanOrEqual(width - 12)
   })
 
+  it.each([320, 375, 390, 430])('keeps a compact explanation within the %ipx mobile viewport', (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('info-button')) return new DOMRect(width - 45, 590, 36, 36)
+      if (this.classList.contains('info-popover')) return new DOMRect(0, 0, Math.min(320, width - 24), 260)
+      if (this.classList.contains('mobile-nav')) return new DOMRect(0, 570, width, 70)
+      return new DOMRect(0, 0, 0, 0)
+    })
+    const nav = document.createElement('div')
+    nav.className = 'mobile-nav'
+    document.body.append(nav)
+    render(<InfoButton title="Privacy" summary="" description="" compact content={<ul><li>Privacy detail.</li></ul>} />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Privacy' }))
+    const popover = screen.getByRole('dialog', { name: 'Privacy' })
+    const left = Number.parseFloat(popover.style.left)
+    expect(popover).toHaveAttribute('data-presentation', 'anchored')
+    expect(popover).not.toHaveAttribute('aria-modal', 'true')
+    expect(left).toBeGreaterThanOrEqual(12)
+    expect(left + Math.min(320, width - 24)).toBeLessThanOrEqual(width - 12)
+    expect(Number.parseFloat(popover.style.top)).toBeLessThan(570)
+    nav.remove()
+  })
+
   it('keeps information icons visually compact while retaining a 44px touch target', () => {
     render(<InfoButton title="Schedule" summary="Summary." description="Details." />)
     expect(screen.getByRole('button', { name: 'More about Schedule' })).toHaveClass('info-button')
     expect(styles).toMatch(/\.info-button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)
     expect(styles).toMatch(/\.info-button::before\s*\{[^}]*width:\s*30px[^}]*height:\s*30px/s)
     expect(styles).toMatch(/\.info-button\s*\{[^}]*font:\s*700 16px\/1/s)
+  })
+
+  it('styles compact popovers with theme surfaces and viewport-limited width', () => {
+    expect(styles).toMatch(/\.info-popover\.is-compact\s*\{[^}]*width:\s*min\(340px, calc\(100vw - 24px\)\)/s)
+    expect(styles).toMatch(/\.identity-sharing-details\s*\{[^}]*color:\s*var\(--ink-muted\)/s)
+    expect(styles).toMatch(/\.info-popover\.is-compact h2\s*\{[^}]*font-size:\s*16px/s)
   })
 
   it('stops an information click from activating a containing card', () => {

@@ -42,9 +42,9 @@
     "src/db/syncConflictRepository.test.ts": "0d0c2b2f0480e98265ff101260306bc239dfd24aec57a1c3b269a486f4807a75"
   },
   "sync-preference-scope": {
-    "src/features/settings/WorkspaceTimeZone.tsx": "2a46a12456c112fcbd1f816803ccb421ec5634ba8f2103eb1e7f3eab9f1bb83c",
+    "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
-    "src/features/settings/UnifiedSettings.test.tsx": "2008776def9173a404f18ef842ecc593f84614b66860f9a3fb564d4e16373352"
+    "src/features/settings/UnifiedSettings.test.tsx": "e29f1581a661e01694c5e23a02b5b979c0c8a3fea2a25378ae39c88ed0bb547c"
   },
   "ai-help-private-data": {
     "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
@@ -302,7 +302,7 @@
   "insight-timezone-date": {
     "src/features/dashboard/DashboardPage.tsx": "7d6c464fde40f1ec2a933640f2c62770fd3cb05d907f33a034ea002f9e8ca736",
     "src/db/calendarDate.ts": "e105c49e92d44c0b64847a147ccf393751b929c1766745370edb9c85c9c2056c",
-    "src/features/settings/WorkspaceTimeZone.tsx": "2a46a12456c112fcbd1f816803ccb421ec5634ba8f2103eb1e7f3eab9f1bb83c"
+    "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111"
   },
   "reminder-limits": {
     "src/features/notifications/ForegroundReminderMonitor.tsx": "4dc2eae59ffb488d964099896ac14014afb09725d8575e1987696cea5c4280e9",
@@ -344,13 +344,13 @@
   },
   "local-settings": {
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
-    "src/features/settings/WorkspaceTimeZone.tsx": "2a46a12456c112fcbd1f816803ccb421ec5634ba8f2103eb1e7f3eab9f1bb83c",
+    "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
     "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
     "src/features/settings/appearance.test.ts": "554dfe730f1cc496ae35502d57373d22d2bb793e59c7d4101e69760b662dbfb6",
     "src/features/settings/WorkspaceAppearance.test.tsx": "544ace6e6a697be95cdb38748c2b93c80c7e8a887f5ab53460d1119464ab1ec6"
   },
   "timezone-dates": {
-    "src/features/settings/WorkspaceTimeZone.tsx": "2a46a12456c112fcbd1f816803ccb421ec5634ba8f2103eb1e7f3eab9f1bb83c",
+    "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
     "src/db/calendarDate.ts": "e105c49e92d44c0b64847a147ccf393751b929c1766745370edb9c85c9c2056c",
     "src/db/calendarDate.test.ts": "2dd0c85314beae636eeae4ff6fae52e1ab0d79287f493af90ae3cc7ab2184e79"
   },
