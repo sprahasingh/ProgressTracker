@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../db/database'
 import { localRepository } from '../db/localRepository'
+import appStyles from '../styles.css?raw'
 import { TodayPage } from '../features/today/TodayPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { HistoryPage } from '../features/history/HistoryPage'
@@ -11,9 +12,18 @@ import { AppShell, getAvatarInitial } from './AppShell'
 
 const guestReadyState = { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null }
 const authState = vi.hoisted(() => ({ value: { status: 'local-only' as string, workspaceStatus: 'ready', workspaceUserId: null } }))
+const maintainerState = vi.hoisted(() => ({ value: 'denied' as string }))
+let injectedStylesheet: HTMLStyleElement | null = null
 vi.mock('../features/auth/AuthProvider', () => ({ useAuth: () => authState.value }))
+vi.mock('../features/ai-knowledge/useMaintainerAccess', () => ({ useMaintainerAccess: () => ({ status: maintainerState.value }) }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); authState.value = guestReadyState; await db.delete() })
+afterEach(async () => { cleanup(); injectedStylesheet?.remove(); injectedStylesheet = null; vi.restoreAllMocks(); authState.value = guestReadyState; maintainerState.value = 'denied'; await db.delete() })
+
+function injectApplicationStyles() {
+  injectedStylesheet = document.createElement('style')
+  injectedStylesheet.textContent = appStyles
+  document.head.append(injectedStylesheet)
+}
 
 describe('app navigation quality', () => {
   it('selects a normalized initial from display name, then email, then no initial', () => {
@@ -58,18 +68,165 @@ describe('app navigation quality', () => {
     authState.value = guestReadyState
   })
 
-  it('uses vector icons for primary navigation consistently in desktop and mobile navigation', () => {
+  it('uses neutral inactive primary navigation and matching orange active icon and label colors', () => {
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
-    const iconByDestination = { Today: 'today', Trackers: 'trackers', Calendar: 'calendar', Insights: 'insights' }
+    injectApplicationStyles()
+    const iconByDestination = { Today: 'today', Trackers: 'trackers', Calendar: 'calendar', Insights: 'insights' } as const
     for (const name of ['Primary navigation', 'Mobile navigation']) {
-      const nav = screen.getByRole('navigation', { name })
+      const nav = name === 'Mobile navigation' ? document.querySelector('nav.mobile-nav') as HTMLElement : screen.getByRole('navigation', { name })
       for (const [label, icon] of Object.entries(iconByDestination)) {
-        const link = within(nav).getByRole('link', { name: new RegExp(label) })
-        expect(link.querySelector('svg')).toHaveAttribute('viewBox', '0 0 24 24')
-        expect(link.querySelector('svg')).toHaveAttribute('data-icon', icon)
-        expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+        const link = within(nav).getByRole('link', { name: new RegExp(label), hidden: true })
+        const svg = link.querySelector('svg')!
+        expect(svg).toHaveAttribute('viewBox', '0 0 24 24')
+        expect(svg).toHaveAttribute('data-icon', icon)
+        expect(svg).toHaveAttribute('aria-hidden', 'true')
+        expect(svg.getAttribute('style')).toBeNull()
+        expect(window.getComputedStyle(svg).color).toBe(window.getComputedStyle(link).color)
+        expect(window.getComputedStyle(svg).stroke.toLowerCase()).toBe('currentcolor')
+        if (label === 'Today') {
+          expect(link).toHaveAttribute('aria-current', 'page')
+          expect(window.getComputedStyle(link).color).toBe('var(--accent-strong)')
+        } else {
+          expect(window.getComputedStyle(link).color).not.toBe('var(--accent-strong)')
+        }
       }
     }
+    const desktop = screen.getByRole('navigation', { name: 'Primary navigation' })
+    const mobile = document.querySelector('nav.mobile-nav') as HTMLElement
+    const previousTheme = document.documentElement.getAttribute('data-theme')
+    for (const theme of ['light', 'dark']) {
+      document.documentElement.setAttribute('data-theme', theme)
+      for (const label of Object.keys(iconByDestination)) {
+        const desktopLink = within(desktop).getByRole('link', { name: new RegExp(label), hidden: true })
+        const mobileLink = within(mobile).getByRole('link', { name: new RegExp(label), hidden: true })
+        expect(window.getComputedStyle(desktopLink).color).toBe(window.getComputedStyle(mobileLink).color)
+        expect(window.getComputedStyle(desktopLink.querySelector('svg')!).color).toBe(window.getComputedStyle(desktopLink).color)
+        expect(window.getComputedStyle(mobileLink.querySelector('svg')!).color).toBe(window.getComputedStyle(mobileLink).color)
+      }
+    }
+    if (previousTheme) document.documentElement.setAttribute('data-theme', previousTheme)
+    else document.documentElement.removeAttribute('data-theme')
+  })
+
+  it('shares the required More destination order, icons, and selected route state across navigation layouts', async () => {
+    injectApplicationStyles()
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' } } as never
+    maintainerState.value = 'authorized'
+    render(<MemoryRouter initialEntries={['/settings/privacy']}><Routes><Route path="/" element={<AppShell />}><Route path="settings/*" element={<p>Settings workspace</p>} /></Route></Routes></MemoryRouter>)
+
+    const desktopMore = screen.getByRole('navigation', { name: 'More destinations' })
+    expect(within(desktopMore).getAllByRole('link').map((link) => link.textContent)).toEqual(['Holidays & breaks', 'Settings', 'Bin', 'AI Knowledge'])
+    expect(within(desktopMore).getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
+
+    const mobileNav = document.querySelector('nav.mobile-nav') as HTMLElement
+    const moreTrigger = within(mobileNav).getByRole('button', { name: 'More destinations', hidden: true })
+    expect(moreTrigger).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(moreTrigger)
+    const items = within(mobileNav).getAllByRole('menuitem', { hidden: true })
+    expect(items.map((item) => item.textContent)).toEqual(['Holidays & breaks', 'Settings', 'Bin', 'AI Knowledge'])
+    expect(within(mobileNav).getByRole('menuitem', { name: 'Settings', hidden: true })).toHaveAttribute('aria-current', 'page')
+    for (const [label, icon] of [['Holidays & breaks', 'holiday'], ['Settings', 'settings'], ['Bin', 'bin'], ['AI Knowledge', 'spark']] as const) {
+      expect(within(mobileNav).getByRole('menuitem', { name: label, hidden: true }).querySelector('svg')).toHaveAttribute('data-icon', icon)
+    }
+    for (const label of ['Holidays & breaks', 'Settings', 'Bin', 'AI Knowledge']) {
+      const desktopIcon = within(desktopMore).getByRole('link', { name: label }).querySelector('svg')
+      const mobileIcon = within(mobileNav).getByRole('menuitem', { name: label, hidden: true }).querySelector('svg')
+      const desktopLink = within(desktopMore).getByRole('link', { name: label })
+      const mobileItem = within(mobileNav).getByRole('menuitem', { name: label, hidden: true })
+      expect(desktopIcon?.getAttribute('style')).toBeNull()
+      expect(mobileIcon?.getAttribute('style')).toBeNull()
+      expect(window.getComputedStyle(desktopIcon!).color).toBe(window.getComputedStyle(desktopLink).color)
+      expect(window.getComputedStyle(mobileIcon!).color).toBe(window.getComputedStyle(mobileItem).color)
+      expect(window.getComputedStyle(desktopIcon!).color).toBe(window.getComputedStyle(mobileIcon!).color)
+      if (label === 'Settings') {
+        expect(desktopLink).toHaveAttribute('aria-current', 'page')
+        expect(mobileItem).toHaveAttribute('aria-current', 'page')
+        expect(window.getComputedStyle(desktopLink).color).toBe('var(--accent-strong)')
+      } else {
+        expect(window.getComputedStyle(desktopLink).color).not.toBe('var(--accent-strong)')
+      }
+    }
+    expect(window.getComputedStyle(moreTrigger).color).toBe('var(--accent-strong)')
+  })
+
+  it('applies the selected orange state to each of the eight destinations in both navigation layouts', () => {
+    injectApplicationStyles()
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' } } as never
+    maintainerState.value = 'authorized'
+    const destinations = [
+      ['Today', '/', 'today'], ['Trackers', '/trackers', 'trackers'], ['Calendar', '/calendar', 'calendar'], ['Insights', '/dashboard', 'insights'],
+      ['Holidays & breaks', '/holidays', 'holiday'], ['Settings', '/settings', 'settings'], ['Bin', '/bin', 'bin'], ['AI Knowledge', '/ai-knowledge', 'spark'],
+    ] as const
+
+    for (const [label, path, icon] of destinations) {
+      const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/" element={<AppShell />}><Route path="*" element={<p>Destination</p>} /></Route></Routes></MemoryRouter>)
+      const desktopSidebar = screen.getByLabelText('Main navigation')
+      const mobileNav = document.querySelector('nav.mobile-nav') as HTMLElement
+      let desktopItem: HTMLElement
+      let mobileItem: HTMLElement
+      if (['Today', 'Trackers', 'Calendar', 'Insights'].includes(label)) {
+        desktopItem = within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: new RegExp(label), hidden: true })
+        mobileItem = within(mobileNav).getByRole('link', { name: new RegExp(label), hidden: true })
+      } else {
+        desktopItem = within(desktopSidebar).getByRole('link', { name: label })
+        const moreTrigger = within(mobileNav).getByRole('button', { name: 'More destinations', hidden: true })
+        expect(moreTrigger).toHaveAttribute('aria-current', 'page')
+        expect(window.getComputedStyle(moreTrigger).color).toBe('var(--accent-strong)')
+        fireEvent.click(moreTrigger)
+        mobileItem = within(mobileNav).getByRole('menuitem', { name: label, hidden: true })
+      }
+      for (const item of [desktopItem, mobileItem]) {
+        expect(item).toHaveAttribute('aria-current', 'page')
+        expect(item.querySelector('svg')).toHaveAttribute('data-icon', icon)
+        expect(window.getComputedStyle(item).color).toBe('var(--accent-strong)')
+        expect(window.getComputedStyle(item.querySelector('svg')!).color).toBe(window.getComputedStyle(item).color)
+      }
+      expect(window.getComputedStyle(desktopItem).color).toBe(window.getComputedStyle(mobileItem).color)
+      view.unmount()
+    }
+  })
+
+  it('keeps unknown access non-navigable and gives desktop and mobile the same pending decision', async () => {
+    injectApplicationStyles()
+    authState.value = { ...guestReadyState, status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' } } as never
+    maintainerState.value = 'checking'
+    const view = render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
+    const desktopMore = screen.getByRole('navigation', { name: 'More destinations' })
+    expect(within(desktopMore).queryByRole('link', { name: 'AI Knowledge' })).not.toBeInTheDocument()
+    const desktopPending = within(desktopMore).getByRole('status', { name: 'Checking AI Knowledge access' })
+    expect(desktopPending).toHaveAttribute('aria-disabled', 'true')
+    expect(desktopPending).toHaveTextContent('AI Knowledge')
+    expect(desktopPending.querySelector('svg')).toHaveAttribute('data-icon', 'spark')
+    expect(desktopPending.querySelector('svg')).toHaveStyle({ color: 'var(--ink-muted)' })
+    const desktopPendingHeight = window.getComputedStyle(desktopPending).minHeight
+
+    const mobileNav = document.querySelector('nav.mobile-nav') as HTMLElement
+    fireEvent.click(within(mobileNav).getByRole('button', { name: 'More destinations', hidden: true }))
+    expect(within(mobileNav).queryByRole('menuitem', { name: 'AI Knowledge', hidden: true })).not.toBeInTheDocument()
+    const mobilePending = within(mobileNav).getByRole('menuitem', { name: 'Checking AI Knowledge access', hidden: true })
+    expect(mobilePending).toHaveAttribute('aria-disabled', 'true')
+    expect(mobilePending).toHaveTextContent('AI Knowledge')
+    expect(mobilePending.querySelector('svg')).toHaveAttribute('data-icon', 'spark')
+    expect(mobilePending.querySelector('svg')).toHaveStyle({ color: 'var(--ink-muted)' })
+    const mobilePendingHeight = window.getComputedStyle(mobilePending).minHeight
+
+    maintainerState.value = 'authorized'
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
+    const desktopAuthorized = within(desktopMore).getByRole('link', { name: 'AI Knowledge' })
+    expect(window.getComputedStyle(desktopAuthorized).minHeight).toBe(desktopPendingHeight)
+    const mobileAuthorized = within(mobileNav).getByRole('menuitem', { name: 'AI Knowledge', hidden: true })
+    expect(window.getComputedStyle(mobileAuthorized).minHeight).toBe(mobilePendingHeight)
+
+    maintainerState.value = 'error'
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
+    expect(within(desktopMore).getByRole('status', { name: 'Checking AI Knowledge access' })).toBeInTheDocument()
+    expect(within(mobileNav).getByRole('menuitem', { name: 'Checking AI Knowledge access', hidden: true })).toBeInTheDocument()
+
+    maintainerState.value = 'denied'
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today</p>} /></Route></Routes></MemoryRouter>)
+    expect(within(desktopMore).queryByRole('link', { name: 'AI Knowledge' })).not.toBeInTheDocument()
+    expect(within(desktopMore).queryByRole('status', { name: 'Checking AI Knowledge access' })).not.toBeInTheDocument()
+    expect(within(mobileNav).queryByRole('menuitem', { name: 'AI Knowledge', hidden: true })).not.toBeInTheDocument()
   })
 
   it('does not render route content until the signed-in account workspace is active', () => {
@@ -77,7 +234,7 @@ describe('app navigation quality', () => {
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Account private content</p>} /></Route></Routes></MemoryRouter>)
     expect(screen.getByRole('status', { name: 'Preparing your workspace' })).toBeInTheDocument()
     expect(screen.queryByText('Account private content')).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'Mobile navigation' })).toBeInTheDocument()
+    expect(document.querySelector('nav.mobile-nav') as HTMLElement).toBeInTheDocument()
     expect(screen.queryByText('Opening your workspace')).not.toBeInTheDocument()
     authState.value = guestReadyState
   })
@@ -141,7 +298,7 @@ describe('app navigation quality', () => {
     await user.click(within(moreNav).getByRole('link', { name: 'Insights' }))
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
 
-    const mobileNav = screen.getByRole('navigation', { name: 'Mobile navigation' })
+    const mobileNav = document.querySelector('nav.mobile-nav') as HTMLElement
     expect(within(mobileNav).getByRole('link', { name: /Insights/ })).toHaveAttribute('href', '/dashboard')
     expect(within(mobileNav).getByRole('link', { name: /Trackers/ })).toHaveAttribute('href', '/trackers')
     expect(screen.getByRole('navigation', { name: 'Insights sections' })).toBeInTheDocument()
@@ -172,7 +329,7 @@ describe('app navigation quality', () => {
   it('dismisses the More menu on outside pointer, toggle, Escape, and route selection', async () => {
     const user = userEvent.setup()
     render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today screen</p>} /></Route><Route path="/settings" element={<p>Settings screen</p>} /></Routes></MemoryRouter>)
-    const nav = screen.getByRole('navigation', { name: 'Mobile navigation' })
+    const nav = document.querySelector('nav.mobile-nav') as HTMLElement
     const trigger = within(nav).getByRole('button', { name: 'More destinations' })
     await user.click(trigger)
     expect(trigger).toHaveAttribute('aria-expanded', 'true')

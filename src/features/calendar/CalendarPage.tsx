@@ -169,7 +169,7 @@ export function CalendarPage() {
     <div className="calendar-status-key">
       <button className="calendar-status-guide-toggle" type="button" aria-expanded={statusGuideExpanded} aria-controls="calendar-status-guide-content" onClick={() => setStatusGuideExpanded((expanded) => !expanded)}>
         <span className="calendar-status-guide-title">Status guide</span>
-        <span className="calendar-status-guide-preview" aria-hidden="true">{(['completed', 'missed', 'holiday', 'upcoming'] as const).map((status) => <i key={status} className={`calendar-dot ${status}`}><ActivityStatusIcon status={status} /></i>)}</span>
+        <span className="calendar-status-guide-preview">{(['completed', 'missed', 'holiday', 'pending'] as const).map((status) => <span key={status} className={`calendar-status-guide-item ${status}`}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i><span>{ACTIVITY_STATUS_PRESENTATION[status].label}</span></span>)}</span>
         <span className="calendar-status-guide-action">{statusGuideExpanded ? 'Hide statuses' : 'Show all statuses'}</span>
       </button>
       <div id="calendar-status-guide-content" className="calendar-status-guide-content" hidden={!statusGuideExpanded}>
