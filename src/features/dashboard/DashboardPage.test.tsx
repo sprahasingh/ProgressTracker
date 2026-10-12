@@ -97,6 +97,7 @@ describe('local progress dashboard', () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     const reminder = (await screen.findByText(/\d+ check-ins to review/)).closest('.dashboard-missing-reminder') as HTMLElement
     expect(reminder).toHaveTextContent(/\d+ check-ins to review/)
+    expect(reminder).toHaveTextContent('Some required dates have no saved check-in.')
     expect(within(reminder).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/history#missing-checkins')
     await user.click(within(reminder).getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByText(/\d+ check-ins to review/)).not.toBeInTheDocument()
