@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider, useToast } from './ToastProvider'
+import { publishPermanentDeletionNotification } from '../../services/permanentDeletionNotifications'
 import toastStyles from '../../styles.css?raw'
 
 function Controls() {
@@ -42,6 +44,59 @@ describe('global toast feedback', () => {
     expect(screen.getByRole('status', { name: /Check-in updated/ })).toBeInTheDocument()
     act(() => { vi.advanceTimersByTime(3000) })
     expect(screen.queryByRole('status', { name: /Check-in updated/ })).not.toBeInTheDocument()
+  })
+  it('keeps a queued deletion visible until server confirmation, then shows one four-second success', () => {
+    vi.useFakeTimers()
+    render(<ToastProvider><Controls /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'owner', trackerId: 'tracker', trackerName: 'Read more' }
+    act(() => { publishPermanentDeletionNotification(event); publishPermanentDeletionNotification(event) })
+    expect(screen.getAllByRole('status', { name: 'Deletion request queued.' })).toHaveLength(1)
+    expect(screen.getByRole('status', { name: 'Deletion request queued.' })).toHaveTextContent('Read more')
+    act(() => { vi.advanceTimersByTime(60_000) })
+    expect(screen.getByRole('status', { name: 'Deletion request queued.' })).toBeInTheDocument()
+
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.queryByRole('status', { name: 'Deletion request queued.' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('status', { name: 'Tracker permanently deleted.' })).toHaveLength(1)
+    act(() => { vi.advanceTimersByTime(3999) })
+    expect(screen.getByRole('status', { name: 'Tracker permanently deleted.' })).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.queryByRole('status', { name: 'Tracker permanently deleted.' })).not.toBeInTheDocument()
+  })
+  it('shows retry guidance for failure, preserves conflicts, and ignores stale confirmations after dismissal or navigation', () => {
+    vi.useFakeTimers()
+    function NavigationHarness() {
+      const [page, setPage] = useState('Bin')
+      return <><button onClick={() => setPage('Today')}>Navigate</button><span>{page}</span></>
+    }
+    render(<ToastProvider><NavigationHarness /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'owner', trackerId: 'tracker', trackerName: 'Read more' }
+    act(() => { publishPermanentDeletionNotification(event) })
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate' }))
+    expect(screen.getByText('Today')).toBeInTheDocument()
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'failed', message: 'Network unavailable.' }) })
+    expect(screen.getByRole('alert', { name: 'Couldn’t confirm tracker deletion' })).toHaveTextContent('sync again to retry')
+    expect(screen.queryByRole('status', { name: 'Tracker permanently deleted.' })).not.toBeInTheDocument()
+    act(() => { publishPermanentDeletionNotification(event) })
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'conflict', message: 'Resolve the sync conflict.' }) })
+    expect(screen.getByRole('alert', { name: 'Deletion needs attention' })).toHaveTextContent('Resolve the sync conflict.')
+    act(() => { publishPermanentDeletionNotification(event) })
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.getByRole('status', { name: 'Tracker permanently deleted.' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification: Tracker permanently deleted.' }))
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.queryByRole('status', { name: 'Tracker permanently deleted.' })).not.toBeInTheDocument()
+  })
+  it('still reports completion if the user dismissed the pending toast, while suppressing duplicate confirmations', () => {
+    render(<ToastProvider><Controls /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'owner-dismissed', trackerId: 'tracker', trackerName: 'Read more' }
+    act(() => { publishPermanentDeletionNotification(event) })
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification: Deletion request queued.' }))
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.getByRole('status', { name: 'Tracker permanently deleted.' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification: Tracker permanently deleted.' }))
+    act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.queryByRole('status', { name: 'Tracker permanently deleted.' })).not.toBeInTheDocument()
   })
   it('uses mobile safe-area placement and semantic toast colors', () => {
     expect(toastStyles).toMatch(/\.app-toast-success\s*\{\s*--toast-tone:\s*var\(--positive\)/)

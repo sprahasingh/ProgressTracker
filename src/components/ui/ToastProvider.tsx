@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AppIcon } from './AppIcon'
+import { permanentDeletionNotificationKey, subscribeToPermanentDeletionNotifications } from '../../services/permanentDeletionNotifications'
 
 export type ToastKind = 'success' | 'error' | 'warning' | 'info'
 export type ToastInput = {
@@ -26,6 +27,7 @@ const iconPaths: Record<ToastKind, string> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const itemsRef = useRef<ToastItem[]>([])
+  const deletionLifecycle = useRef(new Map<string, 'pending' | 'terminal'>())
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>())
   const nextId = useRef(1)
   const publish = useCallback((next: ToastItem[]) => { itemsRef.current = next; setItems(next) }, [])
@@ -55,6 +57,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     publish(next)
     if (duration > 0) timers.current.set(id, setTimeout(() => dismiss(id), duration))
   }, [dismiss, publish])
+  useEffect(() => subscribeToPermanentDeletionNotifications((event) => {
+    const dedupeKey = permanentDeletionNotificationKey(event.ownerUserId, event.trackerId)
+    if (event.status === 'queued') deletionLifecycle.current.set(dedupeKey, 'pending')
+    else if (deletionLifecycle.current.get(dedupeKey) !== 'pending') return
+    if (event.status === 'confirmed') {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      notify({ kind: 'success', title: 'Tracker permanently deleted.', duration: 4000, dedupeKey })
+    } else if (event.status === 'queued') {
+      notify({ kind: 'warning', title: 'Deletion request queued.', description: `“${event.trackerName}” will be removed across devices after the server confirms it.`, duration: 0, dedupeKey })
+    } else if (event.status === 'conflict') {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      notify({ kind: 'error', title: 'Deletion needs attention', description: event.message ?? 'Resolve the tracker’s sync conflict before retrying permanent deletion.', duration: 0, dedupeKey })
+    } else {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      notify({ kind: 'error', title: 'Couldn’t confirm tracker deletion', description: `${event.message ?? 'The server did not confirm deletion.'} Your tracker remains in the Bin. Check your connection and sync again to retry.`, duration: 0, dedupeKey })
+    }
+  }), [notify])
   useEffect(() => () => { for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear() }, [])
 
   return <ToastContext.Provider value={{ notify, dismiss }}>

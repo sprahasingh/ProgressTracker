@@ -1,15 +1,15 @@
 {
   "offline-sync": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "cross-device-sync": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7"
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374"
   },
   "sync-conflicts": {
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/db/syncConflictRepository.ts": "f9e76cd442e1c76c97c4f10b232a1416aa35a7b1138d52bc45f8bd7a5b718f4e",
     "src/db/syncConflictRepository.test.ts": "ed84c8d2a93f2501057b48c2dcb734d5737868e2d0c727ed024e5888446372c3"
   },
@@ -25,19 +25,19 @@
   },
   "signout-local-data": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724"
   },
   "offline-sync-later": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "sync-deletion": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7"
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374"
   },
   "sync-conflict-preserves-versions": {
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/db/syncConflictRepository.ts": "f9e76cd442e1c76c97c4f10b232a1416aa35a7b1138d52bc45f8bd7a5b718f4e",
     "src/db/syncConflictRepository.test.ts": "ed84c8d2a93f2501057b48c2dcb734d5737868e2d0c727ed024e5888446372c3"
   },
@@ -103,7 +103,7 @@
   },
   "clear-checkin": {
     "src/features/shared/ClearCheckInAction.tsx": "76db263a2f917f5d81cbe533d5d85b497f223b47b41823eff62eb32b29c78f75",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/domain/trackers/missingCheckIns.ts": "faefa6017193d4737841fdc70b0a94f73aa9ba4a2fddb17848b820c9ffffbe3a"
   },
   "numeric-zero-vs-empty": {
@@ -132,7 +132,7 @@
     "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48"
   },
   "checkin-resave-same-date": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7"
   },
   "checkin-note-vs-measure": {
@@ -142,7 +142,7 @@
   },
   "guest-mode": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/features/auth/AuthPage.tsx": "0232bd00ab21b6358be9f9205c07b64bdb4f5909b8e32c984218803630514928",
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
@@ -183,7 +183,7 @@
   },
   "goal-clearing-entry": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/features/history/HistoryPage.tsx": "ebf88f78337b9de789d1d81097a99810f94e26889f528712152f9975834ad4d1"
   },
   "goal-target-change": {
@@ -203,15 +203,15 @@
   },
   "history-clear-note": {
     "src/features/history/HistoryPage.tsx": "ebf88f78337b9de789d1d81097a99810f94e26889f528712152f9975834ad4d1",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724"
   },
   "history-clear-sync": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/features/history/HistoryPage.tsx": "ebf88f78337b9de789d1d81097a99810f94e26889f528712152f9975834ad4d1"
   },
   "history-reenter-cleared": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/features/history/HistoryPage.tsx": "ebf88f78337b9de789d1d81097a99810f94e26889f528712152f9975834ad4d1"
   },
   "history-cleared-missing": {
@@ -283,7 +283,7 @@
   },
   "insight-latest-checkin": {
     "src/features/dashboard/DashboardPage.tsx": "7d6c464fde40f1ec2a933640f2c62770fd3cb05d907f33a034ea002f9e8ca736",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724"
   },
   "insight-empty-tracker": {
     "src/features/dashboard/DashboardPage.tsx": "7d6c464fde40f1ec2a933640f2c62770fd3cb05d907f33a034ea002f9e8ca736",
@@ -324,7 +324,7 @@
     "src/features/notifications/reminderRules.ts": "30bd84d70702118fd3bc198f743f8b394afb3be97ce903940504c1219319c9da"
   },
   "reminder-dismissal": {
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
     "src/features/notifications/ForegroundReminderMonitor.tsx": "4dc2eae59ffb488d964099896ac14014afb09725d8575e1987696cea5c4280e9",
     "src/features/notifications/reminderRules.ts": "30bd84d70702118fd3bc198f743f8b394afb3be97ce903940504c1219319c9da"
   },
@@ -340,12 +340,12 @@
   "reminder-repeats-unresolved": {
     "src/features/notifications/ForegroundReminderMonitor.tsx": "4dc2eae59ffb488d964099896ac14014afb09725d8575e1987696cea5c4280e9",
     "src/features/notifications/reminderRules.ts": "30bd84d70702118fd3bc198f743f8b394afb3be97ce903940504c1219319c9da",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724"
   },
   "local-settings": {
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
     "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
-    "src/services/supabase/syncEngine.ts": "3960332f1964c81787c9d7128891164aadc8d5d17f27bcfd97433e98afbdd1d7",
+    "src/services/supabase/syncEngine.ts": "7355c47bb48bd805859a69610eaa9892f3b1d07503cde1f77d66ce160e5a7374",
     "src/features/settings/appearance.test.ts": "554dfe730f1cc496ae35502d57373d22d2bb793e59c7d4101e69760b662dbfb6",
     "src/features/settings/WorkspaceAppearance.test.tsx": "544ace6e6a697be95cdb38748c2b93c80c7e8a887f5ab53460d1119464ab1ec6"
   },
@@ -418,13 +418,13 @@
     "src/domain/trackers/progression.test.ts": "e3a184ceabb590e838efb4b88aa6952d835c992079b6b9b93322769d4c39d072"
   },
   "restore-deleted-tracker": {
-    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b",
+    "src/features/trackers/TrackerBinPage.tsx": "5e3ef5395787108bd2b317ec65b60f15fa418305ed95912ab0babab728685756",
     "src/features/trackers/TrackerLibraryPage.tsx": "237b512a241324ebc237d77173317d43cc82b03211a8b41fd303431e191b7251",
     "src/features/trackers/TrackerBinPage.test.tsx": "635f0c2d1ca79a45a48787c22dfa1a95d42103d197032fcfac20c12522435932"
   },
   "bin-retention": {
-    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b",
-    "src/db/localRepository.ts": "f7211a6a9b810526da496ea4ae4d38f3afe5e34b6fa9a362729c4c244cffbd20"
+    "src/features/trackers/TrackerBinPage.tsx": "5e3ef5395787108bd2b317ec65b60f15fa418305ed95912ab0babab728685756",
+    "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724"
   },
   "edit-tracker-history": {
     "src/domain/trackers/invariants.ts": "ae942d026e39c5485e465e59c4c7c4783d8507ff632eb32dc850e5f6744a7eb8",
@@ -433,7 +433,7 @@
   },
   "archive-tracker": {
     "src/features/trackers/TrackerLibraryPage.tsx": "237b512a241324ebc237d77173317d43cc82b03211a8b41fd303431e191b7251",
-    "src/features/trackers/TrackerBinPage.tsx": "fc60fdaac324ab3860bfa1aef1c4a6e46cd799e1c328240e5f29d4fc49e8873b"
+    "src/features/trackers/TrackerBinPage.tsx": "5e3ef5395787108bd2b317ec65b60f15fa418305ed95912ab0babab728685756"
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",

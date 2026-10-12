@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
+import { publishPermanentDeletionNotification } from '../permanentDeletionNotifications'
 import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
@@ -128,6 +129,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
   let failed = 0
   let conflicts = 0
   for (const request of requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
+    let trackerName = request.trackerId
     try {
       await accountState(database, userId)
       await assertUser(client, userId)
@@ -135,6 +137,8 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
         database.trackers.get(request.trackerId), database.syncRecords.get(keyFor('tracker', request.trackerId)),
       ])
       if (!tracker?.deletedAt || !revision) throw new Error('The Bin deletion must sync successfully before permanent deletion can proceed.')
+      trackerName = tracker.name
+      publishPermanentDeletionNotification({ status: 'queued', ownerUserId: userId, trackerId: request.trackerId, trackerName })
       const { data, error } = await client.rpc('permanently_delete_tracker', {
         p_expected_user_id: userId, p_operation_id: request.id, p_tracker_id: request.trackerId,
         p_expected_revision: revision.serverRevision,
@@ -147,6 +151,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
           if (current) await database.permanentDeletionRequests.put({ ...current, status: 'conflict', lastError: 'The cloud tracker changed. Resolve its sync conflict before deleting it permanently.' })
           await database.syncConflicts.put({ id: request.id, ownerUserId: userId, entity: 'tracker', entityId: request.trackerId, localPayload: tracker, remoteRecord: result.record as unknown as Record<string, unknown> | null, detectedAt: new Date().toISOString() })
         })
+        publishPermanentDeletionNotification({ status: 'conflict', ownerUserId: userId, trackerId: request.trackerId, trackerName: tracker.name, message: 'The cloud tracker changed. Resolve its sync conflict before retrying permanent deletion.' })
         conflicts += 1
         continue
       }
@@ -159,6 +164,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
     } catch (cause) {
       const current = await database.permanentDeletionRequests.get(request.id)
       if (current) await database.permanentDeletionRequests.put({ ...current, status: 'pending', lastError: errorMessage(cause) })
+      publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName, message: errorMessage(cause) })
       failed += 1
     }
   }
