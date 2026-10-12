@@ -201,7 +201,7 @@ export function AccountDeletion() {
           {message && <p className="auth-success" role="status">{message}</p>}
           <footer className="account-delete-actions">
             <button type="button" className="button button-secondary button-small" disabled={busy || outcomeUncertain} onClick={closeDialog}>Cancel</button>
-            <button type="submit" className="button button-destructive button-small" disabled={!readyToSubmit}>{busy ? 'Verifying and deleting…' : outcomeUncertain ? 'Retry deletion status' : 'Permanently Delete Account'}</button>
+            <button data-ai-capability="account.delete" data-ai-availability={outcomeUncertain ? 'disabled' : undefined} type="submit" className="button button-destructive button-small" disabled={!readyToSubmit}>{busy ? 'Verifying and deleting…' : outcomeUncertain ? 'Retry deletion status' : 'Permanently Delete Account'}</button>
           </footer>
         </form>
       </section>

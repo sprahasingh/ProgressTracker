@@ -1,7 +1,36 @@
 import { describe, expect, it, vi } from 'vitest'
-import { askAssistant, getHelpRoute, getLocalHelpAnswer, HelpRequestError } from './aiHelpService'
+import { askAssistant, classifyConversationIntent, collectRenderedCapabilityStates, conversationReply, getHelpRoute, getLocalHelpAnswer, HelpRequestError, supportDraftFromConversation } from './aiHelpService'
+import { capabilityVersion } from './capabilityVersion'
 
 describe('AI Help knowledge helpers', () => {
+  it('handles common social messages locally without invoking the assistant service', async () => {
+    expect(classifyConversationIntent('Helo!')).toBe('greeting')
+    expect(classifyConversationIntent('thx')).toBe('thanks')
+    expect(classifyConversationIntent('Bye')).toBe('goodbye')
+    expect(classifyConversationIntent('Can I talk to support?')).toBe('support')
+    for (const request of ['I want to report a bug.', 'Raise a query.', 'This didn’t help.', 'Send this issue to the developer.', 'I need help from a human.']) {
+      expect(classifyConversationIntent(request), request).toBe('support')
+    }
+    expect(classifyConversationIntent('Can you explain my goal?')).toBe('product')
+    expect(conversationReply('greeting')).toMatch(/How can I help/)
+    expect(conversationReply('thanks')).toBe("You're welcome!")
+    expect(conversationReply('goodbye')).toMatch(/See you/)
+    expect(conversationReply('clarification')).toMatch(/which page or step/)
+    const invoke = vi.fn()
+    await expect(askAssistant({ functions: { invoke } } as never, 'hello', [], 'today', true, true)).resolves.toMatchObject({ answer: expect.stringContaining('How can I help') })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('uses prior user wording for follow-ups and never prefills support from assistant text', () => {
+    const history = [
+      { id: 'u1', role: 'user' as const, content: 'My goal is not updating.' },
+      { id: 'a1', role: 'assistant' as const, content: 'Try the invented Update Goal button.' },
+    ]
+    expect(conversationReply('clarification', history)).toBeNull()
+    expect(classifyConversationIntent('This did not help')).toBe('support')
+    expect(supportDraftFromConversation('This did not help', history)).toBe('My goal is not updating.')
+    expect(supportDraftFromConversation('I want to report a bug: saving shows an error.', history)).toBe('I want to report a bug: saving shows an error.')
+  })
   it('maps known application routes to safe feature identifiers', () => {
     expect(getHelpRoute('/trackers/new')).toBe('trackers')
     expect(getHelpRoute('/dashboard/history')).toBe('analytics')
@@ -9,17 +38,21 @@ describe('AI Help knowledge helpers', () => {
     expect(getHelpRoute('/unexpected/path')).toBe('other')
   })
 
+  it('reports only bounded, non-private availability states from rendered capability markers', () => {
+    const root = document.createElement('section')
+    root.innerHTML = '<button data-ai-capability="bin.restore">Restore</button><button data-ai-capability="bin.permanent_delete" disabled>Delete</button><p data-ai-capability="feature.hidden" data-ai-availability="disabled">Unavailable</p><span data-ai-capability="bad id">No</span>'
+    expect(collectRenderedCapabilityStates(root)).toEqual({ 'bin.restore': 'available', 'bin.permanent_delete': 'disabled', 'feature.hidden': 'disabled' })
+  })
+
   it('answers common questions from the local FAQ without a backend', async () => {
     expect(getLocalHelpAnswer('How are streaks calculated?')).toContain('scheduled')
     await expect(askAssistant(null, 'Can I change a saved measure?', [], 'trackers', false, false)).resolves.toHaveProperty('answer')
   })
 
-  it('gives the real account deletion steps and correct support email offline', () => {
+  it('does not present high-risk account deletion steps as verified while offline', () => {
     const answer = getLocalHelpAnswer('Why can’t I delete my account and what is the process?')
-    expect(answer).toContain('Settings → Account Actions → Delete Account')
-    expect(answer).toContain('exact word DELETE')
-    expect(answer).toContain('first set a password under Settings → Sync & Data')
-    expect(answer).toContain('spraha.progresstracker@gmail.com')
+    expect(answer).toContain('can’t verify the current account-deletion steps while offline')
+    expect(answer).not.toContain('exact word DELETE')
     expect(answer).not.toContain('support@progresstracker.com')
   })
 
@@ -85,6 +118,7 @@ describe('AI Help knowledge helpers', () => {
     await askAssistant(client, 'What is a goal?', history, 'goals', true, true)
     const body = invoke.mock.calls[0]?.[1]?.body
     expect(body.pageContext).toBe('goals')
+    expect(body.capabilityVersion).toBe(capabilityVersion)
     expect(body.history).toHaveLength(6)
     expect(body.history[0].content).toHaveLength(2000)
     expect(body).not.toHaveProperty('tracker')

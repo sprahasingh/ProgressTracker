@@ -49,6 +49,11 @@ export function hasConflictingVerifiedKnowledge(entries: VerifiedKnowledge[]): b
   return false
 }
 
+export function resolveVerifiedKnowledgeForRequest(entries: VerifiedKnowledge[], featureCategory: string) {
+  const conflict = hasConflictingVerifiedKnowledge(entries)
+  return { featureCategory, conflict, entries: conflict ? [] : entries }
+}
+
 const stopWords = new Set(['about', 'after', 'also', 'are', 'been', 'being', 'can', 'could', 'does', 'for', 'from', 'have', 'into', 'is', 'its', 'may', 'not', 'only', 'should', 'that', 'the', 'their', 'this', 'through', 'what', 'when', 'where', 'which', 'while', 'with', 'would'])
 const topicPattern = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 const privateContentPattern = /\b(?:i|me|my|mine|we|us|our|ours|your|you|your tracker|your account)\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b\d{4}-\d{2}-\d{2}\b|\+?\d[\d ()-]{7,}\d/i

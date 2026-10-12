@@ -22,7 +22,7 @@ function lockBody() {
 }
 
 /** Coordinates focus trapping and body scroll locking for nested modal layers. */
-export function useModalLayer(open: boolean, elementRef: { current: HTMLElement | null }, onEscape: () => void) {
+export function useModalLayer(open: boolean, elementRef: { current: HTMLElement | null }, onEscape: () => void, options: { manageHistoryEntry?: boolean } = {}) {
   const escapeRef = useRef(onEscape)
   const tokenRef = useRef<string | null>(null)
   if (tokenRef.current === null) tokenRef.current = `modal-${++layerSequence}`
@@ -34,7 +34,8 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
 
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const token = tokenRef.current!
-    if ((window.history.state as Record<string, unknown> | null)?.[historyKey] !== token) {
+    const manageHistoryEntry = options.manageHistoryEntry !== false
+    if (manageHistoryEntry && (window.history.state as Record<string, unknown> | null)?.[historyKey] !== token) {
       const previousState = window.history.state
       const state = previousState && typeof previousState === 'object' ? previousState as Record<string, unknown> : {}
       window.history.pushState({ ...state, [historyKey]: token }, '')
@@ -100,11 +101,11 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
       }, 0)
     }
     document.addEventListener('keydown', onKeyDown)
-    window.addEventListener('popstate', onPopState)
+    if (manageHistoryEntry) window.addEventListener('popstate', onPopState)
 
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('popstate', onPopState)
+      if (manageHistoryEntry) window.removeEventListener('popstate', onPopState)
       const index = layers.indexOf(layer)
       if (index >= 0) layers.splice(index, 1)
       if (layer.coveredLayer && layers.includes(layer.coveredLayer)) {
@@ -113,11 +114,11 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
         else layer.coveredLayer.element.setAttribute('aria-hidden', layer.previousAriaHidden)
       }
       if (layers.length === 0) document.body.style.overflow = originalBodyOverflow
-      queueMicrotask(() => {
+      if (manageHistoryEntry) queueMicrotask(() => {
         if (layers.some((activeLayer) => activeLayer.token === token)) return
         if ((window.history.state as Record<string, unknown> | null)?.[historyKey] === token) window.history.back()
       })
       if (previousFocus?.isConnected) previousFocus.focus()
     }
-  }, [open, elementRef])
+  }, [open, elementRef, options.manageHistoryEntry])
 }

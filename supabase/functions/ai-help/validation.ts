@@ -4,7 +4,7 @@ export const MAX_HISTORY_ITEMS = 6
 export const MAX_HISTORY_CHARS = 2000
 
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; content: string }
-export type AssistantInput = { question: string; history: AssistantHistoryItem[]; pageContext: string }
+export type AssistantInput = { question: string; history: AssistantHistoryItem[]; pageContext: string; capabilityVersion?: string; runtimeAvailability: Record<string, 'available' | 'disabled'> }
 
 export class AssistantInputError extends Error {
   constructor(readonly status: number, message: string, readonly code = 'invalid_request', readonly retryAfterSeconds?: number) { super(message) }
@@ -15,7 +15,7 @@ const pageContexts = new Set(['today', 'trackers', 'analytics', 'goals', 'calend
 export function normalizeAssistantInput(value: unknown): AssistantInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AssistantInputError(400, 'Invalid request.')
   const input = value as Record<string, unknown>
-  if (Object.keys(input).some((key) => !['question', 'history', 'pageContext'].includes(key))) throw new AssistantInputError(400, 'Invalid request.')
+  if (Object.keys(input).some((key) => !['question', 'history', 'pageContext', 'capabilityVersion', 'runtimeAvailability'].includes(key))) throw new AssistantInputError(400, 'Invalid request.')
   if (typeof input.question !== 'string' || !input.question.trim() || input.question.length > MAX_QUESTION_CHARS) throw new AssistantInputError(400, 'Enter a question under 1,500 characters.')
   const pageContext = typeof input.pageContext === 'string' && pageContexts.has(input.pageContext) ? input.pageContext : 'other'
   const history = Array.isArray(input.history) ? input.history.slice(-MAX_HISTORY_ITEMS).flatMap((entry): AssistantHistoryItem[] => {
@@ -24,7 +24,14 @@ export function normalizeAssistantInput(value: unknown): AssistantInput {
     if ((item.role !== 'user' && item.role !== 'assistant') || typeof item.content !== 'string') return []
     return [{ role: item.role, content: item.content.slice(0, MAX_HISTORY_CHARS) }]
   }) : []
-  return { question: input.question.trim(), history, pageContext }
+  const runtimeAvailability: AssistantInput['runtimeAvailability'] = {}
+  if (input.runtimeAvailability && typeof input.runtimeAvailability === 'object' && !Array.isArray(input.runtimeAvailability)) {
+    for (const [id, state] of Object.entries(input.runtimeAvailability as Record<string, unknown>).slice(0, 32)) {
+      if (/^[a-z0-9_.-]{1,100}$/.test(id) && (state === 'available' || state === 'disabled')) runtimeAvailability[id] = state
+    }
+  }
+  const capabilityVersion = typeof input.capabilityVersion === 'string' && /^[a-zA-Z0-9.+-]{1,100}$/.test(input.capabilityVersion) ? input.capabilityVersion : undefined
+  return { question: input.question.trim(), history, pageContext, ...(capabilityVersion ? { capabilityVersion } : {}), runtimeAvailability }
 }
 
 /** 429 is a provider-imposed quota signal: never cross credentials in response. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, hasConflictingVerifiedKnowledge, isMaintainer, normalizeMaintainerEmails, parseKnowledgeCandidate, rankVerifiedKnowledge, scheduleBestEffortCandidateCollection, validateReviewEdits } from './learningCore'
+import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, hasConflictingVerifiedKnowledge, isMaintainer, normalizeMaintainerEmails, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, validateReviewEdits } from './learningCore'
 
 const sourcePath = 'src/domain/trackers/invariants.ts'
 const sourceExcerpts = `SOURCE ${sourcePath} · implementation · assertTrackerInvariant · lines 10-24
@@ -22,6 +22,10 @@ describe('AI Help verified knowledge workflow helpers', () => {
       { ...base, topic_id: 'account.password_alt', title: 'Password not required for deletion', explanation: 'Account deletion does not require a password before the DELETE confirmation.' },
     ])).toBe(true)
     expect(hasConflictingVerifiedKnowledge([{ ...base, topic_id: 'account.password', title: 'Password for deletion', explanation: 'Account deletion requires a password.' }])).toBe(false)
+  })
+  it('resolves conflicting knowledge with the already computed feature category for safe metrics', () => {
+    const entries = [{ topic_id: 'account.password', title: 'Password required for deletion', explanation: 'Account deletion requires a password.', detailed_explanation: null, feature_category: 'account' as const, source_refs: [], source_fingerprints: {}, knowledge_version: 'v1', status: 'verified' as const }, { topic_id: 'account.password_alt', title: 'Password not required for deletion', explanation: 'Account deletion does not require a password.', detailed_explanation: null, feature_category: 'account' as const, source_refs: [], source_fingerprints: {}, knowledge_version: 'v1', status: 'verified' as const }]
+    expect(resolveVerifiedKnowledgeForRequest(entries, 'account')).toEqual({ featureCategory: 'account', conflict: true, entries: [] })
   })
   it('accepts standalone source-backed candidates and fingerprints only candidate content', async () => {
     const candidate = parseKnowledgeCandidate(rawCandidate, { allowedSourceRefs: new Set([sourcePath]), suppliedSourceRefs: new Set([sourcePath]), evidenceFingerprints: fingerprints, sourceExcerpts })

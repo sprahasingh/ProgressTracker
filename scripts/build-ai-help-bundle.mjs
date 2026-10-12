@@ -15,6 +15,7 @@ const docs = [
 ]
 const sources = [
   'src/routes/router.tsx',
+  'src/features/ai-help/capability-definitions.json',
   'src/app/AppShell.tsx',
   'src/domain/trackers/types.ts',
   'src/domain/trackers/schema.ts',
@@ -38,6 +39,7 @@ const sources = [
   'src/features/settings/AccountDeletion.tsx',
   'src/features/settings/AccountDeletion.test.tsx',
   'src/features/today/TodayRequirements.tsx',
+  'src/features/shared/TrackerEntryFields.tsx',
   'src/features/today/TodayPage.tsx',
   'src/features/today/TodayPage.test.tsx',
   'src/features/dashboard/DashboardPage.tsx',
@@ -59,6 +61,7 @@ const sources = [
   'src/features/goals/GoalsPage.test.tsx',
   'src/features/trackers/TrackerLibraryPage.tsx',
   'src/features/trackers/TrackerBinPage.tsx',
+  'src/domain/trackers/schemaVersionGate.ts',
   'src/features/auth/AuthPage.tsx',
   'src/features/auth/AuthPage.test.tsx',
   'src/features/auth/AuthProvider.tsx',
@@ -72,6 +75,7 @@ const sources = [
   'src/features/holidays/HolidaysPage.tsx',
   'src/features/calendar/CalendarPage.tsx',
   'src/features/notifications/NotificationsSettings.tsx',
+  'src/features/notifications/capabilities.ts',
   'src/features/notifications/NotificationsSettings.test.tsx',
   'src/features/notifications/ForegroundReminderMonitor.tsx',
   'src/features/notifications/reminderRules.ts',
@@ -112,6 +116,8 @@ const sources = [
   'supabase/tests/ai_help_verified_knowledge.test.sql',
   'supabase/functions/ai-help/index.ts',
   'supabase/functions/ai-help/assistantCore.ts',
+  'supabase/functions/ai-help/capabilityCore.ts',
+  'supabase/functions/ai-help/capabilityCore.test.ts',
   'supabase/functions/ai-help/learningCore.ts',
   'supabase/functions/ai-help/learningCore.test.ts',
   'supabase/functions/ai-help/validation.ts',
@@ -140,7 +146,55 @@ const knowledgeSections = knowledge.flatMap((document) => {
   })
 })
 const sourceFiles = await Promise.all(sources.map(async (path) => ({ path, content: await readFile(resolve(root, path), 'utf8') })))
-const digest = createHash('sha256').update(JSON.stringify({ knowledge, sourceFiles })).digest('hex').slice(0, 12)
+const routerSource = sourceFiles.find(({ path }) => path === 'src/routes/router.tsx')?.content ?? ''
+const declaredRoutes = [...routerSource.matchAll(/\{\s*path:\s*'([^']+)'/g)].map((match) => match[1])
+const routePaths = [...new Set(['/', ...declaredRoutes.filter((path) => path !== '/').map((path) => `/${path}`)])]
+const routes = Object.fromEntries(routePaths.map((path) => [path.replace(/^\//, '').replaceAll('/', '.') || 'today', path]))
+const appShellSource = sourceFiles.find(({ path }) => path === 'src/app/AppShell.tsx')?.content ?? ''
+const indexedRoutePaths = new Set(Object.values(routes))
+for (const match of appShellSource.matchAll(/<NavLink\s+to="(\/[^"]*)"/g)) {
+  if (!indexedRoutePaths.has(match[1])) throw new Error(`App navigation path ${match[1]} is absent from the router-derived capability index.`)
+}
+const edgeSource = sourceFiles.find(({ path }) => path === 'supabase/functions/ai-help/index.ts')?.content ?? ''
+for (const match of edgeSource.matchAll(/href:\s*'(\/[^']*)'/g)) {
+  if (!indexedRoutePaths.has(match[1])) throw new Error(`AI Help link path ${match[1]} is absent from the router-derived capability index.`)
+}
+const capabilitySource = sourceFiles.find(({ path }) => path === 'src/features/ai-help/capability-definitions.json')?.content ?? '[]'
+const declaredCapabilities = JSON.parse(capabilitySource)
+for (const capability of declaredCapabilities) {
+  if (!Array.isArray(capability.evidenceRefs) || capability.evidenceRefs.some((ref) => !sources.includes(ref))) {
+    throw new Error(`AI Help capability ${capability.id} references a file outside the reviewed source bundle.`)
+  }
+  if (capability.routeId && !(capability.routeId in routes)) throw new Error(`AI Help capability ${capability.id} references a route absent from src/routes/router.tsx.`)
+  if (['control', 'workflow'].includes(capability.kind)) {
+    const colocated = capability.evidenceRefs.map((ref) => sourceFiles.find(({ path }) => path === ref)?.content ?? '')
+    const marker = `data-ai-capability="${capability.id}"`
+    const quotedId = `'${capability.id}'`
+    if (!colocated.some((content) => content.includes(marker) || content.includes(quotedId))) {
+      throw new Error(`AI Help capability ${capability.id} has no matching marker in its referenced implementation.`)
+    }
+  }
+}
+const capabilities = [
+  ...Object.entries(routes).map(([routeId, path]) => ({ id: `route.${routeId}`, featureId: routeId.split('.')[0] ?? routeId, kind: 'route', label: routeId === 'today' ? 'Today' : routeId.split('.').at(-1), routeId, risk: 'low', availability: 'unknown', availabilityConditions: [], prerequisites: [], limitations: [], evidenceRefs: ['src/routes/router.tsx'] })),
+  ...declaredCapabilities,
+]
+const binPage = sourceFiles.find(({ path }) => path === 'src/features/trackers/TrackerBinPage.tsx')?.content ?? ''
+const binRoute = sourceFiles.find(({ path }) => path === 'src/routes/router.tsx')?.content ?? ''
+const binNavigation = sourceFiles.find(({ path }) => path === 'src/app/AppShell.tsx')?.content ?? ''
+const deletionGate = sourceFiles.find(({ path }) => path === 'src/domain/trackers/schemaVersionGate.ts')?.content ?? ''
+const deletionMigration = sourceFiles.find(({ path }) => path === 'supabase/migrations/20261010000100_tracker_bin_permanent_deletion.sql')?.content ?? ''
+const coreGuide = knowledge.find(({ slug }) => slug === 'core-application')?.content ?? ''
+if (!binPage.includes('Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.')
+  || !binPage.includes('isPermanentDeletionEnabled()')
+  || !binRoute.includes("path: 'bin'") || !binNavigation.includes("to: '/bin'")
+  || !deletionGate.includes('VITE_ENABLE_PERMANENT_DELETION')
+  || !deletionMigration.includes("values (true, false)")
+  || !/permanent deletion is not available in that app build/i.test(coreGuide)
+  || /Permanent deletion is a separate action that removes the tracker/i.test(coreGuide)) {
+  throw new Error('AI Help Bin availability guidance must be reviewed against the route, visible UI gate, production feature flag, and cleanup migration before generating the bundle.')
+}
+const digest = createHash('sha256').update(JSON.stringify({ knowledge, sourceFiles, capabilities, routes })).digest('hex').slice(0, 12)
 const version = `${packageInfo.version}+${digest}`
 const outputDir = resolve(root, 'supabase/functions/ai-help/_generated')
 await mkdir(outputDir, { recursive: true })
@@ -180,6 +234,8 @@ const evidenceFingerprints = Object.fromEntries([
 ])
 await writeFile(resolve(outputDir, 'sourceBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const sourceVersion = ${JSON.stringify(version)}\nexport const sourcePaths = ${JSON.stringify(sources)} as const\nexport const evidenceFingerprints = ${JSON.stringify(evidenceFingerprints)} as const\n`)
 await writeFile(resolve(outputDir, 'sourceIndex.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const sourceIndexVersion = ${JSON.stringify(version)}\nexport const sourceIndex = ${JSON.stringify(sourceIndex)} as const\n`)
+await writeFile(resolve(outputDir, 'capabilityBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const capabilityVersion = ${JSON.stringify(version)}\nexport const capabilityRoutes = ${JSON.stringify(routes)} as const\nexport const capabilities = ${JSON.stringify(capabilities)} as const\n`)
+await writeFile(resolve(root, 'src/features/ai-help/capabilityVersion.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const capabilityVersion = ${JSON.stringify(version)}\n`)
 const supportEmail = sourceFiles.find(({ path }) => path === 'src/config/supportContact.ts')?.content.match(/export const SUPPORT_EMAIL = '([^']+)'/)?.[1]
 if (!supportEmail) throw new Error('The public support email is missing from src/config/supportContact.ts.')
 const sharedOutputDir = resolve(root, 'supabase/functions/_shared')

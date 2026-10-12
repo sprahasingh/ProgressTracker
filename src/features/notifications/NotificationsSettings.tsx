@@ -444,7 +444,7 @@ export function NotificationsSettings() {
   }
 
   if (status !== 'signed-in') return <section className="settings-section notification-settings" aria-label="Notifications"><h2>Notifications</h2><p>Account reminder preferences require sign-in. Guest tracking remains local and unchanged.</p></section>
-  return <section className="settings-section notification-settings" id="notifications" aria-labelledby="notifications-heading">
+  return <section data-ai-capability="notifications.preferences" className="settings-section notification-settings" id="notifications" aria-labelledby="notifications-heading">
     <h2 id="notifications-heading">Notifications</h2>
     <p id="notification-settings-status" aria-live="polite">{saving ? 'Saving notification preferences…' : statusText}</p>
     <h3 className="notification-status-heading">Delivery status</h3>

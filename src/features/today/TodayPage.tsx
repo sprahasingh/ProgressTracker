@@ -424,7 +424,7 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><button className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as missed (breaks streak)</button><small>This records an intentional missed commitment.</small></div>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
+      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as missed (breaks streak)</button><small>This records an intentional missed commitment.</small></div>{entry && <button className="button button-quiet button-medium" disabled={saving} onClick={() => void clear()}>Clear check-in</button>}</footer>}
     </section>
   </div>, document.body)
 }

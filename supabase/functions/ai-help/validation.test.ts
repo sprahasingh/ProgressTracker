@@ -20,6 +20,17 @@ describe('AI Help Edge Function validation', () => {
     expect(() => normalizeAssistantInput({ question: 'Help', trackerData: {} })).toThrow(AssistantInputError)
   })
 
+  it('accepts only bounded runtime availability observations', () => {
+    expect(normalizeAssistantInput({ question: 'Can I restore it?', runtimeAvailability: { 'bin.restore': 'available', 'bin.permanent_delete': 'disabled', unknown: 'enabled', 'bad id': 'available' } }).runtimeAvailability)
+      .toEqual({ 'bin.restore': 'available', 'bin.permanent_delete': 'disabled' })
+  })
+
+  it('accepts the optional capability version for new clients and remains compatible with older clients', () => {
+    expect(normalizeAssistantInput({ question: 'Can I delete my account?', capabilityVersion: '0.1.0+abc123', runtimeAvailability: { 'account.delete': 'available' } })).toMatchObject({ capabilityVersion: '0.1.0+abc123', runtimeAvailability: { 'account.delete': 'available' } })
+    expect(normalizeAssistantInput({ question: 'Can I delete my account?', runtimeAvailability: { 'account.delete': 'available' } })).toMatchObject({ runtimeAvailability: { 'account.delete': 'available' } })
+    expect(normalizeAssistantInput({ question: 'Can I delete my account?', capabilityVersion: '../../unsafe' })).not.toHaveProperty('capabilityVersion')
+  })
+
   it('never fails over on a provider 429 and allows only bounded transient failover', () => {
     expect(shouldFailoverToSecondary(429)).toBe(false)
     expect(shouldFailoverToSecondary(401)).toBe(true)
