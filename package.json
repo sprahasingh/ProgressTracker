@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
+    "test:lifecycle-stress": "VITE_TRACKER_LIFECYCLE_STRESS=true vitest run src/db/trackerLifecycleStateMachine.test.ts",
     "test:watch": "vitest",
     "build:ai-help-bundle": "node scripts/build-ai-help-bundle.mjs"
   },

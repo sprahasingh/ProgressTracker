@@ -12,6 +12,10 @@ function newId(): string {
   return crypto.randomUUID()
 }
 
+function permanentDeletionKey(ownerUserId: string, trackerId: string): string {
+  return `${ownerUserId}:${trackerId}`
+}
+
 function publishNotificationChange() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('app-notifications-changed'))
 }
@@ -238,13 +242,23 @@ export const localRepository = {
   async getTracker(id: string): Promise<StoredTrackerDefinition | undefined> {
     const database = await openDatabase()
     const tracker = await database.trackers.get(id)
-    const [verified, deleted] = await Promise.all([database.trackerVerification.get(id), database.permanentDeletionLedger.get(id)])
+    const workspace = await database.workspaceMetadata.get('workspace')
+    const [verified, deleted] = await Promise.all([
+      database.trackerVerification.get(id),
+      workspace?.userId ? database.permanentDeletionLedger.get(permanentDeletionKey(workspace.userId, id)) : Promise.resolve(undefined),
+    ])
     return tracker?.deletedAt === null && !(isPermanentDeletionEnabled() && verified) && !deleted ? tracker : undefined
   },
 
   async listDeletedTrackers(): Promise<StoredTrackerDefinition[]> {
     const database = await openDatabase()
-    return (await database.trackers.filter((tracker) => tracker.deletedAt !== null).toArray())
+    const [trackers, ledger, verification] = await Promise.all([
+      database.trackers.filter((tracker) => tracker.deletedAt !== null).toArray(),
+      database.permanentDeletionLedger.toArray(),
+      isPermanentDeletionEnabled() ? database.trackerVerification.toArray() : Promise.resolve([]),
+    ])
+    const blockedIds = new Set([...ledger.map((row) => row.trackerId), ...verification.map((row) => row.trackerId)])
+    return trackers.filter((tracker) => !blockedIds.has(tracker.id))
       .sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''))
   },
 
@@ -255,7 +269,12 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.permanentDeletionLedger], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      const activeOwner = workspace?.userId ?? null
+      if (activeOwner && await database.permanentDeletionLedger.get(permanentDeletionKey(activeOwner, draft.id))) {
+        throw new Error('This tracker was permanently deleted from the account and cannot be changed or restored.')
+      }
       const existing = await database.trackers.get(draft.id)
       if (existing?.deletedAt) throw new Error('Restore this tracker from the Bin before editing it.')
       if (existing) {
@@ -269,8 +288,6 @@ export const localRepository = {
         const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
         if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
       }
-      const workspace = await database.workspaceMetadata.get('workspace')
-      const activeOwner = workspace?.userId ?? null
       if (activeOwner) {
         const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([activeOwner, 'tracker', draft.id]).first()
         if (conflict) throw new Error('Resolve this tracker’s cloud conflict before saving a plan. Both versions are preserved.')
@@ -322,9 +339,14 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata, database.permanentDeletionLedger], async () => {
       const tracker = await database.trackers.get(draft.trackerId)
       if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
+      const workspace = await database.workspaceMetadata.get('workspace')
+      const activeOwner = workspace?.userId ?? null
+      if (activeOwner && await database.permanentDeletionLedger.get(permanentDeletionKey(activeOwner, draft.trackerId))) {
+        throw new Error('This tracker was permanently deleted from the account and cannot receive check-ins.')
+      }
       const existing = await database.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
       const valueIssue = validateTrackerEntryValues(tracker, draft.values, { existingValues: existing?.values })
       if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
@@ -337,8 +359,7 @@ export const localRepository = {
         deletedAt: null,
       }) as StoredTrackerEntry
       await database.trackerEntries.put(entry)
-      const workspace = await database.workspaceMetadata.get('workspace')
-      ownerUserId = workspace?.userId ?? null
+      ownerUserId = activeOwner
       await queueSyncMutation(database, ownerUserId, 'tracker_entry', entry)
       return entry
     })
@@ -427,7 +448,7 @@ export const localRepository = {
       if (!existing || existing.deletedAt === null) return undefined
       const workspace = await database.workspaceMetadata.get('workspace')
       ownerUserId = workspace?.userId ?? null
-      if (await database.permanentDeletionLedger.get(id)) throw new Error('This tracker was permanently deleted from the account and cannot be restored.')
+      if (ownerUserId && await database.permanentDeletionLedger.get(permanentDeletionKey(ownerUserId, id))) throw new Error('This tracker was permanently deleted from the account and cannot be restored.')
       if (!ownerUserId && Date.now() >= Date.parse(existing.deletedAt) + 30 * 24 * 60 * 60 * 1000) throw new Error('The recovery period has ended. This guest copy is eligible for local cleanup.')
       if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker', id]).first()) {
         throw new Error('Resolve this tracker’s cloud conflict before restoring it. Both versions are preserved.')
@@ -447,13 +468,25 @@ export const localRepository = {
     const workspace = await database.workspaceMetadata.get('workspace')
     const ownerUserId = workspace?.userId ?? null
     if (!ownerUserId) {
-      await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncConflicts], async () => {
+      await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
         const tracker = await database.trackers.get(id)
         if (!tracker?.deletedAt) throw new Error('Move this tracker to the Bin before permanently deleting it.')
+        const entries = await database.trackerEntries.where('trackerId').equals(id).toArray()
+        const entryIds = new Set(entries.map((entry) => entry.id))
         await database.trackerEntries.where('trackerId').equals(id).delete()
         await database.trackers.delete(id)
-        await database.syncOperations.where('entityId').equals(id).delete()
-        await database.syncConflicts.where('entityId').equals(id).delete()
+        await database.syncOperations.filter((operation) =>
+          (operation.entity === 'tracker' && operation.entityId === id)
+          || (operation.entity === 'tracker_entry' && (operation.payload as StoredTrackerEntry | undefined)?.trackerId === id),
+        ).delete()
+        await database.syncRecords.filter((record) =>
+          (record.entity === 'tracker' && record.entityId === id)
+          || (record.entity === 'tracker_entry' && entryIds.has(record.entityId)),
+        ).delete()
+        await database.syncConflicts.filter((conflict) =>
+          (conflict.entity === 'tracker' && conflict.entityId === id)
+          || (conflict.entity === 'tracker_entry' && (conflict.localPayload as StoredTrackerEntry).trackerId === id),
+        ).delete()
       })
       publishWorkspaceDataChange(null)
       return 'deleted'
