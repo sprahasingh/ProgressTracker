@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { evidenceFingerprints, sourcePaths, sourceVersion } from '../ai-help/_generated/sourceBundle.ts'
 import { sourceIndex } from '../ai-help/_generated/sourceIndex.ts'
 import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, isMaintainer, normalizeMaintainerEmails, validateReviewEdits } from '../ai-help/learningCore.ts'
+import { mergeKnowledgePage } from '../_shared/knowledgePagination.ts'
 
 const ORIGINS = new Set((Deno.env.get('AI_HELP_REVIEW_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
   try { return new URL(item.trim()).origin } catch { return '' }
@@ -110,6 +111,11 @@ Deno.serve(async (request) => {
       if (category !== 'all' && !categories.includes(category)) return json(400, { error: 'Unsupported feedback category.' }, origin)
       const limit = typeof body.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(body.limit))) : 50
       const offset = typeof body.offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.offset))) : 0
+      const combinedStatus = status === 'stale' || status === 'all'
+      const cursorProvided = typeof body.candidate_offset === 'number' || typeof body.verified_offset === 'number'
+      const legacyCombinedPage = combinedStatus && !cursorProvided
+      const candidateOffset = typeof body.candidate_offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.candidate_offset))) : combinedStatus ? Math.floor(offset / 2) : offset
+      const verifiedOffset = typeof body.verified_offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.verified_offset))) : combinedStatus ? Math.floor(offset / 2) : offset
       try { await admin.from('support_feedback').delete().eq('category', 'ai_answer_feedback').lte('created_at', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()) } catch { /* Unified answer reports expire with their legacy 180-day retention window. */ }
       try { await admin.from('ai_help_answer_feedback').delete().lte('expires_at', new Date().toISOString()) } catch { /* Feedback remains reviewable if retention cleanup is temporarily unavailable. */ }
       let query = admin.from('ai_help_answer_feedback')
@@ -164,12 +170,12 @@ Deno.serve(async (request) => {
       const sort = body.sort === 'oldest' || body.sort === 'reviewed' ? body.sort : 'newest'
       const ascending = sort === 'oldest'
       const searchFilter = `topic_id.ilike.%${search}%,title.ilike.%${search}%,explanation.ilike.%${search}%`
-      // Stale and all views span two tables. Split their page window evenly so
-      // the UI can advance using the combined number of rows without skipping
-      // the second table's records.
-      const combinedStatus = status === 'stale' || status === 'all'
-      const tableLimit = combinedStatus ? Math.ceil(limit / 2) : limit
-      const tableOffset = combinedStatus ? Math.floor(offset / 2) : offset
+      // Combined views query each source independently, then merge a bounded
+      // window by its display date. Cursors advance only for rows returned.
+      const legacyTableLimit = Math.ceil(limit / 2)
+      const fetchLimit = legacyCombinedPage ? legacyTableLimit : Math.min(101, limit + 1)
+      const candidateQueryOffset = legacyCombinedPage ? Math.floor(offset / 2) : candidateOffset
+      const verifiedQueryOffset = legacyCombinedPage ? Math.floor(offset / 2) : verifiedOffset
 
       let candidateQuery = admin.from('ai_knowledge_candidates')
         .select('id,topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,created_at,updated_at,reviewed_at,reviewer_id')
@@ -178,29 +184,30 @@ Deno.serve(async (request) => {
       else if (status === 'pending' || status === 'stale' || status === 'rejected') candidateQuery = candidateQuery.eq('status', status)
       else candidateQuery = candidateQuery.eq('id', '00000000-0000-0000-0000-000000000000')
       if (search) candidateQuery = candidateQuery.or(searchFilter)
-      candidateQuery = candidateQuery.order(sort === 'reviewed' ? 'reviewed_at' : sort === 'oldest' ? 'created_at' : 'updated_at', { ascending, nullsFirst: false })
-        .range(tableOffset, tableOffset + tableLimit - 1)
+      candidateQuery = candidateQuery.order(sort === 'reviewed' ? 'reviewed_at' : 'created_at', { ascending, nullsFirst: false })
+        .order('id', { ascending: true }).range(candidateQueryOffset, candidateQueryOffset + fetchLimit - 1)
 
       let verifiedQuery = admin.from('ai_verified_knowledge')
         .select('topic_id,title,explanation,detailed_explanation,feature_category,source_refs,source_fingerprints,knowledge_version,status,reviewed_at,stale_at,reviewer_id')
       if (status === 'verified' || status === 'stale') verifiedQuery = verifiedQuery.eq('status', status)
       else if (status !== 'all') verifiedQuery = verifiedQuery.eq('topic_id', '__no_matching_topic__')
       if (search) verifiedQuery = verifiedQuery.or(searchFilter)
-      verifiedQuery = verifiedQuery.order(sort === 'oldest' ? 'reviewed_at' : 'reviewed_at', { ascending, nullsFirst: false })
-        .range(tableOffset, tableOffset + tableLimit - 1)
+      verifiedQuery = verifiedQuery.order('reviewed_at', { ascending, nullsFirst: false })
+        .order('topic_id', { ascending: true }).range(verifiedQueryOffset, verifiedQueryOffset + fetchLimit - 1)
 
-      const [candidateResult, verifiedResult, metricQuery, pendingCount, approvedCount, staleCount, rejectedCount] = await Promise.all([
+      const [candidateResult, verifiedResult, metricQuery, pendingCount, approvedCount, staleCandidateCount, staleVerifiedCount, rejectedCount] = await Promise.all([
         candidateQuery,
         verifiedQuery,
         admin.from('ai_help_learning_metrics').select('metric_date,event,feature_category,event_count').order('metric_date', { ascending: false }).limit(300),
         admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'pending').not('topic_id', 'is', null),
         admin.from('ai_verified_knowledge').select('id', { count: 'exact', head: true }).eq('status', 'verified'),
         admin.from('ai_verified_knowledge').select('id', { count: 'exact', head: true }).eq('status', 'stale'),
+        admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'stale').not('topic_id', 'is', null),
         admin.from('ai_knowledge_candidates').select('id', { count: 'exact', head: true }).eq('status', 'rejected').not('topic_id', 'is', null),
       ])
       const candidateRows = { data: candidateResult.data, error: candidateResult.error }
       const verifiedQueryResult = { data: verifiedResult.data, error: verifiedResult.error }
-      if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleCount.error || rejectedCount.error) return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
+      if (candidateRows.error || verifiedQueryResult.error || metricQuery.error || pendingCount.error || approvedCount.error || staleVerifiedCount.error || staleCandidateCount.error || rejectedCount.error) return json(503, { error: 'Review data is temporarily unavailable.' }, origin)
       const verified = (verifiedQueryResult.data ?? []).map((entry) => {
         const refs = Array.isArray(entry.source_refs) ? entry.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
         const currentRefs = refs.filter((ref) => Boolean(evidenceFingerprints[ref]) && sourcePaths.includes(ref as never))
@@ -213,9 +220,14 @@ Deno.serve(async (request) => {
           .slice(0, 3).map((entry) => ({ topic_id: entry.topic_id, title: entry.title, status: entry.status, match: entry.topic_id === candidate.topic_id ? 'same_topic' : 'shared_source' }))
         return { ...candidate, possible_duplicates: possibleDuplicates }
       })
-      return json(200, { knowledge_version: sourceVersion, candidates, verified_knowledge: verified, metrics: metricQuery.data ?? [], counts: {
-        pending: pendingCount.count ?? 0, approved: approvedCount.count ?? 0, stale: staleCount.count ?? 0, rejected: rejectedCount.count ?? 0,
-      }, page: { limit, offset, has_more: (candidateResult.data?.length ?? 0) === tableLimit || (verifiedResult.data?.length ?? 0) === tableLimit } }, origin)
+      const page = legacyCombinedPage ? {
+        candidates, verified, nextCandidateOffset: candidateOffset + candidates.length,
+        nextVerifiedOffset: verifiedOffset + verified.length,
+        hasMore: candidates.length === legacyTableLimit || verified.length === legacyTableLimit,
+      } : mergeKnowledgePage({ candidates, verified, limit, candidateOffset, verifiedOffset, sort })
+      return json(200, { knowledge_version: sourceVersion, candidates: page.candidates, verified_knowledge: page.verified, metrics: metricQuery.data ?? [], counts: {
+        pending: pendingCount.count ?? 0, approved: approvedCount.count ?? 0, stale: (staleVerifiedCount.count ?? 0) + (staleCandidateCount.count ?? 0), rejected: rejectedCount.count ?? 0,
+      }, page: { limit, offset, has_more: page.hasMore, next_candidate_offset: page.nextCandidateOffset, next_verified_offset: page.nextVerifiedOffset } }, origin)
     }
 
     if (body.action === 'get') {

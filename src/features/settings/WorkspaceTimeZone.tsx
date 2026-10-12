@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type FormEvent } from 'react'
+import { useLocation } from 'react-router-dom'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { AppIcon } from '../../components/ui/AppIcon'
@@ -93,6 +94,7 @@ const suggestedZones = [
 
 export function SettingsPage() {
   const auth = useAuth()
+  const location = useLocation()
   const { notify } = useToast()
   const { timeZone, appearance, setTimeZone, setAppearance } = useWorkspaceTimeZone()
   const [error, setError] = useState('')
@@ -102,12 +104,31 @@ export function SettingsPage() {
   const [emailEditing, setEmailEditing] = useState(false)
   const [emailValue, setEmailValue] = useState('')
   const [pendingEmail, setPendingEmail] = useState<string | null>(null)
+  const [expandedSection, setExpandedSection] = useState<string | null>(null)
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   const zones = [...new Set([...suggestedZones, deviceZone, timeZone])]
   const metadata = auth.user?.user_metadata
   const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim() ?? ''
   const avatarInitial = (displayName || auth.user?.email?.trim())?.charAt(0).toLocaleUpperCase() || null
   const requestedEmail = auth.user?.new_email ?? (pendingEmail?.toLowerCase() !== auth.user?.email?.toLowerCase() ? pendingEmail : null)
+
+  useLayoutEffect(() => {
+    const sectionFromHash = location.hash.slice(1)
+    const validSections = ['personal-information', 'security', 'calendar-time', 'appearance', 'notifications', 'sync-data', 'account-actions', 'feedback-support', 'my-support-queries']
+    const requestedSection = new URLSearchParams(location.search).has('support') ? 'my-support-queries' : sectionFromHash
+    setExpandedSection(validSections.includes(requestedSection) ? requestedSection : null)
+  }, [location.pathname, location.search, location.hash, auth.user?.id])
+
+  function section(id: string, title: string, content: ReactNode) {
+    const expanded = expandedSection === id
+    const panelId = `settings-panel-${id}`
+    return <section className="settings-accordion" id={id} key={id}>
+      <h2><button id={`settings-trigger-${id}`} type="button" className="settings-accordion-trigger" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpandedSection(expanded ? null : id)}>
+        <span>{title}</span><span className="settings-accordion-chevron" aria-hidden="true" />
+      </button></h2>
+      <div id={panelId} className="settings-accordion-panel" role="region" aria-labelledby={`settings-trigger-${id}`} aria-hidden={!expanded} inert={!expanded} hidden={!expanded}>{content}</div>
+    </section>
+  }
 
   useEffect(() => {
     if (!pendingEmail || auth.user?.email?.toLowerCase() !== pendingEmail.toLowerCase() || auth.user.new_email) return
@@ -160,8 +181,7 @@ export function SettingsPage() {
 
   if (auth.status === 'signed-in' && auth.user) return <section className="tracker-page settings-page unified-settings" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Your profile, preferences, and account sync in one place." />
-    <section className="settings-section" id="personal-information" aria-labelledby="personal-title">
-      <h2 id="personal-title">Personal Information</h2>
+    {section('personal-information', 'Personal Information', <div>
       <div className="settings-profile-summary"><span className="settings-profile-avatar" aria-hidden="true">{avatarInitial ?? <AppIcon name="account" />}</span><div><strong>{displayName || 'Add your name'}</strong><span>{auth.user.email || 'Email unavailable'}</span></div></div>
       {!displayName && <p className="settings-hint">Add your name to complete your profile. You can keep using your trackers either way.</p>}
       <div className="settings-account-rows">
@@ -172,22 +192,23 @@ export function SettingsPage() {
       </div>
       {requestedEmail && <p className="settings-hint" role="status">Email change pending for <strong>{requestedEmail}</strong>. Check the new inbox and, if requested, approve the change from your current inbox too. This page will show the new address when confirmation is complete.</p>}
       {profileError && <p className="auth-error" role="alert">{profileError}</p>}
-    </section>
-    <section className="settings-section" aria-labelledby="security-title"><h2 id="security-title">Security</h2><p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p></section>
-    <section className="settings-section"><h2>Calendar &amp; Time</h2>{renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false)}</section>
-    <section className="settings-section"><h2>Appearance</h2>{renderAppearance(appearance, changeAppearance, error)}</section>
-    <NotificationsSettings />
-    <section className="settings-section" id="sync-data"><h2>Sync &amp; Data</h2><AuthPage embedded /></section>
-    <section className="settings-section account-actions" aria-labelledby="account-actions-title"><h2 id="account-actions-title">Account Actions</h2><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></section>
-    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>In-app feedback is saved to your support history and sent to ProgressTracker support. Email Support below is an external email option and is not tracked here.</p><SendFeedbackAction /></section>
-    <MySupportQueries />
+    </div>)}
+    {section('security', 'Security', <p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p>)}
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
+    {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
+    {section('notifications', 'Notifications', <NotificationsSettings embedded />)}
+    {section('sync-data', 'Sync & Data', <AuthPage embedded />)}
+    {section('account-actions', 'Account Actions', <div className="account-actions"><p>Permanently remove this account and its associated ProgressTracker data.</p><AccountDeletion /></div>)}
+    {section('feedback-support', 'Feedback & Support', <><p>In-app feedback is saved to your support history and sent to ProgressTracker support. Email Support below is an external email option and is not tracked here.</p><SendFeedbackAction /></>)}
+    {section('my-support-queries', 'My Support Queries', <MySupportQueries embedded />)}
   </section>
 
-  return <section className="tracker-page settings-page" aria-labelledby="settings-title">
+  return <section className="tracker-page settings-page unified-settings" aria-labelledby="settings-title">
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
-    {renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error)}
-    <section className="settings-section" aria-labelledby="settings-feedback-title"><h2 id="settings-feedback-title">Feedback &amp; Support</h2><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></section>
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
+    {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
+    {section('feedback-support', 'Feedback & Support', <><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></>)}
   </section>
 }
 

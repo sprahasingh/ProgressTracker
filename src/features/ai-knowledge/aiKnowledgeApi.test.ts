@@ -21,12 +21,17 @@ describe('AI Knowledge review API client', () => {
   })
 
   it('sends bounded list options without storing review credentials', async () => {
-    const { client, invoke } = clientFor({ result: { data: { candidates: [] }, error: null } })
+    const { client, invoke } = clientFor({ result: { data: { knowledge_version: 'v1', candidates: [], verified_knowledge: [], metrics: [], counts: { pending: 0, approved: 0, stale: 0, rejected: 0 }, page: { limit: 50, offset: 0, has_more: false } }, error: null } })
     await listKnowledge({ status: 'pending', search: 'habit', sort: 'newest', limit: 50, offset: 0 }, client)
     expect(invoke).toHaveBeenCalledWith('ai-help-review', expect.objectContaining({
       body: { action: 'list', status: 'pending', search: 'habit', sort: 'newest', limit: 50, offset: 0 },
     }))
     expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('persistSession')
+  })
+
+  it('rejects malformed knowledge list responses with a recoverable error', async () => {
+    const { client } = clientFor({ result: { data: { candidates: [] }, error: null } })
+    await expect(listKnowledge({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('incomplete knowledge list') })
   })
 
   it('maps an authorization rejection to a safe access error', async () => {

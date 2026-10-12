@@ -56,7 +56,7 @@ export type ReviewList = {
   verified_knowledge: VerifiedTopic[]
   metrics: Array<{ metric_date: string; event: string; feature_category: string; event_count: number }>
   counts: ReviewCounts
-  page: { limit: number; offset: number; has_more: boolean }
+  page: { limit: number; offset: number; has_more: boolean; next_candidate_offset?: number; next_verified_offset?: number }
 }
 export type ReviewDetail = {
   knowledge_version: string
@@ -112,8 +112,16 @@ export async function checkMaintainerAccess(client?: SupabaseClient): Promise<bo
   return result.authorized === true
 }
 
-export function listKnowledge(input: { status: ReviewStatus; search?: string; sort?: ReviewSort; limit?: number; offset?: number }, client?: SupabaseClient) {
-  return invokeReview<ReviewList>({ action: 'list', ...input }, client)
+export async function listKnowledge(input: { status: ReviewStatus; search?: string; sort?: ReviewSort; limit?: number; offset?: number; candidate_offset?: number; verified_offset?: number }, client?: SupabaseClient) {
+  const result = await invokeReview<ReviewList>({ action: 'list', ...input }, client)
+  if (!result || typeof result.knowledge_version !== 'string' || !Array.isArray(result.candidates) || !Array.isArray(result.verified_knowledge)
+    || !result.counts || !['pending', 'approved', 'stale', 'rejected'].every((key) => Number.isFinite(result.counts[key as keyof ReviewCounts]))
+    || !result.page || typeof result.page.has_more !== 'boolean'
+    || (result.page.next_candidate_offset !== undefined && !Number.isFinite(result.page.next_candidate_offset))
+    || (result.page.next_verified_offset !== undefined && !Number.isFinite(result.page.next_verified_offset))) {
+    throw new ReviewApiError(502, 'The review service returned an incomplete knowledge list. Refresh and try again.')
+  }
+  return result
 }
 
 export function getCandidate(candidateId: string, client?: SupabaseClient) {
