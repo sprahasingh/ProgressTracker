@@ -31,7 +31,7 @@ describe('AI Knowledge review API client', () => {
 
   it('rejects malformed knowledge list responses with a recoverable error', async () => {
     const { client } = clientFor({ result: { data: { candidates: [] }, error: null } })
-    await expect(listKnowledge({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('incomplete knowledge list') })
+    await expect(listKnowledge({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, code: 'incompatible_response', message: expect.stringContaining('incompatible knowledge list') })
   })
 
   it('maps an authorization rejection to a safe access error', async () => {
@@ -62,7 +62,20 @@ describe('AI Knowledge review API client', () => {
 
   it('rejects malformed answer feedback responses instead of interpreting them as an empty inbox', async () => {
     const { client } = clientFor({ result: { data: { feedback: [], counts: { pending: 0 } }, error: null } })
-    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('incomplete answer feedback list') })
+    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, code: 'incompatible_response', message: expect.stringContaining('incompatible answer feedback list') })
+  })
+
+  it('identifies an outdated Edge Function action and records only non-sensitive diagnostics', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const response = new Response(JSON.stringify({ error: 'Unsupported review action.', code: 'unsupported_action', secret: 'must not be logged' }), { status: 400 })
+    const { client } = clientFor({ result: { data: null, error: { context: response } } })
+    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({
+      status: 400, code: 'incompatible_function_version', message: expect.stringContaining('compatible ai-help-review function'),
+    })
+    expect(warn).toHaveBeenCalledWith('AI_KNOWLEDGE_REVIEW_REQUEST_FAILED', {
+      action: 'feedback_list', status: 400, code: 'unsupported_action', errorName: 'unknown',
+    })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('must not be logged')
   })
 
   it('distinguishes a review service connection failure from an empty successful result', async () => {

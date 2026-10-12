@@ -3,6 +3,7 @@ import { evidenceFingerprints, sourcePaths, sourceVersion } from '../ai-help/_ge
 import { sourceIndex } from '../ai-help/_generated/sourceIndex.ts'
 import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, isMaintainer, normalizeMaintainerEmails, validateReviewEdits } from '../ai-help/learningCore.ts'
 import { mergeKnowledgePage } from '../_shared/knowledgePagination.ts'
+import { buildAnswerFeedbackListPayload } from './feedbackResponse.ts'
 
 const ORIGINS = new Set((Deno.env.get('AI_HELP_REVIEW_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
   try { return new URL(item.trim()).origin } catch { return '' }
@@ -64,6 +65,7 @@ async function safeMetric(admin: ReturnType<typeof createClient>, event: string)
 }
 
 Deno.serve(async (request) => {
+  let requestAction = 'unknown'
   const originHeader = request.headers.get('origin')
   let origin = ''
   try { origin = originHeader ? new URL(originHeader).origin : '' } catch { /* Reject invalid origins below. */ }
@@ -91,6 +93,7 @@ Deno.serve(async (request) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
       body = value as Record<string, unknown>
     } catch { return json(400, { error: 'Invalid review request.' }, origin) }
+    requestAction = typeof body.action === 'string' ? body.action : 'unknown'
 
     const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
     const url = Deno.env.get('SUPABASE_URL')
@@ -138,7 +141,15 @@ Deno.serve(async (request) => {
         logReviewDatabaseFailure('feedback_list', [rows.error, pending.error, reviewed.error, resolved.error])
         return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
       }
-      return json(200, { current_knowledge_version: knowledgeVersion, feedback: rows.data ?? [], counts: { pending: pending.count ?? 0, reviewed: reviewed.count ?? 0, resolved: resolved.count ?? 0 }, page: { limit, offset, has_more: (rows.data?.length ?? 0) === limit } }, origin)
+      return json(200, buildAnswerFeedbackListPayload({
+        knowledgeVersion: sourceVersion,
+        feedback: rows.data ?? [],
+        pendingCount: pending.count,
+        reviewedCount: reviewed.count,
+        resolvedCount: resolved.count,
+        limit,
+        offset,
+      }), origin)
     }
 
     if (body.action === 'feedback_review') {
@@ -343,7 +354,13 @@ Deno.serve(async (request) => {
     })
     if (reviewError) return json(reviewError.code === '40001' ? 409 : 400, { error: reviewError.code === '40001' ? 'Candidate changed during review. Refresh and retry.' : 'The review could not be saved. Check the candidate fields and try again.' }, origin)
     return json(200, { result: review }, origin)
-  } catch {
-    return json(500, { error: 'The review request could not be completed.' }, origin)
+  } catch (cause) {
+    const error = cause instanceof Error ? cause as Error & { code?: unknown } : null
+    console.error('AI_HELP_REVIEW_UNEXPECTED_FAILURE', JSON.stringify({
+      action: requestAction,
+      error_name: error?.name ?? 'unknown',
+      code: typeof error?.code === 'string' ? error.code : undefined,
+    }))
+    return json(500, { error: 'The review request could not be completed.', code: 'unexpected_backend_failure' }, origin)
   }
 })

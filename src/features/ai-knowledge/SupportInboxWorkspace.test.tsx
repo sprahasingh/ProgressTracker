@@ -12,7 +12,7 @@ const thread = { id: 'thread-1', user_id: 'user-1', category: 'support_query' as
 const list = { threads: [thread], total: 1, has_more: false, metrics: { total: 1, open: 1, waiting: 0, resolved: 0, incorrect_ai: 0, unread: 1 } }
 const detail = { thread, user_email: 'person@example.com', messages: [] }
 
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('SupportInboxWorkspace', () => {
   it('shows actual inbox metrics and opens user feedback details', async () => {
@@ -24,6 +24,39 @@ describe('SupportInboxWorkspace', () => {
     expect(await screen.findByText('person@example.com')).toBeInTheDocument()
     expect(screen.getByText('It did not save.')).toBeInTheDocument()
     expect(screen.getByText('Unread')).toBeInTheDocument()
+  })
+
+  it('switches from the mobile list to a long-subject detail and returns to the list', async () => {
+    const longSubject = 'Feedback subject that needs to wrap on a narrow phone screen '.repeat(3)
+    const longThread = { ...thread, subject: longSubject }
+    vi.mocked(listSupportInbox).mockResolvedValue({ ...list, threads: [longThread] })
+    vi.mocked(getSupportInboxThread).mockResolvedValue({ ...detail, thread: longThread })
+    const user = userEvent.setup()
+    render(<SupportInboxWorkspace />)
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    const recordList = await screen.findByRole('list', { name: 'Feedback records' })
+    const layout = recordList.closest('.support-inbox-layout')!
+    expect(layout).not.toHaveClass('has-selection')
+    expect(screen.getByText('Select feedback to view its message and conversation.')).toBeInTheDocument()
+    const trigger = screen.getByRole('listitem').querySelector('button')!
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('article', { name: /Feedback detail: Feedback subject that needs to wrap/ })).toBeInTheDocument()
+    expect(layout).toHaveClass('has-selection')
+    const back = screen.getByRole('button', { name: 'Back to feedback' })
+    expect(back).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(layout).not.toHaveClass('has-selection')
+    expect(screen.getByRole('list', { name: 'Feedback records' })).toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('shows the desktop empty detail prompt when no record is selected', async () => {
+    vi.mocked(listSupportInbox).mockResolvedValue(list)
+    render(<SupportInboxWorkspace />)
+    expect(await screen.findByText('Select feedback to view its message and conversation.')).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: /Feedback detail/ })).not.toBeInTheDocument()
   })
 
   it('sends a maintainer reply and exposes status controls', async () => {
