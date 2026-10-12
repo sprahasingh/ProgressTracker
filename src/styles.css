@@ -309,6 +309,11 @@ a { color: inherit; text-decoration: none; }
 .send-feedback-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .send-feedback-textarea { min-height: 140px; resize: vertical; }
 .send-feedback-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin-top: -10px; color: var(--ink-muted); font-size: 11px; }
+.send-feedback-share-email, .ai-help-share-email { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--ink); cursor: pointer; }
+.send-feedback-share-email input, .ai-help-share-email input { width: 20px; height: 20px; flex: 0 0 20px; margin: 1px 0 0; accent-color: var(--accent-strong); }
+.send-feedback-share-email span, .ai-help-share-email span { display: grid; gap: 3px; }
+.send-feedback-share-email strong, .ai-help-share-email strong { font-size: 13px; font-weight: 650; }
+.send-feedback-share-email small, .ai-help-share-email small { color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
 .send-feedback-content .settings-hint { margin: 0; }
 .send-feedback-actions { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 9px; margin-top: 2px; padding: 12px 20px max(12px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
 .send-feedback-success { display: flex; align-items: flex-start; gap: 9px; margin: 0; color: var(--success, #23815f); font-weight: 650; line-height: 1.5; }

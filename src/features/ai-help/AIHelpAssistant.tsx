@@ -112,8 +112,8 @@ export function AIHelpAssistant() {
     } finally { if (requestSequence.current === sequence) { sendingRef.current = false; setLoading(false) } }
   }, [isOnline, loading, route, session.messages, status])
 
-  const submitSupport = useCallback(async (message: string, requestId: string) => {
-    return submitGeneralFeedback(getSupabaseClient(), { category: 'help_support', message, requestId, source: 'ai_help_support' })
+  const submitSupport = useCallback(async (message: string, requestId: string, shareEmail: boolean) => {
+    return submitGeneralFeedback(getSupabaseClient(), { category: 'help_support', message, requestId, source: 'ai_help_support', shareEmail })
   }, [])
 
   const retry = useCallback((messageId: string) => {

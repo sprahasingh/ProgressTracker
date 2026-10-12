@@ -14,7 +14,7 @@ vi.mock('./supportApi', () => ({
 const thread = { id: 'thread-1', user_id: 'user-1', category: 'support_query' as const, source: 'settings', subject: 'Goal did not save', original_message: 'My goal did not save.', status: 'waiting_for_user' as const, metadata: {}, email_status: 'accepted', created_at: '2026-10-12T00:00:00Z', last_activity_at: '2026-10-12T00:00:00Z', updated_at: '2026-10-12T00:00:00Z' }
 const detail = { thread, messages: [{ id: 'message-1', feedback_id: thread.id, sender_user_id: null, sender_role: 'maintainer' as const, body: 'Please refresh and try again.', created_at: '2026-10-12T00:00:00Z' }] }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('MySupportQueries', () => {
   it('loads the notification-selected conversation and submits a follow-up', async () => {
@@ -36,5 +36,28 @@ describe('MySupportQueries', () => {
     render(<MemoryRouter initialEntries={['/settings?support=thread-1']}><MySupportQueries /></MemoryRouter>)
     expect(await screen.findByText(/This conversation is resolved/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Send Reply' })).not.toBeInTheDocument()
+  })
+
+  it('shows only a retryable error when the list request fails, then performs a fresh request', async () => {
+    vi.mocked(listMySupportThreads).mockRejectedValueOnce(new Error('Could not connect to Support. Check your connection and retry.')).mockResolvedValueOnce({ threads: [] })
+    const user = userEvent.setup()
+    render(<MemoryRouter><MySupportQueries /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not connect to Support')
+    expect(screen.queryByText(/You have no tracked support queries yet/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText(/You have no tracked support queries yet/)).toBeInTheDocument()
+    expect(listMySupportThreads).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not show the empty state after the selected thread request fails and retries that thread', async () => {
+    vi.mocked(listMySupportThreads).mockResolvedValue({ threads: [] })
+    vi.mocked(getMySupportThread).mockRejectedValue(new Error('That support conversation is unavailable.'))
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/settings?support=thread-1']}><MySupportQueries /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('That support conversation is unavailable.')
+    expect(screen.queryByText(/You have no tracked support queries yet/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findAllByRole('alert')).toHaveLength(1)
+    expect(getMySupportThread).toHaveBeenCalledTimes(2)
   })
 })

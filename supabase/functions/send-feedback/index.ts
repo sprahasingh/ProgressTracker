@@ -79,7 +79,7 @@ Deno.serve(async (request) => {
   const subject = submission.subject ?? (submission.message.split('\n')[0]!.slice(0, 160) || 'ProgressTracker feedback')
   const { data: saved, error: saveError } = await admin.rpc('submit_unified_support_feedback', {
     p_user_id: identity.user.id, p_request_id: submission.requestId, p_category: category,
-    p_source: source, p_subject: subject, p_message: submission.message,
+    p_source: source, p_subject: subject, p_message: submission.message, p_share_email: submission.shareEmail ?? true,
   })
   if (saveError || !saved?.feedback_id) {
     if (saveError?.code === 'P4290') return json(429, { accepted: false, error: 'You have sent several feedback messages recently. Please wait a little before trying again.', retryAfterSeconds: 900 }, origin)
@@ -88,7 +88,7 @@ Deno.serve(async (request) => {
   }
   let deliveryStatus: string = saved.email_status ?? 'pending'
   try {
-    deliveryStatus = await deliverPendingSupportEmail(admin, saved.feedback_id, { userId: identity.user.id, email: identity.user.email ?? null }, {
+    deliveryStatus = await deliverPendingSupportEmail(admin, saved.feedback_id, { userId: identity.user.id, email: identity.user.email_confirmed_at ? identity.user.email ?? null : null }, {
       apiKey: brevoKey, from: fromEmail, to: PUBLIC_SUPPORT_EMAIL,
       appVersion: Deno.env.get('SUPPORT_FEEDBACK_APP_VERSION') ?? '0.1.0',
     })

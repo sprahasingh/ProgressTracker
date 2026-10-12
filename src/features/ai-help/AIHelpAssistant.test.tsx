@@ -130,12 +130,13 @@ describe('AI Help Assistant', () => {
     await user.type(input, 'I want to report a bug: my goal will not update.{Enter}')
     const support = await screen.findByRole('textbox', { name: /Support query/ })
     expect(support).toHaveValue('I want to report a bug: my goal will not update.')
+    expect(screen.getByRole('checkbox', { name: /Share my email with support/ })).toBeChecked()
     const supportForm = support.closest('form')!
     expect(supportForm.querySelector('.ai-help-support-body')).toContainElement(support)
     expect(supportForm.querySelector('footer')).toContainElement(screen.getByRole('button', { name: 'Send Query' }))
     expect(supportForm.querySelector('footer')).toContainElement(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByText(/Only the text shown above will be sent/)).toBeInTheDocument()
-    expect(screen.getByText(/spraha\.progresstracker@gmail\.com/)).toBeInTheDocument()
+    expect(screen.getByText(/Your query and replies stay in My Support Queries/)).toBeInTheDocument()
+    expect(screen.queryByText(/spraha\.progresstracker@gmail\.com/)).not.toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalled()
     await user.clear(support)
     await user.type(support, 'My corrected support description.')
@@ -145,6 +146,18 @@ describe('AI Help Assistant', () => {
       body: expect.objectContaining({ category: 'help_support', message: 'My corrected support description.' }),
       headers: { Authorization: 'Bearer test-token' },
     }))
+  })
+
+  it('allows support-query submission without sharing the account email', async () => {
+    mocks.invoke.mockResolvedValue({ data: { accepted: true }, error: null })
+    const user = userEvent.setup()
+    renderAssistant('/settings')
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'I need help from a human.{Enter}')
+    await user.click(await screen.findByRole('checkbox', { name: /Share my email with support/ }))
+    await user.click(screen.getByRole('button', { name: 'Send Query' }))
+    await screen.findByText('Support query saved.')
+    expect(mocks.invoke).toHaveBeenCalledWith('send-feedback', expect.objectContaining({ body: expect.objectContaining({ category: 'help_support', share_email: false }) }))
   })
 
   it('offers a support action after an uncertain answer and preserves the original question in the editable form', async () => {

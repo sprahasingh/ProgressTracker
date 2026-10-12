@@ -4,7 +4,7 @@ import { getSupabaseClient } from '../../services/supabase/client'
 export type SupportStatus = 'open' | 'in_progress' | 'waiting_for_user' | 'resolved'
 export type SupportCategory = 'support_query' | 'bug_report' | 'feature_request' | 'general_feedback' | 'ai_answer_feedback'
 export type SupportMessage = { id: string; feedback_id: string; sender_user_id: string | null; sender_role: 'user' | 'maintainer'; body: string; created_at: string }
-export type SupportThread = { id: string; user_id: string | null; category: SupportCategory; source: string; subject: string; original_message: string; status: SupportStatus; metadata: Record<string, unknown>; email_status: string; maintainer_seen_at?: string | null; maintainer_seen_by?: string | null; created_at: string; last_activity_at: string; updated_at: string }
+export type SupportThread = { id: string; user_id: string | null; category: SupportCategory; source: string; subject: string; original_message: string; status: SupportStatus; metadata: Record<string, unknown>; email_status: string; share_email?: boolean; maintainer_seen_at?: string | null; maintainer_seen_by?: string | null; created_at: string; last_activity_at: string; updated_at: string }
 export type SupportThreadDetail = { thread: SupportThread; messages: SupportMessage[]; user_email?: string | null }
 
 export class SupportApiError extends Error { constructor(readonly status: number, message: string) { super(message) } }
@@ -23,7 +23,16 @@ async function invoke<T>(body: Record<string, unknown>, client: SupabaseClient |
     status = response.status
     try { const payload = await response.clone().json() as { error?: unknown }; if (typeof payload.error === 'string') message = payload.error } catch { /* Stable message below. */ }
   }
-  throw new SupportApiError(status, message || 'The support request could not be completed. Try again.')
+  if (!message) {
+    if (status === 401) message = 'Your sign-in expired. Sign in again to view support conversations.'
+    else if (status === 403) message = 'This account cannot access that support conversation.'
+    else if (status === 404) message = 'That support conversation is unavailable.'
+    else if (status === 429) message = 'You have sent several support requests recently. Please wait before trying again.'
+    else if (status >= 500) message = 'Support is temporarily unavailable. Your saved messages are safe; please retry.'
+    else if (!response) message = 'Could not connect to Support. Check your connection and retry.'
+    else message = 'Check the support request and try again.'
+  }
+  throw new SupportApiError(status, message)
 }
 
 export const listMySupportThreads = (client?: SupabaseClient | null) => invoke<{ threads: SupportThread[] }>({ action: 'list_mine' }, client)

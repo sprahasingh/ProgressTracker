@@ -59,7 +59,8 @@ describe('unified Settings authentication states', () => {
     render(<ToastProvider><MemoryRouter><SettingsPage /></MemoryRouter></ToastProvider>)
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
     expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
-    expect(screen.getByText('Reply address: person@example.com')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Share my email with support/ })).toBeChecked()
+    expect(screen.getByText('Email shared with support: person@example.com')).toBeInTheDocument()
   })
 
   it('validates email and reports the secure confirmation state', async () => {

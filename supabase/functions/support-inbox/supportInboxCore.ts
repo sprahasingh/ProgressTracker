@@ -13,3 +13,7 @@ export function supportReplyRpc(action: SupportReplyAction, userId: string, feed
     args: { p_maintainer_id: userId, p_feedback_id: feedbackId, p_request_id: requestId, p_message: message },
   }
 }
+
+export function consentedMaintainerEmail(shareEmail: boolean, email: string | null | undefined): string | null {
+  return shareEmail && email ? email : null
+}

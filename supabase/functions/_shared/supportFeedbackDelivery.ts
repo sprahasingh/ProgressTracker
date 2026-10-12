@@ -12,7 +12,7 @@ export async function deliverPendingSupportEmail(
 ): Promise<'accepted' | 'pending' | 'failed' | 'uncertain' | 'not_required'> {
   await admin.rpc('expire_stale_support_email_outbox')
   const { data: record, error: recordError } = await admin.from('support_feedback')
-    .select('id,category,source,subject,original_message,metadata,created_at,email_status')
+    .select('id,category,source,subject,original_message,metadata,created_at,email_status,share_email')
     .eq('id', feedbackId).maybeSingle()
   if (recordError || !record) throw new Error('feedback_record_unavailable')
   if (record.email_status === 'not_required') return 'not_required'
@@ -59,7 +59,7 @@ export async function deliverPendingSupportEmail(
       knowledgeVersion: record.metadata?.knowledge_version,
       responseId: record.metadata?.response_id,
     } } : {}),
-  }, identity, config)
+  }, { ...identity, shareEmail: record.share_email !== false }, config)
   const outcome = result.outcome === 'rejected' ? 'failed' : result.outcome
   const { error: outcomeError } = await admin.rpc('set_support_email_outcome', {
     p_outbox_id: job.id,
