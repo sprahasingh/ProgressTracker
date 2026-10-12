@@ -7,9 +7,9 @@ import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBo
 import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
 import { FeedbackSubmissionError, type GeneralFeedbackResult } from '../feedback/feedbackService'
-import { suggestionsByRoute, type ChatMessage, type FeedbackCategory, type HelpRoute } from './aiHelpService'
+import { type CatalogSuggestion, type ChatMessage, type FeedbackCategory } from './aiHelpService'
 
-type Props = { messages: ChatMessage[]; draft: string; loading: boolean; route: HelpRoute; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string, shareEmail: boolean) => Promise<GeneralFeedbackResult>; triggerRef: RefObject<HTMLButtonElement | null> }
+type Props = { messages: ChatMessage[]; suggestions: CatalogSuggestion[]; draft: string; loading: boolean; liveText: string; nearBottom: boolean; now: number; onClose: () => void; onSend: (question: string, questionId?: string) => void; onDraftChange: (draft: string) => void; onRetry: (id: string) => void; onNewConversation: () => void; onScrollPositionChange: (near: boolean) => void; onFeedback: (id: string, category: FeedbackCategory, explanation?: string) => Promise<void>; supportOpen: boolean; supportDraft: string; onSupportDraftChange: (draft: string) => void; onSupportOpen: (open: boolean) => void; onSupportSubmit: (message: string, requestId: string, shareEmail: boolean) => Promise<GeneralFeedbackResult>; triggerRef: RefObject<HTMLButtonElement | null> }
 const internalLinks = new Map([['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/settings', 'Settings'], ['/history', 'History'], ['/bin', 'The Bin']])
 
 function renderInline(text: string, onNavigate?: () => void) {
@@ -70,7 +70,7 @@ function AnswerFeedback({ message, onFeedback }: { message: ChatMessage; onFeedb
   </div>
 }
 
-export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBottom, now, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, onFeedback, supportOpen, supportDraft, onSupportDraftChange, onSupportOpen, onSupportSubmit, triggerRef }: Props) {
+export function AIHelpPanel({ messages, suggestions, draft, loading, liveText, nearBottom, now, onClose, onSend, onDraftChange, onRetry, onNewConversation, onScrollPositionChange, onFeedback, supportOpen, supportDraft, onSupportDraftChange, onSupportOpen, onSupportSubmit, triggerRef }: Props) {
   const [mobile, setMobile] = useState(() => window.matchMedia?.('(max-width: 760px)').matches ?? false)
   const panelRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -160,7 +160,7 @@ export function AIHelpPanel({ messages, draft, loading, route, liveText, nearBot
       <div className="ai-help-messages" ref={listRef} onScroll={onListScroll}>
         {messages.length === 0 ? <div className="ai-help-empty">
           <h3>Ask ProgressTracker</h3><p>Questions about trackers, streaks, goals, or anything else? I’m here to help.</p>
-          <div className="ai-help-suggestions">{suggestionsByRoute[route].map((suggestion) => <button type="button" key={suggestion} disabled={loading} onClick={() => onSend(suggestion)}>{suggestion}<AppIcon name="chevron-down" /></button>)}</div>
+          <div className="ai-help-suggestions">{suggestions.map((suggestion) => <button type="button" key={suggestion.id} disabled={loading} onClick={() => onSend(suggestion.question, suggestion.id)}>{suggestion.question}<AppIcon name="chevron-down" /></button>)}</div>
           {!navigator.onLine && <p className="ai-help-offline-note">Some quick answers are available offline.</p>}
         </div> : <div className="ai-help-thread">{messages.map((message) => <article key={message.id} className={`ai-help-message ${message.role}${message.status === 'error' ? ' has-error' : ''}`}>
           {message.role === 'assistant' && <span className="ai-help-message-mark"><AppIcon name="spark" /></span>}

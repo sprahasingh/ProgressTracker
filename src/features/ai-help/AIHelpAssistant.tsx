@@ -4,7 +4,7 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { useAuth } from '../auth/AuthProvider'
-import { askAssistant, classifyConversationIntent, getHelpRoute, submitAnswerFeedback, supportDraftFromConversation, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
+import { askAssistant, classifyConversationIntent, getCatalogAnswer, getHelpRoute, selectCatalogSuggestions, submitAnswerFeedback, supportDraftFromConversation, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
 import { submitGeneralFeedback } from '../feedback/feedbackService'
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
@@ -56,6 +56,7 @@ export function AIHelpAssistant() {
   const [clock, setClock] = useState(Date.now())
   const [supportOpen, setSupportOpen] = useState(false)
   const [supportDraft, setSupportDraft] = useState('')
+  const [suggestions, setSuggestions] = useState(selectCatalogSuggestions)
   const requestSequence = useRef(0)
   const sendingRef = useRef(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -76,9 +77,18 @@ export function AIHelpAssistant() {
     wasOpen.current = open
   }, [open])
 
-  const send = useCallback(async (question: string, appendUser = true) => {
+  const send = useCallback(async (question: string, appendUser = true, questionId?: string) => {
     const content = question.trim()
     if (!content || loading || sendingRef.current) return
+    const catalogAnswer = questionId ? getCatalogAnswer(questionId) : null
+    if (catalogAnswer && catalogAnswer.question === content) {
+      const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: catalogAnswer.question }
+      const topic = ({ 'getting-started': 'trackers', 'check-ins': 'history', streaks: 'schedules', 'accounts-sync': 'sync', 'settings-privacy': 'settings', 'ai-help': 'privacy' } as Record<string, string>)[catalogAnswer.category] ?? catalogAnswer.category
+      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: catalogAnswer.answer, topic, knowledgeVersion: catalogAnswer.knowledgeVersion }
+      setSession((current) => ({ ...current, draft: '', messages: [...current.messages, userMessage, assistantMessage].slice(-30) }))
+      setLiveText('Verified answer received.')
+      return
+    }
     if (appendUser && classifyConversationIntent(content) === 'support') {
       const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content }
       const acknowledgement: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: 'Sure. Review and edit the support message below before sending it.', topic: 'other' }
@@ -136,6 +146,7 @@ export function AIHelpAssistant() {
     sendingRef.current = false
     setLoading(false)
     setSession({ messages: [], draft: '' })
+    setSuggestions(selectCatalogSuggestions())
     setSupportOpen(false)
     setSupportDraft('')
     setLiveText('New conversation started.')
@@ -146,8 +157,8 @@ export function AIHelpAssistant() {
       <AppIcon name="spark" />
     </IconButton>
     {open && <Suspense fallback={null}><AIHelpPanel
-      messages={session.messages} draft={session.draft} loading={loading} route={route} liveText={liveText} nearBottom={nearBottom} now={clock}
-      onClose={closePanel} onSend={(question) => { setNearBottom(true); void send(question) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
+      messages={session.messages} suggestions={suggestions} draft={session.draft} loading={loading} liveText={liveText} nearBottom={nearBottom} now={clock}
+      onClose={closePanel} onSend={(question, questionId) => { setNearBottom(true); void send(question, true, questionId) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
       onRetry={retry} onNewConversation={() => { setNearBottom(true); newConversation() }} onScrollPositionChange={setNearBottom} triggerRef={triggerRef}
       onFeedback={sendFeedback}
       supportOpen={supportOpen} supportDraft={supportDraft} onSupportDraftChange={setSupportDraft} onSupportOpen={setSupportOpen} onSupportSubmit={submitSupport}

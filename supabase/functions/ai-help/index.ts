@@ -1,11 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle.ts'
+import { knowledgeDocuments, knowledgeVersion, verifiedQuestionCatalog } from './_generated/knowledgeBundle.ts'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
 import { evidenceFingerprints, sourcePaths, sourceRelationships, sourceVersion } from './_generated/sourceBundle.ts'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
 import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle.ts'
 import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, rankVerifiedCatalog, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, retrieveVerifiedCatalog, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
 import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
 import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
@@ -111,6 +111,11 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   if (deterministic && shouldUseDeterministicAnswer(deterministic.topic, question)) {
     return { answer: deterministic.answer, links: [], followUps: [], topic: deterministic.topic, knowledge_version: knowledgeVersion }
   }
+  const verifiedCatalogAnswer = retrieveVerifiedCatalog(question, verifiedQuestionCatalog)
+  if (verifiedCatalogAnswer) {
+    const topic = ({ 'getting-started': 'trackers', 'check-ins': 'history', streaks: 'schedules', statistics: 'analytics', history: 'history', holidays: 'schedules', goals: 'goals', calendar: 'analytics', notifications: 'notifications', 'accounts-sync': 'sync', 'settings-privacy': 'settings', 'ai-help': 'privacy' } as Record<string, string>)[verifiedCatalogAnswer.category] ?? 'other'
+    return { answer: verifiedCatalogAnswer.answer, links: [], followUps: [], topic, knowledge_version: knowledgeVersion }
+  }
   const credentials: ProviderCredential[] = [
     { slot: 'primary', key: Deno.env.get('GROQ_API_KEY_PRIMARY') ?? '' },
     { slot: 'secondary', key: Deno.env.get('GROQ_API_KEY_SECONDARY') ?? '' },
@@ -144,9 +149,12 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   if (verifiedResolution.conflict) await recordLearningMetric(admin, 'conflicting_knowledge', verifiedResolution.featureCategory)
   const verified = verifiedResolution.entries
   const relevantVerified = renderVerifiedKnowledge(verified)
+  const catalogMatches = rankVerifiedCatalog(question, verifiedQuestionCatalog).slice(0, 2).filter(({ promptScore }) => promptScore >= 0.28)
+  const relevantCatalog = catalogMatches.map(({ entry }) => `VERIFIED Q&A ${entry.id} (${entry.category})\nQuestion: ${entry.question}\nAliases: ${entry.aliases.join('; ')}\nAnswer: ${entry.answer}\nSources: ${entry.sources.join(', ')}`).join('\n\n')
+  const allVerified = [relevantCatalog, relevantVerified].filter(Boolean).join('\n\n')
   const linkIds = selectRelevantLinkIds(question, history).filter((id) => id in APP_LINKS)
   const relevantCapabilityText = capabilityEvidence(matchedCapabilities)
-  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, verifiedKnowledge: relevantVerified, sourceExcerpts: sources, linkIds, capabilityContext: relevantCapabilityText })
+  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, verifiedKnowledge: allVerified, sourceExcerpts: sources, linkIds, capabilityContext: relevantCapabilityText })
   if (sourcePlan.needsSourceFallback) await recordLearningMetric(admin, 'source_fallback', category)
   if (verified.length) await recordLearningMetric(admin, 'verified_knowledge_used', category)
   const model = Deno.env.get('GROQ_MODEL') || 'openai/gpt-oss-120b'

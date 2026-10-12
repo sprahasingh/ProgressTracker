@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, buildRetrievalQuery, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, parseRetryAfter, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, buildRetrievalQuery, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, parseRetryAfter, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, rankVerifiedCatalog, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, retrieveVerifiedCatalog, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 import { knowledgeDocuments } from './_generated/knowledgeBundle'
 import { sourceIndex } from './_generated/sourceIndex'
+import { verifiedQuestionCatalog } from './_generated/knowledgeBundle'
 
 const measureGuide = { slug: 'measures', title: 'Measures', path: 'docs/ai-help/measures-and-success-rules.md', content: 'New measures are Yes/No or Quantity. Existing Duration and Checklist measures remain supported.' }
 const goalGuide = { slug: 'goals', title: 'Goals', path: 'docs/ai-help/goals-and-milestones.md', content: 'Daily checklist targets cannot exceed item count; cumulative goals can count incremental items.' }
@@ -14,6 +15,55 @@ const sourceEntries = [
 ]
 
 describe('AI Help retrieval and provider boundary', () => {
+  it('retrieves verified answers for the three previously failing questions and their paraphrases', () => {
+    const cases = [
+      ['How do streak statistics work?', 'streak-statistics', /current streak|longest streak/i],
+      ['How is completion rate calculated?', 'completion-rate', /qualifying opportunities divided by the number of counted opportunities/i],
+      ['What does History include?', 'history-includes', /saved check-ins.*holidays.*missing check-in/i],
+    ] as const
+    for (const [question, id, answer] of cases) {
+      const result = retrieveVerifiedCatalog(question, verifiedQuestionCatalog)
+      expect(result?.id).toBe(id)
+      expect(result?.answer).toMatch(answer)
+    }
+    expect(retrieveVerifiedCatalog('How do you calculate my completion percentage?', verifiedQuestionCatalog)?.id).toBe('completion-rate')
+    expect(retrieveVerifiedCatalog('Why does History not show every date?', verifiedQuestionCatalog)?.id).toBe('history-includes')
+    expect(retrieveVerifiedCatalog('Why did my streak reset?', verifiedQuestionCatalog)?.id).toBe('streak-statistics')
+    expect(retrieveVerifiedCatalog('How do I cook pasta?', verifiedQuestionCatalog)).toBeNull()
+  })
+  it('evaluates representative natural phrasing, ambiguity, and unsupported requests', () => {
+    const cases = [
+      ['Why did my streak reset?', 'streak-statistics'],
+      ['Do holidays count against my streak?', 'holidays-streaks'],
+      ['What is the difference between skipped and not checked?', 'skipped-vs-unchecked'],
+      ['Can I undo a check-in?', 'clear-checkin'],
+      ['What happens if I clear yesterday’s progress?', 'clear-checkin'],
+      ['Where do I review missed check-ins?', 'missing-checkins'],
+      ['Why does History not show every date?', 'history-includes'],
+      ['Can I use this without internet?', 'offline-sync'],
+      ['Will my progress appear on another device?', 'cross-device-sync'],
+      ['What happens if two devices edit the same day?', 'sync-conflicts'],
+      ['Can AI Help read my check-in values?', 'ai-help-private-data'],
+    ] as const
+    const retrieved = cases.map(([question, id]) => retrieveVerifiedCatalog(question, verifiedQuestionCatalog)?.id === id)
+    expect(retrieved.filter(Boolean)).toHaveLength(cases.length)
+    expect(retrieveVerifiedCatalog('What is my percentage?', verifiedQuestionCatalog)).toBeNull()
+    expect(retrieveVerifiedCatalog('Can the app calculate my annual tax return?', verifiedQuestionCatalog)).toBeNull()
+  })
+  it('keeps catalog ranking distinct and conservative for ambiguous prompts', () => {
+    const ranked = rankVerifiedCatalog('How do streak statistics work?', verifiedQuestionCatalog)
+    expect(ranked[0]?.entry.id).toBe('streak-statistics')
+    expect(retrieveVerifiedCatalog('What is my history?', verifiedQuestionCatalog)).toBeNull()
+    expect(retrieveVerifiedCatalog('History', verifiedQuestionCatalog)).toBeNull()
+  })
+  it('uses a concise user-facing style while retaining grounding, safety, and fallback instructions', () => {
+    const prompt = buildHelpMessages({ question: 'How do streak statistics work?', history: [], pageContext: 'analytics', relevantDocs: '', sourceExcerpts: '', verifiedKnowledge: 'Verified answer text', linkIds: [] })[0]!.content
+    expect(prompt).toContain('everyday language')
+    expect(prompt).toContain('one to three short paragraphs')
+    expect(prompt).toContain('Avoid internal filenames, type names, and implementation detail')
+    expect(prompt).toContain('source excerpts take priority')
+    expect(prompt).toContain('Set supported=false only when the available evidence cannot support a useful answer')
+  })
   it('only returns deterministic static support contact answers without source retrieval', () => {
     expect(shouldUseDeterministicAnswer('account', 'What is the support email?')).toBe(true)
     expect(shouldUseDeterministicAnswer('account', 'How can I contact support?')).toBe(true)
@@ -51,7 +101,7 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(classifyHelpIntent('Tell me more about Checklist measures.')).toBe('deeper_detail')
     const messages = buildHelpMessages({ question: 'Tell me more about Checklist measures.', history: [], pageContext: 'trackers', relevantDocs: '', sourceExcerpts: '', linkIds: [] })
     expect(messages[0]?.content).toContain('latest turn intent is deeper_detail')
-    expect(messages[0]?.content).toContain('add useful supported information beyond the earlier reply')
+    expect(messages[0]?.content).toContain('add supported information beyond the earlier reply')
   })
 
   it('resolves follow-up wording and checkbox synonyms against measure and legacy knowledge', () => {
@@ -77,8 +127,8 @@ describe('AI Help retrieval and provider boundary', () => {
       pageContext: 'trackers', relevantDocs: 'Checklist is a legacy format.', sourceExcerpts: 'Checked items are counted.', linkIds: ['trackers'],
     })
     expect(messages[0]?.content).toContain('Answer the latest question first')
-    expect(messages[0]?.content).toContain('Do not repeat a previous explanation unless asked')
-    expect(messages[0]?.content).toContain('newly available options from legacy data formats')
+    expect(messages[0]?.content).toContain('do not repeat it unless asked')
+    expect(messages[0]?.content).toContain('implementation and test excerpts')
     expect(messages[1]).toMatchObject({ role: 'user', content: expect.stringContaining('Are there only two types?') })
     expect(messages[2]).toMatchObject({ role: 'assistant', content: expect.stringContaining('unverified') })
     expect(messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('What about checkbox measures?') })
@@ -95,7 +145,7 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(messages[0]?.content).toContain('VERIFIED TOPIC measures.type_immutability')
     expect(messages[0]?.content).toContain('knowledge_candidate (object or null)')
     expect(messages[0]?.content).toContain('pending human review')
-    expect(messages[0]?.content).toContain('Source implementation/test excerpts take priority')
+    expect(messages[0]?.content).toContain('source excerpts take priority when they clearly establish a newer behavior')
   })
 
   it('keeps retrieval empty when no supplied source is relevant', () => {
@@ -198,8 +248,8 @@ describe('AI Help retrieval and provider boundary', () => {
   it('instructs evidence-first answers and separates related technical workflows', () => {
     const system = buildHelpMessages({ question: 'Which role can invoke this RPC?', history: [], pageContext: 'other', relevantDocs: '', sourceExcerpts: 'SQL grant evidence', linkIds: [] })[0]!.content
     expect(system).toContain('distinguish database grants and database roles from user authorization performed by an Edge Function')
-    expect(system).toContain('provider email-send reservations/outcomes from support-thread submission idempotency')
-    expect(system).toContain('answer directly and completely instead of returning a generic refusal')
+    expect(system).toContain('provider delivery reservations from support submission idempotency')
+    expect(system).toContain('answer it directly and completely instead of returning a generic refusal')
   })
 
   it('parses Retry-After delta-seconds and HTTP dates with safe fallback', () => {
