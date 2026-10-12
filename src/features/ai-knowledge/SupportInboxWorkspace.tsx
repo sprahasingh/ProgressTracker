@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { getSupportInboxThread, listSupportInbox, replyAsMaintainer, retrySupportEmail, setSupportThreadStatus, type SupportCategory, type SupportInboxFilters, type SupportInboxList, type SupportStatus, type SupportThread, type SupportThreadDetail } from '../feedback/supportApi'
 
 const categories: Array<{ id: SupportCategory | 'all'; label: string }> = [
@@ -26,9 +26,14 @@ export function SupportInboxWorkspace() {
   const [detail, setDetail] = useState<SupportThreadDetail | null>(null)
   const [reply, setReply] = useState('')
   const [loading, setLoading] = useState(true)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [detailError, setDetailError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const listReturnScroll = useRef(0)
+  const selectedTrigger = useRef<HTMLButtonElement | null>(null)
+  const mobileBackButton = useRef<HTMLButtonElement | null>(null)
 
   const reload = useCallback(async (append = false, pageOffset = 0) => {
     setLoading(true); setError('')
@@ -43,15 +48,22 @@ export function SupportInboxWorkspace() {
   useEffect(() => { void reload() }, [category, search, sort, status, refreshKey])
   useEffect(() => {
     let active = true
-    if (!selectedId) { setDetail(null); setReply(''); return }
-    setError('')
+    if (!selectedId) { setDetail(null); setReply(''); setDetailError(''); setDetailLoading(false); return }
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(true)
     void getSupportInboxThread(selectedId).then((value) => { if (active) {
       setDetail(value); setReply('')
       setResult((current) => current ? { ...current, metrics: { ...current.metrics, unread: Math.max(0, current.metrics.unread - (current.threads.some((thread) => thread.id === selectedId && !thread.maintainer_seen_at) ? 1 : 0)) }, threads: current.threads.map((thread) => thread.id === selectedId ? { ...thread, maintainer_seen_at: value.thread.maintainer_seen_at ?? new Date().toISOString(), maintainer_seen_by: value.thread.maintainer_seen_by } : thread) } : current)
     } })
-      .catch((cause) => { if (active) { setDetail(null); setError(cause instanceof Error ? cause.message : 'The conversation could not be loaded.') } })
+      .catch((cause) => { if (active) { setDetail(null); setDetailError(cause instanceof Error ? cause.message : 'The conversation could not be loaded.') } })
+      .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
   }, [selectedId, refreshKey])
+  useEffect(() => {
+    if (!selectedId || detailLoading || (!detail && !detailError) || typeof window.matchMedia !== 'function') return
+    if (window.matchMedia('(max-width: 640px)').matches) mobileBackButton.current?.focus()
+  }, [selectedId, detail, detailLoading, detailError])
 
   async function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -84,6 +96,24 @@ export function SupportInboxWorkspace() {
     finally { setBusy(false) }
   }
   const loadMore = async () => { const nextOffset = offset + 25; setOffset(nextOffset); await reload(true, nextOffset) }
+  function openThread(id: string, trigger: HTMLButtonElement) {
+    listReturnScroll.current = window.scrollY
+    selectedTrigger.current = trigger
+    setDetailLoading(true)
+    setDetailError('')
+    setSelectedId(id)
+    requestAnimationFrame(() => {
+      if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches) mobileBackButton.current?.focus()
+    })
+  }
+  function backToList() {
+    setDetailLoading(false)
+    setSelectedId('')
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: listReturnScroll.current, behavior: 'auto' })
+      selectedTrigger.current?.focus()
+    })
+  }
 
   return <section className="support-inbox-workspace" aria-labelledby="support-inbox-title">
     <header className="ai-feedback-heading"><div><h2 id="support-inbox-title">Feedback &amp; Support</h2><p>Review in-app feedback and continue support conversations. Opening a thread marks it reviewed.</p></div><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Refresh</button></header>
@@ -97,12 +127,17 @@ export function SupportInboxWorkspace() {
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
       {loading && !result ? <p className="ai-knowledge-loading" role="status">Loading feedback…</p> : !result ? error ? null : <div className="ai-knowledge-empty"><h3>No feedback in this view</h3><p>Try another category or status.</p></div> : result.threads.length === 0 && !error ? <div className="ai-knowledge-empty"><h3>No feedback in this view</h3><p>Try another category or status.</p></div> : <>
       {error && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
-      <div className="support-inbox-layout">
-        <div className="support-inbox-list" role="list" aria-label="Feedback records">{result.threads.map((thread) => <button type="button" role="listitem" key={thread.id} className={`support-inbox-row${selectedId === thread.id ? ' is-active' : ''}`} onClick={() => setSelectedId(thread.id)}>
-          <span className="support-inbox-row-title"><strong>{thread.subject}</strong>{!thread.maintainer_seen_at && <span className="support-unread">New</span>}</span><span>{labelCategory(thread.category)} · {thread.source.replaceAll('_',' ')}</span><span>{thread.user_email ?? 'Deleted account'} · {dateLabel(thread.created_at)}</span><span className={`support-status is-${thread.status}`}>{labelStatus(thread.status)}</span><small>Email: {thread.email_status.replaceAll('_',' ')}</small>
-        </button>)}</div>
-        {result.has_more && <button className="button button-secondary button-small" type="button" disabled={loading} onClick={() => void loadMore()}>{loading ? 'Loading…' : 'Load more feedback'}</button>}
+      <div className={`support-inbox-layout${selectedId ? ' has-selection' : ''}`}>
+        <div className="support-inbox-list-region"><div className="support-inbox-list" role="list" aria-label="Feedback records">{result.threads.map((thread) => <div role="listitem" key={thread.id}>
+          <button type="button" className={`support-inbox-row${selectedId === thread.id ? ' is-active' : ''}`} onClick={(event) => openThread(thread.id, event.currentTarget)}>
+            <span className="support-inbox-row-title"><strong>{thread.subject}</strong>{!thread.maintainer_seen_at && <span className="support-unread">New</span>}</span><span>{labelCategory(thread.category)} · {thread.source.replaceAll('_',' ')}</span><span>{thread.user_email ?? 'Deleted account'} · {dateLabel(thread.created_at)}</span><span className={`support-status is-${thread.status}`}>{labelStatus(thread.status)}</span><small>Email: {thread.email_status.replaceAll('_',' ')}</small>
+          </button>
+        </div>)}</div>
+        {result.has_more && <button className="button button-secondary button-small support-inbox-load-more" type="button" disabled={loading} onClick={() => void loadMore()}>{loading ? 'Loading…' : 'Load more feedback'}</button>}</div>
+        {detailLoading && <div className="support-detail-loading"><button ref={mobileBackButton} type="button" className="button button-secondary button-small support-back-to-inbox" onClick={backToList}>Back to feedback</button><p role="status">Loading conversation…</p></div>}
+        {detailError && !detailLoading && <div className="ai-knowledge-error support-detail-error" role="alert"><button ref={mobileBackButton} type="button" className="button button-secondary button-small support-back-to-inbox" onClick={backToList}>Back to feedback</button><p>{detailError}</p><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
         {detail ? <article className="support-thread-detail support-admin-thread" aria-label={`Feedback detail: ${detail.thread.subject}`}>
+          <button ref={mobileBackButton} type="button" className="button button-secondary button-small support-back-to-inbox" onClick={backToList}>Back to feedback</button>
           <header><div><h3>{detail.thread.subject}</h3><span className="support-status is-open">{labelCategory(detail.thread.category)}</span></div><time dateTime={detail.thread.created_at}>{dateLabel(detail.thread.created_at)}</time></header>
           <dl className="support-admin-meta"><div><dt>From</dt><dd>{detail.user_email ?? 'Deleted account'}</dd></div><div><dt>Source</dt><dd>{detail.thread.source.replaceAll('_',' ')}</dd></div><div><dt>Email notification</dt><dd>{detail.thread.email_status.replaceAll('_',' ')}</dd></div><div><dt>Status</dt><dd>{labelStatus(detail.thread.status)}</dd></div></dl>
           <section className="support-thread-original"><h4>Original feedback</h4><p>{detail.thread.original_message}</p></section>
@@ -111,7 +146,7 @@ export function SupportInboxWorkspace() {
           {detail.thread.status === 'resolved' ? <p className="settings-hint">This conversation is resolved. Change its status before sending another reply.</p> : <form className="support-reply-form" onSubmit={(event) => void sendReply(event)}><label className="form-field"><span>Reply to user</span><textarea className="auth-input" value={reply} onChange={(event) => setReply(event.target.value)} rows={4} maxLength={4000} disabled={busy} /></label><button className="button button-primary button-medium" type="submit" disabled={busy || !reply.trim()}>{busy ? 'Sending…' : 'Send Reply'}</button></form>}
           <label className="support-status-control"><span>Thread status</span><select value={detail.thread.status} disabled={busy} onChange={(event) => void updateStatus(event.target.value as SupportStatus)}>{statuses.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           {['pending','failed'].includes(detail.thread.email_status) && <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => void retryEmail()}>{detail.thread.email_status === 'pending' ? 'Send pending support email notification' : 'Retry support email notification'}</button>}
-        </article> : <div className="support-thread-detail support-thread-empty"><p>Select feedback to view its message and conversation.</p></div>}
+        </article> : selectedId && !detailLoading && !detailError ? <div className="support-thread-detail support-thread-empty"><p>This conversation could not be opened.</p><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div> : !selectedId && <div className="support-thread-detail support-thread-empty"><p>Select feedback to view its message and conversation.</p></div>}
       </div>
       </>}
       {loading && result && <p role="status">Refreshing feedback…</p>}

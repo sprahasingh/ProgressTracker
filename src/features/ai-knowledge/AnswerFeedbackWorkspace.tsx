@@ -63,7 +63,8 @@ export function AnswerFeedbackWorkspace() {
         <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as AnswerFeedbackStatus | 'all')}>{statuses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       </div>
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button className="button button-secondary button-small" type="button" onClick={reload}>Retry</button></div>}
-      {loading && !hasLoaded ? <div className="ai-knowledge-loading" role="status">Loading answer feedback…</div> : <>
+      {loading && <div className="ai-knowledge-loading" role="status">{hasLoaded ? 'Refreshing answer feedback…' : 'Loading answer feedback…'}</div>}
+      {!loading && <>
       {error && hasLoaded && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
       {!error && rows.length === 0 ? <div className="ai-knowledge-empty"><h3>No feedback reports in this view</h3><p>New reports appear here after a user submits feedback on an AI Help answer.</p></div> : rows.length > 0 && <div className="ai-feedback-list">
         {rows.map((row) => <article className="ai-feedback-row" key={row.id}>

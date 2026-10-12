@@ -68,7 +68,30 @@ export type ReviewDetail = {
 }
 
 export class ReviewApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message) }
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message) }
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+const isStringArray = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === 'string')
+function isKnowledgeRow(value: unknown, kind: 'candidate' | 'verified') {
+  if (!isObject(value)) return false
+  const common = typeof value.topic_id === 'string' && typeof value.title === 'string' && typeof value.explanation === 'string'
+    && (value.detailed_explanation === null || typeof value.detailed_explanation === 'string')
+    && typeof value.feature_category === 'string' && isStringArray(value.source_refs)
+    && isObject(value.source_fingerprints) && typeof value.knowledge_version === 'string'
+  if (!common) return false
+  if (kind === 'candidate') return typeof value.id === 'string' && ['pending', 'verified', 'stale', 'rejected'].includes(String(value.status))
+    && typeof value.created_at === 'string' && typeof value.updated_at === 'string'
+    && (value.reviewed_at === null || typeof value.reviewed_at === 'string')
+    && (value.reviewer_id === null || typeof value.reviewer_id === 'string')
+  return ['verified', 'stale'].includes(String(value.status)) && typeof value.reviewed_at === 'string'
+    && (value.stale_at === null || typeof value.stale_at === 'string')
+    && (value.reviewer_id === null || typeof value.reviewer_id === 'string')
+}
+
+function recordReviewFailure(action: string, status: number, code: string | undefined, errorName: string) {
+  // These fields are operational metadata only: never log request bodies, tokens, or response text.
+  console.warn('AI_KNOWLEDGE_REVIEW_REQUEST_FAILED', { action, status, code, errorName })
 }
 
 async function invokeReview<T>(action: Record<string, unknown>, suppliedClient?: SupabaseClient): Promise<T> {
@@ -85,30 +108,36 @@ async function invokeReview<T>(action: Record<string, unknown>, suppliedClient?:
   const context = error.context
   let message = ''
   let status = 0
+  let code: string | undefined
   if (context instanceof Response) {
     status = context.status
     try {
-      const payload = await context.clone().json() as { error?: unknown }
+      const payload = await context.clone().json() as { error?: unknown; code?: unknown }
       if (typeof payload.error === 'string') message = payload.error
+      if (typeof payload.code === 'string') code = payload.code
     } catch { /* Use a stable user-facing fallback for empty gateway responses. */ }
   }
   const errorName = context instanceof Error ? context.name : error instanceof Error ? error.name : ''
-  if (!status && /FunctionsFetchError/.test(errorName)) throw new ReviewApiError(0, 'Could not connect to the AI Knowledge review service. Check your connection and retry.')
-  if (!status && /FunctionsRelayError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service could not complete the request. Retry, and contact support if it continues.')
-  if (!status && /FunctionsHttpError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service returned an unreadable response. Retry, and contact support if it continues.')
+  recordReviewFailure(String(action.action ?? 'unknown'), status, code, errorName || 'unknown')
+  if (!status && /FunctionsFetchError/.test(errorName)) throw new ReviewApiError(0, 'Could not connect to the AI Knowledge review service. Check your connection and retry.', 'network_error')
+  if (!status && /FunctionsRelayError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service could not complete the request. Retry, and contact support if it continues.', 'relay_error')
+  if (!status && /FunctionsHttpError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service returned an unreadable response. Retry, and contact support if it continues.', 'http_error')
   if (status === 401) {
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('progress-tracker:ai-knowledge-session-expired'))
-    throw new ReviewApiError(401, 'Your session has expired. Sign in again.')
+    throw new ReviewApiError(401, 'Your session has expired. Sign in again.', code ?? 'unauthorized')
   }
   if (status === 403) {
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('progress-tracker:ai-knowledge-access-revoked'))
-    throw new ReviewApiError(403, 'This account is not authorized to manage AI Knowledge.')
+    throw new ReviewApiError(403, 'This account is not authorized to manage AI Knowledge.', code ?? 'forbidden')
+  }
+  if (status === 400 && /unsupported.*action|unknown.*action/i.test(message)) {
+    throw new ReviewApiError(400, 'This review service version does not support this request. Deploy the compatible ai-help-review function, then retry.', 'incompatible_function_version')
   }
   if (status === 404) throw new ReviewApiError(404, message || 'That knowledge entry could not be found. Refresh the list.')
   if (status === 409) throw new ReviewApiError(409, message || 'This entry changed during review. Refresh it before trying again.')
   if (status === 429) throw new ReviewApiError(429, message || 'The review service is busy. Wait briefly, then retry.')
-  if (status >= 500) throw new ReviewApiError(status, message || 'The review service is temporarily unavailable. Try again.')
-  throw new ReviewApiError(status || 0, message || 'The review request could not be completed.')
+  if (status >= 500) throw new ReviewApiError(status, code === 'unexpected_backend_failure' ? 'The review service encountered an unexpected backend error. Retry; if it continues, check the Edge Function logs for AI_HELP_REVIEW_UNEXPECTED_FAILURE.' : message || 'The review service is temporarily unavailable. Try again.', code ?? 'backend_error')
+  throw new ReviewApiError(status || 0, message || 'The review request could not be completed.', code ?? 'request_failed')
 }
 
 export async function checkMaintainerAccess(client?: SupabaseClient): Promise<boolean> {
@@ -118,12 +147,14 @@ export async function checkMaintainerAccess(client?: SupabaseClient): Promise<bo
 
 export async function listKnowledge(input: { status: ReviewStatus; search?: string; sort?: ReviewSort; limit?: number; offset?: number; candidate_offset?: number; verified_offset?: number }, client?: SupabaseClient) {
   const result = await invokeReview<ReviewList>({ action: 'list', ...input }, client)
-  if (!result || typeof result.knowledge_version !== 'string' || !Array.isArray(result.candidates) || !Array.isArray(result.verified_knowledge)
+  if (!result || typeof result.knowledge_version !== 'string' || !Array.isArray(result.candidates) || !result.candidates.every((row) => isKnowledgeRow(row, 'candidate'))
+    || !Array.isArray(result.verified_knowledge) || !result.verified_knowledge.every((row) => isKnowledgeRow(row, 'verified'))
     || !result.counts || !['pending', 'approved', 'stale', 'rejected'].every((key) => Number.isFinite(result.counts[key as keyof ReviewCounts]))
-    || !result.page || typeof result.page.has_more !== 'boolean'
+    || !result.page || !Number.isFinite(result.page.limit) || !Number.isFinite(result.page.offset) || typeof result.page.has_more !== 'boolean'
     || (result.page.next_candidate_offset !== undefined && !Number.isFinite(result.page.next_candidate_offset))
     || (result.page.next_verified_offset !== undefined && !Number.isFinite(result.page.next_verified_offset))) {
-    throw new ReviewApiError(502, 'The review service returned an incomplete knowledge list. Refresh and try again.')
+    recordReviewFailure('list', 502, 'incompatible_response', 'SchemaMismatch')
+    throw new ReviewApiError(502, 'The review service returned an incompatible knowledge list. Deploy the matching ai-help-review function and database migrations, then retry.', 'incompatible_response')
   }
   return result
 }
@@ -158,14 +189,19 @@ export function revalidateTopic(topic: VerifiedTopic, client?: SupabaseClient) {
 export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all'; category?: AnswerFeedbackCategory | 'all'; limit?: number; offset?: number }, client?: SupabaseClient) {
   return invokeReview<unknown>({ action: 'feedback_list', ...input }, client).then((value) => {
     const result = value as { current_knowledge_version?: unknown; feedback?: unknown; counts?: Record<string, unknown>; page?: { limit?: unknown; offset?: unknown; has_more?: unknown } } | null
-    const validRows = Array.isArray(result?.feedback) && result.feedback.every((row) => row && typeof row === 'object'
+    const validCategories = ['helpful', 'factually_incorrect', 'outdated', 'wrong_instructions', 'wrong_contact', 'other']
+    const validRows = Array.isArray(result?.feedback) && result.feedback.every((row) => isObject(row)
       && typeof row.id === 'string' && typeof row.user_id === 'string' && typeof row.response_id === 'string'
-      && typeof row.category === 'string' && typeof row.topic === 'string' && typeof row.knowledge_version === 'string'
-      && ['pending', 'reviewed', 'resolved'].includes(row.status) && typeof row.created_at === 'string')
+      && validCategories.includes(String(row.category)) && (row.explanation === null || typeof row.explanation === 'string')
+      && typeof row.topic === 'string' && typeof row.knowledge_version === 'string'
+      && ['pending', 'reviewed', 'resolved'].includes(String(row.status)) && typeof row.created_at === 'string'
+      && (row.reviewed_at === null || typeof row.reviewed_at === 'string')
+      && (row.reviewer_id === null || typeof row.reviewer_id === 'string'))
     if (!result || typeof result.current_knowledge_version !== 'string' || !validRows
       || !result.counts || !['pending', 'reviewed', 'resolved'].every((key) => Number.isFinite(result.counts?.[key]))
       || !result.page || !Number.isFinite(result.page.limit) || !Number.isFinite(result.page.offset) || typeof result.page.has_more !== 'boolean') {
-      throw new ReviewApiError(502, 'The review service returned an incomplete answer feedback list. Refresh and try again.')
+      recordReviewFailure('feedback_list', 502, 'incompatible_response', 'SchemaMismatch')
+      throw new ReviewApiError(502, 'The review service returned an incompatible answer feedback list. Deploy the matching ai-help-review function and database migrations, then retry.', 'incompatible_response')
     }
     return result as { current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }
   })

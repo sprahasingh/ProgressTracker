@@ -257,7 +257,8 @@ function KnowledgeWorkspace() {
         </div>
       </div>
       {error && <div className="ai-knowledge-error" role="alert"><p>{error}</p><button className="button button-secondary button-small" type="button" onClick={refresh}>Retry</button></div>}
-      {loading && items.length === 0 ? <div className="ai-knowledge-loading" role="status">Loading knowledge entries…</div> : <>
+      {loading && <div className="ai-knowledge-loading" role="status">{hasLoaded ? 'Refreshing knowledge entries…' : 'Loading knowledge entries…'}</div>}
+      {!loading && <>
         {error && items.length > 0 && <p className="ai-knowledge-stale" role="status">Showing the last successfully loaded results. They may be out of date.</p>}
         {!error && visibleItems.length === 0 ? <div className="ai-knowledge-empty"><h2>No {tabs.find((item) => item.id === tab)?.label.toLowerCase()} knowledge</h2><p>{search ? 'Try a different search, or clear the search field.' : 'There are no entries in this view yet.'}</p></div>
           : visibleItems.length > 0 && <div className="ai-knowledge-list">{visibleItems.map((item) => {
