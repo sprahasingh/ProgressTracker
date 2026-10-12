@@ -4,7 +4,7 @@ import { knowledgeVersion } from './_generated/knowledgeBundle'
 import { sourceIndexVersion } from './_generated/sourceIndex'
 import { sourceVersion } from './_generated/sourceBundle'
 import { capabilityVersion as frontendCapabilityVersion } from '../../../src/features/ai-help/capabilityVersion'
-import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore'
+import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, hasUnqualifiedHumanRpcAuthorizationClaim, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, unsupportedTechnicalIdentifiers, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore'
 
 const index: CapabilityIndex = { version: 'test-v1', routes: capabilityRoutes, capabilities: capabilities as unknown as CapabilityIndex['capabilities'] }
 const source = 'src/features/trackers/TrackerBinPage.tsx'
@@ -135,6 +135,26 @@ describe('AI Help capability index and factual claim validation', () => {
     expect(claimEvidenceOverlap('Analytics combines totals into one score', sourceText)).toBeLessThan(0.2)
     expect(wrong.valid).toBe(false)
     expect(wrong.issues).toEqual(expect.arrayContaining(['unsupported_numeric_value','weak_lexical_overlap']))
+  })
+
+  it('rejects technical identifiers that do not occur in the evidence cited by that claim', () => {
+    const claims = [{ text: 'Ratings are stored in `public.ai_help_feedback`.', kind: 'fact' as const, evidenceRefs: ['migration.sql'], capabilityIds: [] }]
+    const evidence = { 'migration.sql': 'Ratings are stored in public.ai_help_answer_feedback.' }
+    expect(unsupportedTechnicalIdentifiers(claims, evidence)).toEqual(['public.ai_help_feedback'])
+    const result = validateStructuredClaims({ claims, index, allowedEvidence: new Set(['migration.sql']), evidenceByRef: evidence, enforcement: false })
+    expect(result.issues).toContain('unsupported_technical_identifier')
+    expect(unsupportedTechnicalIdentifiers([{ ...claims[0]!, text: 'Ratings use `public.ai_help_answer_feedback`.' }], evidence)).toEqual([])
+    expect(unsupportedTechnicalIdentifiers([{ ...claims[0]!, text: 'Support email requests use `public.support_feedback`.' }], { 'migration.sql': 'Provider sends reserve public.support_feedback_send_attempts before calling the mail service.' })).toEqual(['public.support_feedback'])
+  })
+
+  it('requires RPC authorization claims to identify the database or Edge layer', () => {
+    expect(hasUnqualifiedHumanRpcAuthorizationClaim({ text: 'Only a maintainer may invoke the `support_maintainer_reply` function.', kind: 'fact', evidenceRefs: ['migration.sql'], capabilityIds: [] })).toBe(true)
+    expect(hasUnqualifiedHumanRpcAuthorizationClaim({ text: 'The Edge Function authorizes a maintainer before calling the RPC with the service_role database role.', kind: 'fact', evidenceRefs: ['index.ts'], capabilityIds: [] })).toBe(false)
+    const result = validateStructuredClaims({
+      claims: [{ text: 'Only a maintainer may invoke the `support_maintainer_reply` function.', kind: 'fact', evidenceRefs: ['migration.sql'], capabilityIds: [] }],
+      index, allowedEvidence: new Set(['migration.sql']), evidenceByRef: { 'migration.sql': 'create function support_maintainer_reply as security definer.' }, enforcement: false,
+    })
+    expect(result.issues).toContain('authorization_layer_ambiguous')
   })
 
   it('lets shadow mode measure without blocking low-risk answers and fails closed for unknown high-risk actions', () => {
