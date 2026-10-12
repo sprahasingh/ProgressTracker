@@ -245,7 +245,15 @@ export async function askAssistant(client: SupabaseClient | null, question: stri
       if (typeof href !== 'string' || !allowedLinkLabels.has(href)) return []
       return [{ href, label: allowedLinkLabels.get(href)! }]
     }) : []
-    return { answer: data.answer, links, followUps, offerSupport: data.offerSupport === true, supportPrefill: typeof data.supportPrefill === 'string' ? data.supportPrefill.slice(0, 1800) : undefined }
+    return {
+      answer: data.answer,
+      links,
+      followUps,
+      topic: typeof data.topic === 'string' ? data.topic : undefined,
+      knowledge_version: typeof data.knowledge_version === 'string' ? data.knowledge_version : undefined,
+      offerSupport: data.offerSupport === true,
+      supportPrefill: typeof data.supportPrefill === 'string' ? data.supportPrefill.slice(0, 1800) : undefined,
+    }
   } catch (error) {
     if (error instanceof HelpRequestError && ['application-rate-limit', 'provider-rate-limit', 'rate-limit-service', 'invalid-response'].includes(error.kind)) throw error
     const cached = getLocalHelpAnswer(question, history)

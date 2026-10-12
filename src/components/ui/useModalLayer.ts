@@ -14,6 +14,13 @@ let originalBodyOverflow = ''
 let layerSequence = 0
 const historyKey = '__progressTrackerModalLayer'
 
+/** True while another modal layer is above the supplied element (or is open
+ * while a non-modal surface, such as the desktop AI Help panel, is underneath). */
+export function hasModalLayerAbove(element: HTMLElement | null): boolean {
+  const top = layers.at(-1)
+  return Boolean(top && top.element !== element)
+}
+
 function lockBody() {
   if (layers.length === 0) {
     originalBodyOverflow = document.body.style.overflow
