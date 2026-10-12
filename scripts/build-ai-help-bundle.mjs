@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sanitizeEvidenceLines } from './sourceIndexUtils.mjs'
@@ -155,6 +155,58 @@ const knowledge = await Promise.all(docs.map(async ([slug, title, path]) => ({
   path,
   content: await readFile(resolve(root, path), 'utf8'),
 })))
+const catalogDir = resolve(root, 'docs/ai-help/knowledge')
+const catalogFiles = (await readdir(catalogDir)).filter((name) => name.endsWith('.md')).sort()
+const allowedCategories = new Set(['getting-started', 'trackers', 'check-ins', 'streaks', 'statistics', 'history', 'holidays', 'goals', 'calendar', 'notifications', 'accounts-sync', 'settings-privacy', 'ai-help'])
+const catalog = []
+const field = (block, label) => {
+  const match = block.match(new RegExp(`\\*\\*${label}:\\*\\*[ \\t]*\\n([\\s\\S]*?)(?=\\n\\*\\*[A-Z][A-Za-z ]+:\\*\\*|$)`))
+  return match?.[1]?.trim() ?? ''
+}
+for (const name of catalogFiles) {
+  const path = `docs/ai-help/knowledge/${name}`
+  const content = await readFile(resolve(root, path), 'utf8')
+  if (/TODO|TBD|PLACEHOLDER|lorem ipsum/i.test(content)) throw new Error(`${path} contains an unresolved placeholder.`)
+  const blocks = content.split(/(?=^### ID: )/m).slice(1)
+  const declaredEntries = content.match(/^### ID:/gm)?.length ?? 0
+  if (!blocks.length || declaredEntries !== blocks.length || !content.trimStart().startsWith('# ') || /^### (?!ID: )/m.test(content)) throw new Error(`${path} has malformed or no parseable knowledge entries.`)
+  for (const block of blocks) {
+    const labels = [...block.matchAll(/^\*\*([A-Z][A-Za-z ]+):\*\*/gm)].map((match) => match[1])
+    const expectedLabels = ['Category', 'Question', 'Aliases', 'Keywords', 'Suggestible', 'Sources', 'Answer']
+    if (labels.length !== expectedLabels.length || expectedLabels.some((label) => labels.filter((item) => item === label).length !== 1) || labels.some((label) => !expectedLabels.includes(label))) throw new Error(`${path} contains an unknown, duplicate, or missing field.`)
+    const id = block.match(/^### ID: ([a-z0-9]+(?:-[a-z0-9]+)*)$/m)?.[1]
+    const category = block.match(/^\*\*Category:\*\* ([a-z-]+)$/m)?.[1]
+    const question = block.match(/^\*\*Question:\*\* (.+)$/m)?.[1]?.trim()
+    const aliasLines = field(block, 'Aliases').split('\n').filter(Boolean)
+    const sourceLines = field(block, 'Sources').split('\n').filter(Boolean)
+    if (aliasLines.some((line) => !/^-\s+\S/.test(line)) || sourceLines.some((line) => !/^-\s+\S/.test(line))) throw new Error(`${path} contains malformed alias or source lists.`)
+    const aliases = aliasLines.map((line) => line.replace(/^-\s+/, '').trim())
+    const sources = sourceLines.map((line) => line.replace(/^-\s+/, '').trim())
+    const answer = field(block, 'Answer')
+    const keywords = block.match(/^\*\*Keywords:\*\* (.+)$/m)?.[1]?.split(',').map((item) => item.trim()).filter(Boolean) ?? []
+    const suggestible = block.match(/^\*\*Suggestible:\*\* (true|false)$/m)?.[1]
+    if (!id || !category || !question || !allowedCategories.has(category) || !answer || !keywords.length || !sources.length || !suggestible) throw new Error(`${path} contains a malformed entry near ${id ?? 'unknown id'}.`)
+    if (aliases.some((alias) => !alias || alias.length > 180) || new Set(aliases).size !== aliases.length) throw new Error(`${id} has invalid or duplicate aliases.`)
+    for (const source of sources) {
+      const absolute = resolve(root, source)
+      if (!absolute.startsWith(`${root}/`) || !/^(?:src|supabase)\//.test(source)) throw new Error(`${id} has an invalid source path ${source}.`)
+      await readFile(absolute, 'utf8').catch(() => { throw new Error(`${id} references missing source ${source}.`) })
+    }
+    if (/\b(?:internal filename|TypeScript type)\b/i.test(answer)) throw new Error(`${id} exposes an internal-only phrase in its answer.`)
+    catalog.push({ id, category, question, aliases, keywords, suggestible: suggestible === 'true', sources, answer })
+  }
+}
+for (const ref of new Set(catalog.flatMap(({ sources }) => sources))) if (!sources.includes(ref)) sources.push(ref)
+const uniqueCheck = (key, label) => { const values = catalog.map((entry) => entry[key].toLocaleLowerCase()); if (new Set(values).size !== values.length) throw new Error(`Knowledge catalog has duplicate ${label}.`) }
+uniqueCheck('id', 'IDs'); uniqueCheck('question', 'canonical questions')
+if (new Set(catalog.map(({ id }) => id)).size !== catalog.length) throw new Error('Knowledge catalog has duplicate IDs.')
+const prompts = new Map()
+for (const entry of catalog) for (const prompt of [entry.question, ...entry.aliases]) {
+  const normalized = prompt.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const prior = prompts.get(normalized)
+  if (prior && prior !== entry.id) throw new Error(`Question or alias "${prompt}" is duplicated by ${prior} and ${entry.id}.`)
+  prompts.set(normalized, entry.id)
+}
 const knowledgeSections = knowledge.flatMap((document) => {
   const parts = document.content.split(/(?=^##? )/m).map((content) => content.trim()).filter(Boolean)
   return parts.map((content, index) => {
@@ -163,6 +215,19 @@ const knowledgeSections = knowledge.flatMap((document) => {
   })
 })
 const sourceFiles = await Promise.all(sources.map(async (path) => ({ path, content: await readFile(resolve(root, path), 'utf8') })))
+const reviewManifestPath = resolve(root, 'docs/ai-help/knowledge-review.json')
+const currentReview = Object.fromEntries(catalog.map((entry) => [entry.id, Object.fromEntries(entry.sources.map((path) => {
+  const file = sourceFiles.find(({ path: candidate }) => candidate === path)
+  if (!file) throw new Error(`${entry.id} source ${path} is not included in the source bundle.`)
+  return [path, createHash('sha256').update(file.content).digest('hex')]
+}))]))
+const refreshReview = process.argv.includes('--refresh-knowledge-review')
+if (refreshReview) await writeFile(reviewManifestPath, `${JSON.stringify(currentReview, null, 2)}\n`)
+else {
+  const reviewed = JSON.parse(await readFile(reviewManifestPath, 'utf8').catch(() => '{}'))
+  const stale = catalog.flatMap((entry) => Object.entries(currentReview[entry.id] ?? {}).filter(([path, digest]) => reviewed[entry.id]?.[path] !== digest).map(([path]) => `${entry.id} (${path})`))
+  if (stale.length) throw new Error(`Verified knowledge needs source review before generation: ${[...new Set(stale)].join(', ')}. Re-check the answers, then run with --refresh-knowledge-review.`)
+}
 if (new Set(sources).size !== sources.length) throw new Error('The reviewed source manifest contains duplicate paths.')
 const sourcePathSet = new Set(sources)
 const relationshipSets = new Map(sources.map((path) => [path, new Set()]))
@@ -243,11 +308,14 @@ if (!binPage.includes('Permanent deletion is locked until the hosted database mi
   || /Permanent deletion is a separate action that removes the tracker/i.test(coreGuide)) {
   throw new Error('AI Help Bin availability guidance must be reviewed against the route, visible UI gate, production feature flag, and cleanup migration before generating the bundle.')
 }
-const digest = createHash('sha256').update(JSON.stringify({ knowledge, sourceFiles, capabilities, routes, sourceRelationships, sourceIndexFormat: 3 })).digest('hex').slice(0, 12)
+const digest = createHash('sha256').update(JSON.stringify({ knowledge, catalog, sourceFiles, capabilities, routes, sourceRelationships, sourceIndexFormat: 3 })).digest('hex').slice(0, 12)
 const version = `${packageInfo.version}+${digest}`
 const outputDir = resolve(root, 'supabase/functions/ai-help/_generated')
 await mkdir(outputDir, { recursive: true })
-await writeFile(resolve(outputDir, 'knowledgeBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const knowledgeVersion = ${JSON.stringify(version)}\nexport const knowledgeDocuments = ${JSON.stringify(knowledgeSections)} as const\n`)
+await writeFile(resolve(outputDir, 'knowledgeBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const knowledgeVersion = ${JSON.stringify(version)}\nexport const knowledgeDocuments = ${JSON.stringify(knowledgeSections)} as const\nexport const verifiedQuestionCatalog = ${JSON.stringify(catalog)} as const\n`)
+const frontendCatalogPath = resolve(root, 'src/features/ai-help/_generated/verifiedQuestionCatalog.ts')
+await mkdir(dirname(frontendCatalogPath), { recursive: true })
+await writeFile(frontendCatalogPath, `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const verifiedQuestionCatalogVersion = ${JSON.stringify(version)}\nexport const verifiedQuestionCatalog = ${JSON.stringify(catalog)} as const\n`)
 const tokens = (text) => [...new Set((text
   .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
   .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')

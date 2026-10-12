@@ -1,20 +1,43 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
 import { capabilityVersion } from './capabilityVersion'
+import { verifiedQuestionCatalog, verifiedQuestionCatalogVersion } from './_generated/verifiedQuestionCatalog'
 
 export type HelpRoute = 'today' | 'trackers' | 'analytics' | 'goals' | 'calendar' | 'history' | 'settings' | 'other'
 export type FeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
 export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; status?: 'error'; retryAfterSeconds?: number; retryAfterUntil?: number; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledgeVersion?: string; feedbackStatus?: 'helpful' | 'reported'; offerSupport?: boolean; supportPrefill?: string }
 
-export const suggestionsByRoute: Record<HelpRoute, string[]> = {
-  today: ['How are streaks calculated?', 'How do daily check-ins work?', 'What is a success rule?'],
-  trackers: ['How do measures work?', 'What is a success rule?', 'Can I change a saved measure?'],
-  analytics: ['How is completion rate calculated?', 'How do streak statistics work?', 'What does history include?'],
-  goals: ['What is cumulative progress?', 'How are milestones calculated?', 'What is the daily goal target?'],
-  calendar: ['What does the calendar show?', 'How can I view past check-ins?', 'How are streaks calculated?'],
-  history: ['How do I review past check-ins?', 'What happens to retired measures?', 'How is completion calculated?'],
-  settings: ['How does offline sync work?', 'How do I change my workspace settings?', 'How are schedules used?'],
-  other: ['How are streaks calculated?', 'What is the difference between daily and cumulative goals?', 'Can I change a saved measure?'],
+export type CatalogSuggestion = { id: string; question: string }
+const recentSuggestionKey = 'progress-tracker:ai-help:recent-suggestions'
+function randomIndex(max: number) {
+  if (typeof crypto !== 'undefined' && 'getRandomValues' in crypto) { const value = new Uint32Array(1); crypto.getRandomValues(value); return value[0]! % max }
+  return Math.floor(Math.random() * max)
+}
+export function selectCatalogSuggestions(): CatalogSuggestion[] {
+  const pool = verifiedQuestionCatalog.filter((entry) => entry.suggestible)
+  let recent: string[] = []
+  try { const parsed: unknown = JSON.parse(localStorage.getItem(recentSuggestionKey) ?? '[]'); recent = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string').slice(-12) : [] } catch { /* Suggestion history is optional. */ }
+  const byCategory = new Map<string, typeof pool[number][]>()
+  for (const entry of pool) byCategory.set(entry.category, [...(byCategory.get(entry.category) ?? []), entry])
+  const categories = [...byCategory.keys()]
+  const chosen: typeof pool[number][] = []
+  while (chosen.length < 3 && categories.length) {
+    const freshCategories = categories.filter((category) => byCategory.get(category)!.some((entry) => !recent.includes(entry.id)))
+    const eligibleCategories = freshCategories.length ? freshCategories : categories
+    const category = eligibleCategories[randomIndex(eligibleCategories.length)]!
+    categories.splice(categories.indexOf(category), 1)
+    const available = byCategory.get(category)!
+    const fresh = available.filter((entry) => !recent.includes(entry.id))
+    const source = fresh.length ? fresh : available
+    chosen.push(source[randomIndex(source.length)]!)
+  }
+  const result = chosen.map(({ id, question }) => ({ id, question }))
+  try { localStorage.setItem(recentSuggestionKey, JSON.stringify([...recent, ...result.map(({ id }) => id)].slice(-12))) } catch { /* Suggestion history is optional. */ }
+  return result
+}
+export function getCatalogAnswer(id: string) {
+  const entry = verifiedQuestionCatalog.find((candidate) => candidate.id === id)
+  return entry ? { ...entry, knowledgeVersion: verifiedQuestionCatalogVersion } : null
 }
 
 export function getHelpRoute(pathname: string): HelpRoute {

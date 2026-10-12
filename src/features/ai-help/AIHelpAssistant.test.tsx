@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { AIHelpAssistant } from './AIHelpAssistant'
+import { verifiedQuestionCatalog } from './_generated/verifiedQuestionCatalog'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), status: 'signed-in', isOnline: true }))
 vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 'test-token' } }, error: null }) }, functions: { invoke: mocks.invoke } }) }))
@@ -27,13 +28,28 @@ describe('AI Help Assistant', () => {
     renderAssistant('/dashboard')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
     expect(await screen.findByRole('region', { name: 'Ask ProgressTracker' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'How is completion rate calculated?' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'How is completion rate calculated?{Enter}')
     expect(await screen.findByText('A streak counts scheduled days.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledWith('ai-help', expect.objectContaining({ body: expect.objectContaining({ pageContext: 'analytics' }) }))
     expect(screen.getByRole('link', { name: 'Insights' })).toHaveAttribute('href', '/dashboard')
     expect(await screen.findByRole('navigation', { name: 'Suggested follow-up questions' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'How do holidays affect streaks?' }))
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('answers a clicked verified suggestion locally and keeps answer actions available', async () => {
+    const user = userEvent.setup()
+    renderAssistant('/analytics')
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    const question = screen.getAllByRole('button').find((button) => button.closest('.ai-help-suggestions'))!
+    const text = question.textContent!.trim()
+    const answer = verifiedQuestionCatalog.find((entry) => entry.question === text)!.answer
+    await user.click(question)
+    expect(await screen.findByText(answer)).toBeInTheDocument()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '👍 Helpful' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '👎 Incorrect' })).toBeInTheDocument()
   })
 
   it('navigates to the validated Bin link and closes the mobile assistant', async () => {
@@ -260,8 +276,10 @@ describe('AI Help Assistant', () => {
     const user = userEvent.setup()
     renderAssistant()
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
-    await user.click(screen.getByRole('button', { name: 'How are streaks calculated?' }))
-    expect(await screen.findByText(/A streak counts consecutive scheduled/)).toBeInTheDocument()
+    const question = screen.getAllByRole('button').find((button) => button.closest('.ai-help-suggestions'))!
+    const answer = verifiedQuestionCatalog.find((entry) => entry.question === question.textContent!.trim())!.answer
+    await user.click(question)
+    expect(await screen.findByText(answer)).toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 

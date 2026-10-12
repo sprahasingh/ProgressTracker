@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "prebuild": "npm run build:ai-help-bundle",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
