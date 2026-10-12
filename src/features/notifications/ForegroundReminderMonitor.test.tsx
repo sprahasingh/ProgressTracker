@@ -15,7 +15,13 @@ const tracker: StoredTrackerDefinition = {
   qualificationRule: { kind: 'threshold', metricId: 'minutes', level: 'target' }, customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
+afterEach(async () => {
+  cleanup()
+  // Let a foreground reconciliation already in flight finish before clearing its IndexedDB.
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  vi.restoreAllMocks()
+  await db.delete()
+})
 
 describe('foreground reminders', () => {
   it('evaluates local progress at the configured timezone slot and deduplicates it', async () => {
@@ -31,5 +37,27 @@ describe('foreground reminders', () => {
     window.dispatchEvent(new Event('focus'))
     await waitFor(async () => expect(await localRepository.listAppNotifications()).toHaveLength(1))
     expect(await localRepository.listAppNotifications()).toHaveLength(1)
+  })
+
+  it('reminds about yesterday as unrecorded, then removes the reminder when the user records or clears a check-in', async () => {
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    const yesterday = new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    const dueTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`
+    await localRepository.saveNotificationPreferences({ enabled: true, daily_enabled: false, daily_times: [], overdue_enabled: true, overdue_times: [dueTime], remind_partial: false, motivation_mode: 'off', motivation_times: [], motivation_weekdays: [0,1,2,3,4,5,6], timezone: 'UTC', quiet_start: null, quiet_end: null, allow_overdue_during_quiet: false, daily_limit: 4, motivation_daily_limit: 1, tracker_ids: null })
+    await localRepository.saveTracker(tracker)
+    render(<ForegroundReminderMonitor enabled />)
+    await waitFor(async () => expect(await localRepository.listAppNotifications()).toHaveLength(1))
+    const reminder = (await localRepository.listAppNotifications())[0]!
+    expect(reminder).toMatchObject({ identity: `overdue-reminder:${yesterday}:${dueTime}`, title: 'Unrecorded check-in', body: 'You haven\'t recorded your Read check-in for ' + new Date(`${yesterday}T12:00:00.000Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) + '.' })
+    expect(await localRepository.getTrackerEntry(tracker.id, yesterday)).toBeUndefined()
+
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: yesterday, outcome: 'recorded', values: { minutes: 20 }, note: '' })
+    await waitFor(async () => expect(await localRepository.listAppNotifications()).toHaveLength(0))
+    expect(await localRepository.getTrackerEntry(tracker.id, yesterday)).toMatchObject({ outcome: 'recorded', values: { minutes: 20 } })
+
+    await localRepository.deleteTrackerEntry(tracker.id, yesterday)
+    await waitFor(async () => expect(await localRepository.listAppNotifications()).toHaveLength(1))
+    expect(await localRepository.getTrackerEntry(tracker.id, yesterday)).toBeUndefined()
   })
 })

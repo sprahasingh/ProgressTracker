@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 
-export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'missed' | 'holiday' | 'unscheduled'
+export type ActivityStatus = 'pending' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'missed' | 'skipped' | 'holiday' | 'unscheduled'
 
 /** Shared words and marks for activity status across calendars and day summaries. */
 export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: string; colorToken: string }> = {
@@ -11,13 +11,14 @@ export const ACTIVITY_STATUS_PRESENTATION: Record<ActivityStatus, { label: strin
   'no-progress': { label: 'No progress', colorToken: '--status-pending' },
   historical: { label: 'Historical · outside tracker period', colorToken: '--status-pending' },
   missed: { label: 'Missed', colorToken: '--status-missed' },
+  skipped: { label: 'Skipped', colorToken: '--status-neutral' },
   holiday: { label: 'Holiday', colorToken: '--status-holiday' },
   unscheduled: { label: 'Rest day', colorToken: '--status-rest' },
 }
 
 /**
- * Precedence: an explicit holiday masks scheduled status; deleted entries are
- * treated as absent; a deliberately skipped scheduled opportunity is missed;
+ * Precedence: Standard Mode holidays mask scheduled status; deleted entries are
+ * treated as absent; a deliberately skipped opportunity is distinct from a derived miss;
  * entries outside the inclusive tracker period remain historical; valid
  * recorded entries are evaluated; inactive or unscheduled
  * dates are neutral; other active opportunities are pending today/future and
@@ -33,20 +34,22 @@ export function getTrackerActivityStatus(input: {
   timeZone?: string
 }): ActivityStatus {
   const { tracker, entry, date, today } = input
-  if (input.holidays?.has(date)) return 'holiday'
+  const strict = tracker.strictMode === true
+  if (input.holidays?.has(date) && !strict) return 'holiday'
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) {
     return entry && entry.deletedAt === null ? 'historical' : 'unscheduled'
   }
   if (entry && entry.deletedAt !== null) {
-    if (tracker.status !== 'active' || !isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return 'unscheduled'
+    if (tracker.status !== 'active' || (!strict && !isTrackerScheduledOccurrence(tracker, date, input.timeZone))) return 'unscheduled'
     return date < today ? 'missed' : 'pending'
   }
   if (entry?.outcome === 'recorded') {
     if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
     return hasPositiveProgress(tracker, entry) ? 'partial' : 'no-progress'
   }
-  if (!isTrackerScheduledOccurrence(tracker, date, input.timeZone)) return 'unscheduled'
-  if (entry?.outcome === 'skipped') return date > today ? 'pending' : 'missed'
+  const requiredOpportunity = strict || isTrackerScheduledOccurrence(tracker, date, input.timeZone)
+  if (!requiredOpportunity) return 'unscheduled'
+  if (entry?.outcome === 'skipped') return 'skipped'
   if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'unscheduled'
   return date < today ? 'missed' : 'pending'
 }

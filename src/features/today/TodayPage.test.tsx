@@ -95,12 +95,13 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('button', { name: 'Open Daily reading, Rest day' })).toBeInTheDocument()
   })
 
-  it('records a voluntary Strict Mode check-in on a rest day without changing its primary status', async () => {
+  it('requires a Strict Mode check-in on a rest day', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [], strictMode: true })
     render(<ToastProvider><MemoryRouter initialEntries={[{ pathname: '/', state: { openActivity: { trackerId: 'today-tracker', date: today() } } }]}><TodayPage /></MemoryRouter></ToastProvider>)
-    expect(await screen.findByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toHaveTextContent('Rest day')
+    expect(await screen.findByRole('button', { name: 'Open Daily reading, Pending' })).toBeInTheDocument()
+    expect(screen.queryByText(/Voluntary check-in · this stays a holiday or rest day/)).not.toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toHaveTextContent('Pending')
     await user.type(screen.getByRole('spinbutton', { name: 'Pages' }), '5')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 5 } })
@@ -571,10 +572,10 @@ describe('Today check-ins', () => {
     await screen.findByRole('heading', { name: 'Daily reading' })
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     await user.click(await screen.findByRole('button', { name: /Mark as missed/ }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Missed' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Skipped' })).toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 marked missed')
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'skipped' })
-    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Missed' }))
+    await user.click(screen.getByRole('button', { name: 'Open Daily reading, Skipped' }))
     expect(screen.getByText(/marked missed intentionally/)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Pages'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
@@ -638,6 +639,16 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
     expect(await localRepository.getTrackerEntry('today-tracker', yesterday)).toMatchObject({ outcome: 'recorded', values: { pages: 5 } })
     await waitFor(() => expect(screen.queryByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })).not.toBeInTheDocument())
+  })
+
+  it('includes unrecorded Strict Mode rest days and holidays in the recent missed list', async () => {
+    const user = userEvent.setup()
+    const yesterday = new Date(Date.parse(`${today()}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    await localRepository.saveTracker({ ...tracker({ kind: 'none' }), customFields: [], strictMode: true })
+    await localRepository.saveAccountHolidays([yesterday], 'personal')
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByText(/Missed opportunities in the last week/))
+    expect(await screen.findByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })).toBeInTheDocument()
   })
 
   it('shows only scheduled work in the at-a-glance progress summary', async () => {

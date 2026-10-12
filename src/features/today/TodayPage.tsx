@@ -16,6 +16,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
 import { getTrackerActivityStatus, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
+import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import type { TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
@@ -77,7 +78,7 @@ export function TodayPage() {
     setLoadError('')
     try {
       const requestedDate = focusedDateRef.current
-      const queryStart = requestedDate && requestedDate < shiftCalendarDate(today, -6) ? requestedDate : shiftCalendarDate(today, -6)
+      const queryStart = requestedDate && requestedDate < shiftCalendarDate(today, -7) ? requestedDate : shiftCalendarDate(today, -7)
       const queryEnd = requestedDate && requestedDate > shiftCalendarDate(today, 6) ? requestedDate : shiftCalendarDate(today, 6)
       const [allTrackers, deletedTrackers, recentEntries, holidays] = await Promise.all([
         localRepository.listTrackers(true),
@@ -158,16 +159,19 @@ export function TodayPage() {
     return getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, timeZone }) === 'completed' || tracker.strictMode === true && Boolean(entry && qualifiesForStreak(tracker, entry))
   }).length
   const partialCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'partial').length
-  const missedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'missed').length
+  const missedCount = trackers.filter((tracker) => ['missed', 'skipped'].includes(getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }))).length
   const remainingCount = Math.max(0, trackers.length - completedCount - missedCount)
   const allComplete = trackers.length > 0 && completedCount === trackers.length
   const selectedTracker = activityTrackers.find((tracker) => tracker.id === selectedActivity?.trackerId)
   const selectedEntry = selectedActivity ? weekEntries.find((entry) => entry.trackerId === selectedActivity.trackerId && entry.date === selectedActivity.date) : undefined
-  const recentMisses = useMemo(() => Array.from({ length: 6 }, (_, index) => shiftCalendarDate(today, index - 6))
-    .filter((date) => !holidaySet.has(date))
-    .flatMap((date) => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null && isScheduledDate(tracker, date, timeZone))
-      .filter((tracker) => getTrackerActivityStatus({ tracker, entry: weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date), date, today, holidays: holidaySet, timeZone }) === 'missed')
-      .map((tracker) => ({ tracker, date }))), [today, allTrackers, weekEntries, holidaySet])
+  const recentMisses = useMemo(() => selectMissingCheckIns({
+    trackers: allTrackers,
+    entries: weekEntries,
+    holidays: holidaySet,
+    dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, index - 7)),
+    today,
+    timeZone,
+  }), [today, allTrackers, weekEntries, holidaySet, timeZone])
   const weekStart = shiftCalendarDate(today, -mondayFirstWeekday(today))
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = shiftCalendarDate(weekStart, index)
@@ -183,7 +187,7 @@ export function TodayPage() {
     const partial = statuses.some((status) => status === 'partial')
     const noProgress = statuses.some((status) => status === 'no-progress')
     const hasSkipped = opportunities.some((tracker) => entryFor(tracker)?.outcome === 'skipped')
-    const isRest = !isHoliday && scheduled.length === 0
+    const isRest = !isHoliday && opportunities.length === 0
     const state = isHoliday ? 'holiday' : isRest ? 'rest' : getWeekRhythmState({ isHoliday, scheduled: opportunities.length, done, hasPartial: partial, hasNoProgress: noProgress, hasSkipped, isToday, isFuture: date > today })
     const statusLabel = state === 'complete' ? 'completed' : state === 'partial' ? 'partially completed' : state === 'no-progress' ? 'no progress' : state === 'missed' ? 'missed' : state === 'holiday' ? 'holiday' : state === 'rest' ? 'rest day' : 'pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, strictRequired: strictRequired.length, strictQualified, done, isToday, isHoliday, state, statusLabel }
@@ -418,7 +422,7 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={entries} holidays={holidays} />
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>
-          {(holidays.has(today) || status === 'unscheduled') && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. {tracker.strictMode ? 'A qualifying check-in counts toward this tracker’s Strict Mode streak.' : 'Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.'}</p>}
+          {(holidays.has(today) || status === 'unscheduled') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
           {entry?.outcome === 'skipped' && <p className="today-detail-notice">This activity was marked missed intentionally. Recording progress will replace the missed status.</p>}
           <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>

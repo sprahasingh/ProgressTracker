@@ -30,8 +30,23 @@ describe('notification reminder rules', () => {
     expect(result).toMatchObject({ identity: 'pending-reminder:2026-10-10:16:00', trackerIds: ['tracker-1'], href: '/?date=2026-10-10' })
     expect(buildReminderCandidate({ trackers: [tracker], entries: [], holidays: new Set(['2026-10-10']), date: '2026-10-10', kind: 'pending', slot: '16:00' })).toBeNull()
   })
+  it('uses the workspace date and tracker name for overdue reminders and never reminds for today', () => {
+    const missing = buildReminderCandidate({ trackers: [tracker], entries: [], holidays: new Set(), date: '2026-10-11', today: '2026-10-12', kind: 'overdue', slot: '10:00', timeZone: 'Asia/Kolkata' })
+    expect(missing).toMatchObject({ title: 'Unrecorded check-in', body: 'You haven\'t recorded your DSA check-in for 11 Oct.', href: '/history?date=2026-10-11#missing-checkins' })
+    expect(buildReminderCandidate({ trackers: [tracker], entries: [], holidays: new Set(), date: '2026-10-12', today: '2026-10-12', kind: 'overdue', slot: '10:00' })).toBeNull()
+  })
+  it('uses Standard and Strict opportunity rules for overdue holidays and rest days', () => {
+    const holiday = new Set(['2026-10-11'])
+    const standard = { ...tracker, schedule: { kind: 'none' as const } }
+    const strict = { ...standard, strictMode: true }
+    const input = { entries: [], holidays: holiday, date: '2026-10-11' as const, today: '2026-10-12' as const, kind: 'overdue' as const, slot: '10:00', timeZone: 'Asia/Kolkata' }
+    expect(buildReminderCandidate({ ...input, trackers: [standard] })).toBeNull()
+    expect(buildReminderCandidate({ ...input, trackers: [tracker], holidays: holiday })).toBeNull()
+    expect(buildReminderCandidate({ ...input, trackers: [standard], holidays: new Set() })).toBeNull()
+    expect(buildReminderCandidate({ ...input, trackers: [strict] })).toMatchObject({ trackerIds: [strict.id] })
+  })
   it('does not remind about skips, deleted trackers, or resolved entries', () => {
-    expect(buildReminderCandidate({ trackers: [tracker], entries: [entry('skipped')], holidays: new Set(), date: '2026-10-10', kind: 'overdue', slot: '10:00' })).toBeNull()
+    expect(buildReminderCandidate({ trackers: [tracker], entries: [entry('skipped')], holidays: new Set(), date: '2026-10-10', today: '2026-10-11', kind: 'overdue', slot: '10:00' })).toBeNull()
     expect(buildReminderCandidate({ trackers: [{ ...tracker, deletedAt: '2026-10-10' }], entries: [], holidays: new Set(), date: '2026-10-10', kind: 'pending', slot: '16:00' })).toBeNull()
   })
   it('keeps partial progress reminders controlled by the existing include-partial setting', () => {

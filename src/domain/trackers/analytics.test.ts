@@ -58,7 +58,9 @@ describe('tracker analytics', () => {
     const result = calculateTrackerAnalytics(strict, [entry('2026-10-05', { distance: 5, pages: 20 })], '2026-10-05', '2026-10-10', new Set(['2026-10-07']))
     expect(result).toMatchObject({ scheduledCount: 5, scheduledQualifiedCount: 1, consistencyPercent: 20, qualifiedCount: 1 })
     const holidayProgress = calculateTrackerAnalytics(strict, [entry('2026-10-07', { distance: 5, pages: 20 })], '2026-10-07', '2026-10-07', new Set(['2026-10-07']))
-    expect(holidayProgress).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 1, consistencyPercent: 100, qualifiedCount: 0 })
+    expect(holidayProgress).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 1, consistencyPercent: 100, qualifiedCount: 1 })
+    const standardHolidayProgress = calculateTrackerAnalytics(tracker, [entry('2026-10-07', { distance: 5, pages: 20 })], '2026-10-07', '2026-10-07', new Set(['2026-10-07']))
+    expect(standardHolidayProgress).toMatchObject({ scheduledCount: 0, scheduledQualifiedCount: 0, consistencyPercent: null, qualifiedCount: 1 })
   })
 
   it('preserves but excludes entries outside the current tracker period from Insights totals and trends', () => {

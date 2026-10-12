@@ -1908,7 +1908,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .today-state.unscheduled svg { color: var(--status-rest); }
 .today-state.skipped svg { color: var(--status-neutral); }
 .status-badge { background: var(--status-bg) !important; color: var(--status-fg) !important; }
-.calendar-dot.pending, .calendar-dot.completed, .calendar-dot.partial, .calendar-dot.no-progress, .calendar-dot.historical, .calendar-dot.missed, .calendar-dot.holiday, .calendar-dot.unscheduled {
+.calendar-dot.pending, .calendar-dot.completed, .calendar-dot.partial, .calendar-dot.no-progress, .calendar-dot.historical, .calendar-dot.missed, .calendar-dot.skipped, .calendar-dot.holiday, .calendar-dot.unscheduled {
   display: inline-grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: var(--status-bg); color: var(--status-fg); font-size: 11px; font-style: normal; font-weight: 800;
 }
 .calendar-dot.no-progress, .calendar-dot.historical { --status-bg: var(--status-pending-surface); --status-fg: var(--status-pending-ink); }
@@ -1916,6 +1916,7 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .calendar-dot.completed { --status-bg: var(--status-completed-surface); --status-fg: var(--status-completed-ink); }
 .calendar-dot.partial { --status-bg: var(--status-partial-surface); --status-fg: var(--status-partial-ink); }
 .calendar-dot.missed { --status-bg: var(--status-missed-surface); --status-fg: var(--status-missed-ink); }
+.calendar-dot.skipped { --status-bg: var(--status-neutral-surface); --status-fg: var(--status-neutral-ink); }
 .calendar-dot.holiday { --status-bg: var(--status-holiday-surface); --status-fg: var(--status-holiday-ink); }
 .calendar-dot.unscheduled { --status-bg: var(--status-rest-surface); --status-fg: var(--status-rest-ink); }
 .calendar-status-mark.completed, .activity-calendar .calendar-cell-status.completed, .goal-plan-day.completed { background: var(--status-completed-surface); color: var(--status-completed-ink); }
