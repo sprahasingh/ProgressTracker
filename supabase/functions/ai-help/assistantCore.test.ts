@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, socialConversationReply } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 import { knowledgeDocuments } from './_generated/knowledgeBundle'
 import { sourceIndex } from './_generated/sourceIndex'
@@ -14,6 +14,12 @@ const sourceEntries = [
 ]
 
 describe('AI Help retrieval and provider boundary', () => {
+  it('answers social messages without making product claims', () => {
+    expect(socialConversationReply('Helo!')).toMatch(/How can I help/)
+    expect(socialConversationReply('Thanks!')).toBe("You're welcome!")
+    expect(socialConversationReply('bye')).toMatch(/See you/)
+    expect(socialConversationReply('Where is the tracker history?')).toBeNull()
+  })
   it('answers verified account and contact workflows deterministically', () => {
     const email = 'spraha.progresstracker@gmail.com'
     expect(deterministicProductAnswer('How do I create an account?', [], email)?.answer).toContain('first use of an email creates an account')
@@ -109,6 +115,63 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(evidence).toContain('supabase/functions/delete-account/index.ts')
   })
 
+  it('answers Bin questions from current availability and routes to the real page', () => {
+    const binAnswer = deterministicProductAnswer('Why are my deleted items not permanently deleting?', [], 'support@example.com')
+    expect(binAnswer?.answer).toContain('permanent deletion is disabled')
+    expect(binAnswer?.answer).toContain('no permanent-delete control')
+    expect(binAnswer?.answer).toContain('keep the tracker in the Bin or restore it')
+    expect(deterministicProductAnswer('Where is the Bin?', [], 'support@example.com')?.answer).toContain('More navigation')
+    expect(deterministicProductAnswer('How do I restore a tracker?', [], 'support@example.com')?.answer).toContain('choose Restore')
+    expect(deterministicProductAnswer('What happens after 30 days?', [{ role: 'user', content: 'Why are my deleted items not permanently deleting?' }], 'support@example.com')?.answer).toContain('30-day recovery period')
+    expect(deterministicProductAnswer('Why can’t I permanantly delete it?', [{ role: 'user', content: 'Where is the Bin?' }], 'support@example.com')?.answer).toContain('no permanent-delete control')
+    const refs = ['src/features/trackers/TrackerBinPage.tsx']
+    expect(buildFollowUpSuggestions(refs, 'Where is the Bin?')).toEqual(['How do I restore a tracker from The Bin?', 'Why is permanent deletion locked?'])
+    expect(selectRelevantLinkIds('Why are my deleted items not permanently deleting?', [])).toEqual(['bin'])
+    expect(selectRelevantLinkIds('How do I create a tracker?', [])).toEqual(['create_tracker'])
+    expect(selectRelevantLinkIds('How do milestones work?', [])).toEqual(['goals'])
+    expect(selectRelevantLinkIds('How do I cook pasta?', [])).toEqual([])
+    const ranked = rankSourceIndex('Why are deleted items not permanently deleting?', [], sourceIndex)
+    expect(ranked[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
+    expect(retrieveSourceExcerpts('Why are deleted items not permanently deleting?', [], sourceIndex)).toContain('Permanent deletion is locked')
+    expect(rankSourceIndex('How do I restore a tracker?', [], sourceIndex)[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
+  })
+
+  it('prevents available-action instructions when current evidence explicitly says the capability is disabled', () => {
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'Tap Permanently delete on the tracker card to erase it now.',
+      'The Bin shows “Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.”',
+    )).toBe(true)
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'Permanent deletion requests are automatically queued when offline.',
+      'Permanent deletion is locked until the hosted migration and scheduled cleanup are verified.',
+    )).toBe(true)
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'Resolve deletion sync conflicts from The Bin.',
+      'SOURCE src/features/trackers/TrackerBinPage.tsx · implementation · The Bin shows Restore and no conflict controls.',
+    )).toBe(true)
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'You can enable background push delivery from Settings.',
+      'Device permission does not enable closed-app delivery; background sender/scheduler setup is not deployed.',
+    )).toBe(true)
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'Choose Restore to bring the tracker back.',
+      'The Bin has a Restore button. Permanent deletion is locked until setup is verified.',
+    )).toBe(false)
+    expect(hasUnsupportedUnavailableWorkflowClaim(
+      'Tap Permanently delete to erase it.',
+      'The backend provides a permanent deletion endpoint.',
+    )).toBe(true)
+    expect(hasUnsupportedNavigationClaim('The Bin is under Settings → Bin.', 'The Bin is a separate page at More → Bin.')).toBe(true)
+    expect(hasUnsupportedNavigationClaim('Open The Bin at More → Bin.', 'Deleted trackers appear at More → Bin.')).toBe(false)
+  })
+
+  it('keeps Bin guidance consistent with current generated product knowledge', () => {
+    const core = knowledgeDocuments.filter(({ slug }) => slug === 'core-application').map(({ content }) => content).join('\n')
+    expect(core.toLocaleLowerCase()).toContain('permanent deletion is not available in that app build')
+    expect(core.toLocaleLowerCase()).toContain('source does not prove whether the hosted migration')
+    expect(core).not.toContain('Permanent deletion is a separate action that removes the tracker')
+  })
+
   it('keeps implementation behavior ahead of test-only matches and limits evidence to relevant indexed chunks', () => {
     const excerpts = retrieveSourceExcerpts('Why can’t I change a saved measure type?', [], sourceEntries)
     expect(excerpts).toContain('src/domain/trackers/invariants.ts')
@@ -164,7 +227,20 @@ describe('AI Help retrieval and provider boundary', () => {
 
   it('rejects malformed or ungrounded model output without exposing it as supported', () => {
     expect(() => parseGroqCompletion({ choices: [{ message: { content: 'not JSON' } }] }, new Set(), new Set())).toThrow(ProviderRequestError)
-    expect(parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: true, answer: 'Made up', source_refs: [], link_ids: [] }) } }] }, new Set(), new Set()).answer).toContain('couldn’t verify')
+    const ungrounded = parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: true, answer: 'Made up', source_refs: [], link_ids: [] }) } }] }, new Set(), new Set())
+    expect(ungrounded.answer).toContain('can’t verify')
+    expect(ungrounded.offerSupport).toBe(true)
+  })
+
+  it('parses structured claims while dropping evidence references outside the retrieved set', () => {
+    const parsed = parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({
+      supported: true, answer: 'History is at /history.', source_refs: ['src/routes/router.tsx'], link_ids: [],
+      claims: [{ text: 'History is at /history.', kind: 'route', evidence_refs: ['src/routes/router.tsx', 'src/private.ts'], capability_ids: ['route.history'] }],
+    }) } }] }, new Set(['src/routes/router.tsx']), new Set())
+    expect(parsed.claims).toEqual([{ text: 'History is at /history.', kind: 'route', evidenceRefs: ['src/routes/router.tsx'], capabilityIds: ['route.history'], prerequisites: [] }])
+    const unsupported = parseGroqCompletion({ choices: [{ message: { content: JSON.stringify({ supported: false, answer: 'Unsupported made up instruction.' }) } }] }, new Set(), new Set())
+    expect(unsupported.answer).toContain('can’t confirm')
+    expect(unsupported.offerSupport).toBe(true)
   })
 
   it('passes an optional knowledge candidate through the existing grounded response parse', () => {

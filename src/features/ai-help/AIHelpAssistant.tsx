@@ -4,7 +4,8 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { useAuth } from '../auth/AuthProvider'
-import { askAssistant, getHelpRoute, submitAnswerFeedback, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
+import { askAssistant, classifyConversationIntent, getHelpRoute, submitAnswerFeedback, supportDraftFromConversation, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
+import { submitGeneralFeedback } from '../feedback/feedbackService'
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
 const storageKey = 'progress-tracker:ai-help:session'
@@ -53,6 +54,8 @@ export function AIHelpAssistant() {
   const [liveText, setLiveText] = useState('')
   const [nearBottom, setNearBottom] = useState(true)
   const [clock, setClock] = useState(Date.now())
+  const [supportOpen, setSupportOpen] = useState(false)
+  const [supportDraft, setSupportDraft] = useState('')
   const requestSequence = useRef(0)
   const sendingRef = useRef(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -76,6 +79,15 @@ export function AIHelpAssistant() {
   const send = useCallback(async (question: string, appendUser = true) => {
     const content = question.trim()
     if (!content || loading || sendingRef.current) return
+    if (appendUser && classifyConversationIntent(content) === 'support') {
+      const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content }
+      const acknowledgement: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: 'Sure. Review and edit the support message below before sending it.', topic: 'other' }
+      setSession((current) => ({ ...current, draft: '', messages: [...current.messages, userMessage, acknowledgement].slice(-30) }))
+      setSupportDraft(supportDraftFromConversation(content, session.messages))
+      setSupportOpen(true)
+      setLiveText('Support query form opened. Review the message before sending.')
+      return
+    }
     sendingRef.current = true
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content }
     const prior = session.messages.slice(-6)
@@ -87,7 +99,7 @@ export function AIHelpAssistant() {
       const context = appendUser ? prior : session.messages.filter((message) => message.status !== 'error').slice(-6)
       const result = await askAssistant(getSupabaseClient(), content, context, route, isOnline ?? navigator.onLine, status === 'signed-in')
       if (requestSequence.current !== sequence) return
-      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links, followUps: result.followUps, topic: result.topic, knowledgeVersion: result.knowledge_version }
+      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content: result.answer, links: result.links, followUps: result.followUps, topic: result.topic, knowledgeVersion: result.knowledge_version, offerSupport: result.offerSupport, supportPrefill: result.supportPrefill ?? (result.offerSupport ? content : undefined) }
       setSession((current) => ({ ...current, messages: [...current.messages, assistantMessage].slice(-30) }))
       setLiveText('New answer received.')
     } catch (error) {
@@ -99,6 +111,10 @@ export function AIHelpAssistant() {
       setLiveText(message.content)
     } finally { if (requestSequence.current === sequence) { sendingRef.current = false; setLoading(false) } }
   }, [isOnline, loading, route, session.messages, status])
+
+  const submitSupport = useCallback(async (message: string, requestId: string) => {
+    await submitGeneralFeedback(getSupabaseClient(), { category: 'help_support', message, requestId })
+  }, [])
 
   const retry = useCallback((messageId: string) => {
     const message = session.messages.find((item) => item.id === messageId)
@@ -120,6 +136,8 @@ export function AIHelpAssistant() {
     sendingRef.current = false
     setLoading(false)
     setSession({ messages: [], draft: '' })
+    setSupportOpen(false)
+    setSupportDraft('')
     setLiveText('New conversation started.')
   }
 
@@ -132,6 +150,7 @@ export function AIHelpAssistant() {
       onClose={closePanel} onSend={(question) => { setNearBottom(true); void send(question) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
       onRetry={retry} onNewConversation={() => { setNearBottom(true); newConversation() }} onScrollPositionChange={setNearBottom} triggerRef={triggerRef}
       onFeedback={sendFeedback}
+      supportOpen={supportOpen} supportDraft={supportDraft} onSupportDraftChange={setSupportDraft} onSupportOpen={setSupportOpen} onSupportSubmit={submitSupport}
     /></Suspense>}
   </>
 }

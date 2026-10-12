@@ -88,7 +88,7 @@ export function TrackerBinPage() {
 
   return <section className="tracker-page bin-page" aria-labelledby="bin-title">
     <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description="Deleted trackers stay here for 30 days. Restore one to bring back its complete progress and plan." help={{ title: 'The Bin', summary: 'Restore a deleted tracker during its 30-day recovery period.', description: 'A tracker in the Bin retains its saved progress and planning data until restored or permanently deleted. The countdown starts from the server-confirmed deletion time for signed-in accounts. Permanent deletion removes the tracker and its history from all synchronized devices; an offline request remains pending until the server confirms it.' }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
-    {owner && !isPermanentDeletionEnabled() && <p className="bin-system-note" role="status">Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.</p>}
+    {owner && !isPermanentDeletionEnabled() && <p className="bin-system-note" role="status" data-ai-capability="bin.permanent_delete" data-ai-availability="disabled">Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.</p>}
     {owner && isPermanentDeletionEnabled() && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}
     {loading ? <p role="status" className="tracker-loading">Opening your Bin…</p> : trackers.length === 0 ? <Surface><EmptyState icon={<AppIcon name="bin" className="empty-state-svg-icon" />} title="Your Bin is empty" description="When you delete a tracker, it will appear here with 30 days to restore it." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} /></Surface> : <div className="tracker-card-grid">
@@ -102,8 +102,8 @@ export function TrackerBinPage() {
           <p>{tracker.metrics.length} {tracker.metrics.length === 1 ? 'measure' : 'measures'} · progress and planning are preserved</p>
           {request && <p className="bin-pending" role="status">{request.status === 'pending' ? 'Permanent deletion pending server confirmation.' : request.lastError ?? 'Deletion needs attention.'}</p>}
           <div className="tracker-card-actions">
-            <Button variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || Boolean(request && request.status === 'pending')} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
-            {isPermanentDeletionEnabled() && <Button variant="destructive" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => void permanentlyDelete(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
+            <Button data-ai-capability="bin.restore" variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || Boolean(request && request.status === 'pending')} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
+            {isPermanentDeletionEnabled() && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="unknown" variant="destructive" size="small" disabled={Boolean(busyId) || Boolean(request && request.status === 'pending')} onClick={() => void permanentlyDelete(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : 'Permanently delete'}</Button>}
           </div>
         </Surface>
       })}

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { AIHelpAssistant } from './AIHelpAssistant'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), status: 'signed-in', isOnline: true }))
-vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({ functions: { invoke: mocks.invoke } }) }))
+vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 'test-token' } }, error: null }) }, functions: { invoke: mocks.invoke } }) }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: mocks.status, isOnline: mocks.isOnline }) }))
 
 afterEach(() => {
@@ -17,7 +17,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderAssistant(path = '/') { return render(<MemoryRouter initialEntries={[path]}><AIHelpAssistant /></MemoryRouter>) }
+function CurrentPath() { return <output data-testid="current-path">{useLocation().pathname}</output> }
+function renderAssistant(path = '/') { return render(<MemoryRouter initialEntries={[path]}><CurrentPath /><AIHelpAssistant /></MemoryRouter>) }
 
 describe('AI Help Assistant', () => {
   it('opens from the accessible header entry and submits a page-aware suggestion', async () => {
@@ -43,6 +44,63 @@ describe('AI Help Assistant', () => {
     await user.click(await screen.findByRole('button', { name: 'Send general feedback' }))
     expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Your message' })).toBeInTheDocument()
+  })
+
+  it('opens an editable support query for direct requests and sends only after confirmation', async () => {
+    mocks.invoke.mockResolvedValue({ data: { accepted: true }, error: null })
+    const user = userEvent.setup()
+    renderAssistant('/goals')
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    const input = await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' })
+    await user.type(input, 'I want to report a bug: my goal will not update.{Enter}')
+    const support = await screen.findByRole('textbox', { name: /Support query/ })
+    expect(support).toHaveValue('I want to report a bug: my goal will not update.')
+    expect(screen.getByText(/Only the text shown above will be sent/)).toBeInTheDocument()
+    expect(screen.getByText(/spraha\.progresstracker@gmail\.com/)).toBeInTheDocument()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    await user.clear(support)
+    await user.type(support, 'My corrected support description.')
+    await user.click(screen.getByRole('button', { name: 'Send Query' }))
+    expect(await screen.findByText('Support query accepted.')).toBeInTheDocument()
+    expect(mocks.invoke).toHaveBeenCalledWith('send-feedback', expect.objectContaining({
+      body: expect.objectContaining({ category: 'help_support', message: 'My corrected support description.' }),
+      headers: { Authorization: 'Bearer test-token' },
+    }))
+  })
+
+  it('offers a support action after an uncertain answer and preserves the original question in the editable form', async () => {
+    mocks.invoke.mockResolvedValue({ data: { answer: 'I can’t confirm that. Want to raise a support query?', offerSupport: true, supportPrefill: 'Can the unavailable export run?' }, error: null })
+    const user = userEvent.setup()
+    renderAssistant()
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'Can the unavailable export run?{Enter}')
+    await user.click(await screen.findByRole('button', { name: 'Raise Support Query' }))
+    expect(await screen.findByRole('textbox', { name: /Support query/ })).toHaveValue('Can the unavailable export run?')
+  })
+
+  it('keeps the in-chat support actions visible in the simulated mobile visual viewport and preserves route and draft', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({ matches: query.includes('max-width: 760px'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const viewport = new EventTarget() as VisualViewport
+    Object.defineProperties(viewport, { height: { configurable: true, writable: true, value: 720 }, width: { configurable: true, writable: true, value: 390 }, offsetTop: { configurable: true, writable: true, value: 0 }, offsetLeft: { configurable: true, writable: true, value: 0 } })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    const user = userEvent.setup()
+    renderAssistant('/settings')
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'Can I talk to support?{Enter}')
+    const message = await screen.findByRole('textbox', { name: /Support query/ })
+    const panel = screen.getByRole('dialog', { name: 'Ask ProgressTracker' })
+    expect(panel.style.height).toBe('720px')
+    expect(message).toHaveValue('Can I talk to support?')
+    Object.defineProperty(viewport, 'height', { configurable: true, writable: true, value: 380 })
+    viewport.dispatchEvent(new Event('resize'))
+    expect(panel.style.height).toBe('380px')
+    expect(message).toHaveValue('Can I talk to support?')
+    expect(screen.getByRole('button', { name: 'Send Query' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/settings')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('textbox', { name: 'Ask about ProgressTracker' })).toBeInTheDocument()
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/settings')
   })
 
   it('supports Enter submission, Shift+Enter newlines, and prevents empty messages', async () => {

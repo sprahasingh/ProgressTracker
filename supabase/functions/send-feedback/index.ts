@@ -15,6 +15,14 @@ function json(status: number, payload: Record<string, unknown>, origin: string) 
   } })
 }
 
+async function recordSupportOutcome(admin: ReturnType<typeof createClient>, submission: { category: string }, event: 'support_query_accepted' | 'support_query_failed' | 'support_query_uncertain') {
+  if (submission.category !== 'help_support') return
+  try {
+    const { error } = await admin.rpc('record_ai_help_metric', { p_event: event, p_feature_category: 'other' })
+    if (error) console.error('SUPPORT_QUERY_METRIC_WRITE_FAILED', JSON.stringify({ event, databaseCode: error.code ?? 'unknown' }))
+  } catch { console.error('SUPPORT_QUERY_METRIC_WRITE_FAILED', JSON.stringify({ event, databaseCode: 'unavailable' })) }
+}
+
 async function readBody(request: Request): Promise<unknown> {
   if (!request.body || Number(request.headers.get('content-length') ?? 0) > 12_000) throw new RangeError()
   const reader = request.body.getReader()
@@ -94,8 +102,10 @@ Deno.serve(async (request) => {
     })
     if (outcomeError) {
       console.error('SUPPORT_FEEDBACK_OUTCOME_FAILED', JSON.stringify({ databaseCode: outcomeError.code ?? 'unknown', outcome: result.outcome }))
+      await recordSupportOutcome(admin, submission, 'support_query_uncertain')
       return json(503, { error: 'Feedback status could not be saved. To avoid a duplicate, automatic retry is paused; please email support directly if needed.', uncertain: true, retryable: false }, origin)
     }
+    await recordSupportOutcome(admin, submission, result.outcome === 'uncertain' ? 'support_query_uncertain' : 'support_query_failed')
     console.error('SUPPORT_FEEDBACK_PROVIDER_FAILED', JSON.stringify({ status: result.status, retryable: result.retryable, category: submission.category }))
     return json(result.status === 429 ? 429 : 503, {
       error: result.outcome === 'uncertain'
@@ -111,7 +121,9 @@ Deno.serve(async (request) => {
   })
   if (completeError) {
     console.error('SUPPORT_FEEDBACK_COMPLETION_FAILED', JSON.stringify({ databaseCode: completeError.code ?? 'unknown' }))
+    await recordSupportOutcome(admin, submission, 'support_query_uncertain')
     return json(503, { error: 'The email provider accepted your message, but its status could not be confirmed. Retry safely or use email support.' }, origin)
   }
+  await recordSupportOutcome(admin, submission, 'support_query_accepted')
   return json(200, { accepted: true, duplicate: false, deliveryStatus: 'provider_accepted' }, origin)
 })

@@ -28,6 +28,14 @@ function routeMatches(pathname: string, destinations: readonly string[]) {
   return destinations.some((path) => path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`))
 }
 
+function routeCapabilityId(pathname: string) {
+  if (pathname === '/') return 'route.today'
+  if (pathname === '/ai-knowledge') return null
+  if (/^\/trackers\/[^/]+\/edit\/?$/.test(pathname)) return 'route.trackers.:trackerId.edit'
+  if (pathname === '/trackers/new') return 'route.trackers.new'
+  return `route.${pathname.replace(/^\//, '').replaceAll('/', '.')}`
+}
+
 export function getAvatarInitial(user: { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined) {
   const metadata = user?.user_metadata
   const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name]
@@ -145,7 +153,7 @@ export function AppShell() {
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
           </Link>
         </header>
-        <div id="main-content" className="page-content" tabIndex={-1}>
+        <div id="main-content" className="page-content" data-ai-capability={routeCapabilityId(location.pathname)} tabIndex={-1}>
           {!workspaceReady && !guestChoiceReady ? (
             workspaceStatus === 'error' ? <section className="workspace-gate" role="alert">
               <h1>Workspace unavailable</h1>

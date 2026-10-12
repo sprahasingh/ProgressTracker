@@ -3,13 +3,15 @@ import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBund
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
 import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle.ts'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts } from './assistantCore.ts'
+import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle.ts'
+import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, socialConversationReply } from './assistantCore.ts'
 import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
-import { createKnowledgeFingerprint, hasConflictingVerifiedKnowledge, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
+import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
 const APP_LINKS: Record<string, { label: string; href: string }> = {
   today: { label: 'Today', href: '/' }, trackers: { label: 'Trackers', href: '/trackers' }, create_tracker: { label: 'Create a tracker', href: '/trackers/new' }, analytics: { label: 'Insights', href: '/dashboard' },
-  goals: { label: 'Goals', href: '/goals' }, calendar: { label: 'Calendar', href: '/calendar' }, history: { label: 'History', href: '/history' }, settings: { label: 'Settings', href: '/settings' },
+  goals: { label: 'Goals', href: '/goals' }, calendar: { label: 'Calendar', href: '/calendar' }, history: { label: 'History', href: '/history' }, settings: { label: 'Settings', href: '/settings' }, bin: { label: 'The Bin', href: '/bin' },
 }
 const ORIGIN_ALLOWLIST = new Set((Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? Deno.env.get('ALLOWED_ORIGINS') ?? '').split(',').map((value) => { try { return new URL(value.trim()).origin } catch { return '' } }).filter(Boolean))
 
@@ -103,9 +105,14 @@ async function buildCandidate(admin: ReturnType<typeof createClient>, raw: unkno
   }
 }
 
-async function generate(admin: ReturnType<typeof createClient>, question: string, history: HistoryItem[], pageContext: string, verifiedRows: VerifiedKnowledge[]) {
+async function generate(admin: ReturnType<typeof createClient>, question: string, history: HistoryItem[], pageContext: string, verifiedRows: VerifiedKnowledge[], runtimeAvailability: Record<string, 'available' | 'disabled'>, clientCapabilityVersion?: string) {
   const deterministic = deterministicProductAnswer(question, history, PUBLIC_SUPPORT_EMAIL)
-  if (deterministic) return { answer: deterministic.answer, links: [], followUps: [], topic: deterministic.topic, knowledge_version: knowledgeVersion }
+  if (deterministic) {
+    const binQuestion = /\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/i.test(`${question} ${history.filter(({ role }) => role === 'user').slice(-2).map(({ content }) => content).join(' ')}`)
+    const accountDeleteContext = `${question} ${history.filter(({ role }) => role === 'user').slice(-2).map(({ content }) => content).join(' ')}`
+    const accountDeletionQuestion = deterministic.topic === 'account' && /\b(?:account|profile)\b/i.test(accountDeleteContext) && /\b(?:delete|deletion|remove|permanently)\b/i.test(accountDeleteContext)
+    if (!accountDeletionQuestion) return { answer: deterministic.answer, links: binQuestion ? [APP_LINKS.bin] : [], followUps: [], topic: deterministic.topic, knowledge_version: knowledgeVersion }
+  }
   const credentials: ProviderCredential[] = [
     { slot: 'primary', key: Deno.env.get('GROQ_API_KEY_PRIMARY') ?? '' },
     { slot: 'secondary', key: Deno.env.get('GROQ_API_KEY_SECONDARY') ?? '' },
@@ -123,18 +130,25 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   }
   const docs = rankKnowledgeDocuments(question, history, knowledgeDocuments, 4, pageContext)
   const relevantDocs = docs.map((doc) => `DOCUMENT SECTION: ${doc.title} (${doc.path})\n${doc.content}`).join('\n\n').slice(0, 7000)
+  const capabilityIndex: CapabilityIndex = { version: capabilityVersion, routes: capabilityRoutes, capabilities: capabilities as unknown as CapabilityIndex['capabilities'] }
+  const trustedRuntimeAvailability = versionMatchedAvailability(clientCapabilityVersion, capabilityVersion, runtimeAvailability)
+  const matchedCapabilities = retrieveCapabilities(question, history, capabilityIndex, 6)
   const sourcePlan = documentationCoverage(question, history, knowledgeDocuments, pageContext)
-  const sources = sourcePlan.needsSourceFallback
-    ? retrieveSourceExcerpts(question, history, sourceIndex, 4, 5200, pageContext)
+  const useSourceEvidence = sourcePlan.needsSourceFallback || matchedCapabilities.length > 0
+  const capabilitySourcePaths = [...new Set(matchedCapabilities.flatMap((capability) => capability.evidenceRefs))]
+  const sources = useSourceEvidence
+    ? retrieveSourceExcerpts(question, history, sourceIndex, 4, 5200, pageContext, capabilitySourcePaths)
     : ''
-  if (sourcePlan.needsSourceFallback && !sources) await recordLearningMetric(admin, 'retrieval_no_match', mapFeatureCategory(pageContext))
+  if (useSourceEvidence && !sources) await recordLearningMetric(admin, 'retrieval_no_match', mapFeatureCategory(pageContext))
   const rankedVerified = rankVerifiedKnowledge(question, history, verifiedRows, 3)
-  const verifiedConflict = hasConflictingVerifiedKnowledge(rankedVerified)
-  if (verifiedConflict) await recordLearningMetric(admin, 'conflicting_knowledge', category)
-  const verified = verifiedConflict ? [] : rankedVerified
-  const relevantVerified = renderVerifiedKnowledge(verified)
-  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, verifiedKnowledge: relevantVerified, sourceExcerpts: sources, linkIds: Object.keys(APP_LINKS) })
   const category = mapFeatureCategory(pageContext)
+  const verifiedResolution = resolveVerifiedKnowledgeForRequest(rankedVerified, category)
+  if (verifiedResolution.conflict) await recordLearningMetric(admin, 'conflicting_knowledge', verifiedResolution.featureCategory)
+  const verified = verifiedResolution.entries
+  const relevantVerified = renderVerifiedKnowledge(verified)
+  const linkIds = selectRelevantLinkIds(question, history).filter((id) => id in APP_LINKS)
+  const relevantCapabilityText = capabilityEvidence(matchedCapabilities)
+  const messages = buildHelpMessages({ question, history, pageContext, relevantDocs, verifiedKnowledge: relevantVerified, sourceExcerpts: sources, linkIds, capabilityContext: relevantCapabilityText })
   if (sourcePlan.needsSourceFallback) await recordLearningMetric(admin, 'source_fallback', category)
   if (verified.length) await recordLearningMetric(admin, 'verified_knowledge_used', category)
   const model = Deno.env.get('GROQ_MODEL') || 'openai/gpt-oss-120b'
@@ -154,10 +168,52 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
     }
     throw new RequestError(503, 'AI help is temporarily unavailable. Please try again later.', 'provider_unavailable')
   }
-  const result = parseGroqCompletion(raw, allowedSources, new Set(Object.keys(APP_LINKS)))
+  const result = parseGroqCompletion(raw, allowedSources, new Set(linkIds))
+  if (result.offerSupport) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    return { answer: unverifiedResponse(question), links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
+  const groundingEvidence = [relevantVerified, relevantDocs, sources].join('\n')
+  const evidenceByRef: Record<string, string> = {}
+  for (const doc of docs) {
+    evidenceByRef[doc.path] = [evidenceByRef[doc.path], doc.content].filter(Boolean).join('\n')
+    evidenceByRef[doc.slug] = [evidenceByRef[doc.slug], doc.content].filter(Boolean).join('\n')
+  }
+  for (const match of sources.matchAll(/^SOURCE ([^ ·]+) ·[^\n]*\n([\s\S]*?)(?=\n\nSOURCE |$)/gm)) evidenceByRef[match[1]!] = match[2]!
+  // Enforce claims when current source excerpts back a retrieved feature capability.
+  // The global rollout switch remains opt-in for the rest of the product.
+  const coveredEvidenceEnforcement = shouldEnforceCoveredClaims(matchedCapabilities.length > 0, sources.length > 0, Deno.env.get('AI_HELP_GROUNDING_ENFORCEMENT') === 'true')
+  const claimValidation = validateStructuredClaims({ claims: result.claims, index: capabilityIndex,
+    allowedEvidence: new Set([...Object.keys(evidenceByRef), ...docs.map((doc) => doc.slug)]), evidenceByRef,
+    runtimeAvailability: trustedRuntimeAvailability,
+    enforcement: coveredEvidenceEnforcement })
+  const claimCoverage = claimEvidenceOverlap(result.answer, result.claims.map((claim) => claim.text).join(' '))
+  if (claimValidation.issues.length || claimCoverage < 0.65) await recordLearningMetric(admin, 'grounding_failure', category)
+  // High-risk actions fail closed until their current prerequisites and availability are verified.
+  if (!canReturnHighRiskAnswer(result.answer, result.claims.length, claimValidation, claimCoverage)) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    return { answer: unverifiedResponse(question), links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
+  if ((!claimValidation.valid || claimCoverage < 0.65) && Deno.env.get('AI_HELP_GROUNDING_ENFORCEMENT') === 'true') {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    return { answer: unverifiedResponse(question), links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
+  if (coveredEvidenceEnforcement && (!claimValidation.valid || claimCoverage < 0.65)) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    const answer = renderPartiallySupportedClaims(claimValidation.acceptedClaims, question)
+    return { answer, links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
+  if (hasUnsupportedUnavailableWorkflowClaim(result.answer, groundingEvidence)) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    return { answer: 'I can’t confirm that action is currently available. The current app information says this feature is disabled or awaiting setup. Would you like to raise a support query?', links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
+  if (hasUnsupportedNavigationClaim(result.answer, groundingEvidence)) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    return { answer: 'I can’t verify that navigation path from the current app information. Would you like to raise a support query?', links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
   if (hasUnverifiedEmailClaim(result.answer, PUBLIC_SUPPORT_EMAIL)) {
     await recordLearningMetric(admin, 'grounding_failure', category)
-    return { answer: `I can’t verify that email address from ProgressTracker’s current information. For support, email ${PUBLIC_SUPPORT_EMAIL}.`, links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion }
+    return { answer: `I can’t verify that email address from ProgressTracker’s current information. For support, email ${PUBLIC_SUPPORT_EMAIL}.`, links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
   }
   if (!result.sourceRefs.length) await recordLearningMetric(admin, 'grounding_failure', category)
   if (Deno.env.get('AI_HELP_CANDIDATE_COLLECTION_ENABLED') !== 'false' && result.knowledgeCandidate) {
@@ -167,7 +223,7 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
     scheduleBestEffortCandidateCollection(candidateTask, typeof EdgeRuntime !== 'undefined' ? EdgeRuntime.waitUntil.bind(EdgeRuntime) : undefined)
   }
   const links = result.links.map((id) => APP_LINKS[id])
-  return { answer: result.answer, links, followUps: result.sourceRefs.length ? buildFollowUpSuggestions(result.sourceRefs, question) : [], topic: category, knowledge_version: knowledgeVersion }
+  return { answer: result.answer, links, followUps: result.sourceRefs.length ? buildFollowUpSuggestions(result.sourceRefs, question) : [], topic: category, knowledge_version: knowledgeVersion, offerSupport: false }
 }
 
 Deno.serve(async (request) => {
@@ -199,7 +255,12 @@ Deno.serve(async (request) => {
       throw new RequestError(503, 'AI help is temporarily unavailable. Please try again later.', 'rate_limit_unavailable')
     }
     if (!rate?.allowed) throw new RequestError(429, 'The assistant request limit has been reached. Please try again after the stated wait.', 'application_rate_limit', typeof rate?.retryAfterSeconds === 'number' ? rate.retryAfterSeconds : 60)
-    if (sourceVersion !== knowledgeVersion || sourceIndexVersion !== knowledgeVersion) throw new RequestError(503, 'AI Help knowledge is being updated. Please try again shortly.', 'knowledge_version_mismatch')
+    const socialReply = socialConversationReply(input.question)
+    if (socialReply) {
+      await recordLearningMetric(admin, 'request', mapFeatureCategory(input.pageContext))
+      return response(200, { answer: socialReply, links: [], followUps: [] }, origin)
+    }
+  if (sourceVersion !== knowledgeVersion || sourceIndexVersion !== knowledgeVersion || capabilityVersion !== knowledgeVersion) throw new RequestError(503, 'AI Help knowledge is being updated. Please try again shortly.', 'knowledge_version_mismatch')
     await recordLearningMetric(admin, 'request', mapFeatureCategory(input.pageContext))
     if (syncedKnowledgeVersion !== knowledgeVersion) {
       const { error: freshnessError } = await admin.rpc('reconcile_ai_knowledge', { p_current_fingerprints: evidenceFingerprints, p_knowledge_version: knowledgeVersion })
@@ -220,7 +281,7 @@ Deno.serve(async (request) => {
       && entry.source_refs.length > 0
       && entry.source_refs.every((ref: unknown) => typeof ref === 'string' && Boolean(evidenceFingerprints[ref]))
       && entry.source_refs.every((ref: string) => entry.source_fingerprints?.[ref] === evidenceFingerprints[ref])) as VerifiedKnowledge[]
-    const result = await generate(admin, input.question, input.history, input.pageContext, verifiedRows)
+    const result = await generate(admin, input.question, input.history, input.pageContext, verifiedRows, input.runtimeAvailability, input.capabilityVersion)
     return response(200, result, origin)
   } catch (error) {
     if (error instanceof RequestError) return response(error.status, { error: error.message, code: error.code, ...(error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}) }, origin)

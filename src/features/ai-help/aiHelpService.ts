@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
+import { capabilityVersion } from './capabilityVersion'
 
 export type HelpRoute = 'today' | 'trackers' | 'analytics' | 'goals' | 'calendar' | 'history' | 'settings' | 'other'
 export type FeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
-export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; status?: 'error'; retryAfterSeconds?: number; retryAfterUntil?: number; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledgeVersion?: string; feedbackStatus?: 'helpful' | 'reported' }
+export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; status?: 'error'; retryAfterSeconds?: number; retryAfterUntil?: number; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledgeVersion?: string; feedbackStatus?: 'helpful' | 'reported'; offerSupport?: boolean; supportPrefill?: string }
 
 export const suggestionsByRoute: Record<HelpRoute, string[]> = {
   today: ['How are streaks calculated?', 'How do daily check-ins work?', 'What is a success rule?'],
@@ -26,10 +27,54 @@ export function getHelpRoute(pathname: string): HelpRoute {
   return 'other'
 }
 
-export type AssistantReply = { answer: string; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledge_version?: string }
+export function collectRenderedCapabilityStates(root: ParentNode = document): Record<string, 'available' | 'disabled'> {
+  const result: Record<string, 'available' | 'disabled'> = {}
+  for (const element of root.querySelectorAll<HTMLElement>('[data-ai-capability]')) {
+    const id = element.dataset.aiCapability
+    const declared = element.dataset.aiAvailability
+    if (!id || !/^[a-z0-9_.-]{1,100}$/.test(id) || Object.keys(result).length >= 32) continue
+    if (declared === 'unknown' || declared === 'conditional') continue
+    const disabled = declared === 'disabled' || (element instanceof HTMLButtonElement && element.disabled)
+      || element.getAttribute('aria-disabled') === 'true'
+    result[id] = result[id] === 'available' || !disabled ? 'available' : 'disabled'
+  }
+  return result
+}
+
+export type AssistantReply = { answer: string; links?: Array<{ label: string; href: string }>; followUps?: string[]; topic?: string; knowledge_version?: string; offerSupport?: boolean; supportPrefill?: string }
 export type HelpFailure = 'offline' | 'unauthenticated' | 'unavailable' | 'configuration' | 'edge-error' | 'rate-limit-service' | 'provider-unavailable' | 'provider-cooldown' | 'application-rate-limit' | 'provider-rate-limit' | 'invalid-response' | 'network' | 'unsupported'
 export class HelpRequestError extends Error {
   constructor(readonly kind: HelpFailure, readonly retryAfterSeconds?: number) { super(kind) }
+}
+
+export type ConversationIntent = 'greeting' | 'thanks' | 'goodbye' | 'support' | 'clarification' | 'unrelated' | 'product'
+export function classifyConversationIntent(question: string): ConversationIntent {
+  const clean = question.toLocaleLowerCase().normalize('NFKD').replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (/^(?:hi|hii+|helo+|hello+|hey+|good morning|good afternoon|good evening|howdy)(?: there)?(?:\s+(?:there|assistant))?$/.test(clean)) return 'greeting'
+  if (/^(?:thanks?|thank you|thx|ty|ok(?:ay)?|much appreciated)(?: so much| a lot)?$/.test(clean)) return 'thanks'
+  if (/^(?:bye|goodbye|see you|see ya|talk later|that is all|i am done|i'm done)$/.test(clean)) return 'goodbye'
+  if (/\b(?:talk to support|contact support|raise (?:a )?(?:(?:support )?query)?|report (?:a )?bug|send (?:this issue|this|the issue) to (?:support|the developer)|human help|help from a human|need (?:a )?human|this (?:didn.?t|did not) help|still not working|still doesn.?t work)\b/.test(clean)) return 'support'
+  if (/^(?:help me|help|what about that|why|why not|how|and then|what now)[?.! ]*$/.test(clean)) return 'clarification'
+  if (/^(?:how do i cook|write me a poem|what is the weather|tell me a joke|solve this equation)\b/.test(clean)) return 'unrelated'
+  return 'product'
+}
+
+export function conversationReply(intent: ConversationIntent, history: ChatMessage[] = []): string | null {
+  if (intent === 'greeting') return 'Hey! 👋 How can I help?'
+  if (intent === 'thanks') return "You're welcome!"
+  if (intent === 'goodbye') return 'See you! Keep making progress.'
+  if (intent === 'unrelated') return 'I’m best at helping with ProgressTracker. What would you like to know about the app?'
+  if (intent === 'clarification' && !history.some((message) => message.role === 'user' && message.status !== 'error' && classifyConversationIntent(message.content) === 'product')) return 'What are you trying to do, and which page or step are you stuck on?'
+  return null
+}
+
+export function supportDraftFromConversation(question: string, history: ChatMessage[]): string {
+  const current = question.trim()
+  const specificIssue = /\b(?:bug|issue|error|not working|doesn.t work|won.t|failed|stuck|problem|when i|trying to)\b/i.test(current)
+  if ((classifyConversationIntent(current) !== 'support' || specificIssue) && current.length > 8) return current.slice(0, 1800)
+  const previous = [...history].reverse().find((message) => message.role === 'user' && message.status !== 'error'
+    && classifyConversationIntent(message.content) === 'product' && message.content.trim().length > 8)
+  return (previous?.content.trim() || current).slice(0, 1800)
 }
 
 export async function submitAnswerFeedback(client: SupabaseClient | null, input: { responseId: string; category: FeedbackCategory; explanation?: string; topic: string; knowledgeVersion: string }): Promise<void> {
@@ -92,7 +137,7 @@ export function getLocalHelpAnswer(question: string, history: ChatMessage[] = []
     return 'While signed in, open Settings → Sync & Data → Set or change password. Save a password with at least eight characters. If you cannot sign in, choose Forgot password? on the account screen.'
   }
   if (/\b(?:account|profile)\b/.test(normalized) && /\b(?:delete|deletion|remove|permanently)\b/.test(normalized)) {
-    return `You can delete your account in Settings → Account Actions → Delete Account. Enter your current account password and the exact word DELETE, then choose Permanently Delete Account. Password verification is checked securely by the server and authorizes one deletion for up to five minutes. If you usually sign in by email link, first set a password under Settings → Sync & Data → Set or change password. Export your data first if you want a copy; unsynchronized changes will not be uploaded. If the app cannot reach the deletion service, keep the confirmation open and retry the status when online; the server checks whether deletion already completed. For help, contact ${SUPPORT_EMAIL}. Tell me which step failed and what message appeared.`
+    return 'I can’t verify the current account-deletion steps while offline. Open Settings → Account Actions in the app to see the available controls, or reconnect and ask me again for verified guidance.'
   }
   const followUp = /^(?:and\b|what about\b|how about\b|are there\b|only\b|other\b|tell me more\b)/i.test(question.trim()) || /\b(?:it|that|those|other types|more about)\b/i.test(question) || question.trim().split(/\s+/).length <= 3
   const context = followUp ? history.slice(-4).map(({ content }) => content.toLocaleLowerCase()).join(' ') : ''
@@ -155,6 +200,9 @@ async function failureDetails(error: unknown): Promise<{ status?: number; code?:
 }
 
 export async function askAssistant(client: SupabaseClient | null, question: string, history: ChatMessage[], page: HelpRoute, online: boolean, canUseRemote: boolean): Promise<AssistantReply> {
+  const intent = classifyConversationIntent(question)
+  const conversational = conversationReply(intent, history)
+  if (conversational) return { answer: conversational }
   if (!online) {
     const answer = getLocalHelpAnswer(question, history)
     if (answer) return { answer }
@@ -172,7 +220,7 @@ export async function askAssistant(client: SupabaseClient | null, question: stri
   }
   try {
     const { data, error } = await client.functions.invoke<AssistantReply>('ai-help', {
-      body: { question, pageContext: page, history: history.filter((message) => message.status !== 'error').slice(-6).map(({ role, content }) => ({ role, content: content.slice(0, 2000) })) },
+      body: { question, pageContext: page, history: history.filter((message) => message.status !== 'error').slice(-6).map(({ role, content }) => ({ role, content: content.slice(0, 2000) })), capabilityVersion, runtimeAvailability: collectRenderedCapabilityStates() },
     })
     if (error) {
       const { status, code, retryAfterSeconds } = await failureDetails(error)
@@ -197,7 +245,7 @@ export async function askAssistant(client: SupabaseClient | null, question: stri
       if (typeof href !== 'string' || !allowedLinkLabels.has(href)) return []
       return [{ href, label: allowedLinkLabels.get(href)! }]
     }) : []
-    return { answer: data.answer, links, followUps }
+    return { answer: data.answer, links, followUps, offerSupport: data.offerSupport === true, supportPrefill: typeof data.supportPrefill === 'string' ? data.supportPrefill.slice(0, 1800) : undefined }
   } catch (error) {
     if (error instanceof HelpRequestError && ['application-rate-limit', 'provider-rate-limit', 'rate-limit-service', 'invalid-response'].includes(error.kind)) throw error
     const cached = getLocalHelpAnswer(question, history)
