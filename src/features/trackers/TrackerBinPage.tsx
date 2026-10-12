@@ -12,6 +12,7 @@ import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionG
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
+import { permanentDeletionNotificationKey } from '../../services/permanentDeletionNotifications'
 
 const recoveryMs = 30 * 24 * 60 * 60 * 1000
 const kindLabel = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
@@ -76,14 +77,14 @@ export function TrackerBinPage() {
 
   async function permanentlyDelete(tracker: StoredTrackerDefinition) {
     setBusyId(tracker.id); setError('')
+    const dedupeKey = permanentDeletionNotificationKey(owner ?? 'guest', tracker.id)
     try {
       const result = await localRepository.requestPermanentDeletion(tracker.id)
       if (result === 'queued') {
         await refresh()
         if (isOnline) void syncNow().catch(() => undefined)
-        notify({ kind: 'warning', title: 'Deletion request queued', description: 'The tracker and history will be removed across devices after the server confirms it.', duration: 0, dedupeKey: `delete:${tracker.id}` })
-      } else { await refresh(); notify({ kind: 'success', title: 'Tracker permanently deleted', description: 'Its saved history was removed from this guest workspace.', dedupeKey: `delete:${tracker.id}` }) }
-    } catch { notify({ kind: 'error', title: 'Couldn’t request permanent deletion', description: 'Your data is unchanged. Please try again.', duration: 0, dedupeKey: `delete:${tracker.id}` }) }
+      } else { await refresh(); notify({ kind: 'success', title: 'Tracker permanently deleted.', duration: 4000, dedupeKey }) }
+    } catch { notify({ kind: 'error', title: 'Couldn’t request permanent deletion', description: 'Your tracker is unchanged. Check your connection and try again.', duration: 0, dedupeKey }) }
     finally { setBusyId(null) }
   }
 

@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { activateWorkspace, db, queueSyncMutation } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
+import { subscribeToPermanentDeletionNotifications } from '../permanentDeletionNotifications'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
 
@@ -272,7 +273,12 @@ describe('account-scoped sync engine', () => {
       return { data: null, error: { message: 'network unavailable' } }
     })
 
+    const notifications: string[] = []
+    const unsubscribe = subscribeToPermanentDeletionNotifications((event) => notifications.push(event.status))
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
+    unsubscribe()
+    expect(notifications).toContain('failed')
+    expect(notifications).not.toContain('confirmed')
     await expect(db.trackers.get('delete-request')).resolves.toMatchObject({ deletedAt: expect.any(String) })
     await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('network unavailable') })
     expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({ p_expected_user_id: 'sync-user', p_tracker_id: 'delete-request', p_expected_revision: 2 }))
@@ -292,7 +298,11 @@ describe('account-scoped sync engine', () => {
       return { data: { status: 'applied', record: serverTracker(payload, 'sync-user', 1) }, error: null }
     })
 
+    const notifications: string[] = []
+    const unsubscribe = subscribeToPermanentDeletionNotifications((event) => notifications.push(event.status))
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    unsubscribe()
+    expect(notifications).toContain('confirmed')
     await expect(db.trackers.get('confirmed-delete')).resolves.toBeUndefined()
     await expect(db.trackerEntries.where('trackerId').equals('confirmed-delete').count()).resolves.toBe(0)
     await expect(db.permanentDeletionLedger.get('sync-user:confirmed-delete')).resolves.toMatchObject({ permanentlyDeletedAt: '2026-10-10T00:00:00Z' })

@@ -7,6 +7,7 @@ import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnab
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
+import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -491,15 +492,18 @@ export const localRepository = {
       publishWorkspaceDataChange(null)
       return 'deleted'
     }
+    let trackerName = id
     await database.transaction('rw', [database.trackers, database.permanentDeletionRequests, database.workspaceMetadata], async () => {
       const currentWorkspace = await database.workspaceMetadata.get('workspace')
       if (currentWorkspace?.userId !== ownerUserId) throw new Error('The active account changed. Reopen the Bin and try again.')
       const tracker = await database.trackers.get(id)
       if (!tracker?.deletedAt) throw new Error('Move this tracker to the Bin before permanently deleting it.')
+      trackerName = tracker.name
       const existing = await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, id]).first()
       if (!existing) await database.permanentDeletionRequests.add({ id: newId(), ownerUserId, trackerId: id, requestedAt: new Date().toISOString(), status: 'pending', lastError: null })
       else if (existing.status !== 'pending') await database.permanentDeletionRequests.put({ ...existing, requestedAt: new Date().toISOString(), status: 'pending', lastError: null })
     })
+    publishPermanentDeletionNotification({ status: 'queued', ownerUserId, trackerId: id, trackerName })
     publishWorkspaceMutation(ownerUserId)
     return 'queued'
   },
@@ -512,6 +516,7 @@ export const localRepository = {
   async reconcilePermanentDeletionLedger(ownerUserId: string, rows: Array<{ tracker_id: string; permanently_deleted_at: string }>): Promise<void> {
     const database = await openDatabase()
     let workspaceChanged = false
+    const confirmedRequests: Array<{ trackerId: string; trackerName: string }> = []
     await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
       const metadata = await database.workspaceMetadata.get('workspace')
       if (metadata?.userId !== ownerUserId) throw new Error('The active workspace changed during deletion reconciliation.')
@@ -530,6 +535,8 @@ export const localRepository = {
       }
       for (const row of rows) {
         const trackerId = row.tracker_id
+        const request = await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).first()
+        if (request) confirmedRequests.push({ trackerId, trackerName: (await database.trackers.get(trackerId))?.name ?? trackerId })
         const key = `${ownerUserId}:${trackerId}`
         const children = await database.trackerEntries.where('trackerId').equals(trackerId).toArray()
         if (children.length > 0 || await database.trackers.get(trackerId)) workspaceChanged = true
@@ -555,15 +562,19 @@ export const localRepository = {
       }
     })
     if (workspaceChanged) publishWorkspaceDataChange(ownerUserId)
+    for (const request of confirmedRequests) publishPermanentDeletionNotification({ status: 'confirmed', ownerUserId, ...request })
   },
 
   /** Apply one deletion confirmed by the server without treating it as a full ledger scan. */
   async recordPermanentDeletionConfirmation(ownerUserId: string, row: { tracker_id: string; permanently_deleted_at: string }): Promise<void> {
     const database = await openDatabase()
     const trackerId = row.tracker_id
+    let confirmedRequestName: string | null = null
     await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
       const metadata = await database.workspaceMetadata.get('workspace')
       if (metadata?.userId !== ownerUserId) throw new Error('The active workspace changed during deletion confirmation.')
+      const request = await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).first()
+      if (request) confirmedRequestName = (await database.trackers.get(trackerId))?.name ?? trackerId
       const children = await database.trackerEntries.where('trackerId').equals(trackerId).toArray()
       const childIds = new Set(children.map((entry) => entry.id))
       await database.permanentDeletionLedger.put({ key: `${ownerUserId}:${trackerId}`, ownerUserId, trackerId, permanentlyDeletedAt: row.permanently_deleted_at })
@@ -585,6 +596,7 @@ export const localRepository = {
       await database.trackerVerification.delete(trackerId)
     })
     publishWorkspaceDataChange(ownerUserId)
+    if (confirmedRequestName) publishPermanentDeletionNotification({ status: 'confirmed', ownerUserId, trackerId, trackerName: confirmedRequestName })
   },
 
   async listCategories(includeArchived = false): Promise<Category[]> {
