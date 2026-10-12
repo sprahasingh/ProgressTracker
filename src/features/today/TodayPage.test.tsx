@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -388,7 +388,9 @@ describe('Today check-ins', () => {
     expect(dialog).toHaveTextContent('Recorded toward goal4 sessions')
 
     await user.click(screen.getByRole('button', { name: 'Close daily requirements' }))
-    await user.click(screen.getByRole('button', { name: 'Clear check-in' }))
+    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
+    expect(screen.getByRole('alertdialog', { name: 'Clear check-in?' })).toHaveTextContent('The date will become unchecked')
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
     await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions'))
   })
 

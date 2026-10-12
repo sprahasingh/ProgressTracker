@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -37,6 +37,42 @@ describe('local check-in history', () => {
     expect(await screen.findByRole('status', { name: 'Check-in updated' })).toHaveTextContent('Your progress has been saved on this device.')
     await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ values: { distance: 6 } })
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+  })
+
+  it('requires confirmation to clear history and restores the date to the missing review without exposing values or notes', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(definition)
+    const date = shiftCalendarDate(localCalendarDate(), -1)
+    const original = await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Private note' })
+    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
+    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
+    expect(screen.getByRole('alertdialog', { name: 'Clear check-in?' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ id: original.id, note: 'Private note' })
+
+    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
+    expect(await screen.findByRole('status', { name: 'Check-in cleared' })).toBeInTheDocument()
+    await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toBeUndefined()
+    expect(screen.queryByText('Private note')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Missing Check-Ins' })).getAllByText('Missing check-in').length).toBeGreaterThan(0)
+    const tombstone = await db.trackerEntries.where('[trackerId+date]').equals([definition.id, date]).first()
+    expect(tombstone).toMatchObject({ deletedAt: expect.any(String), values: { distance: 4 }, note: 'Private note' })
+  })
+
+  it('does not report success when clearing fails', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(definition)
+    const date = localCalendarDate()
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Keep me' })
+    vi.spyOn(localRepository, 'deleteTrackerEntry').mockRejectedValueOnce(new Error('write failed'))
+    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
+    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
+    expect(await screen.findByText('Couldn’t clear check-in')).toBeInTheDocument()
+    await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ note: 'Keep me' })
   })
 
   it('lists saved values, notes, outcomes, and filters by tracker', async () => {

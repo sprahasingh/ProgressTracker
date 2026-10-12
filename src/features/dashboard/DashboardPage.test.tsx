@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -10,7 +10,7 @@ import { DashboardPage } from './DashboardPage'
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
 
-afterEach(async () => { cleanup(); window.sessionStorage.clear(); vi.restoreAllMocks(); await db.delete() })
+afterEach(async () => { cleanup(); window.sessionStorage.clear(); window.localStorage.removeItem(`progress-tracker:missing-checkins-dismissed:guest`); vi.restoreAllMocks(); await db.delete() })
 
 function tracker(): StoredTrackerDefinition {
   return {
@@ -40,6 +40,19 @@ describe('local progress dashboard', () => {
   it('does not invent activity when no trackers exist', async () => {
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     expect(await screen.findByText('Your overview starts with a tracker')).toBeInTheDocument()
+  })
+
+  it('shows one grouped review reminder, dismisses it for today, and keeps the missing count in History navigation', async () => {
+    const user = userEvent.setup()
+    const definition = { ...tracker(), startDate: shiftCalendarDate(localCalendarDate(), -3) }
+    await localRepository.saveTracker(definition)
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const reminder = (await screen.findByText(/\d+ check-ins to review/)).closest('.dashboard-missing-reminder') as HTMLElement
+    expect(reminder).toHaveTextContent(/\d+ check-ins to review/)
+    expect(within(reminder).getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/history#missing-checkins')
+    await user.click(within(reminder).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText(/\d+ check-ins to review/)).not.toBeInTheDocument()
+    expect(window.localStorage.getItem('progress-tracker:missing-checkins-dismissed:guest')).toBe(localCalendarDate())
   })
 
   it('filters tracker cards and heatmap by stable tracker ID and exposes tap details', async () => {

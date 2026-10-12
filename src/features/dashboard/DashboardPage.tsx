@@ -20,6 +20,7 @@ import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../do
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateActivityHeatmap } from '../../domain/trackers/activityHeatmap'
 import { ActivityHeatmap } from './ActivityHeatmap'
+import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { availableHeatmapYears, heatmapDateRange, type HeatmapDateRangeOption, type HeatmapRangeSelection, isHistoricalHeatmapYear } from './heatmapDateRange'
 
 type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
@@ -36,6 +37,7 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [dismissedReminderKey, setDismissedReminderKey] = useState<string | null>(null)
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1024 : window.innerWidth)
   const [rangeSelection, setRangeSelection] = useState<HeatmapRangeSelection>(() => {
     if (typeof window === 'undefined') return 'auto'
@@ -137,10 +139,22 @@ export function DashboardPage() {
     return count
   }, 0)
   const completionPercent = scheduledWeek ? Math.round(consistencyQualified.length / scheduledWeek * 100) : 0
+  const missingCheckIns = useMemo(() => selectMissingCheckIns({
+    trackers: data.trackers,
+    entries: data.entries,
+    holidays: new Set(data.holidays),
+    dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, index - 7)),
+    today,
+    timeZone,
+  }), [data.trackers, data.entries, data.holidays, today, timeZone])
+  const reminderStorageKey = `progress-tracker:missing-checkins-dismissed:${workspaceKey}`
+  const reminderDismissal = `${reminderStorageKey}:${today}`
+  const reminderDismissed = dismissedReminderKey === reminderDismissal || readDismissedReminder(reminderStorageKey) === today
 
   return (
     <section className="tracker-page dashboard-page" aria-labelledby="dashboard-title">
       <PageHeader headingId="dashboard-title" eyebrow="YOUR PROGRESS" title="Insights" description={`Patterns and wins from your saved activity · ${calendarDateLabel(today, { month: 'long', day: 'numeric' })}`} help={{ title: 'Insights', summary: 'See recent consistency, tracker-specific streaks, and long-term activity.', description: 'Use the tracker selector to switch between a combined view and one tracker. All Trackers adds eligible opportunities and results across trackers; their streaks remain separate. The heatmap normalizes each day by that day’s eligible opportunities and applies each tracker’s Standard or Strict Mode policy.' }} action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} />
+      {!loading && !error && missingCheckIns.length > 0 && !reminderDismissed && <Surface className="dashboard-missing-reminder" role="region" aria-label="Missing check-in reminder"><div><strong>{missingCheckIns.length} {missingCheckIns.length === 1 ? 'check-in' : 'check-ins'} to review</strong><p>Some scheduled dates have no saved check-in. Review them to record what happened.</p><small>Dismissal is saved on this device for today.</small></div><div className="dashboard-missing-actions"><Link className="button button-secondary button-small" to="/history#missing-checkins">Review</Link><button type="button" className="button button-quiet button-small" onClick={() => { try { window.localStorage.setItem(reminderStorageKey, today) } catch { /* Dismissal remains for this page session. */ } setDismissedReminderKey(reminderDismissal) }}>Dismiss</button></div></Surface>}
       <SectionTabs label="Insights sections" items={insightsSectionTabs} />
       {error && <div role="alert" className="form-alert">{error}</div>}
       {loading ? <p role="status" className="tracker-loading">Loading your progress…</p> : error ? <Surface><EmptyState title="Your progress is still here" description="This device could not open local storage. Try loading the overview again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : data.trackers.length === 0 ? <Surface><EmptyState title="Your overview starts with a tracker" description="Once you create a tracker and log check-ins, this page will summarize your real activity." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
@@ -169,6 +183,11 @@ export function DashboardPage() {
       </>}
     </section>
   )
+}
+
+function readDismissedReminder(key: string): string | null {
+  try { return typeof window === 'undefined' ? null : window.localStorage.getItem(key) }
+  catch { return null }
 }
 
 function StatCard({ label, value, detail, help }: { label: string; value: string; detail: string; help: string }) {
