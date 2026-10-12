@@ -5,7 +5,7 @@ import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/s
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
 import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle.ts'
 import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, socialConversationReply } from './assistantCore.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
 import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
 import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
@@ -107,11 +107,10 @@ async function buildCandidate(admin: ReturnType<typeof createClient>, raw: unkno
 
 async function generate(admin: ReturnType<typeof createClient>, question: string, history: HistoryItem[], pageContext: string, verifiedRows: VerifiedKnowledge[], runtimeAvailability: Record<string, 'available' | 'disabled'>, clientCapabilityVersion?: string) {
   const deterministic = deterministicProductAnswer(question, history, PUBLIC_SUPPORT_EMAIL)
-  if (deterministic) {
-    const binQuestion = /\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/i.test(`${question} ${history.filter(({ role }) => role === 'user').slice(-2).map(({ content }) => content).join(' ')}`)
-    const accountDeleteContext = `${question} ${history.filter(({ role }) => role === 'user').slice(-2).map(({ content }) => content).join(' ')}`
-    const accountDeletionQuestion = deterministic.topic === 'account' && /\b(?:account|profile)\b/i.test(accountDeleteContext) && /\b(?:delete|deletion|remove|permanently)\b/i.test(accountDeleteContext)
-    if (!accountDeletionQuestion) return { answer: deterministic.answer, links: binQuestion ? [APP_LINKS.bin] : [], followUps: [], topic: deterministic.topic, knowledge_version: knowledgeVersion }
+  // Static support contact details do not describe a feature workflow. All
+  // feature-specific deterministic answers go through current evidence retrieval.
+  if (deterministic && shouldUseDeterministicAnswer(deterministic.topic, question)) {
+    return { answer: deterministic.answer, links: [], followUps: [], topic: deterministic.topic, knowledge_version: knowledgeVersion }
   }
   const credentials: ProviderCredential[] = [
     { slot: 'primary', key: Deno.env.get('GROQ_API_KEY_PRIMARY') ?? '' },

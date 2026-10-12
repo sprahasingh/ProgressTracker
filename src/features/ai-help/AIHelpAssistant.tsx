@@ -9,7 +9,7 @@ import { submitGeneralFeedback } from '../feedback/feedbackService'
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
 const storageKey = 'progress-tracker:ai-help:session'
-const safeRoutes = new Map([['/', 'Today'], ['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings']])
+const safeRoutes = new Map([['/', 'Today'], ['/trackers', 'Trackers'], ['/trackers/new', 'Create a tracker'], ['/goals', 'Goals'], ['/dashboard', 'Insights'], ['/calendar', 'Calendar'], ['/history', 'History'], ['/settings', 'Settings'], ['/bin', 'The Bin']])
 function loadSession(): { messages: ChatMessage[]; draft: string } {
   if (typeof sessionStorage === 'undefined') return { messages: [], draft: '' }
   try {

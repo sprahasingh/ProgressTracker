@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, socialConversationReply } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 import { knowledgeDocuments } from './_generated/knowledgeBundle'
 import { sourceIndex } from './_generated/sourceIndex'
@@ -14,6 +14,11 @@ const sourceEntries = [
 ]
 
 describe('AI Help retrieval and provider boundary', () => {
+  it('only returns deterministic static support contact answers without source retrieval', () => {
+    expect(shouldUseDeterministicAnswer('account', 'What is the support email?')).toBe(true)
+    expect(shouldUseDeterministicAnswer('trackers', 'Where is the Bin?')).toBe(false)
+    expect(shouldUseDeterministicAnswer('account', 'How do I delete my account?')).toBe(false)
+  })
   it('answers social messages without making product claims', () => {
     expect(socialConversationReply('Helo!')).toMatch(/How can I help/)
     expect(socialConversationReply('Thanks!')).toBe("You're welcome!")

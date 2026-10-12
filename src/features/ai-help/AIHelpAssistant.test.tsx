@@ -36,6 +36,18 @@ describe('AI Help Assistant', () => {
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 
+  it('navigates to the validated Bin link and closes the mobile assistant', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({ matches: query.includes('max-width: 760px'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    mocks.invoke.mockResolvedValue({ data: { answer: 'Open The Bin to review retained trackers.', links: [{ label: 'The Bin', href: '/bin' }] }, error: null })
+    const user = userEvent.setup()
+    renderAssistant('/calendar')
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'Where is The Bin?{Enter}')
+    await user.click(await screen.findByRole('link', { name: 'The Bin' }))
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/bin')
+    expect(screen.queryByRole('dialog', { name: 'Ask ProgressTracker' })).not.toBeInTheDocument()
+  })
+
   it('opens the shared general feedback dialog from the AI Help header', async () => {
     mocks.status = 'signed-in'
     const user = userEvent.setup()
@@ -118,6 +130,10 @@ describe('AI Help Assistant', () => {
     await user.type(input, 'I want to report a bug: my goal will not update.{Enter}')
     const support = await screen.findByRole('textbox', { name: /Support query/ })
     expect(support).toHaveValue('I want to report a bug: my goal will not update.')
+    const supportForm = support.closest('form')!
+    expect(supportForm.querySelector('.ai-help-support-body')).toContainElement(support)
+    expect(supportForm.querySelector('footer')).toContainElement(screen.getByRole('button', { name: 'Send Query' }))
+    expect(supportForm.querySelector('footer')).toContainElement(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.getByText(/Only the text shown above will be sent/)).toBeInTheDocument()
     expect(screen.getByText(/spraha\.progresstracker@gmail\.com/)).toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalled()

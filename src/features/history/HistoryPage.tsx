@@ -96,7 +96,8 @@ export function HistoryPage() {
   }, [refresh, workspaceReady])
   useWorkspaceDataChanges(owner, workspaceReady, refresh)
   const trackerMap = useMemo(() => new Map(trackers.map((tracker) => [tracker.id, tracker])), [trackers])
-  const filtered = entries.filter((entry) => trackerFilter === 'all' || entry.trackerId === trackerFilter)
+  const visibleEntries = entries.filter((entry) => trackerMap.has(entry.trackerId))
+  const filtered = visibleEntries.filter((entry) => trackerFilter === 'all' || entry.trackerId === trackerFilter)
   const grouped = rangeIssue ? [] : groupByDate(filtered)
   const qualifiedCount = filtered.filter((entry) => {
     const tracker = trackerMap.get(entry.trackerId)

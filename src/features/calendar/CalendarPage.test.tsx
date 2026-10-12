@@ -100,6 +100,21 @@ describe('Calendar page', () => {
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
   })
 
+  it('does not count retained entries whose tracker is hidden in the Bin', async () => {
+    mocks.listTrackers.mockResolvedValue([tracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([
+      entry,
+      { ...entry, id: 'binned-entry', trackerId: 'binned-tracker' },
+    ])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    await screen.findByText('Morning walk', { selector: 'strong' })
+    const day = container.querySelector('.calendar-day-today .calendar-cell-status')
+    expect(day).toHaveAttribute('aria-label', expect.not.stringContaining('2 saved check-ins'))
+    expect(day).toHaveAttribute('aria-label', expect.stringContaining('1 saved check-in'))
+  })
+
   it('keeps a mixed completed and pending date pending instead of calling it partially completed', async () => {
     const secondTracker = { ...tracker, id: 'calendar-habit-two', name: 'Read a book' }
     mocks.listTrackers.mockResolvedValue([tracker, secondTracker])
