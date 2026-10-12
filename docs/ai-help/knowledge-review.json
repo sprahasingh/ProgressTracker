@@ -425,7 +425,7 @@
   "bin-retention": {
     "src/features/trackers/TrackerBinPage.tsx": "bec3c5efa4ec8eee7e44ff7b8baba5f797323c4e22a2d415ff2a7732596f7a1a",
     "src/db/localRepository.ts": "354aea0744e314a1a669c40b35148525a6d3e3161923dda271f20c3c0b6c1724",
-    "supabase/migrations/20261013000200_schedule_tracker_bin_cleanup.sql": "5d8073b27c0988b823284656df3bce9024240453827b6082ceb7b26cca98a112"
+    "supabase/migrations/20261101000100_schedule_tracker_bin_cleanup.sql": "5d8073b27c0988b823284656df3bce9024240453827b6082ceb7b26cca98a112"
   },
   "edit-tracker-history": {
     "src/domain/trackers/invariants.ts": "ae942d026e39c5485e465e59c4c7c4783d8507ff632eb32dc850e5f6744a7eb8",
