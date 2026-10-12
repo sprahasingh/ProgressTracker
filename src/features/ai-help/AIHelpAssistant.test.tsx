@@ -72,7 +72,7 @@ describe('AI Help Assistant', () => {
     expect(feedback.parentElement).toHaveStyle({ height: '350px' })
     expect(screen.getByTestId('current-path')).toHaveTextContent('/goals')
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
-    expect(await screen.findByText(/Feedback sent\. Thank you/)).toBeInTheDocument()
+    expect(await screen.findByText(/Feedback saved\. Thank you/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Done' }))
     expect(screen.getByRole('dialog', { name: 'Ask ProgressTracker' })).toBeInTheDocument()
     expect(screen.getByTestId('current-path')).toHaveTextContent('/goals')

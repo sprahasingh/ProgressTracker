@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getMySupportThread, listMySupportThreads, replyToMySupportThread, type SupportThread, type SupportThreadDetail } from './supportApi'
 
@@ -15,6 +15,7 @@ export function MySupportQueries() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const sectionRef = useRef<HTMLElement>(null)
 
   const reload = useCallback(async () => {
     setLoading(true); setError('')
@@ -22,12 +23,17 @@ export function MySupportQueries() {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Support queries could not be loaded.') }
     finally { setLoading(false) }
   }, [])
-  useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    void reload()
+    const refresh = () => { void reload() }
+    window.addEventListener('progress-tracker:support-feedback-changed', refresh)
+    return () => window.removeEventListener('progress-tracker:support-feedback-changed', refresh)
+  }, [reload])
   useEffect(() => {
     let active = true
     if (!selectedId) { setDetail(null); setDraft(''); return }
     setError('')
-    void getMySupportThread(selectedId).then((value) => { if (active) { setDetail(value); setDraft('') } })
+    void getMySupportThread(selectedId).then((value) => { if (active) { setDetail(value); setDraft(''); requestAnimationFrame(() => { sectionRef.current?.scrollIntoView?.({ block: 'start' }); sectionRef.current?.focus({ preventScroll: true }) } ) } })
       .catch((cause) => { if (active) { setDetail(null); setError(cause instanceof Error ? cause.message : 'This support query is unavailable.') } })
     return () => { active = false }
   }, [selectedId])
@@ -37,14 +43,14 @@ export function MySupportQueries() {
     if (!detail || !draft.trim() || busy) return
     setBusy(true); setError(''); setNotice('')
     try {
-      await replyToMySupportThread(detail.thread.id, draft.trim(), crypto.randomUUID())
-      setDraft(''); setNotice('Your reply was saved. The support team has been notified.')
+      const result = await replyToMySupportThread(detail.thread.id, draft.trim(), crypto.randomUUID())
+      setDraft(''); setNotice(result.emailStatus === 'accepted' ? 'Your reply was saved. The email provider accepted a support notification; inbox delivery may take a little time.' : result.emailStatus === 'uncertain' ? 'Your reply was saved, but email notification delivery could not be confirmed.' : result.emailStatus === 'failed' ? 'Your reply was saved, but the support email notification could not be sent.' : 'Your reply was saved and the support team will see it in the inbox.')
       await Promise.all([reload(), getMySupportThread(detail.thread.id).then(setDetail)])
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your reply could not be saved. It is still here so you can retry.') }
     finally { setBusy(false) }
   }
 
-  return <section className="settings-section support-queries" id="my-support-queries" aria-labelledby="my-support-queries-title">
+  return <section ref={sectionRef} tabIndex={-1} className="settings-section support-queries" id="my-support-queries" aria-labelledby="my-support-queries-title">
     <h2 id="my-support-queries-title">My Support Queries</h2>
     <p>In-app queries and replies stay in your account. Resolved conversations are read-only; start a new query if you need more help.</p>
     {error && <p className="auth-error" role="alert">{error}</p>}

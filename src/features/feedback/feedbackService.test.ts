@@ -15,9 +15,9 @@ const input = { category: 'bug_report' as const, message: 'The save button did n
 describe('submitGeneralFeedback', () => {
   it('sends only the user-entered category, message, and request ID with the current session token', async () => {
     const backend = client({ access_token: 'session-token' }, { data: { accepted: true }, error: null })
-    await expect(submitGeneralFeedback(backend, input)).resolves.toBeUndefined()
+    await expect(submitGeneralFeedback(backend, input)).resolves.toEqual({ deliveryStatus: 'pending' })
     expect(backend.functions.invoke).toHaveBeenCalledWith('send-feedback', {
-      body: { category: input.category, message: input.message, request_id: input.requestId },
+      body: { category: input.category, message: input.message, request_id: input.requestId, source: 'settings' },
       headers: { Authorization: 'Bearer session-token' },
     })
   })

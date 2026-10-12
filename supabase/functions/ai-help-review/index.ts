@@ -110,6 +110,7 @@ Deno.serve(async (request) => {
       if (category !== 'all' && !categories.includes(category)) return json(400, { error: 'Unsupported feedback category.' }, origin)
       const limit = typeof body.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(body.limit))) : 50
       const offset = typeof body.offset === 'number' ? Math.max(0, Math.min(10000, Math.floor(body.offset))) : 0
+      try { await admin.from('support_feedback').delete().eq('category', 'ai_answer_feedback').lte('created_at', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()) } catch { /* Unified answer reports expire with their legacy 180-day retention window. */ }
       try { await admin.from('ai_help_answer_feedback').delete().lte('expires_at', new Date().toISOString()) } catch { /* Feedback remains reviewable if retention cleanup is temporarily unavailable. */ }
       let query = admin.from('ai_help_answer_feedback')
         .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,reviewer_id')

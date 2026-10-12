@@ -10,8 +10,9 @@ export async function deliverPendingSupportEmail(
   identity: FeedbackIdentity,
   config: DeliveryConfig,
 ): Promise<'accepted' | 'pending' | 'failed' | 'uncertain' | 'not_required'> {
+  await admin.rpc('expire_stale_support_email_outbox')
   const { data: record, error: recordError } = await admin.from('support_feedback')
-    .select('id,category,source,subject,original_message,created_at,email_status')
+    .select('id,category,source,subject,original_message,metadata,created_at,email_status')
     .eq('id', feedbackId).maybeSingle()
   if (recordError || !record) throw new Error('feedback_record_unavailable')
   if (record.email_status === 'not_required') return 'not_required'
@@ -30,14 +31,20 @@ export async function deliverPendingSupportEmail(
     return current?.status === 'accepted' ? 'accepted' : current?.status === 'uncertain' ? 'uncertain' : current?.status === 'failed' ? 'failed' : 'pending'
   }
   let message = record.original_message as string
+  let submittedAt = record.created_at as string
   if (job.message_id) {
-    const { data: reply, error } = await admin.from('support_feedback_messages').select('body').eq('id', job.message_id).maybeSingle()
-    if (error || !reply) throw new Error('feedback_message_unavailable')
+    const { data: reply, error } = await admin.from('support_feedback_messages').select('body,created_at').eq('id', job.message_id).maybeSingle()
+    if (error || !reply) {
+      await admin.rpc('set_support_email_outcome', { p_outbox_id: job.id, p_status: 'uncertain', p_error_code: 'message_unavailable' })
+      throw new Error('feedback_message_unavailable')
+    }
     message = reply.body as string
+    submittedAt = reply.created_at as string
   }
   const category = record.category === 'bug_report' ? 'bug_report'
     : record.category === 'feature_request' ? 'feature_request'
-      : record.category === 'general_feedback' ? 'general_feedback' : 'help_support'
+      : record.category === 'general_feedback' ? 'general_feedback'
+        : record.category === 'ai_answer_feedback' ? 'ai_answer_feedback' : 'help_support'
   const result = await deliverFeedbackEmail({
     category,
     message,
@@ -45,13 +52,19 @@ export async function deliverPendingSupportEmail(
     feedbackId: record.id,
     subject: record.subject,
     source: record.source,
-    submittedAt: record.created_at,
+    submittedAt,
+    ...(record.category === 'ai_answer_feedback' ? { evidenceContext: {
+      answerCategory: record.metadata?.answer_category,
+      topic: record.metadata?.topic,
+      knowledgeVersion: record.metadata?.knowledge_version,
+      responseId: record.metadata?.response_id,
+    } } : {}),
   }, identity, config)
   const outcome = result.outcome === 'rejected' ? 'failed' : result.outcome
   const { error: outcomeError } = await admin.rpc('set_support_email_outcome', {
     p_outbox_id: job.id,
     p_status: outcome,
-    p_provider_message_id: null,
+    p_provider_message_id: result.providerMessageId ?? null,
     p_error_code: result.accepted ? null : `brevo_${result.status}`,
   })
   if (outcomeError) throw new Error('feedback_delivery_status_unavailable')

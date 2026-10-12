@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { getSupportInboxThread, listSupportInbox, replyAsMaintainer, setSupportThreadStatus, type SupportCategory, type SupportInboxFilters, type SupportInboxList, type SupportStatus, type SupportThread, type SupportThreadDetail } from '../feedback/supportApi'
+import { getSupportInboxThread, listSupportInbox, replyAsMaintainer, retrySupportEmail, setSupportThreadStatus, type SupportCategory, type SupportInboxFilters, type SupportInboxList, type SupportStatus, type SupportThread, type SupportThreadDetail } from '../feedback/supportApi'
 
 const categories: Array<{ id: SupportCategory | 'all'; label: string }> = [
   { id: 'all', label: 'All feedback' }, { id: 'support_query', label: 'Support queries' }, { id: 'bug_report', label: 'Bug reports' },
@@ -30,22 +30,25 @@ export function SupportInboxWorkspace() {
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const reload = useCallback(async (append = false) => {
+  const reload = useCallback(async (append = false, pageOffset = 0) => {
     setLoading(true); setError('')
-    const filters: SupportInboxFilters & { sort: 'newest' | 'oldest' } = { category, status, search, offset: append ? offset : 0, sort }
+    const filters: SupportInboxFilters & { sort: 'newest' | 'oldest' } = { category, status, search, offset: append ? pageOffset : 0, sort }
     try {
       const next = await listSupportInbox(filters)
       setResult((current) => append && current ? { ...next, threads: [...current.threads, ...next.threads] } : next)
       if (!append) setOffset(0)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Feedback could not be loaded.') }
     finally { setLoading(false) }
-  }, [category, offset, search, sort, status])
+  }, [category, search, sort, status])
   useEffect(() => { void reload() }, [category, search, sort, status, refreshKey])
   useEffect(() => {
     let active = true
     if (!selectedId) { setDetail(null); setReply(''); return }
     setError('')
-    void getSupportInboxThread(selectedId).then((value) => { if (active) { setDetail(value); setReply('') } })
+    void getSupportInboxThread(selectedId).then((value) => { if (active) {
+      setDetail(value); setReply('')
+      setResult((current) => current ? { ...current, metrics: { ...current.metrics, unread: Math.max(0, current.metrics.unread - (current.threads.some((thread) => thread.id === selectedId && !thread.maintainer_seen_at) ? 1 : 0)) }, threads: current.threads.map((thread) => thread.id === selectedId ? { ...thread, maintainer_seen_at: value.thread.maintainer_seen_at ?? new Date().toISOString(), maintainer_seen_by: value.thread.maintainer_seen_by } : thread) } : current)
+    } })
       .catch((cause) => { if (active) { setDetail(null); setError(cause instanceof Error ? cause.message : 'The conversation could not be loaded.') } })
     return () => { active = false }
   }, [selectedId, refreshKey])
@@ -65,14 +68,21 @@ export function SupportInboxWorkspace() {
     if (!detail || busy) return
     setBusy(true); setError('')
     try {
-      await setSupportThreadStatus(detail.thread.id, next)
+      await setSupportThreadStatus(detail.thread.id, next, detail.thread.updated_at)
       setRefreshKey((value) => value + 1)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The status could not be updated.') }
     finally { setBusy(false) }
   }
-  const loadMore = async () => { setOffset((value) => value + 25); setLoading(true); setError(''); try { const next = await listSupportInbox({ category, status, search, offset: offset + 25, sort }); setResult((current) => current ? { ...next, threads: [...current.threads, ...next.threads] } : next) } catch (cause) { setError(cause instanceof Error ? cause.message : 'More feedback could not be loaded.') } finally { setLoading(false) } }
+  async function retryEmail() {
+    if (!detail || busy || !['pending','failed'].includes(detail.thread.email_status)) return
+    setBusy(true); setError('')
+    try { await retrySupportEmail(detail.thread.id); setRefreshKey((value) => value + 1) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'The notification retry could not be completed.') }
+    finally { setBusy(false) }
+  }
+  const loadMore = async () => { const nextOffset = offset + 25; setOffset(nextOffset); await reload(true, nextOffset) }
 
-  return <section className="tracker-page ai-knowledge-page support-inbox-page" aria-labelledby="support-inbox-title">
+  return <section className="support-inbox-workspace" aria-labelledby="support-inbox-title">
     <header className="ai-feedback-heading"><div><h2 id="support-inbox-title">Feedback &amp; Support</h2><p>Review in-app feedback and continue support conversations. Opening a thread marks it reviewed.</p></div><button type="button" className="button button-secondary button-small" onClick={() => setRefreshKey((value) => value + 1)}>Refresh</button></header>
     <div className="ai-knowledge-counts support-inbox-metrics" aria-label="Feedback overview">
       {[['Total feedback', result?.metrics.total], ['Open', result?.metrics.open], ['Waiting for user', result?.metrics.waiting], ['Resolved', result?.metrics.resolved], ['Unread', result?.metrics.unread], ['Incorrect AI answers', result?.metrics.incorrect_ai]].map(([label, count]) => <div className="ai-knowledge-count" key={label as string}><span>{label}</span><strong>{count ?? '—'}</strong></div>)}
@@ -92,8 +102,9 @@ export function SupportInboxWorkspace() {
           <section className="support-thread-original"><h4>Original feedback</h4><p>{detail.thread.original_message}</p></section>
           {detail.thread.category === 'ai_answer_feedback' && <section className="support-thread-original"><h4>AI answer context</h4><dl><div><dt>Category</dt><dd>{String(detail.thread.metadata.answer_category ?? '')}</dd></div><div><dt>Topic</dt><dd>{String(detail.thread.metadata.topic ?? '')}</dd></div><div><dt>Knowledge bundle</dt><dd>{String(detail.thread.metadata.knowledge_version ?? '')}</dd></div><div><dt>Response ID</dt><dd>{String(detail.thread.metadata.response_id ?? '')}</dd></div></dl></section>}
           <ol className="support-messages">{detail.messages.map((message) => <li key={message.id} className={`support-message is-${message.sender_role}`}><strong>{message.sender_role === 'maintainer' ? 'Support team' : 'User follow-up'}</strong><p>{message.body}</p><time dateTime={message.created_at}>{dateLabel(message.created_at)}</time></li>)}</ol>
-          <form className="support-reply-form" onSubmit={(event) => void sendReply(event)}><label className="form-field"><span>Reply to user</span><textarea className="auth-input" value={reply} onChange={(event) => setReply(event.target.value)} rows={4} maxLength={4000} disabled={busy} /></label><button className="button button-primary button-medium" type="submit" disabled={busy || !reply.trim()}>{busy ? 'Sending…' : 'Send Reply'}</button></form>
+          {detail.thread.status === 'resolved' ? <p className="settings-hint">This conversation is resolved. Change its status before sending another reply.</p> : <form className="support-reply-form" onSubmit={(event) => void sendReply(event)}><label className="form-field"><span>Reply to user</span><textarea className="auth-input" value={reply} onChange={(event) => setReply(event.target.value)} rows={4} maxLength={4000} disabled={busy} /></label><button className="button button-primary button-medium" type="submit" disabled={busy || !reply.trim()}>{busy ? 'Sending…' : 'Send Reply'}</button></form>}
           <label className="support-status-control"><span>Thread status</span><select value={detail.thread.status} disabled={busy} onChange={(event) => void updateStatus(event.target.value as SupportStatus)}>{statuses.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+          {['pending','failed'].includes(detail.thread.email_status) && <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => void retryEmail()}>{detail.thread.email_status === 'pending' ? 'Send pending support email notification' : 'Retry support email notification'}</button>}
         </article> : <div className="support-thread-detail support-thread-empty"><p>Select feedback to view its message and conversation.</p></div>}
       </div>}
       {loading && result && <p role="status">Refreshing feedback…</p>}

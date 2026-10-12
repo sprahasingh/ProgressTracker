@@ -1,14 +1,13 @@
 export const feedbackCategories = ['bug_report', 'feature_request', 'general_feedback', 'help_support'] as const
 export type FeedbackCategory = typeof feedbackCategories[number]
+export type DeliveryCategory = FeedbackCategory | 'ai_answer_feedback'
 
-export const feedbackCategoryLabels: Record<FeedbackCategory, string> = {
-  bug_report: 'Bug Report',
-  feature_request: 'Feature Request',
-  general_feedback: 'General Feedback',
-  help_support: 'Help / Support',
+export const feedbackCategoryLabels: Record<DeliveryCategory, string> = {
+  bug_report: 'Bug Report', feature_request: 'Feature Request', general_feedback: 'General Feedback',
+  help_support: 'Help / Support', ai_answer_feedback: 'AI Answer Feedback',
 }
 
-export type FeedbackSubmission = { category: FeedbackCategory; message: string; requestId: string; source?: string; subject?: string; feedbackId?: string; submittedAt?: string }
+export type FeedbackSubmission = { category: DeliveryCategory; message: string; requestId: string; source?: string; subject?: string; feedbackId?: string; submittedAt?: string; evidenceContext?: { answerCategory?: string; topic?: string; knowledgeVersion?: string; responseId?: string } }
 export type FeedbackIdentity = { userId: string; email: string | null }
 
 const emailPattern = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/
@@ -25,7 +24,13 @@ export function validateFeedbackSubmission(value: unknown): FeedbackSubmission |
   if (input.subject !== undefined && (typeof input.subject !== 'string' || input.subject.trim().length < 1 || input.subject.trim().length > 160)) return null
   if (credentialPattern.test(input.message)) return null
   if (typeof input.request_id !== 'string' || !uuidPattern.test(input.request_id)) return null
-  return { category: input.category as FeedbackCategory, message: input.message.trim(), requestId: input.request_id, source: typeof input.source === 'string' ? input.source : undefined, subject: typeof input.subject === 'string' ? input.subject.trim() : undefined }
+  return {
+    category: input.category as FeedbackCategory,
+    message: input.message.trim(),
+    requestId: input.request_id,
+    ...(typeof input.source === 'string' ? { source: input.source } : {}),
+    ...(typeof input.subject === 'string' ? { subject: input.subject.trim() } : {}),
+  }
 }
 
 export function validReplyAddress(value: string | null | undefined): string | null {
@@ -50,6 +55,10 @@ export function buildFeedbackEmail(input: FeedbackSubmission, identity: Feedback
       ...(input.feedbackId ? [`Feedback ID: ${input.feedbackId}`] : []),
       ...(input.subject ? [`Subject: ${input.subject}`] : []),
       ...(input.source ? [`Source: ${input.source}`] : []),
+      ...(input.evidenceContext?.answerCategory ? [`Answer feedback category: ${input.evidenceContext.answerCategory}`] : []),
+      ...(input.evidenceContext?.topic ? [`AI Help topic: ${input.evidenceContext.topic}`] : []),
+      ...(input.evidenceContext?.knowledgeVersion ? [`Knowledge bundle: ${input.evidenceContext.knowledgeVersion}`] : []),
+      ...(input.evidenceContext?.responseId ? [`Response ID: ${input.evidenceContext.responseId}`] : []),
       `Reply email: ${replyEmail ?? 'Not available'}`,
       `Submitted: ${input.submittedAt ?? timestamp}`,
       `App version: ${appVersion}`,
@@ -57,13 +66,13 @@ export function buildFeedbackEmail(input: FeedbackSubmission, identity: Feedback
       'Message:',
       message,
     ].join('\n'),
-    html: `<h2>ProgressTracker feedback: ${category}</h2>${input.feedbackId ? `<p><strong>Feedback ID:</strong> ${escapeEmailHtml(input.feedbackId)}</p>` : ''}${input.subject ? `<p><strong>Subject:</strong> ${escapeEmailHtml(input.subject)}</p>` : ''}${input.source ? `<p><strong>Source:</strong> ${escapeEmailHtml(input.source)}</p>` : ''}<p><strong>Reply email:</strong> ${escapedReplyEmail}</p><p><strong>Submitted:</strong> ${escapeEmailHtml(input.submittedAt ?? timestamp)}</p><p><strong>App version:</strong> ${escapeEmailHtml(appVersion)}</p><hr><p><strong>Message:</strong></p><pre style="white-space:pre-wrap;font:inherit">${escapedMessage}</pre>`,
+    html: `<h2>ProgressTracker feedback: ${category}</h2>${input.feedbackId ? `<p><strong>Feedback ID:</strong> ${escapeEmailHtml(input.feedbackId)}</p>` : ''}${input.subject ? `<p><strong>Subject:</strong> ${escapeEmailHtml(input.subject)}</p>` : ''}${input.source ? `<p><strong>Source:</strong> ${escapeEmailHtml(input.source)}</p>` : ''}${input.evidenceContext?.answerCategory ? `<p><strong>Answer feedback category:</strong> ${escapeEmailHtml(input.evidenceContext.answerCategory)}</p>` : ''}${input.evidenceContext?.topic ? `<p><strong>AI Help topic:</strong> ${escapeEmailHtml(input.evidenceContext.topic)}</p>` : ''}${input.evidenceContext?.knowledgeVersion ? `<p><strong>Knowledge bundle:</strong> ${escapeEmailHtml(input.evidenceContext.knowledgeVersion)}</p>` : ''}${input.evidenceContext?.responseId ? `<p><strong>Response ID:</strong> ${escapeEmailHtml(input.evidenceContext.responseId)}</p>` : ''}<p><strong>Reply email:</strong> ${escapedReplyEmail}</p><p><strong>Submitted:</strong> ${escapeEmailHtml(input.submittedAt ?? timestamp)}</p><p><strong>App version:</strong> ${escapeEmailHtml(appVersion)}</p><hr><p><strong>Message:</strong></p><pre style="white-space:pre-wrap;font:inherit">${escapedMessage}</pre>`,
     replyTo: replyEmail,
   }
 }
 
 export type DeliveryConfig = { apiKey: string; from: string; to: string; appVersion: string }
-export type DeliveryResult = { accepted: boolean; outcome: 'accepted' | 'rejected' | 'uncertain'; status: number; retryable: boolean }
+export type DeliveryResult = { accepted: boolean; outcome: 'accepted' | 'rejected' | 'uncertain'; status: number; retryable: boolean; providerMessageId?: string }
 
 export async function deliverFeedbackEmail(
   input: FeedbackSubmission,
@@ -96,7 +105,7 @@ export async function deliverFeedbackEmail(
     if (response.ok) {
       const payload = await response.json().catch(() => null) as { messageId?: unknown } | null
       return typeof payload?.messageId === 'string' && payload.messageId
-        ? { accepted: true, outcome: 'accepted', status: response.status, retryable: false }
+        ? { accepted: true, outcome: 'accepted', status: response.status, retryable: false, providerMessageId: payload.messageId }
         : { accepted: false, outcome: 'uncertain', status: response.status, retryable: false }
     }
     if (response.status >= 400 && response.status < 500) {

@@ -4,7 +4,7 @@ begin;
 -- on account deletion so operational feedback can be retained without identity.
 create table public.support_feedback (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete set null,
+  user_id uuid references auth.users(id) on delete cascade,
   request_id uuid,
   category text not null check (category in ('support_query','bug_report','feature_request','general_feedback','ai_answer_feedback')),
   source text not null check (source in ('settings','ai_help_support','ai_help_answer','other')),
@@ -73,7 +73,7 @@ select f.user_id, 'ai_answer_feedback', 'ai_help_answer',
        coalesce(nullif(btrim(f.explanation), ''), 'The user marked an AI Help answer as ' || replace(f.category, '_', ' ') || '.'),
        case when f.status = 'resolved' then 'resolved' when f.status = 'reviewed' then 'in_progress' else 'open' end,
        jsonb_build_object('legacy_answer_feedback_id', f.id, 'response_id', f.response_id, 'answer_category', f.category, 'explanation', f.explanation, 'topic', f.topic, 'knowledge_version', f.knowledge_version, 'legacy_status', f.status),
-       case when f.category = 'helpful' then 'not_required' else 'pending' end,
+       'not_required',
        coalesce(f.reviewed_at, f.created_at), f.created_at, coalesce(f.reviewed_at, f.created_at)
 from public.ai_help_answer_feedback f
 where not exists (select 1 from public.support_feedback u where u.metadata->>'legacy_answer_feedback_id' = f.id::text);
@@ -125,7 +125,7 @@ begin
   if v_feedback_id is null then
     select id into v_feedback_id from public.support_feedback where metadata->>'legacy_answer_feedback_id' = v_legacy_id::text limit 1;
   end if;
-  if p_category <> 'helpful' and v_feedback_id is not null then
+  if exists (select 1 from public.ai_help_answer_feedback where id = v_legacy_id and category <> 'helpful') and v_feedback_id is not null then
     insert into public.support_feedback_email_outbox(feedback_id, event_key) values (v_feedback_id, 'feedback:' || v_feedback_id::text) on conflict do nothing;
   end if;
   return v_result || jsonb_build_object('unified_feedback_id', v_feedback_id, 'duplicate', v_duplicate);
@@ -167,6 +167,7 @@ begin
   end if;
   select * into v_feedback from public.support_feedback where id = p_feedback_id for update;
   if not found then raise exception 'Support conversation not found.' using errcode = 'P0002'; end if;
+  if v_feedback.status = 'resolved' then raise exception 'Resolved conversations cannot be reopened. Change the status before replying.' using errcode = '55000'; end if;
   insert into public.support_feedback_messages(feedback_id, sender_user_id, sender_role, body, request_id)
   values (p_feedback_id, p_maintainer_id, 'maintainer', btrim(p_message), p_request_id)
   on conflict (feedback_id, sender_role, request_id) do nothing returning id into v_message_id;
@@ -234,6 +235,22 @@ begin
   update public.support_feedback set email_status = p_status, updated_at = now() where id = v_feedback_id;
 end $$;
 
+create or replace function public.expire_stale_support_email_outbox()
+returns integer language plpgsql security definer set search_path = '' as $$
+declare v_count integer;
+begin
+  with stale as (
+    update public.support_feedback_email_outbox
+      set status = 'uncertain', attempt_count = least(attempt_count + 1, 10), last_error_code = 'delivery_timeout', updated_at = now()
+      where status = 'processing' and updated_at < now() - interval '2 minutes'
+      returning feedback_id
+  )
+  update public.support_feedback set email_status = 'uncertain', updated_at = now()
+  where id in (select feedback_id from stale) and email_status in ('pending','failed');
+  get diagnostics v_count = row_count;
+  return v_count;
+end $$;
+
 revoke all on function public.submit_unified_support_feedback(uuid,uuid,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.submit_unified_support_feedback(uuid,uuid,text,text,text,text) to service_role;
 revoke all on function public.submit_unified_ai_answer_feedback(uuid,uuid,text,text,text,text) from public, anon, authenticated;
@@ -248,7 +265,9 @@ revoke all on function public.review_unified_ai_answer_feedback(uuid,text,uuid) 
 grant execute on function public.review_unified_ai_answer_feedback(uuid,text,uuid) to service_role;
 revoke all on function public.set_support_email_outcome(uuid,text,text,text) from public, anon, authenticated;
 grant execute on function public.set_support_email_outcome(uuid,text,text,text) to service_role;
+revoke all on function public.expire_stale_support_email_outbox() from public, anon, authenticated;
+grant execute on function public.expire_stale_support_email_outbox() to service_role;
 
-comment on table public.support_feedback is 'Authenticated user feedback and support threads. Personal user references are anonymized on account deletion; message content is retained for support operations.';
+comment on table public.support_feedback is 'Authenticated user feedback and support threads. Threads, replies, and pending email jobs are deleted with the account to honor ProgressTracker account deletion behavior.';
 comment on table public.support_feedback_email_outbox is 'Durable, idempotent Brevo notification outbox. Uncertain outcomes must not be automatically retried.';
 commit;

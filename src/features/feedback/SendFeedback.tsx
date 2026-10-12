@@ -73,6 +73,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
       const result = await submitGeneralFeedback(getSupabaseClient(), { category, message: cleanMessage, requestId, source })
       setEmailStatus(result.deliveryStatus)
       setFeedbackId(result.feedbackId ?? '')
+      window.dispatchEvent(new Event('progress-tracker:support-feedback-changed'))
       setAccepted(true)
       setMessage('')
       requestRef.current = null
@@ -108,7 +109,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
         <label className="form-field" htmlFor="general-feedback-category"><span>Feedback type</span><select id="general-feedback-category" className="auth-input" value={category} onChange={(event) => setCategory(event.target.value as GeneralFeedbackCategory)} disabled={busy}><option value="bug_report">Bug report</option><option value="feature_request">Feature request</option><option value="general_feedback">General feedback</option><option value="help_support">Help / Support</option></select></label>
         <label className="form-field" htmlFor="general-feedback-message"><span>Your message</span><textarea id="general-feedback-message" className="auth-input send-feedback-textarea" value={message} onChange={(event) => setMessage(event.target.value.slice(0, 2000))} maxLength={2000} rows={6} placeholder="Tell us what's happening or what you'd like improved..." disabled={busy} required aria-describedby="send-feedback-privacy send-feedback-count" /></label>
         <div className="send-feedback-meta"><small id="send-feedback-count">{message.length}/2,000</small>{signedIn && accountEmail && <small>Reply address: {accountEmail}</small>}</div>
-        <p className="settings-hint" id="send-feedback-privacy">Please don’t include passwords, sign-in links, access tokens, or private tracker details. Your message and account reply address are sent to support; neither is stored in the ProgressTracker database.</p>
+        <p className="settings-hint" id="send-feedback-privacy">Please don’t include passwords, sign-in links, access tokens, or private tracker details. Your message is saved in your Feedback &amp; Support history and sent to support. Your account email is used only as the reply address.</p>
         {!signedIn && <p className="send-feedback-error" role="status">Sign in to submit feedback here. You can still contact support using the fallback below.</p>}
         {error && <p className="send-feedback-error" role="alert">{error}</p>}
         {(error || !signedIn) && <section className="send-feedback-fallback" aria-label="Email support fallback"><p>{outcomeUncertain ? 'We could not confirm whether the message was accepted. To avoid a duplicate, automatic retry is disabled. Please email us directly if you still need help.' : "Couldn't send your feedback right now. You can email us directly instead."}</p><strong>{SUPPORT_EMAIL}</strong><div><a className="button button-secondary button-small" href={mailto}>Email Support</a><button type="button" className="button button-secondary button-small" onClick={() => void copyEmail()}>Copy Email</button></div>{copied && <small role="status">Support email copied.</small>}</section>}
