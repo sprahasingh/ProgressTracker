@@ -12,7 +12,7 @@
 - src/features/calendar/CalendarPage.tsx
 - src/domain/trackers/activityHeatmap.ts
 **Answer:**
-The calendar lets you navigate dates and review tracker activity for the selected period. Its activity indicators summarize saved progress; open a date to review or update the entries available for that day.
+The calendar lets you navigate dates and review tracker activity for the selected period. Its date indicators summarize scheduled opportunities and saved progress; open a date to review or update the entries available for that day.
 
 ### ID: calendar-activity-statuses
 **Category:** calendar
@@ -54,7 +54,7 @@ Open Calendar, navigate to the month, and select the date. The selected-day pane
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-In Standard Mode, an in-period date excluded by the tracker’s schedule is a Rest day. Strict Mode makes every in-period date an opportunity, including schedule rest days. Dates before the effective start or after the deadline are Outside period, not Rest days. Saved check-ins remain visible on rest days and outside the active period.
+In Standard Mode, an in-period date excluded by the active tracker’s schedule is a Rest day. Strict Mode makes every in-period date an opportunity, including schedule rest days. Dates before the effective start or after the deadline are Outside period, not Rest days. Saved check-ins remain visible on rest days and outside the active period.
 
 ### ID: calendar-zero-activity
 **Category:** calendar

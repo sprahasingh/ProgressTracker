@@ -2,20 +2,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AnswerFeedbackWorkspace } from './AnswerFeedbackWorkspace'
-import { listAnswerFeedback, reviewAnswerFeedback, type AnswerFeedback } from './aiKnowledgeApi'
+import { createAnswerFeedbackCandidate, listAnswerFeedback, reviewAnswerFeedback, setAnswerFeedbackKnowledgeDecision, type AnswerFeedback } from './aiKnowledgeApi'
 
-vi.mock('./aiKnowledgeApi', () => ({ listAnswerFeedback: vi.fn(), reviewAnswerFeedback: vi.fn() }))
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+vi.mock('./aiKnowledgeApi', () => ({ listAnswerFeedback: vi.fn(), reviewAnswerFeedback: vi.fn(), setAnswerFeedbackKnowledgeDecision: vi.fn(), createAnswerFeedbackCandidate: vi.fn() }))
+afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 const feedback: AnswerFeedback = {
   id: 'feedback-12345678-1234-1234-1234-123456789012',
   response_id: 'response-12345678-1234-1234-1234-123456789012',
   category: 'wrong_instructions', explanation: 'The settings path in the answer has changed.', topic: 'settings',
   knowledge_version: 'bundle-old-0123456789abcdef', status: 'pending', created_at: '2026-10-12T08:30:00.000Z',
-  reviewed_at: null, identity: null,
+  reviewed_at: null, identity: null, knowledge_decision: 'not_decided', candidate: null,
 }
 const result = (rows: AnswerFeedback[] = [feedback], counts = { pending: 1, reviewed: 0, resolved: 0 }, version = 'bundle-current-abcdef0123456789') => ({
-  current_knowledge_version: version, feedback: rows, counts, page: { limit: 100, offset: 0, has_more: false },
+  current_knowledge_version: version, candidate_source_refs: ['src/features/settings/UnifiedSettings.tsx'], feedback: rows, counts, page: { limit: 100, offset: 0, has_more: false },
 })
 
 describe('AnswerFeedbackWorkspace', () => {
@@ -23,11 +23,12 @@ describe('AnswerFeedbackWorkspace', () => {
     vi.mocked(listAnswerFeedback).mockResolvedValue(result())
     render(<AnswerFeedbackWorkspace />)
 
-    const card = await screen.findByRole('article', { name: 'Wrong instructions feedback, Needs review' })
+    const card = await screen.findByRole('article', { name: 'Wrong instructions feedback, New' })
     expect(within(card).getByText('The settings path in the answer has changed.')).toBeInTheDocument()
     expect(within(card).getByText('Settings')).toBeInTheDocument()
     expect(within(card).getByText('Submitted anonymously')).toBeInTheDocument()
-    expect(within(card).getByText('Needs review')).toBeInTheDocument()
+    expect(card.querySelector('[aria-label="Status: New"]')).toHaveTextContent('New')
+    expect(within(card).getByText(/exact answer text is not retained/)).toBeInTheDocument()
     expect(within(card).getByText('AI Help version changed since this feedback was submitted.')).toBeInTheDocument()
     expect(within(card).getByText('This does not necessarily mean the reported issue has been fixed.')).toBeInTheDocument()
     expect(within(card).getByText('bundle-old-0123456789abcdef')).not.toBeVisible()
@@ -81,7 +82,7 @@ describe('AnswerFeedbackWorkspace', () => {
     expect(within(card).queryByText('user-98765432-1234-1234-1234-123456789012')).not.toBeInTheDocument()
   })
 
-  it('offers only backend-supported actions for pending reports and refreshes counts after success', async () => {
+  it('updates New feedback to Reviewed, shows success, and refreshes counts', async () => {
     vi.mocked(listAnswerFeedback)
       .mockResolvedValueOnce(result())
       .mockResolvedValueOnce(result([], { pending: 0, reviewed: 1, resolved: 0 }))
@@ -89,11 +90,12 @@ describe('AnswerFeedbackWorkspace', () => {
     const user = userEvent.setup()
     render(<AnswerFeedbackWorkspace />)
     const card = await screen.findByRole('article')
-    await user.click(within(card).getByRole('button', { name: 'Mark reviewed' }))
+    await user.click(within(card).getByText('Maintainer review'))
+    await user.selectOptions(within(card).getByRole('combobox', { name: 'Review status' }), 'reviewed')
     await waitFor(() => expect(reviewAnswerFeedback).toHaveBeenCalledWith(feedback.id, 'reviewed'))
     await waitFor(() => expect(listAnswerFeedback).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole('button', { name: /Needs review/ })).toHaveTextContent('0')
-    expect(within(card).queryByRole('button', { name: 'Mark resolved' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /New/ })).toHaveTextContent('0')
+    expect(screen.getByRole('status')).toHaveTextContent('Review status changed to Reviewed')
   })
 
   it('filters by category and status and gives a useful empty state', async () => {
@@ -118,8 +120,93 @@ describe('AnswerFeedbackWorkspace', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'all')
     const reviewed = await screen.findByRole('article', { name: 'Wrong instructions feedback, Reviewed' })
     const resolved = await screen.findByRole('article', { name: 'Wrong instructions feedback, Resolved' })
-    expect(within(reviewed).queryByRole('button', { name: /Mark/ })).not.toBeInTheDocument()
-    expect(within(resolved).queryByRole('button', { name: /Mark/ })).not.toBeInTheDocument()
+    await user.click(within(resolved).getByText('Maintainer review'))
+    expect(within(resolved).getByRole('combobox', { name: 'Review status' })).toHaveValue('resolved')
+    expect(within(reviewed).getByRole('combobox', { name: 'Review status' })).toHaveValue('reviewed')
+  })
+
+  it('allows Reviewed to become Resolved and resolved feedback to be reopened as Reviewed', async () => {
+    vi.mocked(listAnswerFeedback).mockResolvedValue(result([
+      feedback,
+      { ...feedback, id: 'feedback-reviewed', status: 'reviewed', reviewed_at: '2026-10-12T09:00:00Z' },
+      { ...feedback, id: 'feedback-resolved', status: 'resolved', reviewed_at: '2026-10-12T10:00:00Z' },
+    ]))
+    vi.mocked(reviewAnswerFeedback).mockImplementation(async (id, status) => ({ feedback: { ...feedback, id, status } }))
+    const user = userEvent.setup()
+    render(<AnswerFeedbackWorkspace />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Status' }), 'all')
+    const reviewed = await screen.findByRole('article', { name: 'Wrong instructions feedback, Reviewed' })
+    const resolved = await screen.findByRole('article', { name: 'Wrong instructions feedback, Resolved' })
+    await user.click(within(reviewed).getByText('Maintainer review'))
+    await user.selectOptions(within(reviewed).getByRole('combobox', { name: 'Review status' }), 'resolved')
+    await user.click(within(resolved).getByText('Maintainer review'))
+    await user.selectOptions(within(resolved).getByRole('combobox', { name: 'Review status' }), 'reviewed')
+    await waitFor(() => expect(reviewAnswerFeedback).toHaveBeenCalledWith('feedback-reviewed', 'resolved'))
+    await waitFor(() => expect(reviewAnswerFeedback).toHaveBeenCalledWith('feedback-resolved', 'reviewed'))
+  })
+
+  it('persists No knowledge change needed independently from the review status', async () => {
+    vi.mocked(listAnswerFeedback).mockResolvedValue(result())
+    vi.mocked(setAnswerFeedbackKnowledgeDecision).mockResolvedValue({ feedback: { id: feedback.id, status: 'pending', knowledge_decision: 'no_knowledge_change', knowledge_candidate_id: null } })
+    const user = userEvent.setup()
+    render(<AnswerFeedbackWorkspace />)
+    const card = await screen.findByRole('article')
+    await user.click(within(card).getByText('Maintainer review'))
+    await user.selectOptions(within(card).getByRole('combobox', { name: 'Knowledge decision' }), 'no_knowledge_change')
+    await waitFor(() => expect(setAnswerFeedbackKnowledgeDecision).toHaveBeenCalledWith(feedback.id, 'no_knowledge_change'))
+    expect(reviewAnswerFeedback).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('Knowledge decision saved')
+  })
+
+  it('creates an editable source-checked candidate from feedback and shows its link after saving', async () => {
+    const draft = { ...feedback, knowledge_decision: 'create_candidate' as const }
+    const linked = { ...draft, candidate: { id: 'candidate-linked', title: 'Settings answer guidance', status: 'pending' as const } }
+    vi.mocked(listAnswerFeedback).mockResolvedValueOnce(result([draft])).mockResolvedValueOnce(result([linked]))
+    vi.mocked(createAnswerFeedbackCandidate).mockResolvedValue({ candidate_id: 'candidate-linked', created: true, duplicate: false })
+    const user = userEvent.setup()
+    render(<AnswerFeedbackWorkspace />)
+    const card = await screen.findByRole('article')
+    await user.click(within(card).getByText('Maintainer review'))
+    expect(within(card).getByText(/report is context only; it is not copied into the knowledge entry/)).toBeInTheDocument()
+    await user.clear(within(card).getByLabelText('Proposed answer'))
+    await user.type(within(card).getByLabelText('Proposed answer'), 'Settings guidance explains the supported preference behavior clearly.')
+    await user.selectOptions(within(card).getByLabelText('Supporting source files'), ['src/features/settings/UnifiedSettings.tsx'])
+    await user.click(within(card).getByRole('button', { name: 'Create pending candidate' }))
+    await waitFor(() => expect(createAnswerFeedbackCandidate).toHaveBeenCalledWith(feedback.id, expect.objectContaining({
+      topic_id: 'settings.answer_guidance', feature_category: 'settings', source_refs: ['src/features/settings/UnifiedSettings.tsx'],
+    })))
+    expect(await screen.findByText('Settings answer guidance')).toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Open candidate' })).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: 'Create pending candidate' })).not.toBeInTheDocument()
+  })
+
+  it('links an already existing candidate and does not offer a duplicate creation form', async () => {
+    vi.mocked(listAnswerFeedback).mockResolvedValue(result([{
+      ...feedback, knowledge_decision: 'create_candidate', candidate: { id: 'candidate-existing', title: 'Existing answer guidance', status: 'pending' },
+    }]))
+    const onOpenCandidate = vi.fn()
+    const user = userEvent.setup()
+    render(<AnswerFeedbackWorkspace onOpenCandidate={onOpenCandidate} />)
+    const card = await screen.findByRole('article')
+    await user.click(within(card).getByText('Maintainer review'))
+    expect(within(card).getByText('Existing answer guidance')).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: 'Create pending candidate' })).not.toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: 'Open candidate' }))
+    expect(onOpenCandidate).toHaveBeenCalledWith('candidate-existing')
+  })
+
+  it('keeps the feedback visible and reports candidate creation failures', async () => {
+    vi.mocked(listAnswerFeedback).mockResolvedValue(result([{ ...feedback, knowledge_decision: 'create_candidate' }]))
+    vi.mocked(createAnswerFeedbackCandidate).mockRejectedValue(new Error('Candidate evidence was rejected.'))
+    const user = userEvent.setup()
+    render(<AnswerFeedbackWorkspace />)
+    const card = await screen.findByRole('article')
+    await user.click(within(card).getByText('Maintainer review'))
+    await user.type(within(card).getByLabelText('Proposed answer'), 'Settings guidance explains the supported preference behavior clearly.')
+    await user.selectOptions(within(card).getByLabelText('Supporting source files'), ['src/features/settings/UnifiedSettings.tsx'])
+    await user.click(within(card).getByRole('button', { name: 'Create pending candidate' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Candidate evidence was rejected.')
+    expect(within(card).getByText('The settings path in the answer has changed.')).toBeInTheDocument()
   })
 
   it('prevents duplicate review submissions while a save is pending', async () => {
@@ -129,10 +216,11 @@ describe('AnswerFeedbackWorkspace', () => {
     const user = userEvent.setup()
     render(<AnswerFeedbackWorkspace />)
     const card = await screen.findByRole('article')
-    const review = within(card).getByRole('button', { name: 'Mark reviewed' })
-    await user.click(review)
+    await user.click(within(card).getByText('Maintainer review'))
+    const review = within(card).getByRole('combobox', { name: 'Review status' })
+    await user.selectOptions(review, 'reviewed')
     expect(review).toBeDisabled()
-    expect(review).toHaveTextContent('Saving…')
+    expect(reviewAnswerFeedback).toHaveBeenCalledWith(feedback.id, 'reviewed')
     expect(reviewAnswerFeedback).toHaveBeenCalledTimes(1)
     finishReview({ feedback: { ...feedback, status: 'reviewed' } })
   })
@@ -143,7 +231,8 @@ describe('AnswerFeedbackWorkspace', () => {
     const user = userEvent.setup()
     render(<AnswerFeedbackWorkspace />)
     const card = await screen.findByRole('article')
-    await user.click(within(card).getByRole('button', { name: 'Mark reviewed' }))
+    await user.click(within(card).getByText('Maintainer review'))
+    await user.selectOptions(within(card).getByRole('combobox', { name: 'Review status' }), 'reviewed')
     expect(await screen.findByRole('alert')).toHaveTextContent('Review update failed.')
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Refresh failed.')
@@ -159,7 +248,7 @@ describe('AnswerFeedbackWorkspace', () => {
       .mockRejectedValueOnce(new Error('The review service is temporarily unavailable. Try again.'))
     render(<AnswerFeedbackWorkspace />)
     expect(screen.getByRole('status')).toHaveTextContent('Loading answer feedback')
-    expect(screen.queryByRole('button', { name: /Needs review/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /New/ })).not.toBeInTheDocument()
     finishLoad(result())
     expect(await screen.findByRole('article')).toBeInTheDocument()
 

@@ -123,7 +123,7 @@ Deno.serve(async (request) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
       body = value as Record<string, unknown>
     } catch { return json(400, { error: 'Invalid review request.' }, origin) }
-    const knownActions = ['whoami', 'list', 'feedback_list', 'feedback_review', 'invalidate', 'get', 'revalidate', 'edit', 'approve', 'reject', 'defer']
+    const knownActions = ['whoami', 'list', 'feedback_list', 'feedback_review', 'feedback_decision', 'feedback_candidate_create', 'invalidate', 'get', 'revalidate', 'edit', 'approve', 'reject', 'defer']
     requestAction = typeof body.action === 'string' && knownActions.includes(body.action) ? body.action : 'unknown'
 
     const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
@@ -171,7 +171,7 @@ Deno.serve(async (request) => {
         if (cleanupError) logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }])
       } catch (cleanupError) { logReviewDatabaseFailure('feedback_list', [{ operation, error: cleanupError }]) }
       let query = admin.from('ai_help_answer_feedback')
-        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,share_identity')
+        .select('id,user_id,response_id,category,explanation,topic,knowledge_version,status,created_at,reviewed_at,share_identity,knowledge_decision,knowledge_candidate_id')
       if (status !== 'all') query = query.eq('status', status)
       if (category !== 'all') query = query.eq('category', category)
       query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
@@ -192,6 +192,16 @@ Deno.serve(async (request) => {
         return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
       }
       const feedbackRows = rows.data ?? []
+      operation = 'feedback_candidate_lookup'
+      const candidateIds = [...new Set(feedbackRows.map((row) => row.knowledge_candidate_id).filter((id): id is string => typeof id === 'string'))]
+      const linkedCandidates = candidateIds.length
+        ? await admin.from('ai_knowledge_candidates').select('id,title,status').in('id', candidateIds)
+        : { data: [], error: null }
+      if (linkedCandidates.error) {
+        logReviewDatabaseFailure('feedback_list', [{ operation, error: linkedCandidates.error }])
+        return json(503, { error: 'Answer feedback is temporarily unavailable.' }, origin)
+      }
+      const candidateById = new Map((linkedCandidates.data ?? []).map((candidate) => [candidate.id, candidate]))
       const feedbackUserIds = [...new Set(feedbackRows.map((row) => row.user_id).filter((id): id is string => typeof id === 'string'))]
       const currentConsentedUsers = new Set<string>()
       if (feedbackUserIds.length) {
@@ -207,9 +217,11 @@ Deno.serve(async (request) => {
         row,
         currentPreference: currentConsentedUsers.has(row.user_id),
         identity: row.share_identity && currentConsentedUsers.has(row.user_id) ? await consentedAnswerFeedbackIdentity(admin, row.user_id) : null,
+        candidate: row.knowledge_candidate_id ? candidateById.get(row.knowledge_candidate_id) ?? null : null,
       })))
       return json(200, buildAnswerFeedbackListPayload({
         knowledgeVersion: sourceVersion,
+        candidateSourceRefs: [...sourcePaths],
         feedback,
         pendingCount: pending.count,
         reviewedCount: reviewed.count,
@@ -220,7 +232,7 @@ Deno.serve(async (request) => {
     }
 
     if (body.action === 'feedback_review') {
-      if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || (body.status !== 'reviewed' && body.status !== 'resolved')) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
+      if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || !['pending', 'reviewed', 'resolved'].includes(String(body.status))) return json(400, { error: 'Choose a feedback report and review status.' }, origin)
       const { error: updateError } = await admin.rpc('review_unified_ai_answer_feedback', { p_legacy_id: body.id, p_status: body.status, p_reviewer_id: user.id })
       if (updateError) {
         logReviewDatabaseFailure('feedback_review', [{ operation: 'feedback_status_update', error: updateError }])
@@ -233,6 +245,67 @@ Deno.serve(async (request) => {
         return json(503, { error: 'The feedback report was saved, but its latest status could not be loaded.' }, origin)
       }
       return json(200, { feedback: { id: data.id, status: data.status, reviewed_at: data.reviewed_at } }, origin)
+    }
+
+    if (body.action === 'feedback_decision') {
+      const validDecisions = ['not_decided', 'create_candidate', 'no_knowledge_change']
+      if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id) || !validDecisions.includes(String(body.decision))) {
+        return json(400, { error: 'Choose a feedback report and knowledge decision.' }, origin)
+      }
+      operation = 'feedback_knowledge_decision_update'
+      const { data, error: decisionError } = await admin.rpc('set_ai_help_answer_feedback_knowledge_decision', {
+        p_feedback_id: body.id, p_decision: body.decision, p_reviewer_id: user.id,
+      })
+      if (decisionError) {
+        logReviewDatabaseFailure('feedback_decision', [{ operation, error: decisionError }])
+        return json(decisionError.code === 'P0002' ? 404 : 503, { error: decisionError.code === 'P0002' ? 'Feedback report not found.' : 'The knowledge decision could not be saved.' }, origin)
+      }
+      return json(200, { feedback: data }, origin)
+    }
+
+    if (body.action === 'feedback_candidate_create') {
+      if (typeof body.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.id)) return json(400, { error: 'Choose a feedback report.' }, origin)
+      const feedbackQuery = await admin.from('ai_help_answer_feedback')
+        .select('id,knowledge_candidate_id').eq('id', body.id).maybeSingle()
+      if (feedbackQuery.error || !feedbackQuery.data) {
+        if (feedbackQuery.error) logReviewDatabaseFailure('feedback_candidate_create', [{ operation: 'feedback_candidate_lookup', error: feedbackQuery.error }])
+        return json(feedbackQuery.error ? 503 : 404, { error: feedbackQuery.error ? 'A knowledge candidate could not be created.' : 'Feedback report not found.' }, origin)
+      }
+      const existingCandidateId = feedbackQuery.data.knowledge_candidate_id
+      if (existingCandidateId) return json(200, { candidate_id: existingCandidateId, created: false, duplicate: true }, origin)
+      const paths = Array.isArray(body.source_refs) ? [...new Set(body.source_refs.filter((ref): ref is string => typeof ref === 'string'))] : []
+      if (!paths.length || paths.length > 4 || paths.some((path) => !sourcePaths.includes(path as never))) {
+        return json(400, { error: 'Choose one to four current indexed source files.' }, origin)
+      }
+      let edits: ReturnType<typeof validateReviewEdits>
+      try {
+        const evidence = currentEvidence(paths)
+        edits = validateReviewEdits(body, new Set(sourcePaths), evidenceFingerprints, evidence)
+        if (!candidateHasEvidenceOverlap(`${edits.title} ${edits.explanation} ${edits.detailedExplanation ?? ''}`, evidence)) throw new Error()
+      } catch {
+        return json(400, { error: 'Edit the candidate so its explanation is supported by the selected current source evidence.' }, origin)
+      }
+      const fingerprint = await createKnowledgeFingerprint(edits)
+      operation = 'feedback_candidate_create_rpc'
+      const { data, error: candidateError } = await admin.rpc('create_ai_help_answer_feedback_candidate', {
+        p_feedback_id: body.id,
+        p_reviewer_id: user.id,
+        p_topic_id: edits.topicId,
+        p_title: edits.title,
+        p_explanation: edits.explanation,
+        p_detailed_explanation: edits.detailedExplanation,
+        p_feature_category: edits.featureCategory,
+        p_source_refs: edits.sourceRefs,
+        p_source_fingerprints: Object.fromEntries(edits.sourceRefs.map((ref) => [ref, evidenceFingerprints[ref]])),
+        p_knowledge_version: sourceVersion,
+        p_candidate_fingerprint: fingerprint,
+      })
+      if (candidateError) {
+        logReviewDatabaseFailure('feedback_candidate_create', [{ operation, error: candidateError }])
+        return json(candidateError.code === 'P0002' ? 404 : candidateError.code === '23505' ? 409 : 400,
+          { error: candidateError.code === 'P0002' ? 'Feedback report not found.' : candidateError.code === '23505' ? 'An approved knowledge topic already exists. Review that topic instead.' : 'The knowledge candidate could not be created. Check the fields and source evidence.' }, origin)
+      }
+      return json(200, data as Record<string, unknown>, origin)
     }
 
     operation = 'knowledge_freshness_reconciliation'

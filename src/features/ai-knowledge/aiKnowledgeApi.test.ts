@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { checkMaintainerAccess, invalidateVerifiedTopic, listAnswerFeedback, listKnowledge, reviewAnswerFeedback, ReviewApiError } from './aiKnowledgeApi'
+import { checkMaintainerAccess, createAnswerFeedbackCandidate, invalidateVerifiedTopic, listAnswerFeedback, listKnowledge, reviewAnswerFeedback, ReviewApiError, setAnswerFeedbackKnowledgeDecision } from './aiKnowledgeApi'
 import { buildAnswerFeedbackListPayload, buildMaintainerAnswerFeedback } from '../../../supabase/functions/ai-help-review/feedbackResponse.ts'
 
 function clientFor({ token = 'session-token', result = { data: { authorized: true }, error: null } }: { token?: string; result?: { data: unknown; error: unknown } } = {}) {
@@ -48,7 +48,7 @@ describe('AI Knowledge review API client', () => {
   })
 
   it('keeps feedback in its own authenticated dashboard action and supports status updates', async () => {
-    const { client, invoke } = clientFor({ result: { data: { current_knowledge_version: 'v1', feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 }, page: { limit: 100, offset: 0, has_more: false } }, error: null } })
+    const { client, invoke } = clientFor({ result: { data: { current_knowledge_version: 'v1', candidate_source_refs: [], feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 }, page: { limit: 100, offset: 0, has_more: false } }, error: null } })
     await listAnswerFeedback({ status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 }, client)
     expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
       body: { action: 'feedback_list', status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 },
@@ -59,6 +59,28 @@ describe('AI Knowledge review API client', () => {
       body: { action: 'feedback_review', id: 'feedback-id', status: 'resolved' },
       headers: { Authorization: 'Bearer session-token' },
     })
+    await reviewAnswerFeedback('feedback-id', 'pending', client)
+    expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
+      body: { action: 'feedback_review', id: 'feedback-id', status: 'pending' },
+      headers: { Authorization: 'Bearer session-token' },
+    })
+    await setAnswerFeedbackKnowledgeDecision('feedback-id', 'no_knowledge_change', client)
+    expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
+      body: { action: 'feedback_decision', id: 'feedback-id', decision: 'no_knowledge_change' },
+      headers: { Authorization: 'Bearer session-token' },
+    })
+    const fields = { topic_id: 'settings.answer_guidance', title: 'Settings answer guidance', explanation: 'Settings guidance explains the supported preference behavior clearly.', detailed_explanation: null, feature_category: 'settings', source_refs: ['src/features/settings/UnifiedSettings.tsx'] }
+    await createAnswerFeedbackCandidate('feedback-id', fields, client)
+    expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
+      body: { action: 'feedback_candidate_create', id: 'feedback-id', ...fields },
+      headers: { Authorization: 'Bearer session-token' },
+    })
+  })
+
+  it('matches the compact feedback status response returned by the Edge Function', async () => {
+    const feedbackStatus = { id: 'feedback-id', status: 'pending', reviewed_at: null }
+    const { client } = clientFor({ result: { data: { feedback: feedbackStatus }, error: null } })
+    await expect(reviewAnswerFeedback('feedback-id', 'pending', client)).resolves.toEqual({ feedback: feedbackStatus })
   })
 
   it('rejects malformed answer feedback responses instead of interpreting them as an empty inbox', async () => {
@@ -71,7 +93,7 @@ describe('AI Knowledge review API client', () => {
       id: 'feedback-1', user_id: 'private-user-id', response_id: 'private-response-id', category: 'outdated',
       explanation: 'This answer is outdated.', topic: 'settings', knowledge_version: 'bundle-v1', status: 'pending',
       created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: false,
-      reviewer_id: 'private-reviewer-id', share_email: true,
+      reviewer_id: 'private-reviewer-id', share_email: true, knowledge_decision: 'not_decided', knowledge_candidate_id: null,
     }
     const anonymousDto = buildMaintainerAnswerFeedback({
       row: sourceRow,
@@ -79,7 +101,7 @@ describe('AI Knowledge review API client', () => {
       currentPreference: false,
     })
     const edgePayload = buildAnswerFeedbackListPayload({
-      knowledgeVersion: 'bundle-current', feedback: [anonymousDto],
+      knowledgeVersion: 'bundle-current', candidateSourceRefs: ['src/features/settings/UnifiedSettings.tsx'], feedback: [anonymousDto],
       pendingCount: 1, reviewedCount: 2, resolvedCount: 3, limit: 100, offset: 0,
     })
     const { client } = clientFor({ result: { data: edgePayload, error: null } })
@@ -88,6 +110,7 @@ describe('AI Knowledge review API client', () => {
 
     expect(result).toMatchObject({
       current_knowledge_version: 'bundle-current',
+      candidate_source_refs: ['src/features/settings/UnifiedSettings.tsx'],
       counts: { pending: 1, reviewed: 2, resolved: 3 },
       page: { limit: 100, offset: 0, has_more: false },
     })

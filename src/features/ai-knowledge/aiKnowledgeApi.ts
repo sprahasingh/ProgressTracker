@@ -46,10 +46,14 @@ export type ReviewEvent = {
 export type ReviewCounts = { pending: number; approved: number; stale: number; rejected: number }
 export type AnswerFeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
 export type AnswerFeedbackStatus = 'pending' | 'reviewed' | 'resolved'
+export type AnswerFeedbackKnowledgeDecision = 'not_decided' | 'create_candidate' | 'no_knowledge_change'
+export type AnswerFeedbackCandidate = { id: string; title: string; status: ReviewStatus }
 export type AnswerFeedback = {
   id: string; response_id?: string; category: AnswerFeedbackCategory; explanation: string | null
   topic: string; knowledge_version: string; status: AnswerFeedbackStatus; created_at: string; reviewed_at: string | null
   identity: { display_name: string | null; email: string | null } | null
+  knowledge_decision: AnswerFeedbackKnowledgeDecision
+  candidate: AnswerFeedbackCandidate | null
 }
 export type ReviewList = {
   knowledge_version: string
@@ -192,7 +196,7 @@ export function revalidateTopic(topic: VerifiedTopic, client?: SupabaseClient) {
 
 export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all'; category?: AnswerFeedbackCategory | 'all'; limit?: number; offset?: number }, client?: SupabaseClient) {
   return invokeReview<unknown>({ action: 'feedback_list', ...input }, client).then((value) => {
-    const result = value as { current_knowledge_version?: unknown; feedback?: unknown; counts?: Record<string, unknown>; page?: { limit?: unknown; offset?: unknown; has_more?: unknown } } | null
+    const result = value as { current_knowledge_version?: unknown; candidate_source_refs?: unknown; feedback?: unknown; counts?: Record<string, unknown>; page?: { limit?: unknown; offset?: unknown; has_more?: unknown } } | null
     const validCategories = ['helpful', 'factually_incorrect', 'outdated', 'wrong_instructions', 'wrong_contact', 'other']
     const validRows = Array.isArray(result?.feedback) && result.feedback.every((row) => isObject(row)
       && typeof row.id === 'string'
@@ -200,23 +204,38 @@ export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all
       && typeof row.topic === 'string' && typeof row.knowledge_version === 'string'
       && ['pending', 'reviewed', 'resolved'].includes(String(row.status)) && typeof row.created_at === 'string'
       && (row.reviewed_at === null || typeof row.reviewed_at === 'string')
+      && ['not_decided', 'create_candidate', 'no_knowledge_change'].includes(String(row.knowledge_decision))
+      && (row.candidate === null || (isObject(row.candidate) && typeof row.candidate.id === 'string'
+        && typeof row.candidate.title === 'string' && ['pending', 'verified', 'stale', 'rejected'].includes(String(row.candidate.status))))
       && (row.identity === null || (isObject(row.identity)
         && (row.identity.display_name === null || typeof row.identity.display_name === 'string')
         && (row.identity.email === null || typeof row.identity.email === 'string')))
       && (row.response_id === undefined || (typeof row.response_id === 'string' && row.identity !== null))
       && !('user_id' in row) && !('reviewer_id' in row) && !('share_identity' in row) && !('share_email' in row))
-    if (!result || typeof result.current_knowledge_version !== 'string' || !validRows
+    if (!result || typeof result.current_knowledge_version !== 'string' || !isStringArray(result.candidate_source_refs) || !validRows
       || !result.counts || !['pending', 'reviewed', 'resolved'].every((key) => Number.isFinite(result.counts?.[key]))
       || !result.page || !Number.isFinite(result.page.limit) || !Number.isFinite(result.page.offset) || typeof result.page.has_more !== 'boolean') {
       recordReviewFailure('feedback_list', 502, 'incompatible_response', 'SchemaMismatch')
       throw new ReviewApiError(502, 'The review service returned an incompatible answer feedback list. Deploy the latest ai-help-review function, then retry.', 'incompatible_response')
     }
-    return result as { current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }
+    return result as { current_knowledge_version: string; candidate_source_refs: string[]; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }
   })
 }
 
-export function reviewAnswerFeedback(id: string, status: Exclude<AnswerFeedbackStatus, 'pending'>, client?: SupabaseClient) {
-  return invokeReview<{ feedback: AnswerFeedback }>({ action: 'feedback_review', id, status }, client)
+export function reviewAnswerFeedback(id: string, status: AnswerFeedbackStatus, client?: SupabaseClient) {
+  return invokeReview<{ feedback: Pick<AnswerFeedback, 'id' | 'status' | 'reviewed_at'> }>({ action: 'feedback_review', id, status }, client)
+}
+
+export function setAnswerFeedbackKnowledgeDecision(id: string, decision: AnswerFeedbackKnowledgeDecision, client?: SupabaseClient) {
+  return invokeReview<{ feedback: { id: string; status: AnswerFeedbackStatus; knowledge_decision: AnswerFeedbackKnowledgeDecision; knowledge_candidate_id: string | null } }>(
+    { action: 'feedback_decision', id, decision }, client,
+  )
+}
+
+export function createAnswerFeedbackCandidate(id: string, fields: CandidateFields, client?: SupabaseClient) {
+  return invokeReview<{ candidate_id: string; created: boolean; duplicate: boolean }>(
+    { action: 'feedback_candidate_create', id, ...fields }, client,
+  )
 }
 
 export function invalidateVerifiedTopic(topic: VerifiedTopic, reason: string, client?: SupabaseClient) {

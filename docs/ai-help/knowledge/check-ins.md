@@ -118,7 +118,7 @@ New tracker measures use Yes/No or Quantity values. Existing trackers may also c
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-A saved zero is an entry, so it is different from an unchecked date, which has no saved entry. Calendar evaluates the zero against the tracker’s success rule and may show No progress; a missed status describes an elapsed opportunity without a qualifying result.
+A saved zero is still a check-in, not a missed day. Calendar evaluates it against the tracker’s success rule and may show No progress; if the rule explicitly accepts zero, it can show Completed. Missed means an elapsed required opportunity has no active saved check-in. An open opportunity today is Pending, and a future opportunity is Upcoming.
 
 ### ID: checkin-resave-same-date
 **Category:** check-ins
