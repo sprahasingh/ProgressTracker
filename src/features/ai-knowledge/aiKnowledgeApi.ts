@@ -92,6 +92,10 @@ async function invokeReview<T>(action: Record<string, unknown>, suppliedClient?:
       if (typeof payload.error === 'string') message = payload.error
     } catch { /* Use a stable user-facing fallback for empty gateway responses. */ }
   }
+  const errorName = context instanceof Error ? context.name : error instanceof Error ? error.name : ''
+  if (!status && /FunctionsFetchError/.test(errorName)) throw new ReviewApiError(0, 'Could not connect to the AI Knowledge review service. Check your connection and retry.')
+  if (!status && /FunctionsRelayError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service could not complete the request. Retry, and contact support if it continues.')
+  if (!status && /FunctionsHttpError/.test(errorName)) throw new ReviewApiError(502, 'The AI Knowledge review service returned an unreadable response. Retry, and contact support if it continues.')
   if (status === 401) {
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('progress-tracker:ai-knowledge-session-expired'))
     throw new ReviewApiError(401, 'Your session has expired. Sign in again.')
@@ -152,7 +156,19 @@ export function revalidateTopic(topic: VerifiedTopic, client?: SupabaseClient) {
 }
 
 export function listAnswerFeedback(input: { status?: AnswerFeedbackStatus | 'all'; category?: AnswerFeedbackCategory | 'all'; limit?: number; offset?: number }, client?: SupabaseClient) {
-  return invokeReview<{ current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }>({ action: 'feedback_list', ...input }, client)
+  return invokeReview<unknown>({ action: 'feedback_list', ...input }, client).then((value) => {
+    const result = value as { current_knowledge_version?: unknown; feedback?: unknown; counts?: Record<string, unknown>; page?: { limit?: unknown; offset?: unknown; has_more?: unknown } } | null
+    const validRows = Array.isArray(result?.feedback) && result.feedback.every((row) => row && typeof row === 'object'
+      && typeof row.id === 'string' && typeof row.user_id === 'string' && typeof row.response_id === 'string'
+      && typeof row.category === 'string' && typeof row.topic === 'string' && typeof row.knowledge_version === 'string'
+      && ['pending', 'reviewed', 'resolved'].includes(row.status) && typeof row.created_at === 'string')
+    if (!result || typeof result.current_knowledge_version !== 'string' || !validRows
+      || !result.counts || !['pending', 'reviewed', 'resolved'].every((key) => Number.isFinite(result.counts?.[key]))
+      || !result.page || !Number.isFinite(result.page.limit) || !Number.isFinite(result.page.offset) || typeof result.page.has_more !== 'boolean') {
+      throw new ReviewApiError(502, 'The review service returned an incomplete answer feedback list. Refresh and try again.')
+    }
+    return result as { current_knowledge_version: string; feedback: AnswerFeedback[]; counts: Record<AnswerFeedbackStatus, number>; page: { limit: number; offset: number; has_more: boolean } }
+  })
 }
 
 export function reviewAnswerFeedback(id: string, status: Exclude<AnswerFeedbackStatus, 'pending'>, client?: SupabaseClient) {

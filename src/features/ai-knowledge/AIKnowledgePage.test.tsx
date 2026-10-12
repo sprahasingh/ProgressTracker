@@ -46,6 +46,19 @@ describe('AI Knowledge dashboard', () => {
     expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending', limit: 50, offset: 0 }))
   })
 
+  it('shows candidate API errors without false zero counts or an empty state, then retries', async () => {
+    mocks.list.mockRejectedValueOnce(new Error('The review service is temporarily unavailable. Try again.'))
+      .mockResolvedValueOnce({ candidates: [], verified_knowledge: [], counts: { pending: 0, approved: 0, stale: 0, rejected: 0 }, page: { limit: 50, offset: 0, has_more: false } })
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('review service is temporarily unavailable')
+    expect(screen.queryByText('No pending knowledge')).not.toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByText('No pending knowledge')).toBeInTheDocument()
+    expect(screen.getAllByText('0')).toHaveLength(4)
+  })
+
   it('sends searches to the server and loads the next page on demand', async () => {
     const nextCandidate = { ...candidate, id: 'candidate-2', topic_id: 'goal.progress', title: 'Goal progress' }
     mocks.list.mockResolvedValueOnce({ candidates: [candidate], verified_knowledge: [], counts: { pending: 2, approved: 0, stale: 0, rejected: 0 }, page: { limit: 50, offset: 0, has_more: true } })

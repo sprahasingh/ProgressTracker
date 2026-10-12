@@ -47,7 +47,7 @@ describe('AI Knowledge review API client', () => {
   })
 
   it('keeps feedback in its own authenticated dashboard action and supports status updates', async () => {
-    const { client, invoke } = clientFor({ result: { data: { feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 } }, error: null } })
+    const { client, invoke } = clientFor({ result: { data: { current_knowledge_version: 'v1', feedback: [], counts: { pending: 0, reviewed: 0, resolved: 0 }, page: { limit: 100, offset: 0, has_more: false } }, error: null } })
     await listAnswerFeedback({ status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 }, client)
     expect(invoke).toHaveBeenLastCalledWith('ai-help-review', {
       body: { action: 'feedback_list', status: 'pending', category: 'wrong_contact', limit: 100, offset: 0 },
@@ -58,6 +58,17 @@ describe('AI Knowledge review API client', () => {
       body: { action: 'feedback_review', id: 'feedback-id', status: 'resolved' },
       headers: { Authorization: 'Bearer session-token' },
     })
+  })
+
+  it('rejects malformed answer feedback responses instead of interpreting them as an empty inbox', async () => {
+    const { client } = clientFor({ result: { data: { feedback: [], counts: { pending: 0 } }, error: null } })
+    await expect(listAnswerFeedback({ status: 'pending' }, client)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('incomplete answer feedback list') })
+  })
+
+  it('distinguishes a review service connection failure from an empty successful result', async () => {
+    const transport = Object.assign(new Error('network failed'), { name: 'FunctionsFetchError' })
+    const { client } = clientFor({ result: { data: null, error: { context: transport } } })
+    await expect(checkMaintainerAccess(client)).rejects.toMatchObject({ status: 0, message: expect.stringContaining('Could not connect') })
   })
 
   it('submits stale knowledge invalidation with its optimistic review timestamp and reason', async () => {
