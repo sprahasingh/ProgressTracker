@@ -299,12 +299,13 @@ const binNavigation = sourceFiles.find(({ path }) => path === 'src/app/AppShell.
 const deletionGate = sourceFiles.find(({ path }) => path === 'src/domain/trackers/schemaVersionGate.ts')?.content ?? ''
 const deletionMigration = sourceFiles.find(({ path }) => path === 'supabase/migrations/20261010000100_tracker_bin_permanent_deletion.sql')?.content ?? ''
 const coreGuide = knowledge.find(({ slug }) => slug === 'core-application')?.content ?? ''
-if (!binPage.includes('Permanent deletion is locked until the hosted database migration and scheduled cleanup have been verified.')
+if (!binPage.includes('Permanent deletion isn’t available in this app version.')
   || !binPage.includes('isPermanentDeletionEnabled()')
   || !binRoute.includes("path: 'bin'") || !binNavigation.includes("to: '/bin'")
   || !deletionGate.includes('VITE_ENABLE_PERMANENT_DELETION')
   || !deletionMigration.includes("values (true, false)")
-  || !/permanent deletion is not available in that app build/i.test(coreGuide)
+  || !/hosted manual deletion RPC and its permissions have been verified/i.test(coreGuide)
+  || !/automatic cleanup is not configured because `pg_cron` is not installed/i.test(coreGuide)
   || /Permanent deletion is a separate action that removes the tracker/i.test(coreGuide)) {
   throw new Error('AI Help Bin availability guidance must be reviewed against the route, visible UI gate, production feature flag, and cleanup migration before generating the bundle.')
 }

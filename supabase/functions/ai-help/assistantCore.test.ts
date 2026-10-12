@@ -177,22 +177,21 @@ describe('AI Help retrieval and provider boundary', () => {
 
   it('answers Bin questions from current availability and routes to the real page', () => {
     const binAnswer = deterministicProductAnswer('Why are my deleted items not permanently deleting?', [], 'support@example.com')
-    expect(binAnswer?.answer).toContain('permanent deletion is disabled')
-    expect(binAnswer?.answer).toContain('no permanent-delete control')
-    expect(binAnswer?.answer).toContain('keep the tracker in the Bin or restore it')
+    expect(binAnswer?.answer).toContain('permanent-delete control appears in app builds with the feature enabled')
+    expect(binAnswer?.answer).toContain('server must confirm deletion before this device clears its copy')
     expect(deterministicProductAnswer('Where is the Bin?', [], 'support@example.com')?.answer).toContain('More navigation')
     expect(deterministicProductAnswer('How do I restore a tracker?', [], 'support@example.com')?.answer).toContain('choose Restore')
-    expect(deterministicProductAnswer('What happens after 30 days?', [{ role: 'user', content: 'Why are my deleted items not permanently deleting?' }], 'support@example.com')?.answer).toContain('30-day recovery period')
-    expect(deterministicProductAnswer('Why can’t I permanantly delete it?', [{ role: 'user', content: 'Where is the Bin?' }], 'support@example.com')?.answer).toContain('no permanent-delete control')
+    expect(deterministicProductAnswer('What happens after 30 days?', [{ role: 'user', content: 'Why are my deleted items not permanently deleting?' }], 'support@example.com')?.answer).toContain('not an automatic deletion schedule')
+    expect(deterministicProductAnswer('Why can’t I permanantly delete it?', [{ role: 'user', content: 'Where is the Bin?' }], 'support@example.com')?.answer).toContain('server must confirm deletion')
     const refs = ['src/features/trackers/TrackerBinPage.tsx']
-    expect(buildFollowUpSuggestions(refs, 'Where is the Bin?')).toEqual(['How do I restore a tracker from The Bin?', 'Why is permanent deletion locked?'])
+    expect(buildFollowUpSuggestions(refs, 'Where is the Bin?')).toEqual(['How do I restore a tracker from The Bin?', 'What happens after the 30-day recovery period?'])
     expect(selectRelevantLinkIds('Why are my deleted items not permanently deleting?', [])).toEqual(['bin'])
     expect(selectRelevantLinkIds('How do I create a tracker?', [])).toEqual(['create_tracker'])
     expect(selectRelevantLinkIds('How do milestones work?', [])).toEqual(['goals'])
     expect(selectRelevantLinkIds('How do I cook pasta?', [])).toEqual([])
     const ranked = rankSourceIndex('Why are deleted items not permanently deleting?', [], sourceIndex)
     expect(ranked[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
-    expect(retrieveSourceExcerpts('Why are deleted items not permanently deleting?', [], sourceIndex)).toContain('Permanent deletion is locked')
+    expect(retrieveSourceExcerpts('Why are deleted items not permanently deleting?', [], sourceIndex)).toContain('permanently delete it at any time')
     expect(rankSourceIndex('How do I restore a tracker?', [], sourceIndex)[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
   })
 
@@ -227,8 +226,8 @@ describe('AI Help retrieval and provider boundary', () => {
 
   it('keeps Bin guidance consistent with current generated product knowledge', () => {
     const core = knowledgeDocuments.filter(({ slug }) => slug === 'core-application').map(({ content }) => content).join('\n')
-    expect(core.toLocaleLowerCase()).toContain('permanent deletion is not available in that app build')
-    expect(core.toLocaleLowerCase()).toContain('source does not prove whether the hosted migration')
+    expect(core.toLocaleLowerCase()).toContain('production shows the permanent-delete action when')
+    expect(core.toLocaleLowerCase()).toContain('automatic cleanup is not configured because')
     expect(core).not.toContain('Permanent deletion is a separate action that removes the tracker')
   })
 

@@ -174,12 +174,12 @@ export function deterministicProductAnswer(question: string, history: AssistantH
     const answer = asksWhere
       ? 'The Bin is a separate page in the app’s More navigation. Deleted trackers remain recoverable there for 30 days; choose Restore to bring one back with its saved progress and plan.'
       : asksRetention
-        ? 'After the 30-day recovery period, the Bin marks a signed-in tracker as eligible for cleanup and asks you to reconnect to verify its status. The cleanup code is gated by hosted setup, so I can’t confirm that a particular tracker was permanently removed. Guest copies show that recovery ended and local cleanup is pending.'
+        ? 'The 30-day period is a recovery window, not an automatic deletion schedule. Automatic cleanup is not configured, so a tracker will not necessarily be removed when that period ends. Reconnect to check the tracker’s recovery status; you can permanently delete it from The Bin when the action is available.'
       : asksRestore
         ? 'Open The Bin from the app’s More navigation and choose Restore on the tracker. Its saved progress and plan are restored with it, while it remains in the 30-day recovery period.'
         : asksPermanent
-          ? 'If The Bin is showing its lock notice, permanent deletion is disabled in that app build until the hosted database migration and scheduled cleanup are verified. While that notice is shown, there is no permanent-delete control; you can keep the tracker in the Bin or restore it. I can’t verify hosted setup from here.'
-          : 'Deleted trackers stay in The Bin for 30 days and can be restored with their saved progress and plan. Permanent deletion is controlled by a production feature flag; when the page shows its lock notice, the permanent-delete control is unavailable. You can restore the tracker or leave it in The Bin.'
+          ? 'The permanent-delete control appears in app builds with the feature enabled. Choose it in The Bin, review the tracker name and associated data, then confirm. The server must confirm deletion before this device clears its copy.'
+          : 'Deleted trackers stay in The Bin during their 30-day recovery period. You can restore a tracker or permanently delete it from The Bin when that control is enabled. Automatic cleanup is not configured, so a tracker will not necessarily be removed when its recovery period ends.'
     return { answer, topic: 'trackers' }
   }
   const contactQuestion = isSupportContactRequest(normalized)
@@ -222,7 +222,7 @@ export function hasUnsupportedUnavailableWorkflowClaim(answer: string, evidence:
   const suggestsBinConflictWorkflow = /\b(?:resolve|fix|clear|retry)\b.{0,100}\b(?:sync|synchroni[sz]ation|deletion sync)\b.{0,100}\bconflicts?\b.{0,60}\b(?:bin|tracker)\b|\b(?:bin|tracker)\b.{0,100}\b(?:resolve|fix|clear|retry)\b.{0,100}\bconflicts?\b/.test(answerText)
   if (suggestsBinConflictWorkflow && /\b(?:trackerbinpage|the bin shows|the bin page)\b/.test(evidenceText) && !/\b(?:bin|trackerbinpage)\b.{0,100}\b(?:conflict resolution|resolve conflict|sync conflict control)\b/.test(evidenceText)) return true
   const givesPermanentDeleteControlInstruction = /\b(?:click|tap|select|choose|use|press|open)\b.{0,100}\b(?:permanently delete|delete permanently)\b/.test(answerText)
-  const hasBinUiEvidence = /\b(?:trackerbinpage|the bin shows|the bin page|restore button|permanent deletion is locked|permanently delete control)\b/.test(evidenceText)
+  const hasBinUiEvidence = /\b(?:trackerbinpage|the bin shows|the bin page|restore button|permanent deletion is locked|permanent deletion isn.t available|permanently delete control)\b/.test(evidenceText)
   if (givesPermanentDeleteControlInstruction && !hasBinUiEvidence) return true
   const checks = [
     { feature: /\b(?:permanent deletion|permanently delete)\b/, action: /\b(?:click|tap|select|choose|use|press|open)\b.{0,100}\b(?:permanently delete|delete permanently)\b|\b(?:permanent deletion is available|you can permanently delete)\b|\b(?:offline|when offline)\b.{0,80}\b(?:queue|queued|automatically retry|retry automatically)\b|\b(?:queue|queued|automatically retry|retry automatically)\b.{0,80}\b(?:offline|when offline)\b/, unavailable: /\b(?:locked|disabled|unavailable|not available|feature flag|setup.{0,20}not verified|until.{0,60}(?:migration|cleanup).{0,30}verified)\b/ },
@@ -284,7 +284,7 @@ export function buildRetrievalQuery(question: string, history: AssistantHistoryI
   if (/\b(?:history|old entry|old check.?in)\b/.test(normalizedQuestion) && /\b(?:measure|metric|name|label|resolve)\b/.test(normalizedQuestion)) cues.push('HistoryPage stable metric id retained retired definition historical label')
   if (/\b(?:upload|serialized|serialize)\b/.test(normalizedQuestion) && /\b(?:check.?in|timestamp|owner|field)\b/.test(normalizedQuestion)) cues.push('syncEngine entry serializer entry_date outcome entry_values note created_at updated_at deleted_at tracker_id user_id')
   if (/\barchived\b/.test(normalizedQuestion) && /\b(?:write|insert|update|entry|check.?in)\b/.test(normalizedQuestion)) cues.push('archived tracker trigger reject entry insert update parent status active')
-  if (/\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/.test(normalizedQuestion)) cues.push('current Bin UI visible actions restore permanent deletion feature flag locked 30 day retention route /bin')
+  if (/\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/.test(normalizedQuestion)) cues.push('current Bin UI allows restore and permanently delete when enabled 30 day recovery window no automatic cleanup route /bin')
   const intent = classifyHelpIntent(question)
   if (intent === 'troubleshooting') cues.push('troubleshooting failure symptoms actionable alternatives clarify exact step error')
   if (intent === 'instructions') cues.push('instruction steps available workflow unsupported alternatives')
@@ -603,7 +603,7 @@ function trimSourceContentToBudget(content: string, queryTerms: Set<string>, bud
 
 export function buildFollowUpSuggestions(sourceRefs: string[], question: string): string[] {
   if (sourceRefs.some((ref) => /TrackerBinPage|\/bin\b/i.test(ref))) {
-    return ['How do I restore a tracker from The Bin?', 'Why is permanent deletion locked?']
+    return ['How do I restore a tracker from The Bin?', 'What happens after the 30-day recovery period?']
       .filter((suggestion) => tokenize(canonicalize(suggestion)).filter((term) => tokenize(canonicalize(question)).includes(term)).length / Math.max(tokenize(canonicalize(suggestion)).length, 1) < 0.6)
       .slice(0, 2)
   }

@@ -40,11 +40,14 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
   let queuedLocalChanges = false
-  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
     const conflict = await database.syncConflicts.get(conflictId)
     if (!conflict || conflict.ownerUserId !== userId) throw new Error('This conflict is no longer available in the current account.')
+    const deletionRequest = conflict.entity === 'tracker'
+      ? await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([userId, conflict.entityId]).first()
+      : undefined
 
     const existing = await database.syncOperations.get(conflict.id)
     const remote = conflict.remoteRecord
@@ -89,6 +92,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         queuedLocalChanges = true
       }
       await database.syncConflicts.delete(conflict.id)
+      if (deletionRequest) await database.permanentDeletionRequests.delete(deletionRequest.id)
       return
     }
 
@@ -118,6 +122,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
       if (recordId !== conflict.entityId) await database.syncRecords.delete(stateKey)
       await database.syncConflicts.delete(conflict.id)
+      if (deletionRequest) await database.permanentDeletionRequests.delete(deletionRequest.id)
       return
     }
 
@@ -158,6 +163,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     const replacement = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, conflict.entity, conflict.entityId]).first()
     if (replacement) await database.syncOperations.put({ ...replacement, expectedRevision: revision, status: 'pending', attempts: 0, lastError: null } satisfies SyncOperation)
     await database.syncConflicts.delete(conflict.id)
+    if (deletionRequest) await database.permanentDeletionRequests.put({ ...deletionRequest, status: 'pending', lastError: null })
   })
   if (queuedLocalChanges) publishWorkspaceMutation(userId)
 }
