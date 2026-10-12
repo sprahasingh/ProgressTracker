@@ -26,7 +26,7 @@ Trackers deleted through the tracker flow appear in The Bin, where you can choos
 **Sources:**
 - src/features/trackers/TrackerBinPage.tsx
 - src/db/localRepository.ts
-- supabase/migrations/20261013000200_schedule_tracker_bin_cleanup.sql
+- supabase/migrations/20261101000100_schedule_tracker_bin_cleanup.sql
 **Answer:**
 Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan, or permanently deleted after server confirmation. Automatic removal depends on whether the deployment has enabled the scheduled database cleanup; the Bin explains the policy active in that deployment.
 
