@@ -99,6 +99,14 @@ export function AppShell() {
             : syncStatus === 'error' ? 'Sync needs attention'
               : syncStatus === 'complete' ? 'Synced'
                 : 'Account ready'
+  const compactSyncLabel = status === 'loading' ? 'Checking'
+    : status !== 'signed-in' ? 'Local'
+      : isOnline === false || syncStatus === 'offline' ? 'Offline'
+        : syncStatus === 'syncing' ? 'Syncing'
+          : syncStatus === 'waiting' ? 'Pending'
+            : syncStatus === 'error' ? 'Error'
+              : syncStatus === 'complete' ? 'Synced'
+                : 'Ready'
   const syncTone = syncStatus === 'error' ? 'error' : syncStatus === 'offline' || isOnline === false ? 'offline' : syncStatus === 'syncing' ? 'syncing' : syncStatus === 'complete' ? 'complete' : 'local'
   const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
   const accountSettingsHref = status === 'signed-in' ? '/settings#personal-information' : '/auth'
@@ -165,7 +173,7 @@ export function AppShell() {
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
-          <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span></Link>
+          <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref} aria-label={`${syncLabel}. Open sync details`}><span className="sync-dot" aria-hidden="true" /><span className="sync-status-full" aria-hidden="true">{syncLabel}</span><span className="sync-status-compact" aria-hidden="true">{compactSyncLabel}</span></Link>
           <AIHelpAssistant />
           <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
           <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>

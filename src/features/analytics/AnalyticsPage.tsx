@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -119,10 +119,11 @@ export function AnalyticsPage() {
                 <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values{metricSummary.averageValue === null ? '' : ` · average ${formatTrackerNumber(metricSummary.averageValue)}${unit}`}</span></div>
                 {visibleObservations.length === 0 ? <p className="analytics-empty-metric">No values recorded in this period.</p> : <>
                   <p className="analytics-latest">Latest: {latest === null ? '—' : metric.valueType === 'boolean' ? latest : formatTrackerNumber(latest)}{latest === null ? '' : unit}{metric.valueType === 'boolean' && latest !== null ? latest === 1 ? ' · yes' : ' · no' : ''}</p>
-                  <div className="analytics-value-chart" role="img" aria-label={`${metric.name} daily logged values, shown separately in ${metric.unit || (metric.valueType === 'checklist' ? 'items' : 'values')}`}>
-                    {visibleObservations.map((item) => <span key={item.date} title={`${calendarDateLabel(item.date)}: ${formatTrackerNumber(item.value)}${unit}`} aria-label={`${item.date}: ${formatTrackerNumber(item.value)}${unit}`} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
+                  <div className="analytics-value-chart" aria-hidden="true">
+                    {visibleObservations.map((item) => <span key={item.date} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
                   </div>
-                  <p className="analytics-chart-caption">Each bar is one day’s value; this chart does not add values across dates.</p>
+                  <p className="analytics-chart-caption">Each bar is one day’s value; the latest {visibleObservations.length} values are listed below. The chart does not add values across dates.</p>
+                  <MetricDailyValues metricName={metric.name} valueType={metric.valueType} unit={unit} observations={visibleObservations} />
                 </>}
               </section>
             })}
@@ -131,6 +132,33 @@ export function AnalyticsPage() {
       </div>
     </>}
   </section>
+}
+
+function MetricDailyValues({ metricName, valueType, unit, observations }: {
+  metricName: string
+  valueType: string
+  unit: string
+  observations: Array<{ date: string; value: number }>
+}) {
+  const id = useId()
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const selected = observations.find((item) => item.date === selectedDate)
+  const dateLabel = (date: string) => calendarDateLabel(date, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const valueLabel = (value: number) => valueType === 'boolean' ? value === 1 ? 'Yes' : 'No' : `${formatTrackerNumber(value)}${unit}`
+
+  return <details className="analytics-daily-values">
+    <summary aria-controls={id} aria-label={`View ${observations.length} daily ${observations.length === 1 ? 'value' : 'values'} for ${metricName}`}>View {observations.length} daily {observations.length === 1 ? 'value' : 'values'}</summary>
+    <div id={id}>
+      <ul>
+        {observations.map((item) => <li key={item.date}>
+          <button type="button" aria-pressed={selectedDate === item.date} aria-label={`${dateLabel(item.date)}: ${valueLabel(item.value)}`} onClick={() => setSelectedDate(item.date)}>
+            <span>{dateLabel(item.date)}</span><strong>{valueLabel(item.value)}</strong>
+          </button>
+        </li>)}
+      </ul>
+      {selected && <p className="analytics-daily-value-status" role="status">{metricName} · {dateLabel(selected.date)}: {valueLabel(selected.value)}</p>}
+    </div>
+  </details>
 }
 
 function AnalyticsStat({ label, value, detail, help }: { label: string; value: number | string; detail: string; help: string }) {
