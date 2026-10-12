@@ -2845,10 +2845,9 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .status-no-progress { --status-bg: var(--status-neutral-surface); --status-stroke: var(--status-neutral-border); --status-fg: var(--status-neutral-ink); }
 .status-rest-day { --status-bg: var(--status-rest-surface); --status-stroke: var(--status-rest-border); --status-fg: var(--status-rest-ink); }
 .calendar-status-key { margin: 12px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink-muted); }
-.calendar-status-key > details > summary { min-height: 38px; padding: 11px 14px; border-top: 1px solid var(--line); cursor: pointer; font-size: 11px; font-weight: 650; }
 .calendar-status-key .calendar-legend { margin: 0; border: 0; border-radius: 14px; }
 .calendar-status-key .calendar-context-legend { padding-top: 0; }
-.calendar-aggregate-hint, .calendar-mixed-note { margin: 8px 0 14px; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.calendar-mixed-note { margin: 8px 0 14px; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
 .calendar-cell-status.mixed { outline: 2px dotted currentColor; outline-offset: -4px; }
 .calendar-mixed-indicator { position: absolute; top: 0; right: 4px; font-size: 18px; line-height: 1; }
 .activity-calendar .calendar-cell-status.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
@@ -2868,6 +2867,69 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .calendar-status-mark.outside-period, .calendar-status-mark.historical, .calendar-status-mark.inactive { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .calendar-status-mark.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
 .calendar-dot.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
+
+/* Calendar layout: keep the month near the top while preserving every control. */
+.calendar-page .page-header { gap: 12px; margin-bottom: 14px; }
+.calendar-page .page-header .page-title { margin-top: 10px; }
+.calendar-page .page-description { margin-top: 6px; }
+.calendar-page .calendar-holiday-action { min-height: 44px; }
+.calendar-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(155px, 220px) auto; align-items: end; gap: 8px; margin: 8px 0 10px; }
+.calendar-toolbar > .tracker-filter { min-width: 0; }
+.calendar-toolbar > .tracker-filter select, .calendar-toolbar .history-filter input { min-height: 44px; }
+.calendar-status-key { margin: 8px 0 10px; overflow: hidden; }
+.calendar-status-guide-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.calendar-status-guide-toggle:hover { background: var(--surface-muted); }
+.calendar-status-guide-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.calendar-status-guide-title { font-size: 12px; font-weight: 700; }
+.calendar-status-guide-preview { display: inline-flex; align-items: center; gap: 4px; margin-inline: auto; }
+.calendar-status-guide-preview .calendar-dot { display: grid; width: 24px; height: 24px; place-items: center; margin: 0; }
+.calendar-status-guide-preview svg { width: 13px; height: 13px; }
+.calendar-status-guide-action { color: var(--accent-strong); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.calendar-status-guide-content[hidden] { display: none; }
+.calendar-context-legend { margin: 0; padding: 4px 12px 8px; color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
+.calendar-status-key .calendar-legend { margin: 0; padding: 4px 12px 12px; border: 0; border-radius: 0; background: transparent; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; font-size: 11px; }
+.calendar-status-key .calendar-legend > span { min-width: 0; }
+.calendar-layout { gap: 12px; }
+.calendar-month-card, .calendar-day-details { padding: 15px; }
+.calendar-month-card > h2 { margin-bottom: 10px; }
+.calendar-day-heading .section-header-title h2 { font-size: clamp(17px, 2vw, 21px); }
+.calendar-day-details .section-header { gap: 8px; }
+.calendar-day-summary, .calendar-holiday-note, .calendar-mixed-note, .calendar-no-activity { margin: 7px 0; font-size: 12px; line-height: 1.45; }
+.calendar-activity-list { gap: 0; margin-top: 8px; }
+.calendar-activity-list li { gap: 8px; padding: 8px 0; }
+.activity-calendar .calendar-cell-status.upcoming { border-color: color-mix(in srgb, var(--status-upcoming) 24%, transparent); }
+.activity-calendar .calendar-cell-status.outside-period, .activity-calendar .calendar-cell-status.historical, .activity-calendar .calendar-cell-status.inactive, .activity-calendar .calendar-cell-status.no-trackers { border-color: color-mix(in srgb, var(--status-outside) 20%, transparent); }
+@media (max-width: 760px) {
+  .calendar-page .page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; margin-bottom: 10px; }
+  .calendar-page .page-header-copy { display: contents; }
+  .calendar-page .page-header-copy > .eyebrow, .calendar-page .page-description { display: none; }
+  .calendar-page .page-title-row { grid-column: 1; grid-row: 1; gap: 6px; }
+  .calendar-page .page-title { margin: 0; font-size: 32px; letter-spacing: -1.2px; }
+  .calendar-page .page-title-row .info-button { width: 36px; height: 36px; }
+  .calendar-page .page-header-action { grid-column: 2; grid-row: 1; align-self: center; }
+  .calendar-page .calendar-holiday-action { padding: 0 11px; font-size: 11px; }
+  .calendar-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin: 6px 0 8px; }
+  .calendar-toolbar > .tracker-filter { grid-column: 1 / -1; }
+  .calendar-toolbar > .tracker-filter select { width: 100%; }
+  .calendar-toolbar > .history-filter { grid-column: 1; width: 100%; max-width: none; }
+  .calendar-toolbar > .button-quiet { grid-column: 2; justify-self: end; min-height: 44px; }
+  .calendar-layout { gap: 10px; }
+  .calendar-month-card, .calendar-day-details { padding: 12px; }
+  .calendar-day-details .section-header { align-items: center; }
+  .calendar-activity-list li { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 7px; }
+  .calendar-activity-list li > a { min-height: 44px; padding-inline: 8px; font-size: 11px; }
+}
+@media (max-width: 380px) {
+  .calendar-page .page-header { grid-template-columns: minmax(0, 1fr); }
+  .calendar-page .page-header-action { grid-column: 1; grid-row: 2; justify-self: start; }
+  .calendar-status-guide-toggle { min-height: 48px; flex-wrap: wrap; gap: 4px 8px; }
+  .calendar-status-guide-title { flex: 1 0 auto; }
+  .calendar-status-guide-preview { order: 3; flex: 1 0 100%; margin: 0; }
+  .calendar-status-guide-action { margin-left: auto; }
+  .calendar-status-key .calendar-legend { gap: 6px; padding-inline: 9px; font-size: 10px; }
+  .calendar-activity-list li { grid-template-columns: 28px minmax(0, 1fr); }
+  .calendar-activity-list li > a { grid-column: 2; justify-self: start; }
+}
 .calendar-dot.outside-period, .calendar-dot.historical, .calendar-dot.inactive, .calendar-dot.no-trackers { background: var(--status-neutral-surface); color: var(--status-neutral-ink); }
 .holiday-about { margin: 14px 0 24px; padding: 14px 18px; }
 .holiday-about h2 { margin: 0 0 4px; color: var(--ink); font-size: 13px; }

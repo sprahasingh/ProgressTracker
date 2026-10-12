@@ -36,6 +36,7 @@ export function CalendarPage() {
   const initialDate = searchParams.get('date')
   const validInitialDate = isCalendarDate(initialDate) ? initialDate : null
   const [month, setMonth] = useState(() => validInitialDate?.slice(0, 7) ?? today.slice(0, 7))
+  const [statusGuideExpanded, setStatusGuideExpanded] = useState(false)
   const [snapshot, setSnapshot] = useState<CalendarData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -163,10 +164,19 @@ export function CalendarPage() {
   }
 
   return <section className="tracker-page calendar-page" aria-labelledby="calendar-title">
-    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." help={{ title: 'Calendar activity', summary: 'Each All Trackers date summarizes active trackers; select a date to see individual results.', description: 'Missed means an elapsed required date has no active saved check-in; it is derived, not a saved failure. Pending is an open opportunity today; Upcoming is a future opportunity. Select one tracker to see only its activity and streak. Standard Mode holidays pause check-ins; Strict Mode still requires qualifying activity. Saved check-ins remain visible. Historical entries outside the active period are retained and shown as historical.' }} action={<Link className="button button-primary button-medium" to="/holidays">Manage holidays</Link>} />
+    <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." help={{ title: 'Calendar activity', summary: 'Each All Trackers date summarizes active trackers; select a date to see individual results.', description: 'Missed means an elapsed required date has no active saved check-in; it is derived, not a saved failure. Pending is an open opportunity today; Upcoming is a future opportunity. Select one tracker to see only its activity and streak. Standard Mode holidays pause check-ins; Strict Mode still requires qualifying activity. Saved check-ins remain visible. Historical entries outside the active period are retained and shown as historical.' }} action={<Link className="button button-secondary button-small calendar-holiday-action" to="/holidays" aria-label="Manage holidays">Manage holidays</Link>} />
     <div className="calendar-toolbar"><TrackerFilter trackers={visibleData?.trackers ?? []} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Tracker" /><label className="history-filter"><span>Month</span><input className="auth-input" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => changeMonth(event.target.value)} /></label><Link className="button button-quiet button-small" to={`/calendar?date=${today}`}>Today</Link></div>
-    <div className="calendar-status-key"><div className="calendar-legend" aria-label="Activity status legend">{(['completed', 'partial', 'no-progress', 'missed', 'skipped', 'pending', 'upcoming', 'holiday', 'rest-day', 'outside-period', 'historical', 'inactive', 'no-trackers'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div></div>
-    {!selectedTracker && <p className="calendar-aggregate-hint">Each date summarizes your active trackers. Select a date to see individual results.</p>}
+    <div className="calendar-status-key">
+      <button className="calendar-status-guide-toggle" type="button" aria-expanded={statusGuideExpanded} aria-controls="calendar-status-guide-content" onClick={() => setStatusGuideExpanded((expanded) => !expanded)}>
+        <span className="calendar-status-guide-title">Status guide</span>
+        <span className="calendar-status-guide-preview" aria-hidden="true">{(['completed', 'missed', 'holiday', 'upcoming'] as const).map((status) => <i key={status} className={`calendar-dot ${status}`}><ActivityStatusIcon status={status} /></i>)}</span>
+        <span className="calendar-status-guide-action">{statusGuideExpanded ? 'Hide statuses' : 'Show all statuses'}</span>
+      </button>
+      <div id="calendar-status-guide-content" className="calendar-status-guide-content" hidden={!statusGuideExpanded}>
+        <p className="calendar-context-legend">Each All Trackers date summarizes active trackers. Select a date to see each tracker’s result; a dotted outline marks mixed statuses.</p>
+        <div className="calendar-legend" aria-label="Activity status legend">{(['completed', 'partial', 'no-progress', 'missed', 'skipped', 'pending', 'upcoming', 'holiday', 'rest-day', 'outside-period', 'historical', 'inactive', 'no-trackers'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div>
+      </div>
+    </div>
     {error && <div role="alert" className="form-alert">{error}</div>}
     {loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : error ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open the calendar." action={<button className="button button-secondary button-medium" onClick={() => void refresh()}>Try again</button>} /></Surface> : <div className="calendar-layout">
       <Surface className="calendar-month-card"><h2>{calendarDateLabel(`${month}-01`, { month: 'long', year: 'numeric' })}</h2><MonthCalendar days={summaries} selected={selectedDate} today={today} entryScopeLabel={selectedTracker ? 'saved tracker' : 'active tracker'} onSelect={selectDate} /></Surface>
