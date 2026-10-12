@@ -261,6 +261,41 @@ describe('app navigation quality', () => {
     authState.value = guestReadyState
   })
 
+  it.each([
+    { authStatus: 'local-only', syncStatus: undefined, isOnline: undefined, full: 'Local mode', compact: 'Local' },
+    { authStatus: 'signed-in', syncStatus: 'offline', isOnline: false, full: 'Offline · changes saved', compact: 'Offline' },
+    { authStatus: 'signed-in', syncStatus: 'syncing', isOnline: true, full: 'Syncing account', compact: 'Syncing' },
+    { authStatus: 'signed-in', syncStatus: 'waiting', isOnline: true, full: 'Sync pending', compact: 'Pending' },
+    { authStatus: 'signed-in', syncStatus: 'error', isOnline: true, full: 'Sync needs attention', compact: 'Error' },
+    { authStatus: 'signed-in', syncStatus: 'complete', isOnline: true, full: 'Synced', compact: 'Synced' },
+  ])('keeps sync state named, linked, and visible in compact navigation for $compact', ({ authStatus, syncStatus, isOnline, full, compact }) => {
+    authState.value = {
+      ...guestReadyState,
+      status: authStatus,
+      ...(authStatus === 'signed-in' ? { user: { id: 'user-a', email: 'a@example.com' } } : {}),
+      syncStatus,
+      isOnline,
+    } as never
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Today workspace</p>} /></Route><Route path="/settings" element={<p>Settings</p>} /></Routes></MemoryRouter>)
+
+    const topbarStatus = document.querySelector<HTMLAnchorElement>('.topbar-sync-state')!
+    expect(topbarStatus).toHaveAccessibleName(`${full}. Open sync details`)
+    expect(topbarStatus).toHaveAttribute('href', authStatus === 'signed-in' ? '/settings#sync-data' : '/auth')
+    expect(topbarStatus.querySelector('.sync-status-full')).toHaveTextContent(full)
+    expect(topbarStatus.querySelector('.sync-status-compact')).toHaveTextContent(compact)
+    expect(topbarStatus.querySelector('.sync-status-full')).toHaveAttribute('aria-hidden', 'true')
+    expect(topbarStatus.querySelector('.sync-status-compact')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('keeps the compact visible sync label at narrow widths without removing the settings link', () => {
+    injectApplicationStyles()
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.topbar-sync-state \.sync-status-full\s*\{\s*display:\s*none;/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.topbar-sync-state \.sync-status-compact\s*\{\s*display:\s*inline;/)
+    expect(appStyles).not.toContain('.topbar-sync-state { display: none; }')
+    expect(appStyles).toContain('.mobile-brand { gap: 0; font-size: 0; }')
+    expect(appStyles).toContain('.topbar-sync-state { flex: 0 0 auto;')
+  })
+
   it('offers a collision-safe guest copy choice', async () => {
     const chooseGuestData = vi.fn()
     authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'needs-guest-choice', workspaceUserId: 'user-a', guestSummary: { hasData: true, counts: { trackers: 1 } }, chooseGuestData } as never
