@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
-import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { DashboardPage } from './DashboardPage'
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
@@ -35,6 +35,49 @@ describe('local progress dashboard', () => {
     expect(screen.getByText('Reward points')).toBeInTheDocument()
     expect(screen.getByText('Weekly consistency')).toBeInTheDocument()
     expect(screen.getByText('personal best')).toBeInTheDocument()
+  })
+
+  it('separates today holiday status from the dated latest check-in and preserves mode-specific streak rules', async () => {
+    const standard = { ...tracker(), startDate: shiftCalendarDate(localCalendarDate(), -3) }
+    const strict = { ...standard, id: 'dashboard-strict', name: 'Strict tracker', strictMode: true }
+    const empty = { ...standard, id: 'dashboard-empty', name: 'No entries' }
+    await localRepository.saveTracker(standard)
+    await localRepository.saveTracker(strict)
+    await localRepository.saveTracker(empty)
+    const twoDaysAgo = shiftCalendarDate(localCalendarDate(), -2)
+    const yesterday = shiftCalendarDate(localCalendarDate(), -1)
+    await localRepository.saveTrackerEntry({ trackerId: standard.id, date: twoDaysAgo, outcome: 'recorded', values: { pages: 5 }, note: '' })
+    await localRepository.saveTrackerEntry({ trackerId: strict.id, date: twoDaysAgo, outcome: 'recorded', values: { pages: 5 }, note: '' })
+    await localRepository.saveAccountHolidays([yesterday, localCalendarDate()], 'personal')
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const standardCard = (await screen.findByRole('heading', { name: 'Read a book' })).closest('.dashboard-tracker-card')!
+    const strictCard = screen.getByRole('heading', { name: 'Strict tracker' }).closest('.dashboard-tracker-card')!
+    const emptyCard = screen.getByRole('heading', { name: 'No entries' }).closest('.dashboard-tracker-card')!
+    expect(standardCard).toHaveTextContent('Today')
+    expect(standardCard).toHaveTextContent('Holiday')
+    expect(standardCard).toHaveTextContent(calendarDateLabel(twoDaysAgo))
+    expect(standardCard.querySelector('.dashboard-tracker-stats span strong')).toHaveTextContent('1')
+    expect(standardCard).toHaveTextContent('personal best')
+    expect(strictCard).toHaveTextContent('Today')
+    expect(strictCard).toHaveTextContent('Holiday · check-in still required')
+    expect(strictCard.querySelector('.dashboard-tracker-stats span strong')).toHaveTextContent('0')
+    expect(strictCard).toHaveTextContent('personal best')
+    expect(emptyCard).toHaveTextContent('Holiday')
+    expect(emptyCard).toHaveTextContent('No check-ins yet')
+    expect(emptyCard).not.toHaveTextContent('Ready when you are')
+  })
+
+  it('does not display a cleared historical check-in as the latest entry', async () => {
+    const definition = { ...tracker(), startDate: shiftCalendarDate(localCalendarDate(), -3) }
+    await localRepository.saveTracker(definition)
+    const yesterday = shiftCalendarDate(localCalendarDate(), -1)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: yesterday, outcome: 'recorded', values: { pages: 0 }, note: '' })
+    await localRepository.deleteTrackerEntry(definition.id, yesterday)
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const card = (await screen.findByRole('heading', { name: 'Read a book' })).closest('.dashboard-tracker-card')!
+    expect(card).toHaveTextContent('No check-ins yet')
+    expect(card).not.toHaveTextContent(calendarDateLabel(yesterday))
   })
 
   it('does not invent activity when no trackers exist', async () => {
