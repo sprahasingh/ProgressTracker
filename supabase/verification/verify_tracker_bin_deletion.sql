@@ -19,9 +19,10 @@ ledger as (
   select to_regclass('cron.job') as cron_job_oid,
          to_regclass('cron.job_run_details') as cron_runs_oid,
          to_regclass('public.tracker_deletion_cleanup_control') as control_oid,
+         current_setting('cron.timezone', true) as cron_timezone,
          case when to_regclass('cron.job') is not null then query_to_xml(
            $query$select count(*) as job_count,
-             coalesce(bool_and(schedule = '17 * * * *' and active
+             coalesce(bool_and(schedule = '0 3 * * *' and active
                and command like '%public.purge_expired_tracker_bin()%'), false) as config_ok
              from cron.job where jobname = 'progress-tracker-bin-cleanup'$query$,
            true, false, '') end as cron_job_xml,
@@ -37,6 +38,7 @@ ledger as (
   select cron_job_oid is not null as cron_job_table_exists,
          cron_runs_oid is not null as cron_runs_table_exists,
          control_oid,
+         cron_timezone,
          coalesce(((xpath('/table/row/job_count/text()', cron_job_xml))[1]::text)::integer, 0) as cleanup_job_count,
          coalesce(((xpath('/table/row/config_ok/text()', cron_job_xml))[1]::text)::boolean, false) as cleanup_job_config_ok,
          (xpath('/table/row/status/text()', cron_run_xml))[1]::text as latest_run_status,
@@ -144,7 +146,7 @@ ledger as (
         and not has_table_privilege('authenticated',to_regclass('public.trackers'),'insert') and not has_table_privilege('authenticated',to_regclass('public.trackers'),'update')
         and not has_table_privilege('authenticated',to_regclass('public.trackers'),'delete') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'insert')
         and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'update') and not has_table_privilege('authenticated',to_regclass('public.tracker_entries'),'delete')),
-    ('cron', 'progress-tracker-bin-cleanup', 'cleanup is off; scheduler may be absent, or exactly one known active hourly job may be installed',
+    ('cron', 'progress-tracker-bin-cleanup', 'cleanup is off; scheduler may be absent, or exactly one active daily 03:00 UTC job may be installed',
       coalesce((select format('cron.job exists=%s; matching job count=%s; correct active schedule and command=%s',
         cron_job_table_exists, cleanup_job_count, cleanup_job_config_ok) from runtime_state), 'MISSING'),
       coalesce((select not cleanup_enabled and (cleanup_job_count=0 or (cron_job_table_exists and cleanup_job_count=1 and cleanup_job_config_ok)) from runtime_state),false)),
@@ -153,6 +155,9 @@ ledger as (
         cron_runs_table_exists, latest_run_status, latest_run_start, latest_run_end)
         from runtime_state), 'NO RUN RECORDED OR CRON TABLE MISSING'),
       coalesce((select not cleanup_enabled or (cron_runs_table_exists and latest_run_status='succeeded') from runtime_state),false)),
+    ('cron setting', 'cron.timezone', 'GMT or UTC for a 03:00 UTC schedule',
+      coalesce((select cron_timezone from runtime_state), 'GMT (pg_cron default)'),
+      coalesce((select cron_timezone is null or upper(cron_timezone) in ('UTC','GMT','ETC/UTC') from runtime_state),false)),
     ('cleanup', 'expiry threshold', 'server routine uses a 30-day server-time threshold and bounded batches',
       coalesce((select format('30-day=%s; batch-limit-500=%s; ledger-retained=%s',
         position('interval ''30 days''' in p.prosrc)>0, position('limit 500' in lower(p.prosrc))>0,

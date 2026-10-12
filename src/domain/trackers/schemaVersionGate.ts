@@ -18,3 +18,8 @@ export function isTrackerSchemaWriteEnabled(version: number): boolean {
 export function isPermanentDeletionEnabled(): boolean {
   return import.meta.env.VITE_ENABLE_PERMANENT_DELETION === 'true'
 }
+
+/** Show automatic Bin cleanup claims only after the production schedule and DB control are verified. */
+export function isAutomaticBinCleanupEnabled(): boolean {
+  return import.meta.env.VITE_ENABLE_AUTOMATIC_BIN_CLEANUP === 'true'
+}

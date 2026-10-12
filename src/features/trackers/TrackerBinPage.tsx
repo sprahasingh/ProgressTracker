@@ -8,7 +8,7 @@ import { Surface } from '../../components/ui/Surface'
 import { AppIcon } from '../../components/ui/AppIcon'
 import { localRepository } from '../../db/localRepository'
 import type { PermanentDeletionRequest, StoredTrackerDefinition } from '../../db/models'
-import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
@@ -29,6 +29,7 @@ export function TrackerBinPage() {
   const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncNow, isOnline } = useAuth()
   const permanentDeletionEnabled = isPermanentDeletionEnabled()
+  const automaticCleanupEnabled = isAutomaticBinCleanupEnabled()
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const ready = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const workspaceKey = ready ? owner ?? 'guest' : null
@@ -89,7 +90,7 @@ export function TrackerBinPage() {
   }
 
   return <section className="tracker-page bin-page" aria-labelledby="bin-title">
-    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={permanentDeletionEnabled ? 'Restore a deleted tracker during its 30-day recovery period, or permanently delete it at any time. Trackers are not automatically removed after 30 days.' : 'Deleted trackers can be restored for 30 days. Automatic cleanup is not configured, and permanent deletion isn’t available in this app version.'} help={{ title: 'The Bin', summary: 'Restore a deleted tracker during its 30-day recovery period.', description: 'A tracker in the Bin retains its saved progress and planning data until restored or permanently deleted. The countdown starts from the server-confirmed deletion time for signed-in accounts. Permanent deletion removes the tracker and its history from all synchronized devices; an offline request remains pending until the server confirms it.' }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={automaticCleanupEnabled ? 'Trackers in the Bin are permanently deleted after 30 days. You can restore or permanently delete them sooner.' : permanentDeletionEnabled ? 'Restore a deleted tracker during its 30-day recovery period, or permanently delete it at any time. Trackers are not automatically removed after 30 days.' : 'Deleted trackers can be restored for 30 days. Automatic cleanup is not configured, and permanent deletion isn’t available in this app version.'} help={{ title: 'The Bin', summary: automaticCleanupEnabled ? 'Trackers in the Bin are permanently deleted after 30 days.' : 'Restore a deleted tracker during its 30-day recovery period.', description: `A tracker in the Bin retains its saved progress and planning data${automaticCleanupEnabled ? ' until it is restored or permanently deleted after 30 days' : ' until restored or permanently deleted'}. The countdown starts from the server-confirmed deletion time for signed-in accounts. Permanent deletion removes the tracker and its history from all synchronized devices; an offline request remains pending until the server confirms it.` }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
     {owner && !permanentDeletionEnabled && <p className="bin-system-note" role="status" data-ai-capability="bin.permanent_delete" data-ai-availability="disabled">Permanent deletion isn’t available in this app version. You can restore trackers during their 30-day recovery period.</p>}
     {owner && permanentDeletionEnabled && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}
