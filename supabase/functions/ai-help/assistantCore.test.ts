@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildFollowUpSuggestions, buildHelpMessages, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore'
+import { buildFollowUpSuggestions, buildHelpMessages, buildRetrievalQuery, classifyHelpIntent, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, parseRetryAfter, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, rankSourceIndex, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore'
 import type { AssistantHistoryItem } from './validation'
 import { knowledgeDocuments } from './_generated/knowledgeBundle'
 import { sourceIndex } from './_generated/sourceIndex'
@@ -16,6 +16,9 @@ const sourceEntries = [
 describe('AI Help retrieval and provider boundary', () => {
   it('only returns deterministic static support contact answers without source retrieval', () => {
     expect(shouldUseDeterministicAnswer('account', 'What is the support email?')).toBe(true)
+    expect(shouldUseDeterministicAnswer('account', 'How can I contact support?')).toBe(true)
+    expect(shouldUseDeterministicAnswer('account', 'Can an authenticated user read the support email outbox?')).toBe(false)
+    expect(shouldUseDeterministicAnswer('account', 'When will my pending support email arrive?')).toBe(false)
     expect(shouldUseDeterministicAnswer('trackers', 'Where is the Bin?')).toBe(false)
     expect(shouldUseDeterministicAnswer('account', 'How do I delete my account?')).toBe(false)
   })
@@ -33,6 +36,8 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(deterministicProductAnswer('How can I delete my account?', [], email)?.answer).toContain('exact word DELETE')
     expect(deterministicProductAnswer('What is your support email?', [], email)?.answer).toBe(`For ProgressTracker support, email ${email}.`)
     expect(deterministicProductAnswer('What is that email?', [{ role: 'user', content: 'How can I contact support?' }], email)?.answer).toBe(`For ProgressTracker support, email ${email}.`)
+    expect(deterministicProductAnswer('Can an authenticated user read the support email outbox?', [], email)).toBeNull()
+    expect(deterministicProductAnswer('When will my pending support email arrive?', [], email)).toBeNull()
     expect(deterministicProductAnswer('Why are streaks broken?', [], email)).toBeNull()
     expect(hasUnverifiedEmailClaim(`Email ${email}`, email)).toBe(false)
     expect(hasUnverifiedEmailClaim('Email support@example.com', email)).toBe(true)
@@ -182,6 +187,34 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(excerpts).toContain('src/domain/trackers/invariants.ts')
     expect(excerpts).toContain('assertTrackerInvariant')
     expect(excerpts).not.toContain('GoalsPage.tsx')
+  })
+
+  it('adds broad implementation vocabulary for demonstrated retrieval gaps without changing answer content', () => {
+    expect(buildRetrievalQuery('What happens to offline changes when a tracker is moved to Bin?', []).terms).toEqual(expect.arrayContaining(['tombstone','queued','reconciliation']))
+    expect(buildRetrievalQuery('What does AI Help send to Groq about source excerpts?', []).terms).toEqual(expect.arrayContaining(['response','temperature','completion','token']))
+    expect(buildRetrievalQuery('How does send-feedback prevent duplicate provider email sends?', []).terms).toEqual(expect.arrayContaining(['attempt','delivery','state','uncertain']))
+  })
+
+  it('instructs evidence-first answers and separates related technical workflows', () => {
+    const system = buildHelpMessages({ question: 'Which role can invoke this RPC?', history: [], pageContext: 'other', relevantDocs: '', sourceExcerpts: 'SQL grant evidence', linkIds: [] })[0]!.content
+    expect(system).toContain('distinguish database grants and database roles from user authorization performed by an Edge Function')
+    expect(system).toContain('provider email-send reservations/outcomes from support-thread submission idempotency')
+    expect(system).toContain('answer directly and completely instead of returning a generic refusal')
+  })
+
+  it('parses Retry-After delta-seconds and HTTP dates with safe fallback', () => {
+    expect(parseRetryAfter('17', 0)).toBe(17)
+    expect(parseRetryAfter('0', 0)).toBe(1)
+    expect(parseRetryAfter(new Date(25_000).toUTCString(), 0)).toBe(25)
+    expect(parseRetryAfter('invalid', 0)).toBe(60)
+  })
+
+  it('applies bounded provider cooldowns and clears them after a successful response', () => {
+    expect(providerHealthTransition(0, true, 429, 17)).toEqual({ failedAttempts: 1, cooldownMs: 17_000 })
+    expect(providerHealthTransition(0, true, 429, 3_600)).toEqual({ failedAttempts: 1, cooldownMs: 15 * 60_000 })
+    expect(providerHealthTransition(0, true, 503)).toEqual({ failedAttempts: 1, cooldownMs: 30_000 })
+    expect(providerHealthTransition(1, true, 503)).toEqual({ failedAttempts: 2, cooldownMs: 60_000 })
+    expect(providerHealthTransition(10, false, 200)).toEqual({ failedAttempts: 0, cooldownMs: 0 })
   })
 
   it('offers only curated follow-ups related to the cited feature', () => {

@@ -56,6 +56,37 @@ export function claimEvidenceOverlap(claim: string, evidence: string): number {
   return [...claimTerms].filter((term) => evidenceTerms.has(term)).length / claimTerms.size
 }
 
+function technicalIdentifiers(value: string): string[] {
+  const matches = [
+    ...(value.match(/`([^`]{1,120})`/g) ?? []).map((item) => item.slice(1, -1)),
+    ...(value.match(/\b(?:public|auth|storage)\.[a-z_][a-z0-9_]*\b/gi) ?? []),
+    ...(value.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) ?? []),
+    ...(value.match(/\b[0-9A-Z]{5}\b/g) ?? []).filter((item) => /^[0-9A-Z]{5}$/.test(item) && /\d/.test(item)),
+  ]
+  return [...new Set(matches.map((item) => item.toLocaleLowerCase()))]
+}
+
+/** Rejects named technical entities absent from the exact evidence cited by a claim. */
+export function unsupportedTechnicalIdentifiers(claims: StructuredClaim[], evidenceByRef: Record<string, string>): string[] {
+  const unsupported = new Set<string>()
+  for (const claim of claims) {
+    const evidence = claim.evidenceRefs.map((ref) => evidenceByRef[ref] ?? '').join('\n').toLocaleLowerCase()
+    for (const identifier of technicalIdentifiers(claim.text)) {
+      const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const exactIdentifier = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, 'i')
+      if (!exactIdentifier.test(evidence)) unsupported.add(identifier)
+    }
+  }
+  return [...unsupported]
+}
+
+export function hasUnqualifiedHumanRpcAuthorizationClaim(claim: StructuredClaim): boolean {
+  const text = claim.text.toLocaleLowerCase()
+  return /\b(?:invoke|execute|call)\b.{0,100}\b(?:rpc|function)\b|\b(?:rpc|function)\b.{0,100}\b(?:invoke|execute|call)\b/.test(text)
+    && /\b(?:maintainer|support staff|authenticated user|user)\b/.test(text)
+    && !/\b(?:edge function|direct database|database role|sql role|service_role)\b/.test(text)
+}
+
 export function retrieveCapabilities(question: string, history: AssistantHistoryItem[], index: CapabilityIndex, limit = 8): Capability[] {
   const context = history.filter((item) => item.role === 'user').slice(-2).map((item) => item.content).join(' ')
   const queryTerms = terms(`${question} ${context}`)
@@ -94,6 +125,7 @@ export function validateStructuredClaims(input: {
     let valid = Boolean(claim.text.trim() && refsValid && capabilityIdsValid)
     if (!refsValid) issues.push('missing_or_unretrieved_evidence')
     if (!capabilityIdsValid) issues.push('unknown_capability')
+    if (hasUnqualifiedHumanRpcAuthorizationClaim(claim)) { valid = false; issues.push('authorization_layer_ambiguous') }
     for (const capability of capabilities) {
       if (!capability) continue
       const availability = input.runtimeAvailability?.[capability.id] ?? capability.availability
@@ -147,6 +179,7 @@ export function validateStructuredClaims(input: {
     }
     const overlap = Math.max(0, ...claim.evidenceRefs.map((ref) => claimEvidenceOverlap(claim.text, input.evidenceByRef[ref] ?? '')))
     if (overlap < 0.2) { valid = false; issues.push('weak_lexical_overlap') }
+    if (unsupportedTechnicalIdentifiers([claim], input.evidenceByRef).length) { valid = false; issues.push('unsupported_technical_identifier') }
     const confirmedUnavailable = claim.kind === 'availability'
       && /\b(?:disabled|unavailable|locked|not available)\b/i.test(claim.text)
       && capabilities.every((item) => item && (input.runtimeAvailability?.[item.id] ?? item.availability) === 'disabled')

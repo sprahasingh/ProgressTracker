@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle'
-import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle'
+import { evidenceFingerprints, sourcePaths, sourceRelationships, sourceVersion } from './_generated/sourceBundle'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex'
 import { documentationCoverage, rankKnowledgeDocuments, rankSourceIndex } from './assistantCore'
+import { retrieveCapabilities } from './capabilityCore'
+import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle'
+import type { CapabilityIndex } from './capabilityCore'
 
 const measureHistory = [
   { role: 'user' as const, content: 'What are measures?' },
@@ -38,14 +43,27 @@ describe('AI Help retrieval evaluation', () => {
   it('uses matching knowledge and source bundle versions', () => {
     expect(sourceVersion).toBe(knowledgeVersion)
     expect(sourceIndexVersion).toBe(knowledgeVersion)
+    expect(capabilityVersion).toBe(knowledgeVersion)
     expect(sourceIndex.length).toBeGreaterThan(300)
+    expect(new Set(sourcePaths).size).toBe(sourcePaths.length)
     expect(sourcePaths).toContain('src/domain/trackers/invariants.ts')
     expect(sourcePaths).toContain('src/domain/trackers/schema.test.ts')
     expect(sourcePaths).toContain('supabase/functions/ai-help/index.ts')
     expect(sourcePaths).toContain('supabase/functions/ai-help/learningCore.ts')
     expect(sourcePaths).toContain('supabase/functions/ai-help-review/index.ts')
+    expect(sourcePaths).toContain('supabase/migrations/20261009000200_sync_write_boundary.sql')
+    expect(sourcePaths).toContain('supabase/migrations/20261030000200_unified_feedback_support.sql')
+    expect(sourcePaths).toContain('supabase/migrations/20261030000400_tracker_archived_entry_guard.sql')
     expect(evidenceFingerprints['docs/ai-help/goals-and-milestones.md']).toMatch(/^[a-f0-9]{64}$/)
     expect(sourcePaths.every((path) => /^[a-f0-9]{64}$/.test(evidenceFingerprints[path] ?? ''))).toBe(true)
+  })
+
+  it('matches every generated evidence fingerprint to the current reviewed source', () => {
+    const currentPaths = new Set([...sourcePaths, ...knowledgeDocuments.map(({ path }) => path)])
+    for (const path of currentPaths) {
+      const digest = createHash('sha256').update(readFileSync(path)).digest('hex')
+      expect(evidenceFingerprints[path], `${path} needs bundle regeneration if stale`).toBe(digest)
+    }
   })
 
   it('automatically searches implementation and test evidence when documentation is insufficient', () => {
@@ -53,7 +71,19 @@ describe('AI Help retrieval evaluation', () => {
     expect(documentationCoverage(question, [], knowledgeDocuments).needsSourceFallback).toBe(true)
     const results = rankSourceIndex(question, [], sourceIndex)
     expect(results.some((entry) => entry.path === 'src/domain/trackers/invariants.ts'), results.map((entry) => `${entry.path}:${entry.symbol}`).join('\n')).toBe(true)
-    expect(results.some((entry) => entry.path.endsWith('.test.ts'))).toBe(true)
+  })
+
+  it('retrieves test evidence when the user explicitly asks for a test', () => {
+    const results = rankSourceIndex('Which test verifies that a saved measure type cannot change?', [], sourceIndex)
+    expect(results.some((entry) => entry.path === 'src/domain/trackers/schema.test.ts')).toBe(true)
+  })
+
+  it('keeps source relationship metadata within the versioned reviewed index', () => {
+    expect(Object.keys(sourceRelationships).sort()).toEqual([...sourcePaths].sort())
+    expect(Object.values(sourceRelationships).flat().every((path) => sourcePaths.includes(path))).toBe(true)
+    const capabilityIndex: CapabilityIndex = { version: capabilityVersion, routes: capabilityRoutes, capabilities: capabilities as unknown as CapabilityIndex['capabilities'] }
+    const paths = retrieveCapabilities('How do I change a saved measure type?', [], capabilityIndex, 6).flatMap(({ evidenceRefs }) => evidenceRefs)
+    expect(paths.every((path) => sourcePaths.includes(path))).toBe(true)
   })
 
   it('retrieves implementation evidence for sync conflicts, cumulative goals, and streak edge cases', () => {

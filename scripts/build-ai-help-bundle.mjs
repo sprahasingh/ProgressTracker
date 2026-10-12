@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sanitizeEvidenceLines } from './sourceIndexUtils.mjs'
 
@@ -104,6 +104,7 @@ const sources = [
   'supabase/migrations/20261008000100_progress_tracker_schema.sql',
   'supabase/migrations/20261009000100_generic_trackers.sql',
   'supabase/migrations/20261009000200_sync_write_boundary.sql',
+  'supabase/migrations/20261027000100_account_deletion_password_authorization.sql',
   'supabase/migrations/20261009000300_goal_planning_v2.sql',
   'supabase/migrations/20261009000400_goal_allocations_v3.sql',
   'supabase/migrations/20261010000100_tracker_bin_permanent_deletion.sql',
@@ -118,6 +119,10 @@ const sources = [
   'supabase/migrations/20261023000100_ai_help_verified_knowledge.sql',
   'supabase/migrations/20261024000100_ai_help_learning_safety.sql',
   'supabase/migrations/20261025000100_ai_help_review_audit.sql',
+  'supabase/migrations/20261026000100_ai_help_rate_limit_rpc_refresh.sql',
+  'supabase/migrations/20261030000200_unified_feedback_support.sql',
+  'supabase/migrations/20261030000300_support_feedback_email_consent.sql',
+  'supabase/migrations/20261030000400_tracker_archived_entry_guard.sql',
   'supabase/tests/ai_help_verified_knowledge.test.sql',
   'supabase/functions/ai-help/index.ts',
   'supabase/functions/ai-help/assistantCore.ts',
@@ -131,7 +136,6 @@ const sources = [
   'supabase/functions/ai-help-feedback/index.ts',
   'supabase/functions/ai-help-feedback/feedbackCore.ts',
   'supabase/functions/ai-help-feedback/feedbackCore.test.ts',
-  'supabase/functions/ai-help-feedback/index.ts',
   'supabase/functions/support-inbox/index.ts',
   'supabase/functions/support-inbox/supportInboxCore.ts',
   'supabase/functions/support-inbox/supportInboxCore.test.ts',
@@ -159,6 +163,38 @@ const knowledgeSections = knowledge.flatMap((document) => {
   })
 })
 const sourceFiles = await Promise.all(sources.map(async (path) => ({ path, content: await readFile(resolve(root, path), 'utf8') })))
+if (new Set(sources).size !== sources.length) throw new Error('The reviewed source manifest contains duplicate paths.')
+const sourcePathSet = new Set(sources)
+const relationshipSets = new Map(sources.map((path) => [path, new Set()]))
+const importedPath = (fromPath, specifier) => {
+  if (!specifier.startsWith('.')) return null
+  const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier.split('?')[0]))
+  const candidates = [base, ...['.ts', '.tsx', '.js', '.jsx', '.mjs', '.sql'].map((extension) => `${base}${extension}`), ...['index.ts', 'index.tsx', 'index.js'].map((name) => `${base}/${name}`)]
+  return candidates.find((candidate) => sourcePathSet.has(candidate)) ?? null
+}
+for (const { path, content } of sourceFiles) {
+  const links = relationshipSets.get(path)
+  for (const match of content.matchAll(/\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"](\.[^'"]+)['"]/gs)) {
+    const target = importedPath(path, match[1])
+    if (target && target !== path) {
+      links.add(target)
+      relationshipSets.get(target)?.add(path)
+    }
+  }
+}
+// Add compact links between SQL RPC definitions and their client/server call
+// sites. These references are extracted from executable identifiers, not prose.
+const sqlFunctions = sourceFiles.flatMap(({ path, content }) => [...content.matchAll(/create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([\w$]+)/gi)].map((match) => ({ path, name: match[1] })))
+for (const definition of sqlFunctions) {
+  const identifier = new RegExp(`\\b${definition.name.replace(/[$]/g, '\\$')}\\b`, 'i')
+  for (const candidate of sourceFiles) {
+    if (candidate.path === definition.path || !identifier.test(candidate.content)) continue
+    if (candidate.path.endsWith('.sql') && !/create\s+(?:or\s+replace\s+)?function/i.test(candidate.content)) continue
+    relationshipSets.get(definition.path)?.add(candidate.path)
+    relationshipSets.get(candidate.path)?.add(definition.path)
+  }
+}
+const sourceRelationships = Object.fromEntries([...relationshipSets].map(([path, related]) => [path, [...related].sort()]))
 const routerSource = sourceFiles.find(({ path }) => path === 'src/routes/router.tsx')?.content ?? ''
 const declaredRoutes = [...routerSource.matchAll(/\{\s*path:\s*'([^']+)'/g)].map((match) => match[1])
 const routePaths = [...new Set(['/', ...declaredRoutes.filter((path) => path !== '/').map((path) => `/${path}`)])]
@@ -207,15 +243,27 @@ if (!binPage.includes('Permanent deletion is locked until the hosted database mi
   || /Permanent deletion is a separate action that removes the tracker/i.test(coreGuide)) {
   throw new Error('AI Help Bin availability guidance must be reviewed against the route, visible UI gate, production feature flag, and cleanup migration before generating the bundle.')
 }
-const digest = createHash('sha256').update(JSON.stringify({ knowledge, sourceFiles, capabilities, routes })).digest('hex').slice(0, 12)
+const digest = createHash('sha256').update(JSON.stringify({ knowledge, sourceFiles, capabilities, routes, sourceRelationships, sourceIndexFormat: 3 })).digest('hex').slice(0, 12)
 const version = `${packageInfo.version}+${digest}`
 const outputDir = resolve(root, 'supabase/functions/ai-help/_generated')
 await mkdir(outputDir, { recursive: true })
 await writeFile(resolve(outputDir, 'knowledgeBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const knowledgeVersion = ${JSON.stringify(version)}\nexport const knowledgeDocuments = ${JSON.stringify(knowledgeSections)} as const\n`)
-const tokens = (text) => [...new Set((text.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? []).map((term) => {
-  if (term.length > 5 && term.endsWith('ies')) return `${term.slice(0, -3)}y`
-  if (term.length > 4 && term.endsWith('sses')) return term.slice(0, -2)
-  if (term.length > 4 && term.endsWith('s') && !term.endsWith('ss')) return term.slice(0, -1)
+const tokens = (text) => [...new Set((text
+  .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+  .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+  .replace(/[_./-]+/g, ' ')
+  .toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? []).map((raw) => {
+  let term = raw
+  if (term.length > 5 && term.endsWith('ued')) term = term.slice(0, -1)
+  else if (term.length > 5 && term.endsWith('ies')) term = `${term.slice(0, -3)}y`
+  else if (term.length > 4 && term.endsWith('sses')) term = term.slice(0, -2)
+  else if (term.length > 5 && term.endsWith('ed')) {
+    term = term.slice(0, -2)
+    if (/[bcdfghjklmnpqrstvwxz]$/.test(term) && !term.endsWith('t') && !term.endsWith('d')) term += 'e'
+  } else if (term.length > 5 && term.endsWith('ing')) {
+    term = term.slice(0, -3)
+    if (/(.)\1$/.test(term)) term = term.slice(0, -1)
+  } else if (term.length > 4 && term.endsWith('s') && !term.endsWith('ss')) term = term.slice(0, -1)
   return term
 }))]
 const sourceIndex = sourceFiles.flatMap(({ path, content }) => {
@@ -225,8 +273,9 @@ const sourceIndex = sourceFiles.flatMap(({ path, content }) => {
   // assets such as `*.css?raw` as Edge modules.
   const lines = sanitizeEvidenceLines(content)
   const declaration = /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|const|enum)\s+([\w$]+)/
+  const sqlFunction = /^\s*create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([\w$]+)/i
   const testCase = /^\s*(?:it|test|describe)\s*\(\s*(['"`])(.+?)\1/
-  const symbols = lines.map((line, index) => ({ index, name: line.match(declaration)?.[1] ?? line.match(testCase)?.[2] }))
+  const symbols = lines.map((line, index) => ({ index, name: line.match(declaration)?.[1] ?? line.match(sqlFunction)?.[1] ?? line.match(testCase)?.[2] }))
   const result = []
   const windowSize = 14
   const stride = 10
@@ -245,7 +294,7 @@ const evidenceFingerprints = Object.fromEntries([
   ...knowledge.map(({ path, content }) => [path, createHash('sha256').update(content).digest('hex')]),
   ...sourceFiles.map(({ path, content }) => [path, createHash('sha256').update(content).digest('hex')]),
 ])
-await writeFile(resolve(outputDir, 'sourceBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const sourceVersion = ${JSON.stringify(version)}\nexport const sourcePaths = ${JSON.stringify(sources)} as const\nexport const evidenceFingerprints = ${JSON.stringify(evidenceFingerprints)} as const\n`)
+await writeFile(resolve(outputDir, 'sourceBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const sourceVersion = ${JSON.stringify(version)}\nexport const sourcePaths = ${JSON.stringify(sources)} as const\nexport const sourceRelationships = ${JSON.stringify(sourceRelationships)} as const\nexport const evidenceFingerprints = ${JSON.stringify(evidenceFingerprints)} as const\n`)
 await writeFile(resolve(outputDir, 'sourceIndex.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const sourceIndexVersion = ${JSON.stringify(version)}\nexport const sourceIndex = ${JSON.stringify(sourceIndex)} as const\n`)
 await writeFile(resolve(outputDir, 'capabilityBundle.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const capabilityVersion = ${JSON.stringify(version)}\nexport const capabilityRoutes = ${JSON.stringify(routes)} as const\nexport const capabilities = ${JSON.stringify(capabilities)} as const\n`)
 await writeFile(resolve(root, 'src/features/ai-help/capabilityVersion.ts'), `// Generated by scripts/build-ai-help-bundle.mjs. Do not edit by hand.\nexport const capabilityVersion = ${JSON.stringify(version)}\n`)

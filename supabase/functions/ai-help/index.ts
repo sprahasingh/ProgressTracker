@@ -1,11 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { knowledgeDocuments, knowledgeVersion } from './_generated/knowledgeBundle.ts'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
-import { evidenceFingerprints, sourcePaths, sourceVersion } from './_generated/sourceBundle.ts'
+import { evidenceFingerprints, sourcePaths, sourceRelationships, sourceVersion } from './_generated/sourceBundle.ts'
 import { sourceIndex, sourceIndexVersion } from './_generated/sourceIndex.ts'
 import { capabilities, capabilityRoutes, capabilityVersion } from './_generated/capabilityBundle.ts'
 import { canReturnHighRiskAnswer, capabilityEvidence, claimEvidenceOverlap, renderPartiallySupportedClaims, retrieveCapabilities, shouldEnforceCoveredClaims, unverifiedResponse, validateStructuredClaims, versionMatchedAvailability, type CapabilityIndex } from './capabilityCore.ts'
-import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
+import { buildFollowUpSuggestions, buildHelpMessages, deterministicProductAnswer, documentationCoverage, hasUnverifiedEmailClaim, hasUnsupportedNavigationClaim, hasUnsupportedUnavailableWorkflowClaim, parseGroqCompletion, providerHealthTransition, ProviderRequestError, rankKnowledgeDocuments, renderVerifiedKnowledge, requestGroqCompletion, retrieveSourceExcerpts, selectRelevantLinkIds, shouldUseDeterministicAnswer, socialConversationReply } from './assistantCore.ts'
 import { AssistantInputError as RequestError, MAX_BODY_BYTES, isGeneralConversation, normalizeAssistantInput, type AssistantHistoryItem } from './validation.ts'
 import { createKnowledgeFingerprint, mapFeatureCategory, parseKnowledgeCandidate, rankVerifiedKnowledge, resolveVerifiedKnowledgeForRequest, scheduleBestEffortCandidateCollection, type VerifiedKnowledge } from './learningCore.ts'
 
@@ -53,10 +53,9 @@ async function readBody(request: Request): Promise<unknown> {
 
 async function recordProviderHealth(admin: ReturnType<typeof createClient>, slot: string, status: number, failed: boolean, retryAfterSeconds?: number) {
   const previous = await admin.from('ai_help_provider_health').select('consecutive_failures').eq('provider_slot', slot).maybeSingle()
-  const failures = failed ? Math.min(10, (previous.data?.consecutive_failures ?? 0) + 1) : 0
-  const cooldownMs = status === 429 ? Math.min(15 * 60_000, Math.max(1_000, (retryAfterSeconds ?? 60) * 1_000)) : Math.min(15 * 60_000, 30_000 * 2 ** (failures - 1))
-  const cooldown = failed ? new Date(Date.now() + cooldownMs).toISOString() : null
-  await admin.from('ai_help_provider_health').upsert({ provider_slot: slot, last_status: status, consecutive_failures: failures, disabled_until: cooldown, checked_at: new Date().toISOString() })
+  const transition = providerHealthTransition(previous.data?.consecutive_failures ?? 0, failed, status, retryAfterSeconds)
+  const cooldown = failed ? new Date(Date.now() + transition.cooldownMs).toISOString() : null
+  await admin.from('ai_help_provider_health').upsert({ provider_slot: slot, last_status: status, consecutive_failures: transition.failedAttempts, disabled_until: cooldown, checked_at: new Date().toISOString() })
 }
 
 async function recordLearningMetric(admin: ReturnType<typeof createClient>, event: string, category: string) {
@@ -136,7 +135,7 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
   const useSourceEvidence = sourcePlan.needsSourceFallback || matchedCapabilities.length > 0
   const capabilitySourcePaths = [...new Set(matchedCapabilities.flatMap((capability) => capability.evidenceRefs))]
   const sources = useSourceEvidence
-    ? retrieveSourceExcerpts(question, history, sourceIndex, 4, 5200, pageContext, capabilitySourcePaths)
+    ? retrieveSourceExcerpts(question, history, sourceIndex, 4, 5200, pageContext, capabilitySourcePaths, sourceRelationships)
     : ''
   if (useSourceEvidence && !sources) await recordLearningMetric(admin, 'retrieval_no_match', mapFeatureCategory(pageContext))
   const rankedVerified = rankVerifiedKnowledge(question, history, verifiedRows, 3)
@@ -186,6 +185,13 @@ async function generate(admin: ReturnType<typeof createClient>, question: string
     allowedEvidence: new Set([...Object.keys(evidenceByRef), ...docs.map((doc) => doc.slug)]), evidenceByRef,
     runtimeAvailability: trustedRuntimeAvailability,
     enforcement: coveredEvidenceEnforcement })
+  // Technical identifiers are cheap to check deterministically and should
+  // never pass in shadow mode when absent from the claim's cited excerpts.
+  if (claimValidation.issues.some((issue) => ['unsupported_technical_identifier', 'authorization_layer_ambiguous'].includes(issue))) {
+    await recordLearningMetric(admin, 'grounding_failure', category)
+    const answer = renderPartiallySupportedClaims(claimValidation.acceptedClaims, question)
+    return { answer, links: [], followUps: [], topic: category, knowledge_version: knowledgeVersion, offerSupport: true, supportPrefill: question.slice(0, 1800) }
+  }
   const claimCoverage = claimEvidenceOverlap(result.answer, result.claims.map((claim) => claim.text).join(' '))
   if (claimValidation.issues.length || claimCoverage < 0.65) await recordLearningMetric(admin, 'grounding_failure', category)
   // High-risk actions fail closed until their current prerequisites and availability are verified.
