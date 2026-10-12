@@ -31,6 +31,18 @@ const kindOptions: Array<{ kind: TrackerKind; title: string; description: string
   { kind: 'project', title: 'Project', description: 'Make progress on a bigger effort.', icon: 'project' },
 ]
 
+function TrackerKindOption({ item, selected, onChange }: {
+  item: (typeof kindOptions)[number]
+  selected: boolean
+  onChange: (kind: TrackerKind) => void
+}) {
+  return <label className={`tracker-kind-option${selected ? ' selected' : ''}`}>
+    <input type="radio" name="tracker-kind" value={item.kind} checked={selected} onChange={() => onChange(item.kind)} />
+    <span className="tracker-kind-option-icon" aria-hidden="true"><AppIcon name={item.icon} /></span>
+    <span className="tracker-kind-option-label"><strong>{item.title}</strong><small>{item.description}</small></span>
+  </label>
+}
+
 function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
   const id = crypto.randomUUID()
   return kind === 'habit'
@@ -588,7 +600,7 @@ export function TrackerSetupPage() {
           }
         }} onClickCapture={(event) => { const target = event.target; if (target instanceof HTMLButtonElement && target.type !== 'submit' && !target.hasAttribute('data-discard-trigger') && !target.closest('.info-button, [data-ignore-dirty]')) setDirty(true) }} noValidate>
           {error && <div role="alert" className="form-alert">{error}</div>}
-          {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true"><AppIcon name={item.icon} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div><details className="other-tracker-types" open={values.kind === 'challenge' || values.kind === 'project'}><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <label key={item.kind} className={`tracker-kind-option${values.kind === item.kind ? ' selected' : ''}`}><input type="radio" name="tracker-kind" value={item.kind} checked={values.kind === item.kind} onChange={() => changeKind(item.kind)} /><span className="tracker-kind-option-icon" aria-hidden="true"><AppIcon name={item.icon} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span></label>)}</div></details></fieldset>}
+          {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div><details className="other-tracker-types"><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div></details></fieldset>}
           {existing && <div className="editing-kind-note"><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === existing.kind)?.title}</span><p>{kindOptions.find((item) => item.kind === existing.kind)?.description} Type stays the same so saved progress keeps its meaning.</p></div>}
           <label className="form-field tracker-name-field"><span>{selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'}</span><input data-validation-path="name" aria-label={selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'} className="auth-input" maxLength={200} value={values.name} onChange={(event) => update('name', event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'tracker-name-error' : undefined} placeholder={selectedKind === 'goal' ? 'e.g. Solve 100 DSA problems' : selectedKind === 'habit' ? 'e.g. Read every day' : selectedKind === 'challenge' ? 'e.g. 30-day writing challenge' : 'e.g. Launch my portfolio'} />{fieldErrors.name && <small id="tracker-name-error" className="auth-error">{fieldErrors.name}</small>}</label>
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}

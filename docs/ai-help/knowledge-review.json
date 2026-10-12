@@ -147,8 +147,8 @@
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
-    "src/features/trackers/TrackerSetupPage.tsx": "41e14994fcee6725f3fd743b21d471895c29ae246da20ac66506dd7e9db55c54",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "a4dfc5e2d7dc35781773a4b765025d5b252b4be221f3b324791adc0188efb15a",
+    "src/features/trackers/TrackerSetupPage.tsx": "a3da402e1c5b3c3879bb0349a4026ed77e20c50f22138ea9b864b28736f285e9",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "87f5adc00dcac9b65b4db016167bfbd0f462df4e8bf65d13ad43ee44226dc019",
     "src/features/trackers/trackerSetupSchema.ts": "705478baf4276d235ead28841335ab1be2158c7c98cf2cdb1df1d6d9566c4b5d"
   },
   "daily-vs-cumulative-goal": {
@@ -438,13 +438,13 @@
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",
-    "src/features/trackers/TrackerSetupPage.tsx": "41e14994fcee6725f3fd743b21d471895c29ae246da20ac66506dd7e9db55c54"
+    "src/features/trackers/TrackerSetupPage.tsx": "a3da402e1c5b3c3879bb0349a4026ed77e20c50f22138ea9b864b28736f285e9"
   },
   "start-date-deadline": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",
     "src/domain/trackers/activePeriod.test.ts": "40b4e24d42e0650c6900bc4ed1e411b35c6dd88e4595427b4748ae31aa6f5916",
     "src/domain/trackers/planning.test.ts": "675115c9923097d243b03baf6f382c20c1d2db92b134b613dea89898debd4cea",
-    "src/features/trackers/TrackerSetupPage.tsx": "41e14994fcee6725f3fd743b21d471895c29ae246da20ac66506dd7e9db55c54"
+    "src/features/trackers/TrackerSetupPage.tsx": "a3da402e1c5b3c3879bb0349a4026ed77e20c50f22138ea9b864b28736f285e9"
   },
   "retire-measure": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
@@ -455,8 +455,8 @@
   "tracker-editing": {
     "src/features/trackers/TrackerLibraryPage.tsx": "237b512a241324ebc237d77173317d43cc82b03211a8b41fd303431e191b7251",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
-    "src/features/trackers/TrackerSetupPage.tsx": "41e14994fcee6725f3fd743b21d471895c29ae246da20ac66506dd7e9db55c54",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "a4dfc5e2d7dc35781773a4b765025d5b252b4be221f3b324791adc0188efb15a"
+    "src/features/trackers/TrackerSetupPage.tsx": "a3da402e1c5b3c3879bb0349a4026ed77e20c50f22138ea9b864b28736f285e9",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "87f5adc00dcac9b65b4db016167bfbd0f462df4e8bf65d13ad43ee44226dc019"
   },
   "tracker-created-active-date": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",

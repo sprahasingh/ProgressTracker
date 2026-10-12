@@ -51,6 +51,38 @@ function datedTracker(id: string, kind: TrackerKind, startDate = '2026-01-05', d
 }
 
 describe('tracker setup flow', () => {
+  it('uses the shared icon radio cards and keeps the additional types collapsed until requested', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+
+    const picker = screen.getByRole('group', { name: 'What do you want to track?' })
+    const additionalTypes = screen.getByText('Challenge or project?').closest('details')!
+    expect(additionalTypes).not.toHaveAttribute('open')
+    expect(within(picker).getByRole('radio', { name: /Habit/ })).toBeChecked()
+    expect(within(picker).getByRole('radio', { name: /Goal/ })).not.toBeChecked()
+    for (const icon of ['habit', 'goal']) expect(picker.querySelector(`[data-icon="${icon}"]`)).toBeInTheDocument()
+    expect(styles).toContain('.tracker-kind-option.selected::after')
+    expect(styles).toContain('.tracker-kind-option:focus-within')
+    expect(styles).toContain('clip-path: inset(50%)')
+    expect(styles).toContain('.tracker-setup-form .tracker-kind-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    expect(styles).not.toContain('.tracker-setup-form .tracker-kind-option-icon { display: none; }')
+    expect(styles).toContain('text-overflow: ellipsis; white-space: nowrap;')
+
+    const habitRadio = within(picker).getByRole('radio', { name: /Habit/ })
+    habitRadio.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(within(picker).getByRole('radio', { name: /Goal/ })).toBeChecked()
+    expect(additionalTypes).not.toHaveAttribute('open')
+
+    await user.click(screen.getByText('Challenge or project?'))
+    for (const icon of ['challenge', 'project']) expect(additionalTypes.querySelector(`[data-icon="${icon}"]`)).toBeInTheDocument()
+    await user.click(within(additionalTypes).getByRole('radio', { name: /Challenge/ }))
+    expect(within(additionalTypes).getByRole('radio', { name: /Challenge/ })).toBeChecked()
+    await user.click(within(additionalTypes).getByRole('radio', { name: /Project/ }))
+    expect(within(additionalTypes).getByRole('radio', { name: /Project/ })).toBeChecked()
+    expect(additionalTypes).toHaveAttribute('open')
+  })
+
   it('requires a useful name before saving', async () => {
     const user = userEvent.setup()
     renderSetup()
