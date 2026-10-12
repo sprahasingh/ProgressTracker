@@ -30,7 +30,7 @@ const entry = {
 afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks() })
 
 describe('Calendar page', () => {
-  it('shows an accessible status legend and opens selected date details', async () => {
+  it('keeps the status guide collapsed until requested and opens selected date details', async () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
     mocks.listAccountHolidays.mockResolvedValue([])
@@ -39,10 +39,17 @@ describe('Calendar page', () => {
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
     const manageHolidays = screen.getByRole('link', { name: 'Manage holidays' })
-    expect(manageHolidays).toHaveClass('button-primary')
+    expect(manageHolidays).toHaveClass('button-secondary')
     expect(manageHolidays).toHaveAttribute('href', '/holidays')
     expect(screen.getByRole('link', { name: 'Today' })).toHaveAttribute('href', `/calendar?date=${today}`)
     expect(screen.getByLabelText('Month')).toHaveAttribute('type', 'month')
+    const guideButton = screen.getByRole('button', { name: /Status guide.*Show all statuses/ })
+    expect(guideButton).toHaveAttribute('aria-expanded', 'false')
+    expect(guideButton).toHaveAttribute('aria-controls', 'calendar-status-guide-content')
+    expect(screen.queryByLabelText('Activity status legend')).not.toBeVisible()
+    const user = userEvent.setup()
+    await user.click(guideButton)
+    expect(guideButton).toHaveAttribute('aria-expanded', 'true')
     const legend = screen.getByLabelText('Activity status legend')
     expect(Array.from(legend.querySelectorAll(':scope > span')).map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
       'Completed', 'Partial', 'No progress', 'Missed', 'Skipped', 'Pending', 'Upcoming', 'Holiday', 'Rest day', 'Outside period', 'Historical entry', 'Tracker inactive', 'No active trackers',
@@ -53,12 +60,14 @@ describe('Calendar page', () => {
       'status-completed', 'status-partial', 'status-no-progress', 'status-missed', 'status-skipped', 'status-pending', 'status-upcoming', 'status-holiday', 'status-unscheduled', 'status-outside-period', 'status-historical', 'status-inactive', 'status-no-trackers',
     ])
     expect(legend.querySelector('.calendar-dot.partial path[fill="currentColor"]')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Status guide.*Hide statuses/ }))
+    expect(guideButton).toHaveAttribute('aria-expanded', 'false')
+    expect(legend).not.toBeVisible()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
     expect(screen.getByRole('button', { name: new RegExp(calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })) })).toHaveClass('completed')
 
-    const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: new RegExp(previousDateLabel) }))
     // A date before this tracker was created is outside its period, not a rest day or miss.
     await screen.findAllByText('Outside period')
