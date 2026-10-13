@@ -73,6 +73,13 @@ function eventIcon(event: ProgressionEvent) {
   return reasonPresentation[event.reasonCode]?.icon ?? 'spark'
 }
 
+function achievementProgressLabel(badge: AchievementState, progressUnit: string) {
+  const progress = Math.floor(badge.progress)
+  return progressUnit === '% consistency'
+    ? `${progress}% / ${badge.target}%`
+    : `${progress} / ${badge.target} ${progressUnit}`
+}
+
 function formatCalendarDate(date: string) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00.000Z`))
 }
@@ -263,7 +270,7 @@ export function ProgressionAchievementsPage() {
         </div>
         <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
           <strong>Recently unlocked</strong>
-          {recentUnlocks.length ? recentUnlocks.map((badge) => <button type="button" key={badge.achievementId} onClick={() => setSelectedBadge(badge)}><ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? badge.currentTier : 1} /><span>{achievementDefinition(badge.achievementId)?.name ?? 'Achievement'}<small>{badge.unlockedAt ? formatCalendarDate(badge.unlockedAt.slice(0, 10)) : 'Earned'}</small></span></button>) : <p>New confirmed achievements will appear here.</p>}
+          {recentUnlocks.length ? recentUnlocks.map((badge) => <button type="button" key={badge.achievementId} onClick={() => setSelectedBadge(badge)}><ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? badge.currentTier : 1} /><span>{achievementDefinition(badge.achievementId)?.name ?? 'Achievement'}<small>{badge.unlockedAt ? formatCalendarDate(badge.unlockedAt.slice(0, 10)) : 'Earned'}</small></span></button>) : <p>Your first confirmed badge will appear here when earned.</p>}
         </div>
       </section>
 
@@ -283,7 +290,6 @@ export function ProgressionAchievementsPage() {
       <section className="progression-section" aria-labelledby="progression-badges-heading">
         <div className="progression-section-heading"><div><span className="eyebrow">COLLECTION</span><h2 id="progression-badges-heading">Achievement badges</h2></div><span className="progression-collection-count">{pageData.overview.achievements.filter((badge) => badge.earned).length} of {pageData.overview.achievements.length} earned</span></div>
         {pageData.overview.achievements.length === 0 ? <p className="progression-empty-inline">Achievement progress will appear after the account’s progression data is available.</p> : <div className="progression-badge-grid">{pageData.overview.achievements.map((badge) => <BadgeCard key={badge.achievementId} badge={badge} onOpen={() => setSelectedBadge(badge)} />)}</div>}
-        {pageData.overview.achievements.every((badge) => !badge.earned) && <p className="progression-collection-note">Your first badge will be unlocked after a qualifying reward is confirmed.</p>}
       </section>
     </>}
 
@@ -307,7 +313,7 @@ export function ProgressionAchievementsPage() {
         {[...pageData.overview.consistency.dailyAdherence].reverse().map((day) => <div className="progression-consistency-day" key={day.date} aria-label={`${formatCalendarDate(day.date)}: ${day.completed} completed of ${day.eligible} eligible, ${Math.round(day.completed / day.eligible * 100)} percent`}>
           <span>{formatCalendarDate(day.date)}</span><span className="progression-consistency-track"><span style={{ width: `${Math.min(100, day.completed / day.eligible * 100)}%` }} /></span><strong>{day.completed}/{day.eligible}</strong>
         </div>)}
-      </div> : <EmptyState title="No eligible days yet" description="The score will appear after your workspace has a completed eligible activity day." />}
+      </div> : <EmptyState title="No eligible days yet" description="Consistency becomes measurable after an eligible tracker day is completed. Skips, future dates, and the still-open day do not count." />}
       <div className="progression-exclusion-note"><strong>What is excluded?</strong><p>Future dates and the still-open current day do not count. Days without an eligible tracker are omitted. Scheduled days, holidays, and Strict Mode follow your tracker settings.</p></div>
     </ProgressionDetailDialog>}
 
@@ -359,11 +365,12 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
   if (!definition) return null
   const tier = badge.earned && badge.repeatable ? badge.currentTier : badge.earned ? Math.max(1, badge.currentTier) : Math.max(1, badge.currentTier + 1)
   const earnedAt = badge.unlockedAt ? formatCalendarDate(badge.unlockedAt.slice(0, 10)) : null
-  return <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned${earnedAt ? ` ${earnedAt}` : ''}` : `locked, ${Math.round(badge.progress)} of ${badge.target} progress`}. View badge details`}>
+  return <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned${earnedAt ? ` ${earnedAt}` : ''}` : `locked, ${achievementProgressLabel(badge, definition.progressUnit)} progress. ${definition.shortRequirement}`}. View badge details`}>
     <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} />
     <strong>{definition.name}</strong><span>{badge.earned ? 'Earned' : 'Locked'}</span>
     {badge.earned && badge.repeatable && <small>{badgeTierLabel(badge.currentTier)} tier</small>}
-    {!badge.earned && <span className="progression-badge-progress">{Math.floor(badge.progress)} / {badge.target}</span>}
+    <span className="progression-badge-requirement-summary">{definition.shortRequirement}</span>
+    {!badge.earned && <span className="progression-badge-progress">{achievementProgressLabel(badge, definition.progressUnit)}</span>}
     {earnedAt && <time dateTime={badge.unlockedAt!}>{earnedAt}</time>}
   </button>
 }
@@ -376,7 +383,7 @@ function BadgeDetailDialog({ badge, onClose }: { badge: AchievementState; onClos
     <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Earned' : 'Locked'}</span>{badge.earned && badge.repeatable && <span className="progression-status-pill is-tier">{badgeTierLabel(badge.currentTier)} tier</span>}<p>{definition.description}</p></div></div>
     <div className="progression-badge-requirement"><strong>Unlock requirement</strong><p>{definition.requirement}</p></div>
     {badge.earned && badge.unlockedAt && <p className="progression-unlock-date">Unlocked {formatCalendarDate(badge.unlockedAt.slice(0, 10))}</p>}
-    {!badge.earned && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{Math.floor(badge.progress)} / {badge.target}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}
+    {!badge.earned && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{achievementProgressLabel(badge, definition.progressUnit)}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}
     <h3 className="progression-subheading">Achievement history</h3>
     {badge.history.length ? <ul className="progression-badge-history">{[...badge.history].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {event.generation === 1 ? 'First award' : `Award ${event.generation}`}</span><time dateTime={event.recordedAt}>{formatCalendarDate(event.recordedAt.slice(0, 10))}</time></li>)}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
   </ProgressionDetailDialog>
