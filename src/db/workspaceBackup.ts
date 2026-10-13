@@ -5,12 +5,13 @@ import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/tracke
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
-export const WORKSPACE_BACKUP_VERSION = 3
+export const WORKSPACE_BACKUP_VERSION = 4
 
 const backupStores = [
   'categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs',
   'settings', 'trackers', 'trackerEntries', 'workspaceMetadata', 'syncOperations', 'syncRecords', 'syncConflicts',
   'permanentDeletionRequests', 'permanentDeletionLedger', 'trackerVerification', 'accountHolidays',
+  'holidayPermanentDeletionRequests', 'holidayPermanentDeletionLedger',
 ] as const
 
 export type WorkspaceBackup = {
@@ -50,9 +51,11 @@ const deletionRequestRow = z.object({ id: rowId, ownerUserId: rowId, trackerId: 
 const deletionLedgerRow = z.object({ key: rowId, ownerUserId: rowId, trackerId: rowId, permanentlyDeletedAt: timestamp })
 const trackerVerificationRow = z.object({ trackerId: rowId, status: z.literal('pending-server-check') })
 const accountHolidayRow = z.object({ id: rowId, date: z.iso.date(), reason: z.enum(['travel', 'exam', 'personal', 'other']).nullable(), createdAt: timestamp, updatedAt: timestamp, deletedAt: nullableTimestamp })
+const holidayDeletionRequestRow = z.object({ id: rowId, ownerUserId: rowId, holidayId: rowId, holidayDate: z.iso.date(), requestedAt: timestamp, status: z.enum(['pending', 'conflict']), lastError: z.string().nullable() })
+const holidayDeletionLedgerRow = z.object({ key: rowId, ownerUserId: rowId, holidayId: rowId, permanentlyDeletedAt: timestamp })
 const metadataRow = z.object({ key: z.literal('workspace'), userId: rowId.nullable(), guestDecision: z.enum(['imported', 'imported-as-copies', 'kept-separate']).optional(), importedAt: timestamp.optional() })
 const backupSchema = z.object({
-  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.union([z.literal(1), z.literal(2), z.literal(WORKSPACE_BACKUP_VERSION)]), exportedAt: timestamp,
+  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(WORKSPACE_BACKUP_VERSION)]), exportedAt: timestamp,
   workspace: z.object({ kind: z.enum(['guest', 'account']), ownerUserId: rowId.nullable() }),
   stores: z.object({
     categories: z.array(categoryRow), dailyEntries: z.array(dailyEntryRow), dailyJournals: z.array(dailyJournalRow),
@@ -63,6 +66,8 @@ const backupSchema = z.object({
     permanentDeletionLedger: z.array(deletionLedgerRow).optional().default([]),
     trackerVerification: z.array(trackerVerificationRow).optional().default([]),
     accountHolidays: z.array(accountHolidayRow).optional().default([]),
+    holidayPermanentDeletionRequests: z.array(holidayDeletionRequestRow).optional().default([]),
+    holidayPermanentDeletionLedger: z.array(holidayDeletionLedgerRow).optional().default([]),
   }),
 })
 
@@ -70,6 +75,7 @@ const primaryKeyFor: Record<(typeof backupStores)[number], string> = {
   categories: 'id', dailyEntries: 'id', dailyJournals: 'id', goals: 'id', goalMetrics: 'id', goalProgressLogs: 'id',
   settings: 'id', trackers: 'id', trackerEntries: 'id', workspaceMetadata: 'key', syncOperations: 'id', syncRecords: 'key', syncConflicts: 'id',
   permanentDeletionRequests: 'id', permanentDeletionLedger: 'key', trackerVerification: 'trackerId', accountHolidays: 'id',
+  holidayPermanentDeletionRequests: 'id', holidayPermanentDeletionLedger: 'key',
 }
 
 function stableJson(value: unknown): string {
@@ -117,6 +123,12 @@ function parseAndCheckBackup(value: unknown, expectedOwnerUserId: string | null)
   }
   for (const record of parsed.data.stores.permanentDeletionLedger) {
     if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId || record.key !== `${expectedOwnerUserId}:${record.trackerId}`) throw new Error('Backup contains an invalid permanent-deletion ledger record.')
+  }
+  for (const record of parsed.data.stores.holidayPermanentDeletionRequests) {
+    if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId) throw new Error('Backup contains a holiday deletion request for another workspace.')
+  }
+  for (const record of parsed.data.stores.holidayPermanentDeletionLedger) {
+    if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId || record.key !== `${expectedOwnerUserId}:${record.holidayId}`) throw new Error('Backup contains an invalid holiday deletion ledger record.')
   }
   for (const conflict of parsed.data.stores.syncConflicts) {
     const local = conflict.entity === 'tracker' ? trackerDefinitionSchema.safeParse(conflict.localPayload) : conflict.entity === 'tracker_entry' ? trackerEntrySchema.safeParse(conflict.localPayload) : accountHolidayRow.safeParse(conflict.localPayload)
@@ -222,6 +234,7 @@ export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId
         const existing = await table.get(row[primaryKeyFor[storeName]] as never) as Record<string, unknown> | undefined
         if (!existing) {
           if (storeName === 'permanentDeletionRequests') additions.push({ ...row, status: 'failed', lastError: 'Imported deletion requests are inert. Confirm permanent deletion again from the Bin.' })
+          else if (storeName === 'holidayPermanentDeletionRequests') additions.push({ ...row, status: 'conflict', lastError: 'Imported deletion requests are inert. Confirm permanent deletion again from Recently removed holidays.' })
           else additions.push(row)
           if (storeName === 'trackers' && expectedOwnerUserId) {
             const verification = database.table('trackerVerification')

@@ -108,6 +108,33 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
   })
 
+  it('queues account holiday permanent deletion idempotently and keeps the tombstone until server confirmation', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('holiday-delete-owner')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-14'], 'exam')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await localRepository.removeAccountHoliday(holiday.date)
+
+    await expect(localRepository.requestPermanentHolidayDeletion(holiday.date)).resolves.toBe('queued')
+    await expect(localRepository.requestPermanentHolidayDeletion(holiday.date)).resolves.toBe('queued')
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals(['holiday-delete-owner', holiday.id]).count()).resolves.toBe(1)
+    await activateWorkspace('holiday-delete-other-owner')
+    await expect(localRepository.listPermanentHolidayDeletionRequests('holiday-delete-other-owner')).resolves.toEqual([])
+  })
+
+  it('permanently removes a guest holiday only after the local action is explicitly requested', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace(null)
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-15'], null)
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await localRepository.removeAccountHoliday(holiday.date)
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+
+    await expect(localRepository.requestPermanentHolidayDeletion(holiday.date)).resolves.toBe('deleted')
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toBeUndefined()
+  })
+
   it('persists version 2 planning configuration unchanged in IndexedDB and its account outbox', async () => {
     await activateWorkspace('planning-account')
     await localRepository.saveTracker(plannedGoal)

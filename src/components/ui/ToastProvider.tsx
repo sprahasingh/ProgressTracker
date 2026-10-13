@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { createPortal } from 'react-dom'
 import { AppIcon } from './AppIcon'
 import { permanentDeletionNotificationKey, subscribeToPermanentDeletionNotifications } from '../../services/permanentDeletionNotifications'
+import { holidayDeletionNotificationKey, subscribeToHolidayDeletionNotifications } from '../../services/holidayDeletionNotifications'
 
 export type ToastKind = 'success' | 'error' | 'warning' | 'info'
 export type ToastInput = {
@@ -72,6 +73,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     } else {
       deletionLifecycle.current.set(dedupeKey, 'terminal')
       notify({ kind: 'error', title: 'Couldn’t confirm tracker deletion', description: `${event.message ?? 'The server did not confirm deletion.'} Your tracker remains in the Bin. Check your connection and sync again to retry.`, duration: 0, dedupeKey })
+    }
+  }), [notify])
+  useEffect(() => subscribeToHolidayDeletionNotifications((event) => {
+    const dedupeKey = holidayDeletionNotificationKey(event.ownerUserId, event.holidayId)
+    if (event.status === 'cancelled') {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      const existing = itemsRef.current.find((item) => item.dedupeKey === dedupeKey)
+      if (existing) dismiss(existing.id)
+      return
+    }
+    if (event.status === 'queued') deletionLifecycle.current.set(dedupeKey, 'pending')
+    else if (deletionLifecycle.current.get(dedupeKey) !== 'pending') return
+    if (event.status === 'confirmed') {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      notify({ kind: 'success', title: 'Holiday permanently deleted.', description: `${event.holidayDate} was removed from this account.`, duration: 4000, dedupeKey })
+    } else if (event.status === 'queued') {
+      notify({ kind: 'warning', title: 'Holiday deletion pending.', description: `The deletion of ${event.holidayDate} will finish after the server confirms it.`, duration: 0, dedupeKey })
+    } else {
+      deletionLifecycle.current.set(dedupeKey, 'terminal')
+      notify({ kind: 'error', title: event.status === 'conflict' ? 'Holiday deletion needs attention' : 'Couldn’t confirm holiday deletion', description: `${event.message ?? 'The server did not confirm deletion.'} The holiday remains in Recently removed. Sync again or resolve its conflict, then retry.`, duration: 0, dedupeKey })
     }
   }), [notify])
   useEffect(() => () => { for (const timer of timers.current.values()) clearTimeout(timer); timers.current.clear() }, [])

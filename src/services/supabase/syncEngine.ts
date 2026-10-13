@@ -10,11 +10,13 @@ import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnab
 import { getSupabaseClient } from './client'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
 import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
+import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
+import { publishHolidayDeletionNotification } from '../holidayDeletionNotifications'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerHoliday = { id: string; user_id: string; holiday_date: string; reason: AccountHoliday['reason']; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
-type OperationResult = { status: 'applied' | 'conflict'; record: ServerTracker | ServerEntry | ServerHoliday | null }
+type OperationResult = { status: 'applied' | 'conflict' | 'permanently_deleted'; record: ServerTracker | ServerEntry | ServerHoliday | null; holiday_id?: string; permanently_deleted_at?: string }
 type SyncClient = Pick<SupabaseClient, 'auth'> & {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>
   from: (table: string) => any
@@ -122,6 +124,82 @@ async function reconcileServerDeletionLedger(database: ProgressTrackerDatabase, 
   })))
 }
 
+async function reconcileServerHolidayDeletionLedger(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
+  await accountState(database, userId)
+  await assertUser(client, userId)
+  const rows: Array<{ user_id: string; holiday_id: string; permanently_deleted_at: string }> = []
+  let cursor = ''
+  for (;;) {
+    let query = client.from('account_holiday_deletion_ledger').select('user_id,holiday_id,permanently_deleted_at')
+      .order('holiday_id', { ascending: true }).limit(pageSize)
+    if (cursor) query = query.gt('holiday_id', cursor)
+    const { data, error } = await query
+    if (error) throw new Error(`Holiday deletion ledger could not be checked; uploads are paused: ${error.message}`)
+    const page = (data ?? []) as Array<{ user_id: string; holiday_id: string; permanently_deleted_at: string }>
+    if (page.some((row) => row.user_id !== userId)) throw new Error('Holiday deletion ledger returned another account’s record; sync was stopped.')
+    rows.push(...page)
+    if (page.length < pageSize) break
+    cursor = page[page.length - 1]!.holiday_id
+    await accountState(database, userId)
+    await assertUser(client, userId)
+  }
+  await localRepository.reconcilePermanentHolidayDeletionLedger(userId, rows.map((row) => ({
+    holiday_id: row.holiday_id,
+    permanently_deleted_at: normalizeSyncTimestamp(row.permanently_deleted_at, 'permanently_deleted_at') as string,
+  })))
+}
+
+async function processPermanentHolidayDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
+  if (!isHolidayPermanentDeletionEnabled()) return { deleted: 0, failed: 0, conflicts: 0 }
+  const requests = await database.holidayPermanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
+  let deleted = 0
+  let failed = 0
+  let conflicts = 0
+  for (const request of requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
+    try {
+      await accountState(database, userId)
+      await assertUser(client, userId)
+      const [holiday, revision] = await Promise.all([
+        database.accountHolidays.get(request.holidayId), database.syncRecords.get(keyFor('account_holiday', request.holidayId)),
+      ])
+      if (!holiday?.deletedAt || !revision) throw new Error('The holiday removal must sync successfully before permanent deletion can proceed.')
+      publishHolidayDeletionNotification({ status: 'queued', ownerUserId: userId, holidayId: request.holidayId, holidayDate: request.holidayDate })
+      const { data, error } = await client.rpc('permanently_delete_account_holiday', {
+        p_expected_user_id: userId, p_operation_id: request.id, p_holiday_id: request.holidayId,
+        p_expected_revision: revision.serverRevision,
+      })
+      if (error) throw new Error(error.message)
+      const result = data as { status?: string; holiday_id?: string; permanently_deleted_at?: string; record?: ServerHoliday | null }
+      if (result?.status === 'conflict') {
+        await database.transaction('rw', [database.holidayPermanentDeletionRequests, database.syncConflicts], async () => {
+          const current = await database.holidayPermanentDeletionRequests.get(request.id)
+          if (current) await database.holidayPermanentDeletionRequests.put({ ...current, status: 'conflict', lastError: 'The cloud holiday changed. Sync and review the conflict before retrying permanent deletion.' })
+          await database.syncConflicts.put({ id: request.id, ownerUserId: userId, entity: 'account_holiday', entityId: request.holidayId, localPayload: holiday, remoteRecord: result.record as unknown as Record<string, unknown> | null, detectedAt: new Date().toISOString() })
+        })
+        publishHolidayDeletionNotification({ status: 'conflict', ownerUserId: userId, holidayId: request.holidayId, holidayDate: request.holidayDate, message: 'The cloud holiday changed. Resolve its sync conflict before retrying permanent deletion.' })
+        conflicts += 1
+        continue
+      }
+      if (!['deleted', 'already_deleted'].includes(result?.status ?? '') || result.holiday_id !== request.holidayId || !result.permanently_deleted_at) {
+        throw new Error('The server did not confirm permanent holiday deletion.')
+      }
+      await localRepository.recordPermanentHolidayDeletionConfirmation(userId, {
+        holiday_id: request.holidayId,
+        permanently_deleted_at: normalizeSyncTimestamp(result.permanently_deleted_at, 'permanently_deleted_at') as string,
+      })
+      publishHolidayDeletionNotification({ status: 'confirmed', ownerUserId: userId, holidayId: request.holidayId, holidayDate: request.holidayDate })
+      deleted += 1
+    } catch (cause) {
+      const message = errorMessage(cause)
+      const current = await database.holidayPermanentDeletionRequests.get(request.id)
+      if (current) await database.holidayPermanentDeletionRequests.put({ ...current, lastError: message })
+      publishHolidayDeletionNotification({ status: 'failed', ownerUserId: userId, holidayId: request.holidayId, holidayDate: request.holidayDate, message })
+      failed += 1
+    }
+  }
+  return { deleted, failed, conflicts }
+}
+
 async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
   if (!isPermanentDeletionEnabled()) return { deleted: 0, failed: 0, conflicts: 0 }
   const requests = await database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
@@ -216,6 +294,15 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       if (error) throw new Error(error.message)
       const result = data as OperationResult
+      if (operation.entity === 'account_holiday' && result?.status === 'permanently_deleted') {
+        if (result.holiday_id !== operation.entityId || !result.permanently_deleted_at) throw new Error('The permanent-holiday deletion response did not match the queued holiday.')
+        await localRepository.recordPermanentHolidayDeletionConfirmation(userId, {
+          holiday_id: operation.entityId,
+          permanently_deleted_at: normalizeSyncTimestamp(result.permanently_deleted_at, 'permanently_deleted_at') as string,
+        })
+        uploaded += 1
+        continue
+      }
       if ((result as { status?: string })?.status === 'permanently_deleted') {
         const trackerId = operation.entity === 'tracker'
           ? operation.entityId
@@ -390,18 +477,22 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   await assertUser(client, userId)
 
   if (isPermanentDeletionEnabled()) await reconcileServerDeletionLedger(database, client, userId)
+  if (isHolidayPermanentDeletionEnabled()) await reconcileServerHolidayDeletionLedger(database, client, userId)
 
   const trackers = await uploadQueue(database, client, userId, 'tracker')
   const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId)
   const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
   const holidays = await uploadQueue(database, client, userId, 'account_holiday')
+  const holidayDeletions = holidays.failed || holidays.conflicts
+    ? { deleted: 0, conflicts: 0, failed: 0 }
+    : await processPermanentHolidayDeletionRequests(database, client, userId)
   const trackerPull = await pullTable<ServerTracker>(database, client, userId, 'trackers', (row) => applyRemoteTracker(database, userId, row))
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
   const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
   const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded
   if (trackerPull.changed + entryPull.changed + holidayPull.changed > 0) publishWorkspaceDataChange(userId)
-  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed }
+  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed + holidayDeletions.failed }
 }
 
 /**

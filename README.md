@@ -64,6 +64,7 @@ The build runs `prebuild`, which regenerates the AI Help bundles from their revi
 - [History, Analytics, and sync](docs/ai-help/history-analytics-sync.md)
 - [AI Help operations and release process](docs/ai-help/operations.md)
 - [Automatic Bin cleanup runbook](docs/operations/tracker-bin-automatic-cleanup.md)
+- [Recently deleted holiday operations](docs/operations/account-holiday-deletion.md)
 - [Supabase migrations](supabase/migrations/)
 - [Supabase verification scripts](supabase/verification/)
 

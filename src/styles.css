@@ -22,6 +22,10 @@
 .holiday-row > div small { margin: 5px 0 0 29px; color: var(--ink-subtle); font-size: 11px; }
 .holiday-removed { margin-top: 20px; color: var(--ink-muted); }
 .holiday-removed > summary { cursor: pointer; margin-bottom: 12px; }
+.holiday-removed > p { margin: 8px 0 12px; color: var(--ink-subtle); font-size: 12px; line-height: 1.5; }
+.holiday-removed-row { grid-template-columns: minmax(180px, 1fr) auto; }
+.holiday-removed-row > div small { margin-left: 0; line-height: 1.4; }
+.holiday-actions-menu .tracker-actions-trigger { min-width: 44px; min-height: 44px; font-size: 22px; line-height: 1; }
 .holiday-sync-note { margin-top: 24px; color: var(--ink-subtle); font-size: 12px; }
 .today-holiday-banner { display: flex; align-items: center; gap: 14px; margin: 18px 0; padding: 17px 20px; border-color: var(--status-holiday-border); background: var(--status-holiday-surface); }
 .today-holiday-banner > div { flex: 1; }
@@ -42,6 +46,7 @@
 .calendar-dot.holiday { background: var(--status-holiday-surface); color: var(--status-holiday-ink); }
 @media (max-width: 900px) { .holiday-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .holiday-form > div { grid-column: 1 / -1; } .holiday-form > button { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .holiday-form-surface { padding: 17px; } .holiday-form { grid-template-columns: 1fr; } .holiday-form > div, .holiday-form > button { grid-column: auto; } .holiday-row { grid-template-columns: minmax(0, 1fr) auto auto; } .holiday-row select { grid-column: 1 / -1; grid-row: 2; } .holiday-status-legend { gap: 9px 12px; font-size: 11px; } }
+@media (max-width: 560px) { .holiday-row.holiday-removed-row { grid-template-columns: minmax(0, 1fr) auto; } .holiday-actions-menu .tracker-actions-trigger { min-width: 44px; min-height: 44px; } }
 
 :root {
   font-family: var(--font-sans);

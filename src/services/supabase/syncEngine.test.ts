@@ -4,6 +4,7 @@ import { activateWorkspace, db, queueSyncMutation } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
 import { subscribeToPermanentDeletionNotifications } from '../permanentDeletionNotifications'
+import { subscribeToHolidayDeletionNotifications } from '../holidayDeletionNotifications'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
 
@@ -24,11 +25,11 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[] } = {}) {
-  const rpc = vi.fn().mockResolvedValue({ data: options.rpcResult ?? null, error: options.rpcError ?? null })
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[] } = {}) {
+  const rpc = vi.fn().mockImplementation(() => options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }))
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const from = vi.fn((table: string) => {
-    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : []
+    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : table === 'account_holiday_deletion_ledger' ? options.holidayLedgerRows ?? [] : []
     const builder = {
       select: () => builder,
       order: () => builder,
@@ -97,6 +98,107 @@ describe('account-scoped sync engine', () => {
     await localRepository.restoreAccountHoliday(row.date)
     await expect(db.accountHolidays.get(row.id)).resolves.toMatchObject({ deletedAt: null, reason: 'personal' })
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ entity: 'account_holiday', expectedRevision: 2, payload: { deletedAt: null } })
+  })
+
+  it('waits for the holiday tombstone RPC, then confirms permanent deletion and retains a local ledger', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-16'], 'travel')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 4 })
+    await localRepository.removeAccountHoliday(holiday.date)
+    await localRepository.requestPermanentHolidayDeletion(holiday.date)
+    const seen: string[] = []
+    const unsubscribe = subscribeToHolidayDeletionNotifications((event) => seen.push(event.status))
+    try {
+      const { client, rpc } = fakeClient({ rpcResults: [
+        { data: { status: 'applied', record: { id: holiday.id, user_id: 'sync-user', holiday_date: holiday.date, reason: 'travel', created_at: holiday.createdAt, updated_at: holiday.updatedAt, deleted_at: '2026-10-16T10:00:00.000Z', server_revision: 5 } }, error: null },
+        { data: { status: 'deleted', holiday_id: holiday.id, permanently_deleted_at: '2026-10-16T10:01:00.000Z' }, error: null },
+      ] })
+      await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0, conflicts: 0 })
+      expect(rpc).toHaveBeenNthCalledWith(1, 'apply_account_holiday_sync_operation', expect.any(Object))
+      expect(rpc).toHaveBeenNthCalledWith(2, 'permanently_delete_account_holiday', expect.objectContaining({ p_expected_user_id: 'sync-user', p_holiday_id: holiday.id, p_expected_revision: 5 }))
+      await expect(db.accountHolidays.get(holiday.id)).resolves.toBeUndefined()
+      await expect(db.holidayPermanentDeletionLedger.get(`sync-user:${holiday.id}`)).resolves.toMatchObject({ permanentlyDeletedAt: '2026-10-16T10:01:00.000Z' })
+      await expect(db.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals(['sync-user', holiday.id]).count()).resolves.toBe(0)
+      expect(seen).toContain('confirmed')
+    } finally { unsubscribe() }
+  })
+
+  it('uses the holiday deletion ledger to remove a stale cross-device copy before upload', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-17'], 'personal')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 2 })
+    const serverDeletedAt = '2026-10-18T00:00:00.000Z'
+    const { client, rpc } = fakeClient({ holidayLedgerRows: [{ user_id: 'sync-user', holiday_id: holiday.id, permanently_deleted_at: serverDeletedAt }] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 0 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toBeUndefined()
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'account_holiday', holiday.id]).count()).resolves.toBe(0)
+    await expect(db.holidayPermanentDeletionLedger.get(`sync-user:${holiday.id}`)).resolves.toMatchObject({ permanentlyDeletedAt: serverDeletedAt })
+  })
+
+  it('honors a server-reported expired restore by reconciling the permanent deletion ledger', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-18'], null)
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 3 })
+    await localRepository.removeAccountHoliday(holiday.date)
+    await db.syncOperations.clear()
+    await localRepository.restoreAccountHoliday(holiday.date)
+    const { client } = fakeClient({ rpcResult: { status: 'permanently_deleted', holiday_id: holiday.id, permanently_deleted_at: '2026-10-18T00:00:00.000Z' } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toBeUndefined()
+    await expect(db.holidayPermanentDeletionLedger.get(`sync-user:${holiday.id}`)).resolves.toMatchObject({ permanentlyDeletedAt: '2026-10-18T00:00:00.000Z' })
+  })
+
+  it('keeps deletion pending and reports an actionable error when the server cannot confirm', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-19'], null)
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 4 })
+    await localRepository.removeAccountHoliday(holiday.date)
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 5 })
+    await localRepository.requestPermanentHolidayDeletion(holiday.date)
+    const errors: string[] = []
+    const unsubscribe = subscribeToHolidayDeletionNotifications((event) => { if (event.status === 'failed') errors.push(event.message ?? '') })
+    try {
+      const { client } = fakeClient({ rpcError: { message: 'Network unavailable.' } })
+      await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
+      await expect(db.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals(['sync-user', holiday.id]).first()).resolves.toMatchObject({ status: 'pending', lastError: 'Network unavailable.' })
+      await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+      expect(errors).toContain('Network unavailable.')
+    } finally { unsubscribe() }
+  })
+
+  it('preserves a holiday and records a conflict when it changed during permanent deletion', async () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-20'], 'exam')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 4 })
+    await localRepository.removeAccountHoliday(holiday.date)
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 5 })
+    await localRepository.requestPermanentHolidayDeletion(holiday.date)
+    const remote = { id: holiday.id, user_id: 'sync-user', holiday_date: holiday.date, reason: 'travel', created_at: holiday.createdAt, updated_at: '2026-10-20T00:00:00.000Z', deleted_at: null, server_revision: 6 }
+    const { client } = fakeClient({ rpcResult: { status: 'conflict', holiday_id: holiday.id, record: remote }, holidayRows: [remote] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 1 })
+    await expect(db.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals(['sync-user', holiday.id]).first()).resolves.toMatchObject({ status: 'conflict' })
+    await expect(db.syncConflicts.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ remoteRecord: expect.objectContaining({ server_revision: 6 }) })
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ deletedAt: null, reason: 'travel' })
   })
 
   it('uploads and downloads version 2 planning fields without changing thresholds or revisions', async () => {

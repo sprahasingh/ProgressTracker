@@ -1,5 +1,5 @@
 import Dexie from 'dexie'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProgressTrackerDatabase, activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestWorkspaceSummary } from './database'
 import { db } from './database'
 import type { DailyEntry } from './models'
@@ -7,6 +7,7 @@ import type { DailyEntry } from './models'
 const openedDatabases: Dexie[] = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   const databases = openedDatabases.splice(0)
   databases.forEach((database) => database.close())
   const uniqueByName = new Map(databases.map((database) => [database.name, database]))
@@ -33,7 +34,23 @@ describe('ProgressTracker database migrations', () => {
     await expect(db.trackers.get('guest-remains')).resolves.toMatchObject({ name: 'Guest data' })
   })
 
-  it('preserves existing records and projects them when upgrading schema v1 through v7', async () => {
+  it('expires guest holidays from their deletion timestamp only after the 30-day cutoff is enabled', async () => {
+    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
+    await activateWorkspace(null)
+    openedDatabases.push(db)
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
+    const recent = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString()
+    await db.accountHolidays.bulkPut([
+      { id: 'expired-guest-holiday', date: '2026-01-01', reason: null, createdAt: old, updatedAt: old, deletedAt: old },
+      { id: 'recent-guest-holiday', date: '2026-01-02', reason: null, createdAt: recent, updatedAt: recent, deletedAt: recent },
+    ])
+    await activateWorkspace('cleanup-trigger-account')
+    await activateWorkspace(null)
+    await expect(db.accountHolidays.get('expired-guest-holiday')).resolves.toBeUndefined()
+    await expect(db.accountHolidays.get('recent-guest-holiday')).resolves.toBeDefined()
+  })
+
+  it('preserves existing records and projects them when upgrading schema v1 through v10', async () => {
     const name = `migration-${crypto.randomUUID()}`
     const legacy = new Dexie(name)
     legacy.version(1).stores({
@@ -57,8 +74,10 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(upgraded)
     await upgraded.open()
 
-    expect(upgraded.verno).toBe(9)
+    expect(upgraded.verno).toBe(10)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
+    await expect(upgraded.holidayPermanentDeletionRequests.toArray()).resolves.toEqual([])
+    await expect(upgraded.holidayPermanentDeletionLedger.toArray()).resolves.toEqual([])
     await expect(upgraded.appNotifications.toArray()).resolves.toEqual([])
     await expect(upgraded.notificationPreferences.toArray()).resolves.toEqual([])
     await expect(upgraded.customMotivationMessages.toArray()).resolves.toEqual([])
@@ -96,7 +115,7 @@ describe('ProgressTracker database migrations', () => {
     const upgraded = new ProgressTrackerDatabase(name)
     openedDatabases.push(upgraded)
     await upgraded.open()
-    expect(upgraded.verno).toBe(9)
+    expect(upgraded.verno).toBe(10)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
     await expect(upgraded.appNotifications.toArray()).resolves.toEqual([])
     await expect(upgraded.notificationPreferences.toArray()).resolves.toEqual([])

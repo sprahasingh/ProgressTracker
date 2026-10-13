@@ -23,3 +23,8 @@ export function isPermanentDeletionEnabled(): boolean {
 export function isAutomaticBinCleanupEnabled(): boolean {
   return import.meta.env.VITE_ENABLE_AUTOMATIC_BIN_CLEANUP === 'true'
 }
+
+/** Holiday permanent deletion stays unavailable until its owner-scoped RPC and ledger migration is applied. */
+export function isHolidayPermanentDeletionEnabled(): boolean {
+  return import.meta.env.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION === 'true'
+}
