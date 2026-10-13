@@ -818,15 +818,15 @@ a { color: inherit; text-decoration: none; }
 .progression-section-heading .eyebrow { color: var(--ink-subtle); font-size: 9px; letter-spacing: 1.25px; }
 .progression-authority, .progression-collection-count { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; color: var(--ink-muted); font-size: 10px; }
 .progression-authority svg { width: 15px; height: 15px; color: var(--positive); }
-.progression-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.progression-overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
 .progression-level-card, .progression-summary-card { display: flex; min-width: 0; min-height: 154px; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); color: var(--ink); cursor: pointer; text-align: left; }
-.progression-level-card { grid-column: span 2; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--accent-soft) 62%, var(--surface))); }
+.progression-level-card { grid-column: span 3; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--accent-soft) 62%, var(--surface))); }
 .progression-level-card:hover, .progression-summary-card:hover, .progression-detail-card:hover, .progression-badge-card:hover { border-color: color-mix(in srgb, var(--accent) 62%, var(--line)); transform: translateY(-1px); }
 .progression-level-card:focus-visible, .progression-summary-card:focus-visible, .progression-detail-card:focus-visible, .progression-badge-card:focus-visible, .progression-text-button:focus-visible, .progression-range-filter button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .progression-level-top { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }
 .progression-card-label { color: var(--ink-subtle); font-size: 9px; font-weight: 750; letter-spacing: 1.15px; }
 .progression-level-pill { padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 999px; color: var(--accent-strong); font-size: 9px; font-weight: 750; letter-spacing: .55px; }
-.progression-xp-total { color: var(--ink); font-size: clamp(26px, 4vw, 36px); font-variant-numeric: tabular-nums; letter-spacing: -1.3px; line-height: 1; }
+.progression-xp-total { max-width: 100%; overflow-wrap: anywhere; color: var(--ink); font-size: clamp(26px, 4vw, 36px); font-variant-numeric: tabular-nums; letter-spacing: -1.3px; line-height: 1; }
 .progression-xp-total small { color: var(--accent-strong); font-size: 14px; letter-spacing: 0; }
 .progression-level-track { display: block; width: 100%; height: 7px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line) 80%, transparent); }
 .progression-level-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), #e4a95c); transition: width 220ms ease; }
@@ -879,6 +879,7 @@ a { color: inherit; text-decoration: none; }
 .progression-badge-card { display: flex; min-width: 0; min-height: 176px; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px; padding: 12px 8px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: center; transition: border-color 140ms ease, transform 140ms ease; }
 .progression-badge-card > strong { max-width: 100%; color: var(--ink); font-size: 10px; line-height: 1.3; overflow-wrap: anywhere; }
 .progression-badge-card > span, .progression-badge-card > small, .progression-badge-card time { color: var(--ink-muted); font-size: 9px; }
+.progression-badge-card > .progression-badge-requirement-summary { display: -webkit-box; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.35; }
 .progression-badge-card > small { color: #946323; font-weight: 700; }
 .progression-badge-progress { font-variant-numeric: tabular-nums; }
 .progression-badge { display: block; width: 88px; max-width: 100%; flex: 0 0 auto; overflow: visible; }
@@ -919,7 +920,7 @@ a { color: inherit; text-decoration: none; }
 .badge-lock { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink-muted); }
 .badge-lock svg { width: 14px; height: 14px; }
 .progression-collection-note { padding-top: 7px; }
-.progression-dialog-backdrop { z-index: 120; align-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.progression-dialog-backdrop { position: fixed; z-index: 120; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; overscroll-behavior: contain; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); background: rgb(12 13 14 / 48%); }
 .progression-dialog { display: flex; width: min(700px, 100%); max-height: min(820px, calc(var(--modal-visible-height, 100dvh) - max(32px, env(safe-area-inset-top, 0px)) - max(32px, env(safe-area-inset-bottom, 0px)))); min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; outline: none; background: var(--surface); color: var(--ink); box-shadow: 0 24px 70px rgb(0 0 0 / 32%); }
 .progression-dialog-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 13px; border-bottom: 1px solid var(--line); }
 .progression-dialog-header h2 { margin: 6px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 23px; font-weight: 450; overflow-wrap: anywhere; }
@@ -990,6 +991,8 @@ a { color: inherit; text-decoration: none; }
 [data-theme='dark'] .progression-badge-platinum .badge-metal-dark { stop-color: #633f35; }
 @media (max-width: 900px) {
   .progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .progression-level-card { grid-column: 1 / -1; }
+  .progression-summary-card:last-child { grid-column: 1 / -1; }
   .progression-badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
@@ -999,12 +1002,13 @@ a { color: inherit; text-decoration: none; }
   .progression-overview-grid { gap: 8px; }
   .progression-level-card, .progression-summary-card { min-height: 143px; padding: 13px; border-radius: 17px; }
   .progression-level-card { grid-column: 1 / -1; min-height: 150px; }
+  .progression-summary-card:last-child { grid-column: auto; }
   .progression-summary-card > strong { font-size: 25px; }
   .progression-detail-cards { grid-template-columns: 1fr; gap: 8px; }
   .progression-badge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   .progression-badge-card { min-height: 159px; padding: 10px 5px; }
   .progression-badge-card .progression-badge { width: 78px; }
-  .progression-dialog-backdrop { align-items: end; padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+  .progression-dialog-backdrop { align-items: center; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
   .progression-dialog { width: 100%; max-height: calc(var(--modal-visible-height, 100dvh) - max(16px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px))); border-radius: 19px 19px 16px 16px; }
   .progression-dialog-header { padding: 16px 16px 11px; }
   .progression-dialog-content { padding: 14px 16px max(17px, env(safe-area-inset-bottom, 0px)); }

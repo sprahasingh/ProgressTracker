@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import type { ProgressionOverview } from '../../services/supabase/progressionRepository'
+import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
 
 const mocks = vi.hoisted(() => ({
@@ -54,9 +55,13 @@ const overview: ProgressionOverview = {
   ],
 }
 
+let injectedStylesheet: HTMLStyleElement | null = null
 function renderPage() { return render(<MemoryRouter><AchievementsPage /></MemoryRouter>) }
 
 beforeEach(() => {
+  injectedStylesheet = document.createElement('style')
+  injectedStylesheet.textContent = appStyles
+  document.head.append(injectedStylesheet)
   mocks.auth.isOnline = true
   mocks.auth.syncStatus = 'complete'
   vi.stubEnv('VITE_ENABLE_PROGRESSION_UI', 'true')
@@ -67,7 +72,7 @@ beforeEach(() => {
   mocks.listAccountHolidays.mockResolvedValue([])
 })
 
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); injectedStylesheet?.remove(); injectedStylesheet = null; vi.unstubAllEnvs(); vi.clearAllMocks() })
 
 describe('Progression achievements interface', () => {
   it('separates confirmed XP and pending rewards and shows the server level', async () => {
@@ -100,6 +105,37 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
     expect(within(dialog).getByText(/Reverses qualifying check-in/)).toBeInTheDocument()
     expect(within(dialog).getByText('Pending server confirmation')).toBeInTheDocument()
+  })
+
+  it('renders history in a fixed blurred viewport overlay and closes on outside tap', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Score history' })
+    const backdrop = dialog.closest('.progression-dialog-backdrop') as HTMLElement
+    expect(backdrop.parentElement).toBe(document.body)
+    expect(getComputedStyle(backdrop).position).toBe('fixed')
+    expect(getComputedStyle(backdrop).display).toBe('flex')
+    expect(getComputedStyle(backdrop).backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+    expect(backdrop).toHaveClass('modal-backdrop')
+    expect(appStyles).toMatch(/\.modal-backdrop\s*\{[^}]*-webkit-backdrop-filter:\s*blur\(7px\)[^}]*backdrop-filter:\s*blur\(7px\)/s)
+    expect(getComputedStyle(dialog.querySelector('.progression-dialog-content')!).overflowY).toBe('auto')
+    expect(document.body.style.overflow).toBe('hidden')
+    await user.click(backdrop)
+    expect(screen.queryByRole('dialog', { name: 'Score history' })).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('keeps long score histories in the independently scrollable dialog content', async () => {
+    const rows = Array.from({ length: 50 }, (_, index) => ({ ...checkIn, id: `history-${index}`, sourceId: `entry-${index}` }))
+    mocks.getProgressionHistory.mockResolvedValueOnce({ rows, hasMore: false })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Score history' })
+    const content = dialog.querySelector('.progression-dialog-content') as HTMLElement
+    expect(getComputedStyle(content).overflowY).toBe('auto')
+    expect(within(content).getAllByText('Qualifying check-in')).toHaveLength(50)
   })
 
   it('shows consistency details with eligible-day adherence and exclusions', async () => {
@@ -141,8 +177,11 @@ describe('Progression achievements interface', () => {
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'First Step' })).not.toBeInTheDocument()
     expect(earnedBadge).toHaveFocus()
-    await user.click(screen.getByRole('button', { name: /Dedicated, locked/ }))
-    expect(await screen.findByRole('dialog', { name: 'Dedicated' })).toHaveTextContent('23 / 100')
+    const lockedBadge = screen.getByRole('button', { name: /Dedicated, locked/ })
+    expect(lockedBadge).toHaveTextContent('Save 100 qualifying check-ins')
+    expect(lockedBadge).toHaveTextContent('23 / 100 check-ins')
+    await user.click(lockedBadge)
+    expect(await screen.findByRole('dialog', { name: 'Dedicated' })).toHaveTextContent('23 / 100 check-ins')
   })
 
   it('distinguishes unavailable historical XP from a zero XP balance', async () => {
@@ -196,10 +235,19 @@ describe('Progression achievements interface', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Consistency' })
     expect(within(dialog).getByText('No eligible history is available yet.')).toBeInTheDocument()
     expect(within(dialog).getByText('No eligible days yet')).toBeInTheDocument()
+    expect(within(dialog).getByText(/Consistency becomes measurable after an eligible tracker day is completed/)).toBeInTheDocument()
     expect(within(dialog).queryByText('0%')).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     await user.click(screen.getByRole('button', { name: /Level 1, 0 confirmed XP/ }))
     expect(await screen.findByRole('dialog', { name: 'Score history' })).toHaveTextContent('No score history yet')
+  })
+
+  it('keeps the recently unlocked empty state concise when nothing is server-confirmed', async () => {
+    const lockedAchievements = overview.achievements.map((badge) => ({ ...badge, progress: 0, currentTier: 0, earned: false, unlockedAt: null, history: [] }))
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: lockedAchievements })
+    renderPage()
+    expect(await screen.findByText('Your first confirmed badge will appear here when earned.')).toBeInTheDocument()
+    expect(screen.queryByText(/first badge will be unlocked/i)).not.toBeInTheDocument()
   })
 
   it('retains the established Achievements screen while the progression flag is off', async () => {
