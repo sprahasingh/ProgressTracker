@@ -108,24 +108,24 @@
   },
   "numeric-zero-vs-empty": {
     "src/domain/trackers/analytics.ts": "f314aeb5a9f078ba98dd81c8c110e6641bd0eef72d5e8b81687e6e2d922b4a44",
-    "src/features/shared/TrackerEntryFields.tsx": "cd4f29829f6cf7cb3ee644ac72bbc1269838b700bc164598828da6d5a4437162",
+    "src/features/shared/TrackerEntryFields.tsx": "e7b87188a2073ec8e8eb920fd1b4998dc65ce79720382fbf3f9e9c9972408d46",
     "src/domain/trackers/schema.ts": "8df7b1687035078de77b665cc8ede40b2dacf2f2c7bb46549e94ab976e07c10b"
   },
   "mark-missed": {
     "src/domain/trackers/types.ts": "773e16f0c554d801562c9bee20a1ee6de260c158a9a2e85406582ee479a300ec",
     "src/domain/trackers/progression.ts": "d92c25266345d6ac97fec7358ac469010fcfa58e9482e6b88a29fc91554f6041",
-    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d"
+    "src/features/today/TodayPage.tsx": "e6ec5fe192209e448ec3d0bc1e780836279441d216696a2cc033af170bf7d1f6"
   },
   "custom-checkin-fields": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
-    "src/features/shared/TrackerEntryFields.tsx": "cd4f29829f6cf7cb3ee644ac72bbc1269838b700bc164598828da6d5a4437162",
+    "src/features/shared/TrackerEntryFields.tsx": "e7b87188a2073ec8e8eb920fd1b4998dc65ce79720382fbf3f9e9c9972408d46",
     "src/domain/trackers/types.ts": "773e16f0c554d801562c9bee20a1ee6de260c158a9a2e85406582ee479a300ec",
     "src/features/shared/TrackerEntryFields.test.tsx": "cd58b1865c2fc584e0d2a450c8899f9148c3b610f511d485a6af6a108c944d75"
   },
   "checkin-types": {
     "src/domain/trackers/types.ts": "773e16f0c554d801562c9bee20a1ee6de260c158a9a2e85406582ee479a300ec",
     "src/features/trackers/trackerSetupSchema.ts": "705478baf4276d235ead28841335ab1be2158c7c98cf2cdb1df1d6d9566c4b5d",
-    "src/features/shared/TrackerEntryFields.tsx": "cd4f29829f6cf7cb3ee644ac72bbc1269838b700bc164598828da6d5a4437162"
+    "src/features/shared/TrackerEntryFields.tsx": "e7b87188a2073ec8e8eb920fd1b4998dc65ce79720382fbf3f9e9c9972408d46"
   },
   "checkin-empty-versus-zero-status": {
     "src/domain/trackers/activityStatus.ts": "ed35e0cda70c154583183d82d64cd3c3e9b4bc06fe0237cd9fb4f9ab7b779642",
@@ -137,7 +137,7 @@
   },
   "checkin-note-vs-measure": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
-    "src/features/shared/TrackerEntryFields.tsx": "cd4f29829f6cf7cb3ee644ac72bbc1269838b700bc164598828da6d5a4437162",
+    "src/features/shared/TrackerEntryFields.tsx": "e7b87188a2073ec8e8eb920fd1b4998dc65ce79720382fbf3f9e9c9972408d46",
     "src/domain/trackers/analytics.ts": "f314aeb5a9f078ba98dd81c8c110e6641bd0eef72d5e8b81687e6e2d922b4a44"
   },
   "guest-mode": {
@@ -265,7 +265,7 @@
   },
   "holiday-log-progress": {
     "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
-    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d",
+    "src/features/today/TodayPage.tsx": "e6ec5fe192209e448ec3d0bc1e780836279441d216696a2cc033af170bf7d1f6",
     "src/domain/trackers/progression.ts": "d92c25266345d6ac97fec7358ac469010fcfa58e9482e6b88a29fc91554f6041"
   },
   "holiday-standard-v-strict": {
@@ -314,7 +314,7 @@
     "src/features/notifications/NotificationsSettings.test.tsx": "5a8c187ce4b00d2f7f8152ba49cbf2b47c35df12a59b6b7c85d1391e944fd54d"
   },
   "missing-checkin-reminder": {
-    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d",
+    "src/features/today/TodayPage.tsx": "e6ec5fe192209e448ec3d0bc1e780836279441d216696a2cc033af170bf7d1f6",
     "src/features/notifications/reminderRules.ts": "30bd84d70702118fd3bc198f743f8b394afb3be97ce903940504c1219319c9da",
     "src/features/notifications/ForegroundReminderMonitor.tsx": "4dc2eae59ffb488d964099896ac14014afb09725d8575e1987696cea5c4280e9",
     "src/features/notifications/reminderRules.test.ts": "45067639f1de96505e1e49abc710b26979f066dbb3174f0c828afe8550675ea6"
