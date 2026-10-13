@@ -56,6 +56,7 @@ jobs:
           VITE_ENABLE_TRACKER_SCHEMA_V3: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V3 }}
           VITE_ENABLE_TRACKER_SCHEMA_V4: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V4 }}
           VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
+          VITE_ENABLE_HOLIDAY_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION }}
         run: |
           if [ -z "$VITE_SUPABASE_URL" ]; then
             echo "::error::Missing repository variable VITE_SUPABASE_URL."
@@ -75,6 +76,10 @@ jobs:
           fi
           if [ "$VITE_ENABLE_PERMANENT_DELETION" != "true" ]; then
             echo "::error::Set the repository variable VITE_ENABLE_PERMANENT_DELETION to true to include the verified manual deletion control in the production build. This flag does not enable scheduled cleanup."
+            exit 1
+          fi
+          if [ "$VITE_ENABLE_HOLIDAY_PERMANENT_DELETION" != "true" ]; then
+            echo "::error::Set the repository variable VITE_ENABLE_HOLIDAY_PERMANENT_DELETION to true to include the verified manual holiday deletion control in the production build. This flag does not enable automatic holiday cleanup."
             exit 1
           fi
           npm run build
