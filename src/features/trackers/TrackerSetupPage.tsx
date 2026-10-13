@@ -119,6 +119,7 @@ export function TrackerSetupPage() {
   const navigate = useNavigate()
   const returnToToday = (location.state as { returnTo?: unknown } | null)?.returnTo === 'today'
   const [existing, setExisting] = useState<TrackerDefinition>()
+  const [archivedStatusAfterSave, setArchivedStatusAfterSave] = useState<'archived' | 'active'>('archived')
   const [metricsWithHistory, setMetricsWithHistory] = useState<string[]>([])
   const [values, setValues] = useState<FormValues>(() => defaultValues(undefined, timeZone))
   const [configuration, setConfiguration] = useState<Configuration>(() => {
@@ -225,6 +226,7 @@ export function TrackerSetupPage() {
       if (!tracker) setError('This tracker could not be found on this device.')
       else {
         setExisting(tracker)
+        setArchivedStatusAfterSave('archived')
         setMetricsWithHistory(tracker.metrics.filter((metric) => entries.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
         setValues(defaultValues(tracker))
         setConfiguration({ metrics: tracker.metrics, rule: tracker.qualificationRule, customFields: tracker.customFields, milestones: tracker.milestones })
@@ -480,7 +482,7 @@ export function TrackerSetupPage() {
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
         schemaVersion, id, name: form.name, description: form.description.trim(), kind,
-        status: existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
+        status: existing?.status === 'archived' && archivedStatusAfterSave === 'active' ? 'active' : existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
         schedule, startDate: form.startDate || undefined, deadline: form.deadline || undefined,
         metrics: submittedMetrics,
@@ -489,7 +491,7 @@ export function TrackerSetupPage() {
         customFields: configuration.customFields,
         milestones: configuration.milestones,
         ...(persistGoalPlanning ? { goalPlanning: submittedPlanning } : {}),
-        createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.archivedAt ?? null, deletedAt: null,
+        createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.status === 'archived' && archivedStatusAfterSave === 'archived' ? existing.archivedAt : null, deletedAt: null,
       }
       const checked = trackerDefinitionSchema.safeParse(candidate)
       if (!checked.success) {
@@ -602,6 +604,7 @@ export function TrackerSetupPage() {
           {error && <div role="alert" className="form-alert">{error}</div>}
           {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div><details className="other-tracker-types"><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div></details></fieldset>}
           {existing && <div className="editing-kind-note"><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === existing.kind)?.title}</span><p>{kindOptions.find((item) => item.kind === existing.kind)?.description} Type stays the same so saved progress keeps its meaning.</p></div>}
+          {existing?.status === 'archived' && <fieldset className="tracker-status-after-save"><legend>Tracker status after saving</legend><label><input type="radio" name="archived-status-after-save" value="archived" checked={archivedStatusAfterSave === 'archived'} onChange={() => setArchivedStatusAfterSave('archived')} /><span>Keep archived</span></label><label><input type="radio" name="archived-status-after-save" value="active" checked={archivedStatusAfterSave === 'active'} onChange={() => setArchivedStatusAfterSave('active')} /><span>Move to active</span></label></fieldset>}
           <label className="form-field tracker-name-field"><span>{selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'}</span><input data-validation-path="name" aria-label={selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'} className="auth-input" maxLength={200} value={values.name} onChange={(event) => update('name', event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'tracker-name-error' : undefined} placeholder={selectedKind === 'goal' ? 'e.g. Solve 100 DSA problems' : selectedKind === 'habit' ? 'e.g. Read every day' : selectedKind === 'challenge' ? 'e.g. 30-day writing challenge' : 'e.g. Launch my portfolio'} />{fieldErrors.name && <small id="tracker-name-error" className="auth-error">{fieldErrors.name}</small>}</label>
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}
           {!existing && <fieldset className="simple-measure-choice"><legend>How do you want to measure it?</legend><div className="simple-measure-options"><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType === 'boolean'} onChange={() => chooseSimpleMeasure('boolean')} /><span>Done or not yet</span></label><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType !== 'boolean'} onChange={() => chooseSimpleMeasure('quantity')} /><span>Number or amount</span></label></div></fieldset>}
