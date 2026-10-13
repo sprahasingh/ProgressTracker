@@ -15,13 +15,15 @@ import type {
   SyncRecordState,
   PermanentDeletionRequest,
   PermanentDeletionLedgerEntry,
+  HolidayPermanentDeletionRequest,
+  HolidayPermanentDeletionLedgerEntry,
   TrackerVerification,
   AppNotification,
   LocalNotificationPreferences,
   LocalMotivationMessage,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -55,6 +57,8 @@ export class ProgressTrackerDatabase extends Dexie {
   syncConflicts!: Table<SyncConflict, string>
   permanentDeletionRequests!: Table<PermanentDeletionRequest, string>
   permanentDeletionLedger!: Table<PermanentDeletionLedgerEntry, string>
+  holidayPermanentDeletionRequests!: Table<HolidayPermanentDeletionRequest, string>
+  holidayPermanentDeletionLedger!: Table<HolidayPermanentDeletionLedgerEntry, string>
   trackerVerification!: Table<TrackerVerification, string>
   appNotifications!: Table<AppNotification, string>
   notificationPreferences!: Table<LocalNotificationPreferences, string>
@@ -202,6 +206,26 @@ export class ProgressTrackerDatabase extends Dexie {
       notificationPreferences: '&id, updatedAt',
       customMotivationMessages: '&id, updatedAt',
     })
+
+    this.version(10).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      accountHolidays: 'id, &date, updatedAt, deletedAt',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      holidayPermanentDeletionRequests: 'id, ownerUserId, holidayId, holidayDate, requestedAt, status, [ownerUserId+holidayId]',
+      holidayPermanentDeletionLedger: '&key, ownerUserId, holidayId',
+      trackerVerification: '&trackerId, status',
+      appNotifications: 'id, &identity, kind, createdAt, readAt',
+      notificationPreferences: '&id, updatedAt',
+      customMotivationMessages: '&id, updatedAt',
+    })
   }
 }
 
@@ -209,7 +233,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 9
+export const DATABASE_SCHEMA_VERSION = 10
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 
@@ -244,6 +268,10 @@ export async function activateWorkspace(userId: string | null): Promise<number> 
         await workspaceDb.trackers.delete(tracker.id)
       }
     })
+  }
+  if (userId === null && isAutomaticBinCleanupEnabled()) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    await workspaceDb.accountHolidays.filter((holiday) => holiday.deletedAt !== null && Date.parse(holiday.deletedAt) <= cutoff).delete()
   }
   return epoch
 }

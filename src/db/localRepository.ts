@@ -1,13 +1,14 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange } from './calendarDate'
-import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, LocalMotivationMessage, LocalNotificationPreferences, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
+import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
+import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -176,17 +177,84 @@ export const localRepository = {
   async restoreAccountHoliday(date: CalendarDate): Promise<void> {
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.holidayPermanentDeletionRequests, database.holidayPermanentDeletionLedger, database.workspaceMetadata], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       ownerUserId = workspace?.userId ?? null
       const existing = await database.accountHolidays.where('date').equals(date).first()
       if (!existing || existing.deletedAt === null) return
+      if (!ownerUserId && Date.parse(existing.deletedAt) <= Date.now() - 30 * 24 * 60 * 60 * 1000) throw new Error('The holiday recovery period has ended.')
+      if (ownerUserId && await database.holidayPermanentDeletionLedger.get(`${ownerUserId}:${existing.id}`)) throw new Error('This holiday was permanently deleted from the account and cannot be restored.')
       if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing.id]).first()) throw new Error('Resolve this holiday’s cloud conflict before restoring it. Both versions are preserved.')
       const row = { ...existing, updatedAt: new Date().toISOString(), deletedAt: null }
       await database.accountHolidays.put(row)
+      if (ownerUserId) await database.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals([ownerUserId, existing.id]).delete()
       await queueSyncMutation(database, ownerUserId, 'account_holiday', row)
     })
     publishWorkspaceMutation(ownerUserId)
+  },
+
+  async requestPermanentHolidayDeletion(date: CalendarDate): Promise<'queued' | 'deleted'> {
+    if (!isHolidayPermanentDeletionEnabled()) throw new Error('Permanent holiday deletion is unavailable until the server safeguards are enabled.')
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    let result: 'queued' | 'deleted' = 'deleted'
+    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncConflicts, database.holidayPermanentDeletionRequests, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      const existing = await database.accountHolidays.where('date').equals(date).first()
+      if (!existing || existing.deletedAt === null) throw new Error('Move this holiday to Recently removed before deleting it permanently.')
+      if (!ownerUserId) {
+        await database.accountHolidays.delete(existing.id)
+        return
+      }
+      if (await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing.id]).first()) {
+        throw new Error('Resolve this holiday’s cloud conflict before deleting it permanently. Both versions are preserved.')
+      }
+      const prior = await database.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals([ownerUserId, existing.id]).first()
+      if (!prior) await database.holidayPermanentDeletionRequests.add({ id: newId(), ownerUserId, holidayId: existing.id, holidayDate: date, requestedAt: new Date().toISOString(), status: 'pending', lastError: null })
+      else if (prior.status !== 'pending') await database.holidayPermanentDeletionRequests.put({ ...prior, requestedAt: new Date().toISOString(), status: 'pending', lastError: null })
+      result = 'queued'
+    })
+    publishWorkspaceMutation(ownerUserId)
+    return result
+  },
+
+  async listPermanentHolidayDeletionRequests(ownerUserId: string): Promise<HolidayPermanentDeletionRequest[]> {
+    const database = await openDatabase()
+    return database.holidayPermanentDeletionRequests.where('ownerUserId').equals(ownerUserId).toArray()
+  },
+
+  async recordPermanentHolidayDeletionConfirmation(ownerUserId: string, row: { holiday_id: string; permanently_deleted_at: string }): Promise<void> {
+    await this.reconcilePermanentHolidayDeletionLedger(ownerUserId, [row])
+  },
+
+  async reconcilePermanentHolidayDeletionLedger(ownerUserId: string, rows: Array<{ holiday_id: string; permanently_deleted_at: string }>): Promise<void> {
+    const database = await openDatabase()
+    let changed = false
+    const confirmed: Array<{ holidayId: string; holidayDate: string }> = []
+    await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.holidayPermanentDeletionRequests, database.holidayPermanentDeletionLedger, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      if (workspace?.userId !== ownerUserId) throw new Error('The active workspace changed during holiday deletion reconciliation.')
+      for (const row of rows) {
+        const key = `${ownerUserId}:${row.holiday_id}`
+        const ledger: HolidayPermanentDeletionLedgerEntry = { key, ownerUserId, holidayId: row.holiday_id, permanentlyDeletedAt: row.permanently_deleted_at }
+        await database.holidayPermanentDeletionLedger.put(ledger)
+        const holiday = await database.accountHolidays.get(row.holiday_id)
+        const request = await database.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals([ownerUserId, row.holiday_id]).first()
+        if (request) confirmed.push({ holidayId: row.holiday_id, holidayDate: holiday?.date ?? request.holidayDate })
+        changed ||= Boolean(holiday)
+        await database.accountHolidays.delete(row.holiday_id)
+        await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', row.holiday_id]).delete()
+        await database.syncRecords.delete(`account_holiday:${row.holiday_id}`)
+        await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', row.holiday_id]).delete()
+        await database.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals([ownerUserId, row.holiday_id]).delete()
+      }
+    })
+    if (changed) publishWorkspaceDataChange(ownerUserId)
+    for (const item of confirmed) {
+      publishHolidayDeletionNotification({ status: 'queued', ownerUserId, ...item })
+      publishHolidayDeletionNotification({ status: 'confirmed', ownerUserId, ...item })
+    }
   },
 
   async getAppSettings(expectedOwnerUserId?: string | null): Promise<AppSettings> {

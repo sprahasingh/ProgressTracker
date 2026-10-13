@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -53,5 +53,16 @@ describe('automatic Bin cleanup messaging gate', () => {
     expect(isAutomaticBinCleanupEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
     expect(isAutomaticBinCleanupEnabled()).toBe(true)
+  })
+})
+
+describe('holiday permanent deletion gate', () => {
+  it('stays disabled until its backend safeguards are explicitly enabled', () => {
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', '')
+    expect(isHolidayPermanentDeletionEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'false')
+    expect(isHolidayPermanentDeletionEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
+    expect(isHolidayPermanentDeletionEnabled()).toBe(true)
   })
 })

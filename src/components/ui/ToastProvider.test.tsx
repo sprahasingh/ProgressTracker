@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider, useToast } from './ToastProvider'
 import { publishPermanentDeletionNotification } from '../../services/permanentDeletionNotifications'
+import { publishHolidayDeletionNotification } from '../../services/holidayDeletionNotifications'
 import toastStyles from '../../styles.css?raw'
 
 function Controls() {
@@ -97,6 +98,37 @@ describe('global toast feedback', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification: Tracker permanently deleted.' }))
     act(() => { publishPermanentDeletionNotification({ ...event, status: 'confirmed' }) })
     expect(screen.queryByRole('status', { name: 'Tracker permanently deleted.' })).not.toBeInTheDocument()
+  })
+  it('keeps holiday deletion pending until confirmation and replaces it with a four-second success', () => {
+    vi.useFakeTimers()
+    render(<ToastProvider><Controls /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'holiday-owner', holidayId: 'holiday', holidayDate: '2026-10-10' }
+    act(() => { publishHolidayDeletionNotification(event); publishHolidayDeletionNotification(event) })
+    expect(screen.getAllByRole('status', { name: 'Holiday deletion pending.' })).toHaveLength(1)
+    act(() => { vi.advanceTimersByTime(60_000) })
+    expect(screen.getByRole('status', { name: 'Holiday deletion pending.' })).toBeInTheDocument()
+    act(() => { publishHolidayDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.queryByRole('status', { name: 'Holiday deletion pending.' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Holiday permanently deleted.' })).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(4000) })
+    expect(screen.queryByRole('status', { name: 'Holiday permanently deleted.' })).not.toBeInTheDocument()
+  })
+  it('reports holiday deletion failures with retry guidance and ignores stale confirmations', () => {
+    render(<ToastProvider><Controls /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'holiday-owner-failure', holidayId: 'holiday', holidayDate: '2026-10-11' }
+    act(() => { publishHolidayDeletionNotification(event) })
+    act(() => { publishHolidayDeletionNotification({ ...event, status: 'failed', message: 'Network unavailable.' }) })
+    expect(screen.getByRole('alert', { name: 'Couldn’t confirm holiday deletion' })).toHaveTextContent('Sync again or resolve its conflict, then retry.')
+    act(() => { publishHolidayDeletionNotification({ ...event, status: 'confirmed' }) })
+    expect(screen.queryByRole('status', { name: 'Holiday permanently deleted.' })).not.toBeInTheDocument()
+  })
+  it('dismisses a deletion warning when the user resolves the conflict by keeping the cloud holiday', () => {
+    render(<ToastProvider><Controls /></ToastProvider>)
+    const event = { status: 'queued' as const, ownerUserId: 'holiday-owner-cancel', holidayId: 'holiday', holidayDate: '2026-10-12' }
+    act(() => { publishHolidayDeletionNotification(event); publishHolidayDeletionNotification({ ...event, status: 'conflict' }) })
+    expect(screen.getByRole('alert', { name: 'Holiday deletion needs attention' })).toBeInTheDocument()
+    act(() => { publishHolidayDeletionNotification({ ...event, status: 'cancelled' }) })
+    expect(screen.queryByRole('alert', { name: 'Holiday deletion needs attention' })).not.toBeInTheDocument()
   })
   it('uses mobile safe-area placement and semantic toast colors', () => {
     expect(toastStyles).toMatch(/\.app-toast-success\s*\{\s*--toast-tone:\s*var\(--positive\)/)

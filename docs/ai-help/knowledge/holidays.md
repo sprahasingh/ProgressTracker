@@ -27,7 +27,7 @@ Open Holidays & breaks, choose a date, and save the holiday. You can add a reaso
 - src/features/holidays/HolidaysPage.tsx
 - src/domain/holidays.ts
 **Answer:**
-Deleting a holiday removes that date’s break from future calculations. Any check-ins already saved for the date remain saved; changing the holiday does not erase them.
+Deleting a holiday removes that date’s break from future calculations and moves it to Recently deleted holidays, where it can be restored for 30 days. When permanent deletion is enabled for the deployment, you can also confirm that action from the holiday’s three-dot menu. Any check-ins already saved for the date remain saved; deleting the holiday does not erase them.
 
 ### ID: holidays-streaks
 **Category:** holidays
