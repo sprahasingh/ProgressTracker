@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { db } from '../../db/database'
+import { activateWorkspace, db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
@@ -51,6 +51,55 @@ function datedTracker(id: string, kind: TrackerKind, startDate = '2026-01-05', d
 }
 
 describe('tracker setup flow', () => {
+  it('keeps an archived tracker archived when edited and saved without status changes', async () => {
+    const archived = { ...datedTracker('keep-archived', 'habit'), status: 'archived' as const, archivedAt: '2026-10-02T00:00:00.000Z' }
+    await localRepository.saveTracker(archived)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${archived.id}/edit`)
+    expect(await screen.findByRole('group', { name: 'Tracker status after saving' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Keep archived' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Move to active' })).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(archived.id)).toMatchObject({ status: 'archived', archivedAt: archived.archivedAt }))
+  })
+
+  it('saves reactivation with tracker edits in one offline sync operation', async () => {
+    await activateWorkspace('archive-edit-owner')
+    const activeTracker = datedTracker('reactivate-archived', 'habit')
+    await localRepository.saveTracker(activeTracker)
+    const savedEntry = await localRepository.saveTrackerEntry({ trackerId: activeTracker.id, date: '2026-10-03', outcome: 'recorded', values: { done: true }, note: 'History stays' })
+    const archived = await localRepository.archiveTracker(activeTracker.id)
+    if (!archived) throw new Error('Tracker did not archive.')
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${archived.id}/edit`)
+    await screen.findByRole('group', { name: 'Tracker status after saving' })
+    await user.click(screen.getByRole('radio', { name: 'Move to active' }))
+    await user.clear(screen.getByRole('textbox', { name: 'What habit do you want to build?' }))
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Active again')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(archived.id)).toMatchObject({ id: archived.id, name: 'Active again', status: 'active', archivedAt: null }))
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['archive-edit-owner', 'tracker', archived.id]).first()).resolves.toMatchObject({ payload: { status: 'active', archivedAt: null, name: 'Active again' } })
+    await expect(localRepository.getTrackerEntry(archived.id, '2026-10-03')).resolves.toMatchObject({ id: savedEntry.id, values: { done: true }, note: 'History stays' })
+  })
+
+  it('does not reactivate an archived tracker after validation failure or discard', async () => {
+    const archived = { ...datedTracker('failed-reactivation', 'habit'), status: 'archived' as const, archivedAt: '2026-10-02T00:00:00.000Z' }
+    await localRepository.saveTracker(archived)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${archived.id}/edit`)
+    await screen.findByRole('group', { name: 'Tracker status after saving' })
+    await user.click(screen.getByRole('radio', { name: 'Move to active' }))
+    const name = screen.getByRole('textbox', { name: 'What habit do you want to build?' })
+    await user.clear(name)
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByRole('alert', { name: 'Check the tracker details' })).toBeInTheDocument()
+    await expect(localRepository.getTracker(archived.id)).resolves.toMatchObject({ status: 'archived', archivedAt: archived.archivedAt })
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await expect(localRepository.getTracker(archived.id)).resolves.toMatchObject({ status: 'archived', archivedAt: archived.archivedAt })
+  })
+
   it('uses the shared icon radio cards and keeps the additional types collapsed until requested', async () => {
     const user = userEvent.setup()
     renderSetup()

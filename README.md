@@ -11,6 +11,7 @@ ProgressTracker is a local-first app for tracking habits, goals, challenges, and
 - Use Goals, Analytics, Insights, and Achievements to understand progress and pacing.
 - Add holidays and breaks that affect schedule-based progress.
 - Sign in to sync tracker data across devices. Guest workspaces stay on the current browser.
+- Filter trackers by active, archived, or all status. Edit archived setup while keeping it archived or moving it back to active.
 - Archive trackers, restore deleted trackers from the Bin, or permanently delete them when the deployment enables that option.
 - Choose a light, dark, or device-based theme and configure workspace preferences.
 - Install the app where supported. Its offline shell does not cache account data or API responses.

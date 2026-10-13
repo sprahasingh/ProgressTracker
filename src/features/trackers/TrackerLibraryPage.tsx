@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, trackerSectionTabs } from '../../components/ui/SectionTabs'
@@ -31,7 +30,7 @@ export function TrackerLibraryPage() {
   workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
   const readGenerationRef = useRef(0)
   const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; checkedInToday: string[] } | null>(null)
-  const [showArchived, setShowArchived] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
   const [pendingBinTracker, setPendingBinTracker] = useState<StoredTrackerDefinition | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
@@ -40,7 +39,8 @@ export function TrackerLibraryPage() {
   const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey)
-  const visibleTrackers = kindFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.kind === kindFilter)
+  const statusFilteredTrackers = statusFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.status === statusFilter)
+  const visibleTrackers = kindFilter === 'all' ? statusFilteredTrackers : statusFilteredTrackers.filter((tracker) => tracker.kind === kindFilter)
 
   const refresh = useCallback(async () => {
     const context = workspaceRef.current
@@ -50,7 +50,7 @@ export function TrackerLibraryPage() {
     setErrorState(null)
     try {
       const [result, entries] = await Promise.all([
-        localRepository.listTrackers(showArchived),
+        localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(today, today),
       ])
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
@@ -63,7 +63,7 @@ export function TrackerLibraryPage() {
     } finally {
       if (readGenerationRef.current === generation) setLoading(false)
     }
-  }, [showArchived, today])
+  }, [today])
 
   useEffect(() => {
     if (!workspaceReady || !workspaceKey) {
@@ -120,8 +120,10 @@ export function TrackerLibraryPage() {
         {(['all', 'goal', 'habit', 'challenge', 'project'] as const).map((kind) => <button key={kind} type="button" className={`filter-chip${kindFilter === kind ? ' active' : ''}`} aria-pressed={kindFilter === kind} onClick={() => setKindFilter(kind)}>{kind === 'all' ? 'All' : kind === 'goal' ? 'Goals' : kind === 'habit' ? 'Habits' : kind === 'challenge' ? 'Challenges' : 'Projects'}</button>)}
       </div>
       <div className="tracker-library-toolbar">
-        <p>{showArchived ? 'Showing active and archived trackers' : 'Showing active trackers'}</p>
-        <Button variant="quiet" size="small" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button>
+        <p>{statusFilter === 'all' ? 'Showing all trackers' : statusFilter === 'archived' ? 'Showing archived trackers' : 'Showing active trackers'}</p>
+        <div className="tracker-status-filters" role="group" aria-label="Tracker status filter">
+          {(['all', 'active', 'archived'] as const).map((filter) => <button key={filter} type="button" className={`tracker-status-option${statusFilter === filter ? ' selected' : ''}`} aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>{filter === 'all' ? 'All' : filter === 'active' ? 'Active' : 'Archived'}</button>)}
+        </div>
       </div>
       {error && <div role="alert" className="form-alert">{error}</div>}
       {visibleLoading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
@@ -131,10 +133,10 @@ export function TrackerLibraryPage() {
           ) : authStatus === 'signed-in' && syncStatus === 'error' ? (
             <EmptyState title="Cloud sync could not finish" description="No local trackers are saved in this workspace yet. Your local data is safe; open Account to retry the cloud check." action={<Link className="button button-secondary button-medium" to="/auth">Open account and retry</Link>} />
           ) : (
-            <EmptyState title={showArchived ? 'No trackers yet' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. It will be available offline and sync to your account when you’re signed in." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
+            <EmptyState title={statusFilter === 'archived' ? 'No archived trackers' : 'A blank page is a good start'} description="Create a tracker with a schedule and a measure that feels useful to you. It will be available offline and sync to your account when you’re signed in." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first tracker</Link>} />
           )}
         </Surface>
-      ) : visibleTrackers.length === 0 ? <Surface><p>No trackers match this filter yet.</p></Surface> : (
+      ) : visibleTrackers.length === 0 ? <Surface><p>{statusFilter === 'archived' ? 'No archived trackers match these filters.' : statusFilter === 'active' ? 'No active trackers match these filters.' : 'No trackers match these filters.'}</p></Surface> : (
         <div className="tracker-card-grid">
           {visibleTrackers.map((tracker) => (
             <Surface key={tracker.id} className="tracker-card">

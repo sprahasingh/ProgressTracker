@@ -10,6 +10,15 @@ const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntri
 vi.mock('../../db/localRepository', () => ({ localRepository: libraryMocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'signed-in', user: { id: 'account-a' }, workspaceStatus: 'ready', workspaceUserId: 'account-a', syncStatus: 'syncing', isOnline: true }) }))
 
+function trackerRow(id: string, name: string, kind: StoredTrackerDefinition['kind'], status: StoredTrackerDefinition['status']): StoredTrackerDefinition {
+  return {
+    schemaVersion: 1, id, name, description: '', kind, status, categoryId: null, tags: [], icon: '', accent: '',
+    schedule: { kind: 'every-day' }, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+    qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true }, customFields: [], milestones: [],
+    createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: status === 'archived' ? '2026-10-02T00:00:00.000Z' : null, deletedAt: null,
+  }
+}
+
 describe('TrackerLibraryPage initial cloud state', () => {
   afterEach(() => cleanup())
 
@@ -20,6 +29,41 @@ describe('TrackerLibraryPage initial cloud state', () => {
     expect(await screen.findByText('Checking your cloud progress')).toBeInTheDocument()
     expect(screen.queryByText('A blank page is a good start')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Account and sync status' })).toHaveAttribute('href', '/auth')
+  })
+
+  it('defaults to Active and composes All, Active, and Archived with the kind filter', async () => {
+    libraryMocks.listTrackers.mockResolvedValue([
+      trackerRow('active-habit', 'Active habit', 'habit', 'active'),
+      trackerRow('active-goal', 'Active goal', 'goal', 'active'),
+      trackerRow('archived-goal', 'Archived goal', 'goal', 'archived'),
+    ])
+    const user = userEvent.setup()
+    render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
+    const statusGroup = await screen.findByRole('group', { name: 'Tracker status filter' })
+    const active = within(statusGroup).getByRole('button', { name: 'Active' })
+    const all = within(statusGroup).getByRole('button', { name: 'All' })
+    const archived = within(statusGroup).getByRole('button', { name: 'Archived' })
+    expect(active).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: 'Active habit' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Active goal' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Archived goal' })).not.toBeInTheDocument()
+
+    active.focus()
+    await user.tab()
+    expect(archived).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(archived).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: 'Archived goal' })).toBeInTheDocument()
+    expect(screen.getByText('Archived', { selector: '.tracker-archived-chip' })).toBeInTheDocument()
+    const kindGroup = screen.getByRole('group', { name: 'Filter trackers' })
+    await user.click(within(kindGroup).getByRole('button', { name: 'Goals' }))
+    expect(screen.getByRole('heading', { name: 'Archived goal' })).toBeInTheDocument()
+    await user.click(all)
+    expect(screen.getByRole('heading', { name: 'Active goal' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Archived goal' })).toBeInTheDocument()
+    await user.click(active)
+    expect(screen.getByRole('heading', { name: 'Active goal' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Archived goal' })).not.toBeInTheDocument()
   })
 
   it('shows a goal’s actual planned total separately from its per-check-in threshold and offers today’s action', async () => {
@@ -84,6 +128,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerLibraryPage /></MemoryRouter>)
 
+    await user.click(await screen.findByRole('button', { name: 'Archived', pressed: false }))
     await screen.findByText('Archived walk')
     await user.click(screen.getByRole('button', { name: 'More actions for Archived walk' }))
     expect(screen.getByRole('menuitem', { name: 'Restore tracker' })).toBeInTheDocument()

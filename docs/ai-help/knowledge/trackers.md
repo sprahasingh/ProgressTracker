@@ -57,7 +57,7 @@ Some edits can change which dates count in schedule-based statistics, because ca
 - src/features/trackers/TrackerLibraryPage.tsx
 - src/features/trackers/TrackerBinPage.tsx
 **Answer:**
-Archiving or pausing a tracker stops it being active for future opportunities but keeps its recorded history. Deleting a tracker is a separate action that moves it through the app’s Bin and restore flow.
+Archiving or pausing a tracker stops it being active for future opportunities but keeps its recorded history. The tracker list can show active, archived, or all trackers. When editing an archived tracker, choose whether to keep it archived or move it to active after saving. Deleting a tracker is a separate action that moves it through the app’s Bin and restore flow.
 
 ### ID: tracker-schedules
 **Category:** trackers

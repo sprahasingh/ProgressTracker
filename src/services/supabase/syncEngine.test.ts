@@ -87,6 +87,20 @@ describe('account-scoped sync engine', () => {
     await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
   })
 
+  it('syncs archived tracker reactivation as one revisioned definition update', async () => {
+    await activateWorkspace('sync-user')
+    const archived = { ...tracker('reactivate-sync'), status: 'archived' as const, archivedAt: '2026-10-10T00:00:00.000Z' }
+    await localRepository.saveTracker(archived)
+    const active = await localRepository.unarchiveTracker(archived.id)
+    if (!active) throw new Error('Tracker did not reactivate.')
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(active, 'sync-user', 2) } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_sync_operation', expect.objectContaining({ p_entity: 'tracker',
+      p_record: expect.objectContaining({ status: 'active', definition: expect.objectContaining({ status: 'active', archivedAt: null }) }),
+    }))
+  })
+
   it('syncs holiday removal and restoration as revisioned tombstones without changing tracker entries', async () => {
     await activateWorkspace('sync-user')
     const [row] = await localRepository.saveAccountHolidays(['2026-10-13'], 'personal')
