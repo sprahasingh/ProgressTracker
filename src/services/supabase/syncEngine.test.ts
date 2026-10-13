@@ -87,6 +87,21 @@ describe('account-scoped sync engine', () => {
     await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
   })
 
+  it('syncs a holiday date edit through the existing ID and server revision', async () => {
+    await activateWorkspace('sync-user')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-20'], 'travel')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'account_holiday', holiday.id]).delete()
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'sync-user', entity: 'account_holiday', entityId: holiday.id, serverRevision: 7 })
+    await localRepository.updateAccountHoliday(holiday.id, '2026-10-21', 'exam')
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: { id: holiday.id, user_id: 'sync-user', holiday_date: '2026-10-21', reason: 'exam', created_at: holiday.createdAt, updated_at: '2026-10-21T00:00:00.000Z', deleted_at: null, server_revision: 8 } } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_account_holiday_sync_operation', expect.objectContaining({ p_expected_user_id: 'sync-user', p_expected_revision: 7, p_record: expect.objectContaining({ id: holiday.id, holiday_date: '2026-10-21', reason: 'exam' }) }))
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ id: holiday.id, date: '2026-10-21', reason: 'exam' })
+    await expect(db.syncRecords.get(`account_holiday:${holiday.id}`)).resolves.toMatchObject({ serverRevision: 8 })
+  })
+
   it('syncs archived tracker reactivation as one revisioned definition update', async () => {
     await activateWorkspace('sync-user')
     const archived = { ...tracker('reactivate-sync'), status: 'archived' as const, archivedAt: '2026-10-10T00:00:00.000Z' }
