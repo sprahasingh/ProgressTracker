@@ -25,7 +25,7 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[] } = {}) {
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[] } = {}) {
   const rpc = vi.fn().mockImplementation(() => options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }))
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const from = vi.fn((table: string) => {
@@ -63,6 +63,21 @@ describe('account-scoped sync engine', () => {
       await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 2 })
       expect(owners).toEqual(['sync-user'])
       await expect(db.trackerEntries.get(remoteEntry.id)).resolves.toMatchObject({ trackerId: remote.id, values: { pages: 6 } })
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('notifies progression subscribers after a successful upload even when no rows are downloaded', async () => {
+    await activateWorkspace('sync-user')
+    const pending = tracker('confirmed-checkin-notice')
+    await localRepository.saveTracker(pending)
+    const owners: Array<string | null> = []
+    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId) => owners.push(ownerId))
+    try {
+      const { client } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(pending) } })
+      await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, downloaded: 0, conflicts: 0, failed: 0 })
+      expect(owners).toEqual(['sync-user'])
     } finally {
       unsubscribe()
     }
@@ -519,6 +534,21 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({
       status: 'pending', payload: { note: 'offline check-in' }, lastError: expect.stringContaining('Archived trackers'),
     })
+  })
+
+  it('stops presenting XP as pending after a permanent server write rejection and retains a resolvable error', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('rejected-checkin-parent')
+    await localRepository.saveTracker(definition)
+    await db.syncOperations.clear()
+    await db.syncRecords.put({ key: `tracker:${definition.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: definition.id, serverRevision: 1 })
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: '' })
+    const { client } = fakeClient({ rpcError: { message: 'constraint rejected the record', code: '23514' } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 1, failed: 0 })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ status: 'conflict', lastError: expect.stringContaining('server rejected') })
+    await expect(db.syncConflicts.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ reason: expect.stringContaining('23514'), remoteRecord: null })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').filter((operation) => operation.status === 'pending').count()).resolves.toBe(0)
   })
 
   it('does not upload child entries when their parent has a revision conflict', async () => {

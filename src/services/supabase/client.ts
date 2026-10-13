@@ -10,6 +10,20 @@ export type SupabaseConfiguration =
   | { status: 'invalid'; reason: string }
   | { status: 'ready'; url: string; publishableKey: string }
 
+function isLocalAnonymousJwt(value: string): boolean {
+  const parts = value.split('.')
+  if (parts.length !== 3) return false
+  try {
+    const payloadPart = parts[1]
+    if (!payloadPart) return false
+    const payload = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '='))
+    return JSON.parse(decoded).role === 'anon'
+  } catch {
+    return false
+  }
+}
+
 export function readSupabaseConfiguration(environment: SupabaseEnvironment): SupabaseConfiguration {
   const url = environment.url?.trim()
   const publishableKey = environment.publishableKey?.trim()
@@ -27,7 +41,12 @@ export function readSupabaseConfiguration(environment: SupabaseEnvironment): Sup
     return { status: 'invalid', reason: 'The Supabase URL is not a valid URL.' }
   }
 
-  if (!publishableKey.startsWith('sb_publishable_')) {
+  let localUrl = false
+  try {
+    const parsedUrl = new URL(url)
+    localUrl = parsedUrl.protocol === 'http:' && new Set(['localhost', '127.0.0.1', '[::1]']).has(parsedUrl.hostname)
+  } catch { /* URL validation above returns a useful configuration error. */ }
+  if (!publishableKey.startsWith('sb_publishable_') && !(localUrl && isLocalAnonymousJwt(publishableKey))) {
     return { status: 'invalid', reason: 'Use the Supabase publishable key for browser code.' }
   }
 

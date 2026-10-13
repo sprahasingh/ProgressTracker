@@ -79,12 +79,16 @@ async function markFailure(database: ProgressTrackerDatabase, operation: SyncOpe
   if (latest) await database.syncOperations.put({ ...latest, attempts: latest.attempts + 1, lastError: message })
 }
 
-async function markConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null) {
+async function markConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null, reason = 'The cloud record changed since this device last read it.') {
   await database.transaction('rw', [database.syncOperations, database.syncConflicts], async () => {
     const latest = await database.syncOperations.get(operation.id)
-    if (latest) await database.syncOperations.put({ ...latest, status: 'conflict', attempts: latest.attempts + 1, lastError: 'The cloud record changed since this device last read it.' })
-    await database.syncConflicts.put({ id: operation.id, ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, localPayload: operation.payload!, remoteRecord, detectedAt: new Date().toISOString() })
+    if (latest) await database.syncOperations.put({ ...latest, status: 'conflict', attempts: latest.attempts + 1, lastError: reason })
+    await database.syncConflicts.put({ id: operation.id, ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, localPayload: operation.payload!, remoteRecord, detectedAt: new Date().toISOString(), reason })
   })
+}
+
+function isPermanentWriteRejection(code: string | undefined): boolean {
+  return code !== undefined && ['22001', '22007', '22008', '22023', '22P02', '23502', '23503', '23505', '23514'].includes(code)
 }
 
 async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
@@ -292,7 +296,14 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
           continue
         }
       }
-      if (error) throw new Error(error.message)
+      if (error) {
+        if (isPermanentWriteRejection(error.code)) {
+          await markConflict(database, operation, null, `The server rejected this saved change (${error.code}). Review the local record and resolve the sync issue before retrying.`)
+          conflicts += 1
+          continue
+        }
+        throw new Error(error.message)
+      }
       const result = data as OperationResult
       if (operation.entity === 'account_holiday' && result?.status === 'permanently_deleted') {
         if (result.holiday_id !== operation.entityId || !result.permanently_deleted_at) throw new Error('The permanent-holiday deletion response did not match the queued holiday.')
@@ -491,7 +502,10 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
   const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded
-  if (trackerPull.changed + entryPull.changed + holidayPull.changed > 0) publishWorkspaceDataChange(userId)
+  // Progression clients use this signal to discard provisional awards and
+  // reload the authoritative ledger, including successful uploads that did
+  // not require downloading a changed tracker row.
+  publishWorkspaceDataChange(userId)
   return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed + holidayDeletions.failed }
 }
 

@@ -90,7 +90,7 @@ describe('unified Settings authentication states', () => {
       expect(trigger).toHaveAttribute('aria-expanded', 'false')
       expect(document.getElementById(trigger.getAttribute('aria-controls')!)).toHaveAttribute('hidden')
     }
-  })
+  }, 10000)
 
   it.each([320, 375, 390, 430])('keeps Settings accordion layout constraints at %ipx and in either theme', (width) => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })

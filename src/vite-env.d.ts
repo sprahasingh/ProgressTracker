@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_PERMANENT_DELETION?: string
   readonly VITE_ENABLE_AUTOMATIC_BIN_CLEANUP?: string
   readonly VITE_ENABLE_HOLIDAY_PERMANENT_DELETION?: string
+  readonly VITE_ENABLE_PROGRESSION_UI?: string
   readonly VITE_TRACKER_LIFECYCLE_STRESS?: string
 }
 

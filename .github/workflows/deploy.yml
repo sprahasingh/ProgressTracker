@@ -57,6 +57,7 @@ jobs:
           VITE_ENABLE_TRACKER_SCHEMA_V4: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V4 }}
           VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
           VITE_ENABLE_HOLIDAY_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION }}
+          VITE_ENABLE_PROGRESSION_UI: ${{ vars.VITE_ENABLE_PROGRESSION_UI }}
         run: |
           if [ -z "$VITE_SUPABASE_URL" ]; then
             echo "::error::Missing repository variable VITE_SUPABASE_URL."

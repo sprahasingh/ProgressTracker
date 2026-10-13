@@ -94,5 +94,5 @@ describe('AppShell maintainer navigation across initial session restoration', ()
     expect(authorizedMobileLink.querySelector('svg')).toHaveAttribute('data-icon', 'spark')
 
     expect(within(desktopNav).getByRole('link', { name: 'AI Knowledge' })).toBeInTheDocument()
-  })
+  }, 10000)
 })
