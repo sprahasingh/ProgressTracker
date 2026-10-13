@@ -13,7 +13,7 @@
 - src/domain/holidays.ts
 - src/domain/holidays.test.ts
 **Answer:**
-Open Holidays & breaks, choose a date, and save the holiday. You can add a reason and choose a past date; holidays apply across the workspace rather than to only one tracker.
+Open Holidays & breaks, choose a date, and save the holiday. You can add a reason and choose a past date; holidays apply across the workspace rather than to only one tracker. To change a saved holiday, open its three-dot menu and choose Edit holiday. Update the date, reason, or both. The edit keeps the same holiday record and syncs across devices when signed in.
 
 ### ID: delete-holiday
 **Category:** holidays

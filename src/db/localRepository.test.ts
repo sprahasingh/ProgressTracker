@@ -108,6 +108,28 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
   })
 
+  it('edits an account holiday date and reason in place and queues one revisioned sync mutation', async () => {
+    await activateWorkspace('holiday-edit-owner')
+    const [holiday] = await localRepository.saveAccountHolidays(['2026-10-10'], 'travel')
+    if (!holiday) throw new Error('Holiday was not saved.')
+    await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'holiday-edit-owner', entity: 'account_holiday', entityId: holiday.id, serverRevision: 3 })
+
+    const updated = await localRepository.updateAccountHoliday(holiday.id, '2026-10-12', 'exam')
+
+    expect(updated).toMatchObject({ id: holiday.id, date: '2026-10-12', reason: 'exam', deletedAt: null })
+    await expect(db.accountHolidays.count()).resolves.toBe(1)
+    await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ id: holiday.id, date: '2026-10-12', reason: 'exam' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['holiday-edit-owner', 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ expectedRevision: 3, payload: { id: holiday.id, date: '2026-10-12', reason: 'exam' } })
+  })
+
+  it('rejects an occupied holiday date without changing the source holiday', async () => {
+    await activateWorkspace('holiday-duplicate-owner')
+    const [first, second] = await localRepository.saveAccountHolidays(['2026-10-10', '2026-10-11'], 'travel')
+    if (!first || !second) throw new Error('Holidays were not saved.')
+    await expect(localRepository.updateAccountHoliday(first.id, second.date, 'exam')).rejects.toThrow('A holiday record already exists on that date.')
+    await expect(db.accountHolidays.get(first.id)).resolves.toMatchObject({ date: first.date, reason: 'travel' })
+  })
+
   it('queues account holiday permanent deletion idempotently and keeps the tombstone until server confirmation', async () => {
     vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
     await activateWorkspace('holiday-delete-owner')

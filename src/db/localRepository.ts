@@ -158,6 +158,28 @@ export const localRepository = {
     return saved
   },
 
+  async updateAccountHoliday(id: string, date: CalendarDate, reason: HolidayReason | null): Promise<AccountHoliday> {
+    assertHolidayDate(date)
+    if (reason !== null && !isHolidayReason(reason)) throw new Error('Choose a supported holiday reason.')
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    const saved = await database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      const workspace = await database.workspaceMetadata.get('workspace')
+      ownerUserId = workspace?.userId ?? null
+      const existing = await database.accountHolidays.get(id)
+      if (!existing || existing.deletedAt !== null) throw new Error('This holiday is no longer available to edit.')
+      const duplicate = await database.accountHolidays.where('date').equals(date).first()
+      if (duplicate && duplicate.id !== id) throw new Error('A holiday record already exists on that date.')
+      if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', id]).first()) throw new Error('Resolve this holiday’s cloud conflict before editing it. Both versions are preserved.')
+      const row: AccountHoliday = { ...existing, date, reason, updatedAt: new Date().toISOString() }
+      await database.accountHolidays.put(row)
+      await queueSyncMutation(database, ownerUserId, 'account_holiday', row)
+      return row
+    })
+    publishWorkspaceMutation(ownerUserId)
+    return saved
+  },
+
   async removeAccountHoliday(date: CalendarDate): Promise<void> {
     const database = await openDatabase()
     let ownerUserId: string | null = null
