@@ -157,7 +157,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
       <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><AppIcon name="info" /></IconButton>
     </div>}
     {compactIconOnly && <IconButton ref={triggerRef} className="today-requirements-trigger" label={`Information about ${tracker.name} daily requirements`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><AppIcon name="info" /></IconButton>}
-    {open && createPortal(<div ref={backdropRef} className="today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+    {open && createPortal(<div ref={backdropRef} className="modal-backdrop today-requirements-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section ref={sheetRef} className="today-requirements-sheet" role="dialog" aria-modal="true" aria-labelledby="today-requirements-title">
         <header className="today-requirements-heading"><div><span className="eyebrow">DAILY REQUIREMENTS</span><h2 id="today-requirements-title">{tracker.name}</h2></div><IconButton ref={closeRef} className="today-requirements-close" label="Close daily requirements" onClick={() => setOpen(false)}><AppIcon name="close" /></IconButton></header>
         <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>

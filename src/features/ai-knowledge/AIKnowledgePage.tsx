@@ -289,7 +289,7 @@ function KnowledgeWorkspace() {
       {!loading && hasMore && <div className="ai-knowledge-load-more"><button className="button button-secondary button-small" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button></div>}
     </section>
 
-    {selected && <div className="ai-knowledge-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyAction) closeDetail() }}>
+    {selected && <div className="modal-backdrop ai-knowledge-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyAction) closeDetail() }}>
       <section ref={dialogRef} className="ai-knowledge-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-knowledge-detail-title" tabIndex={-1}>
         <header className="ai-knowledge-dialog-header"><div><span className="eyebrow"><span className="eyebrow-line" />{selectedCandidate ? 'CANDIDATE REVIEW' : 'VERIFIED TOPIC'}</span><h2 id="ai-knowledge-detail-title">{activeRecord?.title ?? 'Knowledge details'}</h2></div><button type="button" className="button button-quiet button-small" onClick={closeDetail} disabled={Boolean(busyAction)}>Close</button></header>
         {detailLoading ? <div className="ai-knowledge-loading" role="status">Loading details and source evidence…</div>

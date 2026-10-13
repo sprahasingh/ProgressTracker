@@ -65,7 +65,13 @@ describe('Manage Holidays', () => {
     expect(within(dialog).getByLabelText('Date')).toHaveValue('2026-10-10')
     expect(within(dialog).getByLabelText('Reason')).toHaveValue('travel')
     expect(within(dialog).getByRole('button', { name: 'Save changes' })).toBeDisabled()
+    const backdrop = dialog.closest('.holiday-edit-backdrop') as HTMLElement
+    expect(backdrop.parentElement).toBe(document.body)
+    expect(backdrop).toHaveClass('modal-backdrop')
+    expect(backdrop.style.height).toBe(`${window.innerHeight}px`)
+    expect(document.body.style.overflow).toBe('hidden')
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
     expect(mocks.updateAccountHoliday).not.toHaveBeenCalled()
   })
 
