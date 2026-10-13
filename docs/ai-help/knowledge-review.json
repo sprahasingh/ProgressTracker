@@ -114,7 +114,7 @@
   "mark-missed": {
     "src/domain/trackers/types.ts": "773e16f0c554d801562c9bee20a1ee6de260c158a9a2e85406582ee479a300ec",
     "src/domain/trackers/progression.ts": "d92c25266345d6ac97fec7358ac469010fcfa58e9482e6b88a29fc91554f6041",
-    "src/features/today/TodayPage.tsx": "d3b72a6665fd08a4d5eeb77060e8a1d1e82105e20f77bffd78c8a75566c5cf46"
+    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d"
   },
   "custom-checkin-fields": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
@@ -147,7 +147,7 @@
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
-    "src/features/trackers/TrackerSetupPage.tsx": "fd2b0857c62dc0e81db66572357c3b7aeccc5242002096ef6e1efdca955a8f8e",
+    "src/features/trackers/TrackerSetupPage.tsx": "ad03092948cd653791c0bb17b0f04e1c1cde1aacf8b2948dc7013a0b4e44c84f",
     "src/features/trackers/TrackerSetupPage.test.tsx": "f8971e64065b63fbb6067cdafd070b8e790d9ce9045784d7b0919d2afcd504c5",
     "src/features/trackers/trackerSetupSchema.ts": "705478baf4276d235ead28841335ab1be2158c7c98cf2cdb1df1d6d9566c4b5d"
   },
@@ -241,12 +241,12 @@
     "src/domain/trackers/missingCheckIns.ts": "faefa6017193d4737841fdc70b0a94f73aa9ba4a2fddb17848b820c9ffffbe3a"
   },
   "create-holiday": {
-    "src/features/holidays/HolidaysPage.tsx": "19f382b48ac0f07287f6c0d6d9d1f6b68720dbc63bd659fb45230877c8c5b056",
+    "src/features/holidays/HolidaysPage.tsx": "0bc8ea47a02b19bb96a2c513138f718ed75ebe47124bd6b5f0ea7ad0a5fccbcd",
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88",
     "src/domain/holidays.test.ts": "b03f89c4a9c6d044593343cc8f5798d74ac0c708f8955c63e15a802e15e9371e"
   },
   "delete-holiday": {
-    "src/features/holidays/HolidaysPage.tsx": "19f382b48ac0f07287f6c0d6d9d1f6b68720dbc63bd659fb45230877c8c5b056",
+    "src/features/holidays/HolidaysPage.tsx": "0bc8ea47a02b19bb96a2c513138f718ed75ebe47124bd6b5f0ea7ad0a5fccbcd",
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88"
   },
   "holidays-streaks": {
@@ -256,7 +256,7 @@
   },
   "holiday-all-trackers": {
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88",
-    "src/features/holidays/HolidaysPage.tsx": "19f382b48ac0f07287f6c0d6d9d1f6b68720dbc63bd659fb45230877c8c5b056"
+    "src/features/holidays/HolidaysPage.tsx": "0bc8ea47a02b19bb96a2c513138f718ed75ebe47124bd6b5f0ea7ad0a5fccbcd"
   },
   "holiday-remove-recalculates": {
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88",
@@ -265,7 +265,7 @@
   },
   "holiday-log-progress": {
     "src/features/calendar/CalendarPage.tsx": "6ceb19b86d45ab0b66f9ccc8b57684d2502f864523fb1080710398227e88ab48",
-    "src/features/today/TodayPage.tsx": "d3b72a6665fd08a4d5eeb77060e8a1d1e82105e20f77bffd78c8a75566c5cf46",
+    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d",
     "src/domain/trackers/progression.ts": "d92c25266345d6ac97fec7358ac469010fcfa58e9482e6b88a29fc91554f6041"
   },
   "holiday-standard-v-strict": {
@@ -314,7 +314,7 @@
     "src/features/notifications/NotificationsSettings.test.tsx": "5a8c187ce4b00d2f7f8152ba49cbf2b47c35df12a59b6b7c85d1391e944fd54d"
   },
   "missing-checkin-reminder": {
-    "src/features/today/TodayPage.tsx": "d3b72a6665fd08a4d5eeb77060e8a1d1e82105e20f77bffd78c8a75566c5cf46",
+    "src/features/today/TodayPage.tsx": "5e1d3f83aa55e1739fb298edb18f84181c8bbaebc418c553556ff9dee41da06d",
     "src/features/notifications/reminderRules.ts": "30bd84d70702118fd3bc198f743f8b394afb3be97ce903940504c1219319c9da",
     "src/features/notifications/ForegroundReminderMonitor.tsx": "4dc2eae59ffb488d964099896ac14014afb09725d8575e1987696cea5c4280e9",
     "src/features/notifications/reminderRules.test.ts": "45067639f1de96505e1e49abc710b26979f066dbb3174f0c828afe8550675ea6"
@@ -438,13 +438,13 @@
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",
-    "src/features/trackers/TrackerSetupPage.tsx": "fd2b0857c62dc0e81db66572357c3b7aeccc5242002096ef6e1efdca955a8f8e"
+    "src/features/trackers/TrackerSetupPage.tsx": "ad03092948cd653791c0bb17b0f04e1c1cde1aacf8b2948dc7013a0b4e44c84f"
   },
   "start-date-deadline": {
     "src/domain/trackers/planning.ts": "4fa595118aa1b540ffd53b6464b7bc63193297b2687176d2dfd62ad88a70c1b7",
     "src/domain/trackers/activePeriod.test.ts": "40b4e24d42e0650c6900bc4ed1e411b35c6dd88e4595427b4748ae31aa6f5916",
     "src/domain/trackers/planning.test.ts": "675115c9923097d243b03baf6f382c20c1d2db92b134b613dea89898debd4cea",
-    "src/features/trackers/TrackerSetupPage.tsx": "fd2b0857c62dc0e81db66572357c3b7aeccc5242002096ef6e1efdca955a8f8e"
+    "src/features/trackers/TrackerSetupPage.tsx": "ad03092948cd653791c0bb17b0f04e1c1cde1aacf8b2948dc7013a0b4e44c84f"
   },
   "retire-measure": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
@@ -455,7 +455,7 @@
   "tracker-editing": {
     "src/features/trackers/TrackerLibraryPage.tsx": "cf49635ee3b57f839c792d1c801406c6867506f4933e838670c7bb8aac21ee03",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cd447c9c193c15e9159d44533a6c2cc3e107bba8270eb2538eac1896a0fb7178",
-    "src/features/trackers/TrackerSetupPage.tsx": "fd2b0857c62dc0e81db66572357c3b7aeccc5242002096ef6e1efdca955a8f8e",
+    "src/features/trackers/TrackerSetupPage.tsx": "ad03092948cd653791c0bb17b0f04e1c1cde1aacf8b2948dc7013a0b4e44c84f",
     "src/features/trackers/TrackerSetupPage.test.tsx": "f8971e64065b63fbb6067cdafd070b8e790d9ce9045784d7b0919d2afcd504c5"
   },
   "tracker-created-active-date": {

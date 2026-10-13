@@ -16,7 +16,9 @@ import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { holidayDeletionNotificationKey, publishHolidayDeletionNotification } from '../../services/holidayDeletionNotifications'
 import { useModalLayer } from '../../components/ui/useModalLayer'
+import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import { assertHolidayDate, isHolidayReason } from '../../domain/holidays'
+import { createPortal } from 'react-dom'
 
 const reasonLabel: Record<HolidayReason, string> = { travel: 'Travel', exam: 'Exam', personal: 'Personal', other: 'Other' }
 
@@ -198,7 +200,9 @@ function EditHolidayDialog({ holiday, existingRows, onCancel, onSave }: { holida
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
   useModalLayer(true, dialogRef, onCancel, { manageHistoryEntry: false })
+  useVisualViewportBounds(true, backdropRef)
   const changed = date !== holiday.date || (reason || null) !== holiday.reason
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -212,13 +216,15 @@ function EditHolidayDialog({ holiday, existingRows, onCancel, onSave }: { holida
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your changes were not saved. Please try again.') }
     finally { setSaving(false) }
   }
-  return <div className="holiday-edit-backdrop" role="presentation"><section ref={dialogRef} className="holiday-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="holiday-edit-title" tabIndex={-1}>
+  return createPortal(<div ref={backdropRef} className="modal-backdrop holiday-edit-backdrop" role="presentation"><section ref={dialogRef} className="holiday-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="holiday-edit-title" tabIndex={-1}>
     <h2 id="holiday-edit-title">Edit holiday</h2>
     <form onSubmit={(event) => void submit(event)}>
-      <label className="form-field"><span>Date</span><input autoFocus type="date" className="auth-input" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-      <label className="form-field"><span>Reason</span><select className="auth-input" value={reason} onChange={(event) => setReason(event.target.value as HolidayReason | '')}><option value="">No reason</option>{Object.entries(reasonLabel).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
-      {error && <p role="alert" className="form-alert">{error}</p>}
-      <div className="holiday-edit-actions"><button type="button" className="button button-quiet" disabled={saving} onClick={onCancel}>Cancel</button><button type="submit" className="button button-primary" disabled={!changed || saving}>{saving ? 'Saving…' : 'Save changes'}</button></div>
+      <div className="holiday-edit-content">
+        <label className="form-field"><span>Date</span><input autoFocus type="date" className="auth-input" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
+        <label className="form-field"><span>Reason</span><select className="auth-input" value={reason} onChange={(event) => setReason(event.target.value as HolidayReason | '')}><option value="">No reason</option>{Object.entries(reasonLabel).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
+        {error && <p role="alert" className="form-alert">{error}</p>}
+      </div>
+      <footer className="holiday-edit-actions"><button type="button" className="button button-quiet" disabled={saving} onClick={onCancel}>Cancel</button><button type="submit" className="button button-primary" disabled={!changed || saving}>{saving ? 'Saving…' : 'Save changes'}</button></footer>
     </form>
-  </section></div>
+  </section></div>, document.body)
 }

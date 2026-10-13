@@ -109,7 +109,7 @@ function SendFeedbackDialog({ open, onClose, signedIn, accountEmail, source }: {
 
   const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[ProgressTracker Feedback] ${categoryLabels[category]}`)}&body=${encodeURIComponent(`Feedback type: ${categoryLabels[category]}\n\n${message.trim()}`)}`
 
-  return createPortal(<div ref={backdropRef} className="send-feedback-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+  return createPortal(<div ref={backdropRef} className="modal-backdrop send-feedback-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
     <section ref={dialogRef} className="send-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="send-feedback-title" aria-describedby="send-feedback-dialog-description" tabIndex={-1}>
       <p className="sr-only" id="send-feedback-dialog-description">Send a bug report, feature request, general feedback, or support question.</p>
       <header className="send-feedback-heading"><div><span className="send-feedback-eyebrow">PROGRESS TRACKER</span><h2 id="send-feedback-title">Send Feedback</h2></div><IconButton label="Close feedback" title="Close" onClick={onClose} disabled={busy}><AppIcon name="close" /></IconButton></header>

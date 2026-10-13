@@ -49,13 +49,15 @@
 @media (max-width: 900px) { .holiday-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .holiday-form > div { grid-column: 1 / -1; } .holiday-form > button { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .holiday-form-surface { padding: 17px; } .holiday-form { grid-template-columns: 1fr; } .holiday-form > div, .holiday-form > button { grid-column: auto; } .holiday-row { grid-template-columns: minmax(0, 1fr) auto auto; } .holiday-row select { grid-column: 1 / -1; grid-row: 2; } .holiday-status-legend { gap: 9px 12px; font-size: 11px; } }
 @media (max-width: 560px) { .holiday-row.holiday-removed-row { grid-template-columns: minmax(0, 1fr) auto; } .holiday-actions-menu .tracker-actions-trigger { min-width: 44px; min-height: 44px; } }
-.holiday-edit-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 16px; background: rgb(0 0 0 / 48%); }
-.holiday-edit-dialog { width: min(100%, 430px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: 0 18px 60px rgb(0 0 0 / 24%); }
-.holiday-edit-dialog h2 { margin: 0 0 16px; font-family: var(--font-display); font-size: 22px; font-weight: 500; }
-.holiday-edit-dialog form { display: grid; gap: 14px; }
-.holiday-edit-dialog .form-field { margin: 0; }
-.holiday-edit-actions { position: sticky; bottom: -22px; display: flex; justify-content: flex-end; gap: 8px; margin: 2px -22px -22px; padding: 12px 22px 18px; border-top: 1px solid var(--line); background: var(--surface); }
-@media (max-width: 560px) { .holiday-row { padding: 10px 11px; } .holiday-edit-backdrop { align-items: end; padding: 8px; } .holiday-edit-dialog { max-height: calc(100dvh - 16px); padding: 18px; border-radius: 18px 18px 10px 10px; } .holiday-edit-actions { bottom: -18px; margin: 2px -18px -18px; padding: 12px 18px max(14px, env(safe-area-inset-bottom)); } }
+.modal-backdrop { -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.holiday-edit-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; overflow: hidden; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); background: rgb(0 0 0 / 48%); }
+.holiday-edit-dialog { display: flex; width: min(100%, 430px); max-height: min(700px, calc(var(--modal-visible-height, 100dvh) - max(24px, env(safe-area-inset-top, 0px)) - max(24px, env(safe-area-inset-bottom, 0px)))); min-height: 0; flex-direction: column; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: 0 18px 60px rgb(0 0 0 / 24%); }
+.holiday-edit-dialog h2 { flex: 0 0 auto; margin: 0 0 16px; font-family: var(--font-display); font-size: 22px; font-weight: 500; }
+.holiday-edit-dialog form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 12px; }
+.holiday-edit-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.holiday-edit-dialog .form-field { margin: 0 0 12px; }
+.holiday-edit-actions { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 8px; margin: 0 -22px -22px; padding: 12px 22px max(14px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
+@media (max-width: 560px) { .holiday-row { padding: 10px 11px; } .holiday-edit-backdrop { align-items: center; padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); } .holiday-edit-dialog { width: 100%; max-height: min(700px, calc(var(--modal-visible-height, 100dvh) - max(16px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px)))); padding: 18px; border-radius: 18px; } .holiday-edit-actions { margin: 0 -18px -18px; padding: 12px 18px max(14px, env(safe-area-inset-bottom, 0px)); } }
 
 :root {
   font-family: var(--font-sans);

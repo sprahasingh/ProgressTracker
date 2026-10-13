@@ -519,6 +519,7 @@ describe('Today check-ins', () => {
     expect(dialog.closest('.tracker-page')).toBeNull()
     const backdrop = dialog.closest('.today-detail-backdrop') as HTMLElement
     expect(backdrop.parentElement).toBe(document.body)
+    expect(backdrop).toHaveClass('modal-backdrop')
     expect(backdrop.style.height).toBe(`${window.innerHeight}px`)
     expect(screen.getByRole('button', { name: 'Close check-in details' })).toHaveAttribute('type', 'button')
   })

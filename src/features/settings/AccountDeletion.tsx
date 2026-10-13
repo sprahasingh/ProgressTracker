@@ -188,7 +188,7 @@ export function AccountDeletion() {
       <button id="delete-account-start" type="button" className="button button-destructive button-small" onClick={openDialog}>Delete Account</button>
       {message && !isOpen && <p className="auth-success" role="status">{message}</p>}
     </section>
-    {isOpen && createPortal(<div ref={backdropRef} className="account-delete-backdrop">
+    {isOpen && createPortal(<div ref={backdropRef} className="modal-backdrop account-delete-backdrop">
       <section ref={panelRef} className="account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="account-delete-title" tabIndex={-1}>
         <header className="account-delete-heading"><div><span className="settings-hint">ACCOUNT ACTIONS</span><h2 id="account-delete-title">Delete your account?</h2></div><IconButton ref={closeRef} className="today-detail-close" label="Close account deletion" disabled={busy || outcomeUncertain} onClick={closeDialog}><AppIcon name="close" /></IconButton></header>
         <form className="account-delete-content" onSubmit={(event) => { event.preventDefault(); void permanentlyDelete() }}>
