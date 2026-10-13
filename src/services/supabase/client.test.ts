@@ -28,6 +28,14 @@ describe('Supabase browser configuration', () => {
     })).toMatchObject({ status: 'invalid' })
   })
 
+  it('accepts the local Supabase anon JWT only for a loopback project URL', () => {
+    const localAnonKey = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.signature'
+    expect(readSupabaseConfiguration({ url: 'http://127.0.0.1:54321', publishableKey: localAnonKey })).toMatchObject({ status: 'ready' })
+    expect(readSupabaseConfiguration({ url: 'https://example.supabase.co', publishableKey: localAnonKey })).toMatchObject({ status: 'invalid' })
+    const localServiceKey = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.signature'
+    expect(readSupabaseConfiguration({ url: 'http://127.0.0.1:54321', publishableKey: localServiceKey })).toMatchObject({ status: 'invalid' })
+  })
+
   it('rejects malformed project URLs', () => {
     expect(readSupabaseConfiguration({
       url: 'not-a-url',

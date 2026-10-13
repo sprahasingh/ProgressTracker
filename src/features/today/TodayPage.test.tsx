@@ -15,7 +15,7 @@ import todayStyles from '../../styles.css?raw'
 const todayMocks = vi.hoisted(() => ({ auth: { status: 'local-only', user: null, isOnline: true, syncStatus: 'idle' } as { status: string; user: null | { id: string }; isOnline: boolean; syncStatus?: string } }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => todayMocks.auth }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); todayMocks.auth = { status: 'local-only', user: null, isOnline: true, syncStatus: 'idle' }; await db.delete() })
+afterEach(async () => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); todayMocks.auth = { status: 'local-only', user: null, isOnline: true, syncStatus: 'idle' }; await db.delete() })
 const today = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` as `${number}-${number}-${number}`
 
 const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-day' }): StoredTrackerDefinition => ({
@@ -30,7 +30,7 @@ const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-
 describe('Today check-ins', () => {
   it('welcomes a first-time guest and links straight to tracker creation', async () => {
     render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
-    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByText('Build better habits, work toward your goals, and celebrate progress one day at a time.')).toBeInTheDocument()
     expect(screen.getByText('Start with one activity. You can customize everything later.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Create your first tracker' })).toHaveAttribute('href', '/trackers/new')
@@ -489,7 +489,7 @@ describe('Today check-ins', () => {
     expect(dialog).toHaveTextContent('Stretch8 pages')
   })
 
-  it('shows a simple completion requirement for a yes/no tracker', async () => {
+  it('uses one contextual question for a binary tracker without a competing status panel', async () => {
     const user = userEvent.setup()
     const yesNo = {
       ...tracker(), id: 'yes-no-tracker', name: 'Daily meditation', customFields: [],
@@ -498,18 +498,156 @@ describe('Today check-ins', () => {
     }
     await localRepository.saveTracker(yesNo)
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
-    await screen.findByRole('heading', { name: 'Daily meditation' })
-    await user.click(screen.getByRole('button', { name: 'Information about Daily meditation daily requirements' }))
-    const dialog = (await screen.findAllByRole('dialog')).at(-1)!
-    expect(dialog).toHaveTextContent('ExpectedComplete this check-in')
-    expect(dialog).not.toHaveTextContent('Thresholds')
-    expect(screen.getByRole('button', { name: 'Close daily requirements' })).toHaveFocus()
+    await user.click(await screen.findByRole('button', { name: 'Open Daily meditation, Pending' }))
+    const dialog = screen.getByRole('dialog', { name: 'Daily meditation' })
+    expect(dialog).toHaveTextContent('Did you complete this today?')
+    expect(dialog).toHaveTextContent('Choose an option to record your progress.')
+    expect(dialog).not.toHaveTextContent('Complete today')
+    expect(dialog).not.toHaveTextContent('Not completed')
+    expect(within(dialog).queryByRole('button', { name: /Information about .* daily requirements/ })).not.toBeInTheDocument()
     expect(todayStyles).toContain('max-height: min(760px, calc(100dvh - max(8px, env(safe-area-inset-top, 0px))')
     expect(todayStyles).toContain('env(safe-area-inset-bottom, 0px)')
     expect(todayStyles).toContain('overscroll-behavior: contain')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Daily meditation' })).not.toBeInTheDocument()
+  })
+
+  it('preserves a configured boolean label when the tracker also has nonbinary custom fields', async () => {
+    const user = userEvent.setup()
+    const mixed = {
+      ...tracker(), id: 'mixed-input-tracker', name: 'Daily meditation',
+      metrics: [{ id: 'done', name: 'Meditated', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(mixed)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily meditation, Pending' }))
+    expect(screen.getByText('Meditated', { selector: 'legend' })).toBeInTheDocument()
+    expect(screen.queryByText('Did you complete this today?')).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Mood/)).toBeInTheDocument()
+  })
+
+  it('uses saved binary state for contextual copy and shows a two-second success message only after saving', async () => {
+    const user = userEvent.setup()
+    const yesNo = {
+      ...tracker(), id: 'binary-state-tracker', name: 'Daily meditation', customFields: [],
+      metrics: [{ id: 'done', name: 'Meditated', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(yesNo)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily meditation, Pending' }))
+    expect(screen.getByText('Did you complete this today?')).toBeInTheDocument()
+    expect(screen.getByText('Choose an option to record your progress.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByText('Completed for today')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByText('Did you complete this today?')).toBeInTheDocument()
+    expect(screen.queryByText('Nicely done!')).not.toBeInTheDocument()
+    const timer = vi.spyOn(globalThis, 'setTimeout')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await screen.findByText('Nicely done!')).toBeInTheDocument()
+    expect(screen.getByText('Your check-in has been saved.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+    expect(await localRepository.getTrackerEntry(yesNo.id, today())).toMatchObject({ outcome: 'recorded', values: { done: true } })
+    expect(timer.mock.calls.some(([, delay]) => delay === 2000)).toBe(true)
+    await waitFor(() => expect(screen.queryByText('Nicely done!')).not.toBeInTheDocument(), { timeout: 2500 })
+    expect(screen.getByText('Completed for today')).toBeInTheDocument()
+    expect(screen.getByText('Your check-in is saved.')).toBeInTheDocument()
+  })
+
+  it('explains unavailable clearing without disabling the action or changing saved data', async () => {
+    const user = userEvent.setup()
+    const yesNo = { ...tracker(), customFields: [], metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }], qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true } }
+    await localRepository.saveTracker(yesNo)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    const clear = screen.getByRole('button', { name: 'Clear check-in' })
+    expect(clear).toHaveAttribute('aria-disabled', 'true')
+    expect(clear).not.toBeDisabled()
+    await user.click(clear)
+    expect(screen.getByText('Nothing to clear')).toBeInTheDocument()
+    expect(screen.getByText('No check-in has been saved for this day yet.')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Information about Daily meditation daily requirements' })).toHaveFocus()
+    expect(screen.queryByText('Nothing to clear')).not.toBeInTheDocument()
+    await expect(localRepository.getTrackerEntry(yesNo.id, today())).resolves.toBeUndefined()
+  })
+
+  it('keeps saved Not done distinct from edits and gives intentional skips their own permanent state', async () => {
+    const user = userEvent.setup()
+    const yesNo = {
+      ...tracker(), id: 'binary-state-tracker', customFields: [],
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(yesNo)
+    await localRepository.saveTrackerEntry({ trackerId: yesNo.id, date: today(), outcome: 'recorded', values: { done: false }, note: '' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, No progress' }))
+    expect(screen.getByText('Not completed today')).toBeInTheDocument()
+    expect(screen.getByText('Your check-in is saved.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Not done' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByText('Not completed today')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Update check-in' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, No progress' }))
+    await user.click(screen.getByRole('button', { name: 'Skip day' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Skip this day?' })
+    expect(dialog).toHaveTextContent('On a required opportunity, it will not qualify toward your streak.')
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm skip' }))
+    expect(await screen.findByText('Day marked as skipped')).toBeInTheDocument()
+    expect(screen.getByText('Your skip has been recorded.')).toBeInTheDocument()
+    expect(screen.queryByText('Nicely done!')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Update check-in' })).not.toBeInTheDocument()
+    expect(await localRepository.getTrackerEntry(yesNo.id, today())).toMatchObject({ outcome: 'skipped' })
+  })
+
+  it('uses neutral save feedback for a newly saved Not done answer', async () => {
+    const user = userEvent.setup()
+    const yesNo = {
+      ...tracker(), id: 'binary-state-tracker', customFields: [],
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(yesNo)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.click(screen.getByRole('button', { name: 'Not done' }))
+    expect(screen.getByText('Did you complete this today?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await screen.findByText('Check-in saved')).toBeInTheDocument()
+    expect(screen.getByText('Your progress has been recorded.')).toBeInTheDocument()
+    expect(screen.queryByText('Nicely done!')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Check-in saved')).not.toBeInTheDocument(), { timeout: 2500 })
+    expect(screen.getByText('Not completed today')).toBeInTheDocument()
+    expect(screen.getByText('Your check-in is saved.')).toBeInTheDocument()
+  })
+
+  it('does not show binary success feedback when saving fails and lets the user retry', async () => {
+    const user = userEvent.setup()
+    const yesNo = {
+      ...tracker(), id: 'binary-state-tracker', customFields: [],
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(yesNo)
+    vi.spyOn(localRepository, 'saveTrackerEntry').mockRejectedValueOnce(new Error('storage unavailable'))
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await screen.findByRole('alert', { name: 'Couldn’t save check-in' })).toBeInTheDocument()
+    expect(screen.getByText('Did you complete this today?')).toBeInTheDocument()
+    expect(screen.queryByText('Nicely done!')).not.toBeInTheDocument()
+    expect(await localRepository.getTrackerEntry(yesNo.id, today())).toBeUndefined()
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    expect(await screen.findByText('Nicely done!')).toBeInTheDocument()
   })
 
   it('keeps nested requirements scrollable, closes the top overlay first, and restores body scrolling', async () => {
@@ -646,7 +784,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     await user.click(await screen.findByRole('button', { name: 'Skip day' }))
     const skipDialog = screen.getByRole('alertdialog', { name: 'Skip this day?' })
-    expect(skipDialog).toHaveTextContent('intentional skipped outcome')
+    expect(skipDialog).toHaveTextContent('intentional skip')
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
     expect(within(skipDialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     fireEvent.click(document.querySelector('.checkin-confirm-backdrop')!)

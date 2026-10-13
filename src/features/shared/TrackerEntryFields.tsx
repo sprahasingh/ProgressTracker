@@ -5,7 +5,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { getTargetProgress } from '../../domain/trackers/planning'
 import { activeTrackerMetrics, type TrackerDefinition, type TrackerEntry, type TrackerValue } from '../../domain/trackers/types'
 
-export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels, showDraftPreview = true }: {
+export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels, showDraftPreview = true, completionStatus }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   setValue: (key: string, value: TrackerValue | undefined) => void
@@ -17,6 +17,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
   expectedAmounts?: Readonly<Record<string, number>>
   expectedLabels?: Readonly<Record<string, string>>
   showDraftPreview?: boolean
+  completionStatus?: { heading: string; supportingText: string; feedback?: boolean } | null
 }) {
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   function reportInputValidity(key: string, valid: boolean) {
@@ -31,7 +32,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
     <div className="today-entry-fields">
       {activeTrackerMetrics(tracker.metrics).map((metric) => {
         const value = values[metric.id]
-        if (metric.valueType === 'boolean') return <BooleanChoice key={metric.id} id={metric.id} label={metric.name} value={value} setValue={(next) => setValue(metric.id, next)} />
+        if (metric.valueType === 'boolean') return <BooleanChoice key={metric.id} id={metric.id} label={metric.name} value={value} setValue={(next) => setValue(metric.id, next)} contextualStatus={completionStatus} />
         if (metric.valueType === 'checklist') return <fieldset className="today-checklist" key={metric.id}><legend>{metric.name}</legend>{metric.checklistItems?.slice().sort((a, b) => a.position - b.position).map((item) => <label className="form-check today-check" key={item.id}><input type="checkbox" checked={typeof value === 'object' && value !== null && !Array.isArray(value) && value[item.id] === true} onChange={(event) => {
           const current = typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, TrackerValue> : {}
           setValue(metric.id, { ...current, [item.id]: event.target.checked })
@@ -59,15 +60,17 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
   </>
 }
 
-function BooleanChoice({ id, label, value, setValue, required = false }: {
+function BooleanChoice({ id, label, value, setValue, required = false, contextualStatus }: {
   id: string
   label: string
   value: TrackerValue | undefined
   setValue: (value: TrackerValue) => void
   required?: boolean
+  contextualStatus?: { heading: string; supportingText: string; feedback?: boolean } | null
 }) {
-  return <fieldset className="boolean-choice-field form-field" aria-describedby={`${id}-answer-hint`}>
-    <legend>{label}{required && <em> · required</em>}</legend>
+  return <fieldset className="boolean-choice-field form-field" aria-describedby={`${id}-answer-hint${contextualStatus ? ` ${id}-support` : ''}`}>
+    <legend>{contextualStatus?.heading ?? label}{!contextualStatus && required && <em> · required</em>}</legend>
+    {contextualStatus && <p className={`boolean-choice-support${contextualStatus.feedback ? ' is-save-feedback' : ''}`} id={`${id}-support`} role="status" aria-live="polite" aria-atomic="true">{contextualStatus.supportingText}</p>}
     <span className="sr-only" id={`${id}-answer-hint`}>{value === undefined ? 'Choose Not done or Done to record an answer.' : `Selected: ${value === true ? 'Done' : 'Not done'}.`}</span>
     <div className="boolean-choice" role="group" aria-label={label}>
       <button type="button" aria-pressed={value === false} className={value === false ? 'selected' : ''} onClick={() => setValue(false)}>Not done</button>

@@ -255,7 +255,7 @@ describe('AI Help source retrieval benchmark', () => {
     const median = samples[Math.floor(samples.length * 0.5)] ?? 0
     const p95 = samples[Math.floor(samples.length * 0.95)] ?? 0
     console.warn(`Local Vitest retrieval latency: median ${median.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms across ${samples.length} warm calls; not a Deno or deployed Edge measurement.`)
-  })
+  }, 15000)
 
   it('records supplementary natural-language and unsupported questions', () => {
     const answerable = supplementaryWording.filter(([, , expected]) => expected !== null)

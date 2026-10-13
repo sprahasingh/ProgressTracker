@@ -90,6 +90,7 @@ export function AnalyticsPage() {
   return <section className="tracker-page analytics-page" aria-labelledby="analytics-title">
     <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review consistency and logged values from this workspace." help={{ title: 'Analytics', summary: 'Statistics follow the tracker selector and selected date range.', description: 'All Trackers adds comparable counts such as check-ins and eligible opportunities while keeping metric values separate because units can differ. Individual Tracker recalculates counts and trends using only that tracker. Consistency divides qualified eligible days by elapsed opportunities; holidays and rest days are excluded in Standard Mode and required in Strict Mode.' }} />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
+    <p className="insights-progression-link">Confirmed XP, pending rewards, and achievement progress are in <Link to="/achievements">Wins</Link>.</p>
       <div className="analytics-toolbar">
       <TrackerFilter trackers={allSummaries.map((summary) => summary.tracker)} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Tracker" />
       <label className="history-filter"><span>Period</span><select className="auth-input" value={range} onChange={(event) => setRange(Number(event.target.value) as RangeLength)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>

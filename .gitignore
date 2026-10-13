@@ -2,11 +2,22 @@ node_modules/
 dist/
 coverage/
 .DS_Store
+.local-dev/
 .env
 .env.*
 !.env.example
 ai-help.env
 *.tsbuildinfo
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+*.pem
+*.key
+*.p12
+*.pfx
+.vite/
 supabase/.temp/
 supabase/.branches/
 

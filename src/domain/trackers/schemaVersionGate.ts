@@ -28,3 +28,8 @@ export function isAutomaticBinCleanupEnabled(): boolean {
 export function isHolidayPermanentDeletionEnabled(): boolean {
   return import.meta.env.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION === 'true'
 }
+
+/** Progression presentation remains opt-in until a reviewed frontend release enables it. */
+export function isProgressionUiEnabled(): boolean {
+  return import.meta.env.VITE_ENABLE_PROGRESSION_UI === 'true'
+}

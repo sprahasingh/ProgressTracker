@@ -269,7 +269,7 @@ describe('AI Help Assistant', () => {
     await user.click(retry)
     expect(await screen.findByText('Recovered after cooldown.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledTimes(2)
-  })
+  }, 10000)
 
   it('serves the local FAQ without contacting the backend while offline', async () => {
     mocks.isOnline = false

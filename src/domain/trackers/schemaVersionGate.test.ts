@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -64,5 +64,16 @@ describe('holiday permanent deletion gate', () => {
     expect(isHolidayPermanentDeletionEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_HOLIDAY_PERMANENT_DELETION', 'true')
     expect(isHolidayPermanentDeletionEnabled()).toBe(true)
+  })
+})
+
+describe('progression presentation gate', () => {
+  it('stays disabled until a release explicitly opts in', () => {
+    vi.stubEnv('VITE_ENABLE_PROGRESSION_UI', '')
+    expect(isProgressionUiEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_PROGRESSION_UI', 'false')
+    expect(isProgressionUiEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_PROGRESSION_UI', 'true')
+    expect(isProgressionUiEnabled()).toBe(true)
   })
 })

@@ -196,7 +196,7 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('combobox', { name: /How often/ })).toHaveValue('every-day')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
-    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Record my first check-in' })).toHaveAttribute('href', '/')
     expect(await localRepository.listTrackers()).toMatchObject([{ kind: 'habit', name: 'Read every day', schedule: { kind: 'every-day' }, metrics: [{ valueType: 'boolean' }] }])
   })

@@ -41,10 +41,15 @@ A recorded check-in qualifies when its outcome and values meet the tracker’s c
 **Keywords:** achievements, points, reward, qualified check-in, milestone, longest streak
 **Suggestible:** true
 **Sources:**
+- src/domain/trackers/progressionModel.ts
 - src/domain/trackers/progression.ts
+- src/services/supabase/progressionRepository.ts
 - src/features/dashboard/AchievementsPage.tsx
+- src/features/dashboard/ProgressionAchievementsPage.tsx
+- src/features/dashboard/LegacyAchievementsPage.tsx
+- src/domain/trackers/schemaVersionGate.ts
 **Answer:**
-Each qualifying check-in earns points, and reaching a new longest-streak milestone earns additional points. A missed day can end the current streak, but it does not subtract points already earned. Achievements are calculated from the tracker’s saved history, so editing or clearing history can recalculate the totals.
+The existing Achievements view keeps its legacy points calculated from local saved history. The progression view, when explicitly enabled for a build, shows server-confirmed XP: 10 for a qualifying check-in, 20 for a Perfect Day, streak milestone rewards, and goal milestone or completion rewards. Offline rewards are labeled provisional until the server confirms them; they do not change the official level or unlock badges. A later correction can add a reversal to score history. For existing accounts, past activity may appear as one estimate labeled “XP reconstructed from past activity.” If there is no retained pre-cutover entry history, historical XP is unavailable. This estimate is not individual historical rewards and does not unlock achievements. The progression view stays disabled unless the build sets `VITE_ENABLE_PROGRESSION_UI=true`.
 
 ### ID: completion-missed-dates
 **Category:** statistics
