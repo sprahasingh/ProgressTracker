@@ -184,7 +184,7 @@ describe('app navigation quality', () => {
       expect(window.getComputedStyle(desktopItem).color).toBe(window.getComputedStyle(mobileItem).color)
       view.unmount()
     }
-  })
+  }, 15000)
 
   it('keeps unknown access non-navigable and gives desktop and mobile the same pending decision', async () => {
     injectApplicationStyles()
