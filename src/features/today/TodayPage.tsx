@@ -19,6 +19,7 @@ import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '
 import { getTrackerActivityStatus, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
+import { isActiveTracker } from '../../domain/trackers/lifecycle'
 import { activeTrackerMetrics, type TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
@@ -99,7 +100,8 @@ export function TodayPage() {
       ])
       if (refreshGeneration.current !== generation || ownerRef.current !== requestOwner) return
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
-      const goals = allTrackers.filter((tracker) => tracker.status === 'active' && tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
+      const activeTrackers = allTrackers.filter(isActiveTracker)
+      const goals = activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
       const latestGoalDeadline = goals.reduce<CalendarDate>((latest, tracker) => {
         const deadline = tracker.deadline as CalendarDate
         return !latest || deadline > latest ? deadline : latest
@@ -115,7 +117,7 @@ export function TodayPage() {
       const historicalGoalEntries = goals.length ? await localRepository.listTrackerEntriesBetween(earliestGoalDate, today) : []
       setAllTrackers(allTrackers)
       setHasDeletedTrackerRecords(deletedTrackers.length > 0)
-      setUpcomingGoals(allTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.status === 'active' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
+      setUpcomingGoals(activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
         .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
       setEntries(todayEntries)
       setWeekEntries(recentEntries)
@@ -153,11 +155,12 @@ export function TodayPage() {
     })()
   }, [location, navigate, loading, allTrackers, today])
   useWorkspaceDataChanges(expectedOwner, authStatus !== 'loading', refresh)
-  const trackers = useMemo(() => allTrackers.filter((tracker) => {
+  const activeTrackers = useMemo(() => allTrackers.filter(isActiveTracker), [allTrackers])
+  const trackers = useMemo(() => activeTrackers.filter((tracker) => {
     const inActivePeriod = isTrackerInActivePeriod(tracker, today, timeZone)
     return tracker.strictMode === true && inActivePeriod || !todayHoliday && isScheduledDate(tracker, today, timeZone)
-  }), [allTrackers, today, todayHoliday])
-  const activityTrackers = useMemo(() => allTrackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null), [allTrackers])
+  }), [activeTrackers, timeZone, today, todayHoliday])
+  const activityTrackers = activeTrackers
   const accountCheckPending = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
     && isOnline !== false && ['idle', 'waiting', 'syncing'].includes(syncStatus)
   const accountCheckUnavailable = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
@@ -177,20 +180,20 @@ export function TodayPage() {
   const selectedTracker = activityTrackers.find((tracker) => tracker.id === selectedActivity?.trackerId)
   const selectedEntry = selectedActivity ? weekEntries.find((entry) => entry.trackerId === selectedActivity.trackerId && entry.date === selectedActivity.date) : undefined
   const recentMisses = useMemo(() => selectMissingCheckIns({
-    trackers: allTrackers,
+    trackers: activeTrackers,
     entries: weekEntries,
     holidays: holidaySet,
     dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, index - 7)),
     today,
     timeZone,
-  }), [today, allTrackers, weekEntries, holidaySet, timeZone])
+  }), [today, activeTrackers, weekEntries, holidaySet, timeZone])
   const weekStart = shiftCalendarDate(today, -mondayFirstWeekday(today))
   const weekPattern = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = shiftCalendarDate(weekStart, index)
-    const scheduled = allTrackers.filter((tracker) => isScheduledDate(tracker, date, timeZone))
+    const scheduled = activeTrackers.filter((tracker) => isScheduledDate(tracker, date, timeZone))
     const isToday = date === today
     const isHoliday = holidayDates.includes(date)
-    const strictRequired = allTrackers.filter((tracker) => tracker.strictMode === true && isTrackerInActivePeriod(tracker, date, timeZone))
+    const strictRequired = activeTrackers.filter((tracker) => tracker.strictMode === true && isTrackerInActivePeriod(tracker, date, timeZone))
     const opportunities = [...new Map([...scheduled.filter(() => !isHoliday), ...strictRequired].map((tracker) => [tracker.id, tracker])).values()]
     const entryFor = (tracker: StoredTrackerDefinition) => weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date)
     const statuses = opportunities.map((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }))
@@ -203,7 +206,7 @@ export function TodayPage() {
     const state = isHoliday ? 'holiday' : isRest ? 'rest' : getWeekRhythmState({ isHoliday, scheduled: opportunities.length, done, hasPartial: partial, hasNoProgress: noProgress, hasSkipped, isToday, isFuture: date > today })
     const statusLabel = state === 'complete' ? 'Completed' : state === 'partial' ? 'Partial' : state === 'no-progress' ? 'No progress' : state === 'missed' ? 'Missed' : state === 'skipped' ? 'Skipped' : state === 'holiday' ? 'Holiday' : state === 'rest' ? 'Rest day' : state === 'upcoming' ? 'Upcoming' : 'Pending'
     return { date, scheduled: isHoliday ? 0 : scheduled.length, strictRequired: strictRequired.length, strictQualified, done, isToday, isHoliday, state, statusLabel }
-  }), [today, weekStart, allTrackers, weekEntries, holidayDates])
+  }), [today, weekStart, activeTrackers, weekEntries, holidayDates, timeZone])
 
   async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
     const wasSaved = weekEntries.some((item) => item.trackerId === tracker.id && item.date === date && item.deletedAt === null)

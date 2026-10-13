@@ -12,6 +12,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { PROGRESSION_REWARDS } from '../../domain/trackers/progressionModel'
 import { calculateStreak } from '../../domain/trackers/progression'
+import { isActiveTracker, isArchivedTracker } from '../../domain/trackers/lifecycle'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { getProgressionHistory, getProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -30,6 +31,7 @@ type Detail = 'consistency' | 'streaks' | 'milestones' | null
 type HistoryRange = '7' | '30' | '90' | 'all'
 type HistoryPage = { rows: ProgressionEvent[]; hasMore: boolean }
 type LocalActivity = { date: string; completed: number; skipped: number; missed: number; exempt: number }
+type StreakFilter = 'active' | 'archived'
 
 function progressionFailureMessage(error: unknown): { summary: string; detail: string } {
   const detail = error instanceof Error ? error.message : String(error)
@@ -91,10 +93,11 @@ function milestoneEvents(events: readonly ProgressionEvent[]) {
     .sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate) || right.recordedAt.localeCompare(left.recordedAt))
 }
 
-function getLocalActivity(data: PageData, today: string, timeZone: string): LocalActivity[] {
+function getLocalActivity(data: PageData, trackers: readonly StoredTrackerDefinition[], today: string, timeZone: string): LocalActivity[] {
   return Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today as CalendarDate, index - 7)).map((date) => {
     const activity: LocalActivity = { date, completed: 0, skipped: 0, missed: 0, exempt: 0 }
-    for (const tracker of data.trackers) {
+    for (const tracker of trackers) {
+      if (isArchivedTracker(tracker) && tracker.archivedAt && date >= localCalendarDate(new Date(tracker.archivedAt), timeZone)) continue
       const inPeriod = isTrackerInActivePeriod(tracker, date, timeZone)
       const isEligible = inPeriod && (tracker.strictMode === true || (!data.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
       if (!isEligible) { activity.exempt += 1; continue }
@@ -122,6 +125,7 @@ export function ProgressionAchievementsPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [detail, setDetail] = useState<Detail>(null)
+  const [streakFilter, setStreakFilter] = useState<StreakFilter>('active')
   const [selectedBadge, setSelectedBadge] = useState<AchievementState | null>(null)
   const refreshGeneration = useRef(0)
   const historyGeneration = useRef(0)
@@ -172,14 +176,19 @@ export function ProgressionAchievementsPage() {
     tracker,
     streak: calculateStreak(tracker, pageData.entries.filter((entry) => entry.trackerId === tracker.id), today, pageData.holidays, timeZone),
   })) ?? [], [pageData, today, timeZone])
-  const activity = useMemo(() => pageData ? getLocalActivity(pageData, today, timeZone) : [], [pageData, today, timeZone])
+  const activeTrackers = useMemo(() => pageData?.trackers.filter(isActiveTracker) ?? [], [pageData])
+  const archivedTrackers = useMemo(() => pageData?.trackers.filter(isArchivedTracker) ?? [], [pageData])
+  const visibleStreaks = streakFilter === 'active'
+    ? streaks.filter(({ tracker }) => isActiveTracker(tracker))
+    : streaks.filter(({ tracker }) => isArchivedTracker(tracker))
+  const activity = useMemo(() => pageData ? getLocalActivity(pageData, streakFilter === 'active' ? activeTrackers : archivedTrackers, today, timeZone) : [], [pageData, streakFilter, activeTrackers, archivedTrackers, today, timeZone])
   const milestones = useMemo(() => pageData ? milestoneEvents(pageData.overview.scoreHistory) : [], [pageData])
   const recentUnlocks = useMemo(() => pageData?.overview.achievements.filter((badge) => badge.earned)
     .sort((left, right) => (right.unlockedAt ?? '').localeCompare(left.unlockedAt ?? '')).slice(0, 3) ?? [], [pageData])
   const weekStart = shiftCalendarDate(today as CalendarDate, -6)
   const weeklyXp = pageData?.overview.scoreHistory.filter((event) => event.effectiveDate >= weekStart && event.effectiveDate <= today)
     .reduce((sum, event) => sum + event.xpDelta, 0) ?? 0
-  const activeStreakCount = streaks.filter((item) => item.streak.current > 0).length
+  const activeStreakCount = streaks.filter((item) => isActiveTracker(item.tracker) && item.streak.current > 0).length
 
   const fetchHistoryPage = useCallback(async (page: number, replace: boolean) => {
     if (!owner) return
@@ -265,7 +274,7 @@ export function ProgressionAchievementsPage() {
           </button>
           <button type="button" className="progression-summary-card" onClick={() => setDetail('streaks')} aria-label={`${activeStreakCount} active streaks, view streak details`}>
             <span className="progression-card-label">ACTIVE STREAKS</span><strong>{activeStreakCount}</strong>
-            <span>{streaks.length ? `Across ${streaks.length} active and archived trackers` : 'Create a tracker to begin'}</span><span className="progression-card-action">View streaks <AppIcon name="chevron-down" /></span>
+            <span>{activeTrackers.length ? `Across ${activeTrackers.length} active trackers` : 'Create or restore a tracker to begin'}</span><span className="progression-card-action">View streaks <AppIcon name="chevron-down" /></span>
           </button>
         </div>
         <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
@@ -318,13 +327,16 @@ export function ProgressionAchievementsPage() {
     </ProgressionDetailDialog>}
 
     {detail === 'streaks' && pageData && <ProgressionDetailDialog title="Streaks & recent activity" eyebrow="TRACKER MOMENTUM" onClose={() => setDetail(null)}>
-      {streaks.length === 0 ? <EmptyState title="No tracker history yet" description="Add a tracker and save check-ins to build a streak." /> : <>
-        <div className="progression-streak-summary"><span><strong>{activeStreakCount}</strong> active now</span><span><strong>{Math.max(0, ...streaks.map((item) => item.streak.longest))}</strong> longest streak</span></div>
-        <div className="progression-streak-list">{streaks.map(({ tracker, streak }) => {
+      <div className="progression-streak-filter" role="group" aria-label="Filter streak history">
+        {(['active', 'archived'] as const).map((filter) => <button type="button" key={filter} aria-pressed={streakFilter === filter} className={streakFilter === filter ? 'is-selected' : ''} onClick={() => setStreakFilter(filter)}>{filter === 'active' ? 'Active' : 'Archived'}</button>)}
+      </div>
+      {visibleStreaks.length === 0 ? <EmptyState title={streakFilter === 'active' ? 'No active trackers' : 'No archived tracker history'} description={streakFilter === 'active' ? 'Restore or create an active tracker to build a current streak.' : 'Archived trackers will appear here with their saved historical streaks.'} /> : <>
+        <div className="progression-streak-summary">{streakFilter === 'active' ? <span><strong>{activeStreakCount}</strong> active streaks</span> : <span>Historical streaks from archived trackers</span>}<span><strong>{Math.max(0, ...visibleStreaks.map((item) => item.streak.longest))}</strong> longest streak</span></div>
+        <div className="progression-streak-list">{visibleStreaks.map(({ tracker, streak }) => {
           const nextMilestone = PROGRESSION_REWARDS.streakMilestones.find((item) => item.days > streak.current)
           const reversedRewardIds = new Set(pageData.overview.scoreHistory.filter((event) => event.reasonCode === 'AWARD_REVERSAL' && event.reversesEventId).map((event) => event.reversesEventId))
           const earnedRewards = pageData.overview.streakHistory.filter((event) => event.trackerId === tracker.id && event.xpDelta > 0 && !reversedRewardIds.has(event.id))
-          return <article className="progression-streak-card" key={tracker.id}><div><span className="tracker-kind-chip">{tracker.status === 'archived' ? 'Archived' : tracker.kind}</span><h3>{tracker.name}</h3></div><div className="progression-streak-values"><span><strong>{streak.current}</strong> current</span><span><strong>{streak.longest}</strong> longest</span></div>{nextMilestone && <p>Next streak milestone: {streak.current} / {nextMilestone.days} days · {nextMilestone.xp} XP</p>}{earnedRewards.length > 0 && <div className="progression-earned-streaks" aria-label="Earned streak rewards">{earnedRewards.map((event) => <span key={event.id}>+{event.xpDelta} XP · {formatCalendarDate(event.effectiveDate)}</span>)}</div>}</article>
+          return <article className="progression-streak-card" key={tracker.id}><div><span className="tracker-kind-chip">{streakFilter === 'archived' ? 'Archived' : tracker.kind}</span><h3>{tracker.name}</h3></div><div className="progression-streak-values">{streakFilter === 'active' && <span><strong>{streak.current}</strong> current</span>}<span><strong>{streak.longest}</strong> longest</span></div>{streakFilter === 'active' && nextMilestone && <p>Next streak milestone: {streak.current} / {nextMilestone.days} days · {nextMilestone.xp} XP</p>}{streakFilter === 'archived' && <p>{streak.lastQualifiedDate ? `Last qualifying activity: ${formatCalendarDate(streak.lastQualifiedDate)}` : 'No qualifying activity recorded'}</p>}{earnedRewards.length > 0 && <div className="progression-earned-streaks" aria-label="Earned streak rewards">{earnedRewards.map((event) => <span key={event.id}>+{event.xpDelta} XP · {formatCalendarDate(event.effectiveDate)}</span>)}</div>}</article>
         })}</div>
         <h3 className="progression-subheading">Recent seven-day activity</h3>
         <ul className="progression-activity-list">{activity.map((day) => <li key={day.date}><time dateTime={day.date}>{formatCalendarDate(day.date)}</time><span>{day.completed} completed</span><span>{day.skipped} skipped</span><span>{day.missed} missed</span><span>{day.exempt} exempt</span></li>)}</ul>

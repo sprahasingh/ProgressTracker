@@ -163,6 +163,26 @@ describe('Progression achievements interface', () => {
     expect(screen.queryByRole('dialog', { name: 'Milestone rewards' })).not.toBeInTheDocument()
   })
 
+  it('separates current active streaks from archived historical streaks', async () => {
+    const archivedDate = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    const archived: StoredTrackerDefinition = { ...tracker, id: 'archived-1', name: 'Old reading routine', status: 'archived', archivedAt: `${archivedDate}T12:00:00.000Z` }
+    const archivedEntry: StoredTrackerEntry = { ...entry, id: 'archived-entry', trackerId: archived.id, date: archivedDate, createdAt: `${archivedDate}T10:00:00.000Z`, updatedAt: `${archivedDate}T10:00:00.000Z` }
+    mocks.listTrackers.mockResolvedValueOnce([tracker, archived])
+    mocks.listTrackerEntriesBetween.mockResolvedValueOnce([entry, archivedEntry])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /active streaks, view streak details/i }))
+    const dialog = await screen.findByRole('dialog', { name: 'Streaks & recent activity' })
+    expect(within(dialog).getByRole('group', { name: 'Filter streak history' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Old reading routine')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Archived' }))
+    expect(within(dialog).getByText('Old reading routine')).toBeInTheDocument()
+    expect(within(dialog).getByText(/Last qualifying activity:/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/current|next streak milestone/i)).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Archived' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('opens earned and locked badge details with requirements and unlock history', async () => {
     const user = userEvent.setup()
     renderPage()

@@ -115,6 +115,7 @@ const sources = [
   'supabase/migrations/20261009000300_goal_planning_v2.sql',
   'supabase/migrations/20261009000400_goal_allocations_v3.sql',
   'supabase/migrations/20261010000100_tracker_bin_permanent_deletion.sql',
+  'supabase/migrations/20261104001500_guard_tracker_deletion_with_progression_history.sql',
   'supabase/migrations/20261011000100_global_holidays.sql',
   'supabase/migrations/20261012000100_tracker_numeric_precision_v4.sql',
   'supabase/migrations/20261016000100_validate_owner_references_immediately.sql',

@@ -51,12 +51,12 @@ describe('Tracker Bin', () => {
     mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
     const { unmount } = render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
-    expect(await screen.findByText(/Trackers are not automatically removed after 30 days/)).toBeInTheDocument()
+    expect(await screen.findByText(/Automatic deletion after 30 days is not configured/)).toBeInTheDocument()
     unmount()
 
     vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
-    expect(await screen.findByText('Trackers in the Bin are permanently deleted after 30 days. You can restore or permanently delete them sooner.')).toBeInTheDocument()
+    expect(await screen.findByText(/Scheduled cleanup attempts to remove eligible trackers after 30 days/)).toBeInTheDocument()
   })
 
   it('shows the recovery countdown and confirms before restoring a goal', async () => {
@@ -67,6 +67,8 @@ describe('Tracker Bin', () => {
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
     expect(await screen.findByText(/29 days left to restore · recovery ends/)).toBeInTheDocument()
+    expect(screen.getByText(/Was Active/)).toBeInTheDocument()
+    expect(screen.getByText(/Moved to Bin/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Read 12 books' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Restore' }))
     expect(mocks.restoreTracker).toHaveBeenCalledWith('trash-goal')

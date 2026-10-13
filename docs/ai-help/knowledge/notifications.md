@@ -43,7 +43,7 @@ Open Settings and find Notifications to review the available reminder preference
 - src/features/notifications/ForegroundReminderMonitor.tsx
 - src/features/notifications/reminderRules.test.ts
 **Answer:**
-The app can highlight unresolved check-in opportunities in its foreground experience, and History reviews missing opportunities from the previous seven completed days. These reminders depend on tracker schedules and active dates; they do not mean a saved check-in was deleted.
+The app can highlight unresolved opportunities for active trackers in its foreground experience, and History reviews missing opportunities from the previous seven completed days. These reminders depend on tracker schedules and active dates; archived and Bin trackers are not actionable reminders, and a reminder does not mean a saved check-in was deleted.
 
 ### ID: reminder-previous-day-only
 **Category:** notifications
