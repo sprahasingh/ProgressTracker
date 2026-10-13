@@ -25,6 +25,12 @@ function recoveryLabel(deletedAt: string, now: number, accountOwned: boolean) {
   return `${days} ${days === 1 ? 'day' : 'days'} left to restore · recovery ends ${deadline.toLocaleDateString(undefined, { dateStyle: 'medium' })}`
 }
 
+function binDescription(automaticCleanupEnabled: boolean, permanentDeletionEnabled: boolean) {
+  if (automaticCleanupEnabled) return 'Scheduled cleanup attempts to remove eligible trackers after 30 days. Trackers with progression history remain protected until rewards can be reconciled safely. You can restore trackers during recovery.'
+  if (permanentDeletionEnabled) return 'Restore a deleted tracker during its 30-day recovery period, or request permanent deletion. Accounts with progression history remain protected until rewards can be reconciled safely. Automatic deletion after 30 days is not configured.'
+  return 'Deleted trackers can be restored for 30 days. Automatic cleanup is not configured, and permanent deletion isn’t available in this app version.'
+}
+
 export function TrackerBinPage() {
   const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncNow, isOnline } = useAuth()
@@ -71,7 +77,7 @@ export function TrackerBinPage() {
 
   async function restore(tracker: StoredTrackerDefinition) {
     setBusyId(tracker.id); setError('')
-    try { await localRepository.restoreTracker(tracker.id); await refresh(); notify({ kind: 'success', title: 'Tracker restored', description: 'It is active again with its saved history.', dedupeKey: `tracker:${tracker.id}` }) }
+    try { await localRepository.restoreTracker(tracker.id); await refresh(); notify({ kind: 'success', title: 'Tracker restored', description: tracker.status === 'archived' ? 'It is back in Archived with its saved history.' : 'It is active again with its saved history.', dedupeKey: `tracker:${tracker.id}` }) }
     catch { notify({ kind: 'error', title: 'Couldn’t restore tracker', description: 'Your data is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` }) }
     finally { setBusyId(null) }
   }
@@ -90,7 +96,7 @@ export function TrackerBinPage() {
   }
 
   return <section className="tracker-page bin-page" aria-labelledby="bin-title">
-    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={automaticCleanupEnabled ? 'Trackers in the Bin are permanently deleted after 30 days. You can restore or permanently delete them sooner.' : permanentDeletionEnabled ? 'Restore a deleted tracker during its 30-day recovery period, or permanently delete it at any time. Trackers are not automatically removed after 30 days.' : 'Deleted trackers can be restored for 30 days. Automatic cleanup is not configured, and permanent deletion isn’t available in this app version.'} help={{ title: 'The Bin', summary: automaticCleanupEnabled ? 'Trackers in the Bin are permanently deleted after 30 days.' : 'Restore a deleted tracker during its 30-day recovery period.', description: `A tracker in the Bin retains its saved progress and planning data${automaticCleanupEnabled ? ' until it is restored or permanently deleted after 30 days' : ' until restored or permanently deleted'}. The countdown starts from the server-confirmed deletion time for signed-in accounts. Permanent deletion removes the tracker and its history from all synchronized devices; an offline request remains pending until the server confirms it.` }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={binDescription(automaticCleanupEnabled, permanentDeletionEnabled)} help={{ title: 'The Bin', summary: automaticCleanupEnabled ? 'Scheduled cleanup attempts to permanently delete eligible Bin items after 30 days.' : 'Restore a deleted tracker during its 30-day recovery period.', description: `A tracker in the Bin retains its saved progress and planning data until it is restored or deletion is confirmed. The countdown starts from the server-confirmed deletion time for signed-in accounts. Accounts with progression history are protected because exact reward reconciliation is not yet supported. Automatic cleanup can also be refused for those accounts, even when its scheduler is configured. An offline deletion request remains pending until the server confirms it.` }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
     {owner && !permanentDeletionEnabled && <p className="bin-system-note" role="status" data-ai-capability="bin.permanent_delete" data-ai-availability="disabled">Permanent deletion isn’t available in this app version. You can restore trackers during their 30-day recovery period.</p>}
     {owner && permanentDeletionEnabled && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}
@@ -101,9 +107,9 @@ export function TrackerBinPage() {
         const expired = now >= Date.parse(tracker.deletedAt!) + recoveryMs
         const guestExpired = expired && !owner
         return <Surface className="bin-card" key={tracker.id}>
-          <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabel[tracker.kind]}</span><span className={expired ? 'bin-countdown expired' : 'bin-countdown'}>{recoveryLabel(tracker.deletedAt!, now, Boolean(owner))}</span></div>
+          <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabel[tracker.kind]}</span><span className="tracker-kind-chip">Was {tracker.status === 'archived' ? 'Archived' : 'Active'}</span><span className={expired ? 'bin-countdown expired' : 'bin-countdown'}>{recoveryLabel(tracker.deletedAt!, now, Boolean(owner))}</span></div>
           <h2>{tracker.name}</h2>
-          <p>{tracker.metrics.length} {tracker.metrics.length === 1 ? 'measure' : 'measures'} · progress and planning are preserved</p>
+          <p>Moved to Bin {new Date(tracker.deletedAt!).toLocaleString()} · {tracker.metrics.length} {tracker.metrics.length === 1 ? 'measure' : 'measures'} · progress and planning are preserved</p>
           {request && <p className="bin-pending" role="status">{request.status === 'pending' && !request.lastError ? 'Permanent deletion pending server confirmation.' : request.status === 'pending' ? `Deletion not confirmed; it will retry when sync runs. ${request.lastError}` : request.lastError ?? 'Deletion needs attention.'}</p>}
           <div className="tracker-card-actions">
             <Button data-ai-capability="bin.restore" variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || requestBlocked} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
@@ -112,6 +118,6 @@ export function TrackerBinPage() {
         </Surface>
       })}
     </div>}
-    {pendingPermanentDeletion && <ConfirmActionDialog title={`Delete “${pendingPermanentDeletion.name}” permanently?`} description="This permanently removes the tracker and all associated check-ins, measure progress, notes, and planning data. It cannot be restored. For a signed-in account, removal waits for server confirmation and applies across synchronized devices." actionLabel="Delete permanently" destructive onCancel={() => setPendingPermanentDeletion(null)} onConfirm={() => { const tracker = pendingPermanentDeletion; setPendingPermanentDeletion(null); void permanentlyDelete(tracker) }} />}
+    {pendingPermanentDeletion && <ConfirmActionDialog title={`Delete “${pendingPermanentDeletion.name}” permanently?`} description="This permanently removes the tracker and its saved check-ins, measure progress, notes, and planning data. It cannot be restored. Accounts with progression history may be refused deletion until attributable XP and achievement changes can be reconciled safely. For signed-in accounts, deletion waits for server confirmation and applies across synchronized devices." actionLabel="Delete permanently" destructive onCancel={() => setPendingPermanentDeletion(null)} onConfirm={() => { const tracker = pendingPermanentDeletion; setPendingPermanentDeletion(null); void permanentlyDelete(tracker) }} />}
   </section>
 }

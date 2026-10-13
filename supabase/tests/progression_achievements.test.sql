@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(33);
 
 select has_table('public','progression_achievement_progress','server-derived achievement progress exists');
 select has_table('public','progression_achievement_events','append-only achievement history exists');
@@ -93,6 +93,8 @@ select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),2::bigint,'retrying repeatable reconciliation does not duplicate tiers');
 
 delete from auth.users where id='00000000-0000-4000-8000-000000000401';
+select is((select count(*) from public.trackers where id='00000000-0000-4000-8000-000000000411'),0::bigint,'account deletion cascade bypasses the tracker XP guard and removes tracker data');
+select is((select count(*) from public.tracker_entries where id='00000000-0000-4000-8000-000000000413'),0::bigint,'account deletion cascade removes tracker entry data despite progression history');
 select is((select count(*) from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401'),0::bigint,'account deletion cascades achievement progress');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401'),0::bigint,'account deletion cascades achievement event history');
 select is((select count(*) from public.progression_achievement_accounts where user_id='00000000-0000-4000-8000-000000000401'),0::bigint,'account deletion cascades achievement cutover state');

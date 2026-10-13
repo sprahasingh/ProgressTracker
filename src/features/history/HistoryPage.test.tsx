@@ -98,6 +98,16 @@ describe('local check-in history', () => {
     expect(screen.getByRole('heading', { name: 'Yoga' })).toBeInTheDocument()
   })
 
+  it('labels archived tracker records as historical and keeps them read-only', async () => {
+    const archived = { ...definition, status: 'archived' as const, archivedAt: `${localCalendarDate()}T12:00:00.000Z` }
+    await localRepository.saveTracker(archived)
+    await db.trackerEntries.put({ id: 'archived-history-entry', trackerId: archived.id, date: localCalendarDate(), outcome: 'recorded', values: { distance: 4 }, note: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+    expect(await screen.findByText('Archived history')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit check-in' })).toBeDisabled()
+    expect(screen.getByText('Archived trackers’ check-ins are read-only.')).toBeInTheDocument()
+  })
+
   it('renders retired measure history with its original label and unit', async () => {
     const withSecondMetric = { ...definition, metrics: [...definition.metrics, { id: 'done', name: 'Done', valueType: 'boolean' as const }] }
     await localRepository.saveTracker(withSecondMetric)

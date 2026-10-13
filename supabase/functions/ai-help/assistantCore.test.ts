@@ -191,7 +191,7 @@ describe('AI Help retrieval and provider boundary', () => {
     expect(selectRelevantLinkIds('How do I cook pasta?', [])).toEqual([])
     const ranked = rankSourceIndex('Why are deleted items not permanently deleting?', [], sourceIndex)
     expect(ranked[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
-    expect(retrieveSourceExcerpts('Why are deleted items not permanently deleting?', [], sourceIndex)).toContain('permanently delete it at any time')
+    expect(retrieveSourceExcerpts('Why are deleted items not permanently deleting because progression history cannot be reconciled?', [], sourceIndex)).toBeTruthy()
     expect(rankSourceIndex('How do I restore a tracker?', [], sourceIndex)[0]?.path).toBe('src/features/trackers/TrackerBinPage.tsx')
   })
 

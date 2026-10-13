@@ -1,5 +1,5 @@
 begin;
-select plan(75);
+select plan(81);
 
 select ok(to_regclass('public.tracker_deletion_ledger') is not null, 'durable deletion ledger exists');
 select ok(to_regclass('public.tracker_deletion_cleanup_control') is not null, 'cleanup control exists');
@@ -175,8 +175,23 @@ select is((select count(*) from public.tracker_entries where tracker_id = '00000
 select is((select count(*) from public.tracker_deletion_ledger where tracker_id = '00000000-0000-4000-8000-000000000669'), 0::bigint, 'failed cleanup rolls back its tentative ledger insert');
 drop trigger tracker_bin_test_reject_delete on public.trackers;
 drop function public.tracker_bin_test_reject_delete();
+insert into public.progression_events(user_id,event_category,reason_code,effective_date,xp_delta,scoring_version,idempotency_key,metadata)
+values ('00000000-0000-4000-8000-000000000062','legacy_opening_balance','LEGACY_XP_OPENING_BALANCE','2026-10-14',50,1,
+  '00000000-0000-4000-8000-000000000968','{"label":"XP reconstructed from past activity"}');
+update public.trackers set deleted_at = clock_timestamp(),
+  definition = jsonb_set(definition, '{deletedAt}', to_jsonb(clock_timestamp()), true)
+where id = '00000000-0000-4000-8000-000000000668';
+select ok((select pg_get_triggerdef(oid) like '%old.definition%' and pg_get_triggerdef(oid) like '%deletedAt%'
+  from pg_trigger where tgname = 'trackers_progression_definition_changed_update'), 'Bin-only updates skip historical progression reconciliation');
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000062';
+select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000970','tracker_entry',null,
+  '{"id":"00000000-0000-4000-8000-000000000770","tracker_id":"00000000-0000-4000-8000-000000000668","entry_date":"2026-10-14","outcome":"recorded","entry_values":{"minutes":1}}')->>'status'), 'parent_in_bin'::text, 'server rejects live check-ins while tracker is in the Bin');
+select throws_ok($$select public.permanently_delete_tracker('00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000969','00000000-0000-4000-8000-000000000668',(select server_revision from public.trackers where id='00000000-0000-4000-8000-000000000668'))$$,
+  '55000', 'permanent tracker deletion is unavailable while progression history exists; exact XP and achievement reconciliation is not yet supported', 'permanent deletion fails closed when account XP cannot be attributed safely');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000668'), 1::bigint, 'guarded deletion retains tracker data');
+select is((select count(*) from public.tracker_deletion_ledger where tracker_id = '00000000-0000-4000-8000-000000000668'), 0::bigint, 'guarded deletion creates no permanent tombstone');
+select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000062'), 50::bigint, 'guarded deletion leaves authoritative XP unchanged');
 select is((public.permanently_delete_tracker('00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000966','00000000-0000-4000-8000-000000000663',1)->>'status'), 'conflict'::text, 'stale revision cannot permanently delete a restored tracker');
 select is((select deleted_at from public.trackers where id = '00000000-0000-4000-8000-000000000663'), null::timestamptz, 'stale revision leaves restored data unchanged');
 

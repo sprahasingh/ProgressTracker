@@ -71,6 +71,14 @@ describe('Today check-ins', () => {
     expect(screen.queryByRole('heading', { name: 'Start tracking what matters.' })).not.toBeInTheDocument()
   })
 
+  it('excludes archived trackers from Today even when an active tracker is also present', async () => {
+    await localRepository.saveTracker({ ...tracker(), id: 'active-today', name: 'Current routine', customFields: [] })
+    await localRepository.saveTracker({ ...tracker(), id: 'archived-today', name: 'Past routine', status: 'archived', archivedAt: `${today()}T00:00:00.000Z`, customFields: [] })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByText('Current routine')).toBeInTheDocument()
+    expect(screen.queryByText('Past routine')).not.toBeInTheDocument()
+  })
+
   it('offers the inactive state for paused trackers too', async () => {
     await localRepository.saveTracker({ ...tracker(), status: 'paused' })
     render(<MemoryRouter><TodayPage /></MemoryRouter>)

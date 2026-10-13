@@ -13,7 +13,7 @@
 - src/features/trackers/TrackerLibraryPage.tsx
 - src/features/trackers/TrackerBinPage.test.tsx
 **Answer:**
-Trackers deleted through the tracker flow appear in The Bin, where you can choose Restore. Archiving or pausing a tracker is different: it stays in your tracker library and keeps its history.
+Trackers deleted through the tracker flow appear in The Bin, where you can choose Restore. Restoration returns a tracker to its prior active or archived state. Archiving or pausing a tracker is different: it stays in your tracker library and keeps its history.
 
 ### ID: bin-retention
 **Category:** trackers
@@ -28,7 +28,7 @@ Trackers deleted through the tracker flow appear in The Bin, where you can choos
 - src/db/localRepository.ts
 - supabase/migrations/20261101000100_schedule_tracker_bin_cleanup.sql
 **Answer:**
-Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan, or permanently deleted after server confirmation. Automatic removal depends on whether the deployment has enabled the scheduled database cleanup; the Bin explains the policy active in that deployment.
+Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan. Permanent deletion requires server confirmation and is blocked for accounts with progression history until exact XP and achievement reconciliation is supported. Scheduled cleanup can also be refused for those accounts, even when configured, so the Bin describes cleanup as an attempt and does not promise deletion after 30 days. Keep scheduled cleanup disabled until the reconciliation limitation is resolved.
 
 ### ID: edit-tracker-history
 **Category:** trackers
@@ -57,7 +57,7 @@ Some edits can change which dates count in schedule-based statistics, because ca
 - src/features/trackers/TrackerLibraryPage.tsx
 - src/features/trackers/TrackerBinPage.tsx
 **Answer:**
-Archiving or pausing a tracker stops it being active for future opportunities but keeps its recorded history. The tracker list can show active, archived, or all trackers. When editing an archived tracker, choose whether to keep it archived or move it to active after saving. Deleting a tracker is a separate action that moves it through the app’s Bin and restore flow.
+Archiving a tracker removes it from Today and current activity while keeping its recorded history and rewards. The tracker list can show active, archived, or all trackers. When editing an archived tracker, choose whether to keep it archived or move it to active after saving. Deleting a tracker is a separate action that moves it through the app’s Bin and restore flow.
 
 ### ID: tracker-schedules
 **Category:** trackers

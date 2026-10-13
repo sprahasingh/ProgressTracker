@@ -19,6 +19,8 @@ The following hosted status was reported during the latest review:
 
 Because execution success is unconfirmed, verify the latest run before treating cleanup as operationally confirmed. The GitHub Pages workflow currently does not pass `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP` to its build step. Setting a repository variable alone therefore does not configure that production build; the deployment configuration must be updated before relying on the Bin wording gate.
 
+Forward-only migration `20261104001500_guard_tracker_deletion_with_progression_history.sql` blocks final tracker deletion for accounts with progression or achievement events because exact XP and achievement reconciliation is not yet supported. It turns the cleanup control off and leaves any cron job installed but inert. This agent did not apply the migration or inspect or change hosted settings.
+
 ## How automatic cleanup works
 
 The migration installs one active daily pg_cron job named `progress-tracker-bin-cleanup`, scheduled at `0 3 * * *`. It creates the cleanup control row disabled if the row is absent, but preserves an existing row. The routine does nothing while the control is disabled. In the hosted deployment described above, the control is enabled.
