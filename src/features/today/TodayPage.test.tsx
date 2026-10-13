@@ -291,6 +291,29 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
   })
 
+  it('cancels an unsaved draft without writing and keeps Cancel and Save side by side', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    const saveEntry = vi.spyOn(localRepository, 'saveTrackerEntry')
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Pending' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Pages' }), '4')
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' })
+    const save = screen.getByRole('button', { name: 'Save check-in' })
+    expect(cancel.parentElement).toHaveClass('today-primary-actions')
+    expect(cancel.parentElement).toContainElement(save)
+    expect(cancel).toHaveClass('button-secondary')
+    expect(save).toHaveClass('button-primary')
+
+    const confirm = vi.spyOn(window, 'confirm')
+    await user.click(cancel)
+    expect(screen.queryByRole('dialog', { name: 'Daily reading' })).not.toBeInTheDocument()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(saveEntry).not.toHaveBeenCalled()
+    await expect(localRepository.getTrackerEntry('today-tracker', today())).resolves.toBeUndefined()
+  })
+
   it('blocks saving an unfinished numeric draft and leaves the stored check-in unchanged', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(tracker())
@@ -537,6 +560,8 @@ describe('Today check-ins', () => {
   it('keeps dialog headers, close buttons, scroll regions, and check-in actions in viewport-aware layout', () => {
     expect(todayStyles).toMatch(/\.today-detail-content\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s)
     expect(todayStyles).toMatch(/\.today-detail-actions\s*\{[^}]*flex:\s*0 0 auto/s)
+    expect(todayStyles).toMatch(/\.today-primary-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s)
+    expect(todayStyles).toMatch(/\.today-primary-actions > \.button\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0/s)
     expect(todayStyles).toMatch(/\.today-requirements-content\s*\{[^}]*overflow-y:\s*auto/s)
     expect(todayStyles).toMatch(/\.today-requirements-heading\s*\{[^}]*flex:\s*0 0 auto/s)
     expect(todayStyles).toMatch(/\.today-requirements-trigger\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s)

@@ -457,7 +457,15 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
           {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><div className="today-save-primary"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving || saved} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : saved ? 'Saved' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button>{saved && <p className="today-saved-indicator" role="status">Saved on this device.{syncFeedback}</p>}</div><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
+      {canEdit && <footer className="today-detail-actions">
+        <div className="today-primary-actions">
+          <button type="button" className="button button-secondary button-medium" disabled={saving} onClick={onClose}>Cancel</button>
+          <button type="button" data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving || saved} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : saved ? 'Saved' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button>
+          {saved && <p className="today-saved-indicator" role="status">Saved on this device.{syncFeedback}</p>}
+        </div>
+        <div><button type="button" className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>
+        {entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}
+      </footer>}
     </section>
   </div>, document.body)
 }
