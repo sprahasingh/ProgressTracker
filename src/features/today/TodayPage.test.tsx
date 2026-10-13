@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../../db/database'
@@ -451,9 +451,17 @@ describe('Today check-ins', () => {
     expect(dialog).toHaveTextContent('Recorded toward goal4 sessions')
 
     await user.click(screen.getByRole('button', { name: 'Close daily requirements' }))
-    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
-    expect(screen.getByRole('alertdialog', { name: 'Clear check-in?' })).toHaveTextContent('The date will become unchecked')
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
+    const deleteEntry = vi.spyOn(localRepository, 'deleteTrackerEntry')
+    await user.click(screen.getByRole('button', { name: 'Clear check-in' }))
+    expect(screen.getByRole('alertdialog', { name: 'Clear this check-in?' })).toHaveTextContent('removes the saved check-in')
+    expect(deleteEntry).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('alertdialog')).getByText('More details'))
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('A deletion record is kept so account sync can apply the clear on other devices')
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    expect(deleteEntry).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Clear check-in' }))
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear check-in' }))
+    await waitFor(() => expect(deleteEntry).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions'))
   })
 
@@ -636,7 +644,19 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await screen.findByRole('heading', { name: 'Daily reading' })
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
-    await user.click(await screen.findByRole('button', { name: /Mark as skipped/ }))
+    await user.click(await screen.findByRole('button', { name: 'Skip day' }))
+    const skipDialog = screen.getByRole('alertdialog', { name: 'Skip this day?' })
+    expect(skipDialog).toHaveTextContent('intentional skipped outcome')
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
+    expect(within(skipDialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    fireEvent.click(document.querySelector('.checkin-confirm-backdrop')!)
+    expect(screen.getByRole('alertdialog', { name: 'Skip this day?' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('alertdialog', { name: 'Skip this day?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip day' })).toHaveFocus()
+    expect(await localRepository.getTrackerEntry('today-tracker', today())).toBeUndefined()
+    await user.click(screen.getByRole('button', { name: 'Skip day' }))
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirm skip' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Daily reading, Skipped' })).toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 skipped')
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'skipped' })

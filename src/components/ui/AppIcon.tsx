@@ -1,11 +1,13 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type AppIconName = 'today' | 'trackers' | 'calendar' | 'insights' | 'holiday' | 'settings' | 'privacy' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-upcoming' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-outside-period' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled' | 'status-inactive' | 'status-no-trackers'
+export type AppIconName = 'today' | 'trackers' | 'calendar' | 'calendar-skip' | 'reset' | 'insights' | 'holiday' | 'settings' | 'privacy' | 'bin' | 'more' | 'spark' | 'account' | 'habit' | 'goal' | 'challenge' | 'project' | 'home' | 'mail' | 'loading' | 'close' | 'add' | 'check' | 'info' | 'lock' | 'chevron-down' | 'status-pending' | 'status-upcoming' | 'status-completed' | 'status-partial' | 'status-no-progress' | 'status-historical' | 'status-outside-period' | 'status-missed' | 'status-skipped' | 'status-holiday' | 'status-unscheduled' | 'status-inactive' | 'status-no-trackers'
 
 const paths: Record<AppIconName, ReactNode> = {
   today: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14l2.2 2.2L16 11" /></>,
   trackers: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" /></>,
   calendar: <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 13h2M14 13h2M8 17h2M14 17h2" /></>,
+  'calendar-skip': <><rect x="3.5" y="5" width="17" height="16" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 14h3m-3 3h3m4-3 4 3-4 3v-2.2h-2v-1.6h2V14Z" /></>,
+  reset: <><path d="M5 8V3m0 5h5" /><path d="M5.7 8A8 8 0 1 1 4 14" /><path d="M12 7v5l3 2" /></>,
   insights: <><path d="M4 19.5h16M6.5 16V11M11.5 16V5M16.5 16V8" /><path d="m5.5 8 5-3 5 3 4-3" /></>,
   holiday: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.7 4.7l1.4 1.4m11.8 11.8 1.4 1.4M2.5 12h2m15 0h2M4.7 19.3l1.4-1.4M17.9 6.1l1.4-1.4" /></>,
   settings: <><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="m19.4 13.5 1.1.9-1.5 2.6-1.4-.5a7.8 7.8 0 0 1-1.5.9l-.3 1.5h-3l-.3-1.5a7.8 7.8 0 0 1-1.5-.9l-1.4.5-1.5-2.6 1.1-.9a7 7 0 0 1 0-1.8l-1.1-.9 1.5-2.6 1.4.5a7.8 7.8 0 0 1 1.5-.9l.3-1.5h3l.3 1.5a7.8 7.8 0 0 1 1.5.9l1.4-.5 1.5 2.6-1.1.9a7 7 0 0 1 0 1.8Z" transform="translate(-1 -1)" /></>,

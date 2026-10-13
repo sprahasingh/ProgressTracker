@@ -8,6 +8,7 @@ import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { IconButton } from '../../components/ui/IconButton'
 import { AppIcon } from '../../components/ui/AppIcon'
+import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 import { ActivityStatusIcon } from '../../components/ui/ActivityStatusIcon'
 import { useToast } from '../../components/ui/ToastProvider'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
@@ -383,6 +384,8 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
   const [noteExpanded, setNoteExpanded] = useState(false)
   const [issue, setIssue] = useState('')
   const [saving, setSaving] = useState(false)
+  const [skipConfirmationOpen, setSkipConfirmationOpen] = useState(false)
+  const [skipConfirmationBusy, setSkipConfirmationBusy] = useState(false)
   const entryRef = useRef(entry)
   const closeRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
@@ -390,6 +393,7 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
   const closeRequestRef = useRef<() => void>(() => {})
   const dirty = comparableValues(values) !== comparableValues(baseline.values) || note !== baseline.note
   const saved = baseline.exists && baseline.outcome === 'recorded' && !dirty
+  const locallySaved = baseline.exists && !dirty
   const syncFeedback = authStatus !== 'signed-in' ? ''
     : isOnline === false || syncStatus === 'offline' ? ' It will sync when your account is online.'
       : ['waiting', 'syncing'].includes(syncStatus) ? ' Account sync is pending.'
@@ -429,16 +433,24 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
       return next
     })
   }
-  async function submit(outcome: 'recorded' | 'skipped', payload = values) {
-    if (saving) return
-    if (outcome === 'recorded' && invalidInputs.size > 0) { setIssue('Finish or correct the highlighted number fields before saving.'); return }
+  async function submit(outcome: 'recorded' | 'skipped', payload = values): Promise<boolean> {
+    if (saving) return false
+    if (outcome === 'recorded' && invalidInputs.size > 0) { setIssue('Finish or correct the highlighted number fields before saving.'); return false }
     const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: baseline.values }) : undefined
-    if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
+    if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return false }
     setIssue(''); setSaving(true)
     const didSave = await onSave(tracker, today, payload, note, outcome)
-    if (!didSave) { setSaving(false); return }
+    if (!didSave) { setSaving(false); return false }
     setBaseline({ exists: true, outcome, values: outcome === 'skipped' ? {} : payload, note })
     setSaving(false)
+    return true
+  }
+  async function confirmSkip() {
+    if (skipConfirmationBusy || saving) return
+    setSkipConfirmationBusy(true)
+    const didSave = await submit('skipped')
+    setSkipConfirmationBusy(false)
+    if (didSave) setSkipConfirmationOpen(false)
   }
   async function clear(): Promise<boolean> { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose(); return cleared }
 
@@ -461,11 +473,14 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
         <div className="today-primary-actions">
           <button type="button" className="button button-secondary button-medium" disabled={saving} onClick={onClose}>Cancel</button>
           <button type="button" data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving || saved} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : saved ? 'Saved' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button>
-          {saved && <p className="today-saved-indicator" role="status">Saved on this device.{syncFeedback}</p>}
+          {locallySaved && <p className="today-saved-indicator" role="status">Saved on this device.{syncFeedback}</p>}
         </div>
-        <div><button type="button" className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>
-        {entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}
+        <div className="today-secondary-actions">
+          <button type="button" className="today-secondary-action today-secondary-skip" disabled={saving} onClick={() => setSkipConfirmationOpen(true)}><AppIcon name="calendar-skip" /><span>Skip day</span></button>
+          <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} compact available={Boolean(entry)} />
+        </div>
       </footer>}
+      {skipConfirmationOpen && <ConfirmActionDialog title="Skip this day?" description="This records an intentional skipped outcome. If today is a required opportunity for this tracker, it will not qualify toward your streak." details="A skipped entry is saved separately from an unchecked date and contains no measure values. Scheduled opportunities and Strict Mode settings determine whether the date affects your streak." actionLabel="Confirm skip" actionDisabled={skipConfirmationBusy || saving} cancelDisabled={skipConfirmationBusy || saving} layer="checkin" onCancel={() => { if (!skipConfirmationBusy && !saving) setSkipConfirmationOpen(false) }} onConfirm={() => void confirmSkip()} />}
     </section>
   </div>, document.body)
 }
