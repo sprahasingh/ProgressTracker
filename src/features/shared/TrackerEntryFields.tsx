@@ -5,7 +5,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { getTargetProgress } from '../../domain/trackers/planning'
 import { activeTrackerMetrics, type TrackerDefinition, type TrackerEntry, type TrackerValue } from '../../domain/trackers/types'
 
-export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels }: {
+export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels, showDraftPreview = true }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   setValue: (key: string, value: TrackerValue | undefined) => void
@@ -16,6 +16,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
   onInputValidityChange?: (key: string, valid: boolean) => void
   expectedAmounts?: Readonly<Record<string, number>>
   expectedLabels?: Readonly<Record<string, string>>
+  showDraftPreview?: boolean
 }) {
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   function reportInputValidity(key: string, valid: boolean) {
@@ -51,7 +52,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
       })}
       {tracker.customFields.slice().sort((a, b) => a.position - b.position).map((field) => <CustomField key={field.id} field={field} value={values[`field:${field.id}`]} setValue={(value) => setValue(`field:${field.id}`, value)} onValidityChange={(valid) => reportInputValidity(`field:${field.id}`, valid)} />)}
     </div>
-    {invalidInputs.size === 0 && date && activeTrackerMetrics(tracker.metrics).some((metric) => {
+    {showDraftPreview && invalidInputs.size === 0 && date && activeTrackerMetrics(tracker.metrics).some((metric) => {
       const value = values[metric.id]
       return value !== undefined && value !== null && value !== ''
     }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} />}

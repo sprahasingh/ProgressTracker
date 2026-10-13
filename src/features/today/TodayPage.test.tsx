@@ -175,7 +175,9 @@ describe('Today check-ins', () => {
     await user.selectOptions(screen.getByLabelText(/Mood/), 'Focused')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
 
-    expect(await screen.findByRole('status', { name: 'Saved on this device' })).toHaveTextContent('It will sync when your account is online.')
+    expect(await screen.findByText(/Saved on this device/)).toHaveTextContent('It will sync when your account is online.')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
     expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ outcome: 'recorded', values: { pages: 1, 'field:mood': 'Focused' } })
   })
 
@@ -225,6 +227,8 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('status', { name: 'Pending' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     expect(screen.getByLabelText('Pages')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save check-in' })).toBeEnabled()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
     const pagesInput = screen.getByLabelText('Pages')
     await user.click(screen.getByRole('button', { name: 'Increase Pages' }))
     expect(pagesInput).toHaveValue('1')
@@ -248,9 +252,43 @@ describe('Today check-ins', () => {
     await user.type(screen.getByLabelText('Pages'), '2')
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
     await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', savedDate)).toMatchObject({ id: saved?.id, values: { pages: 2 } }))
-    expect(await screen.findByText('Saved. The configured success rule is not met yet.')).toBeInTheDocument()
-    expect(await screen.findByRole('status', { name: /Check-in updated/ })).toHaveTextContent('Your progress has been saved on this device.')
+    expect(await screen.findByText('The configured success rule is not met yet.')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Saved' })).toBeDisabled()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: /Check-in updated/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/Saved on this device/).closest('[role="status"]')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-partial'))
+  })
+
+  it('shows Saved for unchanged values and returns to Saved when value and note edits are reverted', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(tracker())
+    await localRepository.saveTrackerEntry({ trackerId: 'today-tracker', date: today(), outcome: 'recorded', values: { pages: 2, 'field:mood': 'Focused' }, note: 'Morning' })
+    render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: /Open Daily reading/ }))
+
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
+    const pages = screen.getByRole('spinbutton', { name: 'Pages' })
+    await user.clear(pages)
+    await user.type(pages, '3')
+    expect(screen.getByRole('button', { name: 'Update check-in' })).toBeEnabled()
+    expect(screen.getByText(/Unsaved preview/)).toBeInTheDocument()
+
+    await user.clear(pages)
+    await user.type(pages, '2')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+    expect(screen.queryByText(/Unsaved preview/)).not.toBeInTheDocument()
+
+    const summary = screen.getByText('Edit note')
+    await user.click(summary)
+    const note = screen.getByRole('textbox', { name: 'Note' })
+    await user.clear(note)
+    await user.type(note, 'Updated')
+    expect(screen.getByRole('button', { name: 'Update check-in' })).toBeEnabled()
+    await user.clear(note)
+    await user.type(note, 'Morning')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
   })
 
   it('blocks saving an unfinished numeric draft and leaves the stored check-in unchanged', async () => {
@@ -291,6 +329,7 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('spinbutton', { name: 'Pages' })).toHaveValue(existing ? '4' : '3')
     expect(screen.queryByText('private storage detail')).not.toBeInTheDocument()
     expect(screen.getByRole('alert', { name: existing ? 'Couldn’t update check-in' : 'Couldn’t save check-in' })).toHaveTextContent('Please try again.')
+    expect(screen.getByRole('button', { name: existing ? 'Update check-in' : 'Save check-in' })).toBeEnabled()
   })
 
   it('expands and collapses the note row without losing unsaved text', async () => {

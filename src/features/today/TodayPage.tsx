@@ -44,6 +44,15 @@ function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncSta
   return 'Progress is saved on this device. Check Settings for account sync status.'
 }
 
+function comparableValues(values: Record<string, TrackerValue>): string {
+  const normalize = (value: TrackerValue): unknown => {
+    if (Array.isArray(value)) return value.map(normalize)
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalize(value[key]!)]))
+    return value
+  }
+  return JSON.stringify(normalize(values))
+}
+
 export function TodayPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -199,14 +208,6 @@ export function TodayPage() {
     try {
       await localRepository.saveTrackerEntry({ trackerId: tracker.id, date, outcome, values: outcome === 'skipped' ? {} : values, note })
       await refresh()
-      notify({
-        kind: authStatus === 'signed-in' && isOnline === false ? 'warning' : 'success',
-        title: authStatus === 'signed-in' && isOnline === false ? 'Saved on this device' : outcome === 'skipped' ? 'Marked as skipped' : wasSaved ? 'Check-in updated' : 'Check-in saved',
-        description: authStatus === 'signed-in' && isOnline === false
-          ? 'Saved on this device. It will sync when your account is online.'
-          : 'Your progress has been saved on this device.',
-        dedupeKey: `checkin:${tracker.id}:${date}`,
-      })
       return true
     } catch {
       notify({ kind: 'error', title: wasSaved ? 'Couldn’t update check-in' : 'Couldn’t save check-in', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${date}` })
@@ -318,6 +319,7 @@ export function TodayPage() {
           onOpen={() => setSelectedActivity({ trackerId: tracker.id, date })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
       })}</div>}</details>}
       {selectedTracker && selectedActivity && <CheckinSheet key={`${selectedTracker.id}:${selectedActivity.date}`} tracker={selectedTracker} entry={selectedEntry} today={selectedActivity.date} timeZone={timeZone} entries={goalEntries} holidays={holidaySet}
+        authStatus={authStatus} isOnline={isOnline} syncStatus={syncStatus}
         status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet, timeZone })}
         canEdit={Boolean(selectedEntry) || selectedTracker.status === 'active' && selectedTracker.deletedAt === null && isTrackerInActivePeriod(selectedTracker, selectedActivity.date, timeZone)}
         historical={selectedActivity.date < today} onSave={save} onClear={clear} onClose={() => { const key = `${selectedTracker.id}:${selectedActivity.date}`; setSelectedActivity(null); window.setTimeout(() => cardTriggers.current.get(key)?.focus(), 0) }} />}
@@ -360,30 +362,52 @@ function CheckinCard({ tracker, entry, today, timeZone, entries, holidays, statu
 type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
   canEdit: boolean
   historical: boolean
+  authStatus: string
+  isOnline: boolean
+  syncStatus: string
   onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<boolean>
   onClear: (tracker: StoredTrackerDefinition, date: CalendarDate) => Promise<boolean>
   onClose: () => void
 }
 
-function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, status, canEdit, historical, onSave, onClear, onClose }: CheckinSheetProps) {
+type CheckinBaseline = { exists: boolean; outcome?: StoredTrackerEntry['outcome']; values: Record<string, TrackerValue>; note: string }
+function checkinBaseline(entry?: StoredTrackerEntry): CheckinBaseline {
+  return { exists: Boolean(entry), outcome: entry?.outcome, values: entry?.values ?? {}, note: entry?.note ?? '' }
+}
+
+function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, status, canEdit, historical, authStatus, isOnline, syncStatus, onSave, onClear, onClose }: CheckinSheetProps) {
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
+  const [baseline, setBaseline] = useState(() => checkinBaseline(entry))
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   const [note, setNote] = useState(entry?.note ?? '')
   const [noteExpanded, setNoteExpanded] = useState(false)
   const [issue, setIssue] = useState('')
   const [saving, setSaving] = useState(false)
+  const entryRef = useRef(entry)
   const closeRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const closeRequestRef = useRef<() => void>(() => {})
-  const originalValues = entry?.values ?? {}
-  const dirty = JSON.stringify(values) !== JSON.stringify(originalValues) || note !== (entry?.note ?? '')
+  const dirty = comparableValues(values) !== comparableValues(baseline.values) || note !== baseline.note
+  const saved = baseline.exists && baseline.outcome === 'recorded' && !dirty
+  const syncFeedback = authStatus !== 'signed-in' ? ''
+    : isOnline === false || syncStatus === 'offline' ? ' It will sync when your account is online.'
+      : ['waiting', 'syncing'].includes(syncStatus) ? ' Account sync is pending.'
+        : syncStatus === 'error' ? ' Account sync needs attention in Settings.'
+          : syncStatus === 'complete' ? ' Account sync is up to date.'
+            : ' Check account sync in Settings.'
   const result = entry?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, entry) : undefined
   const expectedDetails = useMemo(() => getTodayMetricDetails(tracker, entry, today, entries, holidays, timeZone), [tracker, entry, today, entries, holidays, timeZone])
   const expectedAmounts = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expected]]))
   const expectedLabels = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expectedLabel?.replace(/^Today’s /, '').replace(/ threshold$/, '').toLowerCase() ?? 'target']]))
 
-  useLayoutEffect(() => { if (!dirty) { setValues(entry?.values ?? {}); setNote(entry?.note ?? '') } }, [entry, dirty])
+  useLayoutEffect(() => {
+    if (entryRef.current === entry) return
+    entryRef.current = entry
+    const latest = checkinBaseline(entry)
+    setBaseline(latest)
+    if (!dirty) { setValues(latest.values); setNote(latest.note) }
+  }, [entry, dirty])
   useModalLayer(true, sheetRef, () => closeRequestRef.current())
   useVisualViewportBounds(true, backdropRef)
   useEffect(() => {
@@ -406,12 +430,14 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
     })
   }
   async function submit(outcome: 'recorded' | 'skipped', payload = values) {
+    if (saving) return
     if (outcome === 'recorded' && invalidInputs.size > 0) { setIssue('Finish or correct the highlighted number fields before saving.'); return }
-    const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: entry?.values }) : undefined
+    const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: baseline.values }) : undefined
     if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return }
     setIssue(''); setSaving(true)
-    const saved = await onSave(tracker, today, payload, note, outcome)
-    if (!saved) return
+    const didSave = await onSave(tracker, today, payload, note, outcome)
+    if (!didSave) { setSaving(false); return }
+    setBaseline({ exists: true, outcome, values: outcome === 'skipped' ? {} : payload, note })
     setSaving(false)
   }
   async function clear(): Promise<boolean> { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose(); return cleared }
@@ -425,13 +451,13 @@ function CheckinSheet({ tracker, entry, today, timeZone, entries, holidays, stat
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>
           {(holidays.has(today) || status === 'rest-day') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
           {entry?.outcome === 'skipped' && <p className="today-detail-notice">This check-in was intentionally skipped. Recording progress will replace the skipped outcome.</p>}
-          <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} />
+          <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} showDraftPreview={dirty} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
-          {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'Saved. The configured success rule is not met yet.'}</p>}
+          {entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'The configured success rule is not met yet.'}</p>}
         </>}
       </div>
-      {canEdit && <footer className="today-detail-actions"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
+      {canEdit && <footer className="today-detail-actions"><div className="today-save-primary"><button data-ai-capability="checkins.record" className="button button-primary button-medium" disabled={saving || saved} onClick={() => void submit('recorded')}>{saving ? 'Saving…' : saved ? 'Saved' : entry?.outcome === 'recorded' ? 'Update check-in' : 'Save check-in'}</button>{saved && <p className="today-saved-indicator" role="status">Saved on this device.{syncFeedback}</p>}</div><div><button className="button button-quiet button-medium" disabled={saving} onClick={() => void submit('skipped')}>Mark as skipped (breaks streak)</button><small>This saves an intentional skip.</small></div>{entry && <ClearCheckInAction onClear={clear} saving={saving} holiday={holidays.has(today)} />}</footer>}
     </section>
   </div>, document.body)
 }
