@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
-const fixture = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { userId: string; email: string; password: string }
-
 test('isolated password Auth establishes a scoped progression session in AppShell', async ({ page }, testInfo) => {
+  const fixture = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { userId: string; email: string; password: string }
   const requests: Array<{ path: string; status?: number; elapsedMs: number; failure?: string }> = []
   const started = new Map<string, number>()
   page.on('request', (request) => {

@@ -29,4 +29,4 @@ You can use ProgressTracker without signing in. Guest tracker data is stored loc
 - src/features/trackers/TrackerSetupPage.test.tsx
 - src/features/trackers/trackerSetupSchema.ts
 **Answer:**
-Open Trackers and choose Create tracker. Give it a name, choose the tracker kind and measures, then set its schedule and active dates. Save the form to begin using it. New measures support Yes/No or Quantity; some existing trackers can retain legacy measure types.
+Open Trackers and choose Create tracker. Give it a name, choose the tracker kind and measures, then set its schedule and active dates. For a goal, an optional target is a daily target until you add a deadline; with a deadline, it becomes a cumulative total. Advanced planning shows the same primary target and tracker deadline. Save the form to begin using it. New measures support Yes/No or Quantity; some existing trackers can retain legacy measure types.

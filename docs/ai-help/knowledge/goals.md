@@ -44,7 +44,7 @@ A milestone is reached when the progress used by its linked goal plan meets the 
 - src/features/trackers/GoalPlanningEditor.tsx
 - src/domain/trackers/goalPlanning.test.ts
 **Answer:**
-Yes. A goal can use a deadline to bound its planned date range, especially for cumulative targets. Progress and pacing are calculated within that plan period; dates after the tracker deadline are not included in its cumulative progress.
+Yes. The deadline is a tracker setting shared by the goal form and advanced planning. A cumulative plan uses that same date to bound its planned range; progress and pacing use the scheduled dates through the deadline, and dates after it are not included in cumulative progress.
 
 ### ID: complete-goal
 **Category:** goals

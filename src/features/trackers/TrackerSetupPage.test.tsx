@@ -374,6 +374,29 @@ describe('tracker setup flow', () => {
     expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   }, 30_000)
 
+  it('uses the primary goal deadline in advanced cumulative planning copy and persists January 21, 2027', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    await user.type(screen.getByRole('textbox', { name: 'What do you want to achieve?' }), 'Complete 100 practice problems')
+    await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'problems')
+    await user.click(screen.getByText('Add a target or deadline'))
+    await user.type(screen.getByRole('spinbutton', { name: 'Total amount' }), '100')
+    await user.type(screen.getByLabelText('Goal deadline'), '2027-01-21')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText(/Goal planning/, { selector: 'summary' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Planning mode' }), 'cumulative-deadline')
+
+    expect(screen.getByLabelText('Goal deadline')).toHaveValue('2027-01-21')
+    expect(screen.getByText('Jan 21, 2027')).toBeInTheDocument()
+    expect(screen.queryByText(/Cumulative mode needs a deadline/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    const saved = (await localRepository.listTrackers()).find((tracker) => tracker.name === 'Complete 100 practice problems')
+    expect(saved?.deadline).toBe('2027-01-21')
+    expect(saved?.goalPlanning).toMatchObject({ mode: 'cumulative-deadline', cumulativeTargets: { [saved!.metrics[0]!.id]: 100 }, progressSemantics: { [saved!.metrics[0]!.id]: 'incremental' } })
+  }, 30_000)
+
   it('allows a simple name-only goal without forcing planning details', async () => {
     const user = userEvent.setup()
     renderSetup()

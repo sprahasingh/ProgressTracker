@@ -2,14 +2,16 @@ import type { GoalPlanningConfiguration, TrackerMetricDefinition } from '../../d
 import { activeTrackerMetrics } from '../../domain/trackers/types'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { SectionHeader } from '../../components/ui/SectionHeader'
+import { calendarDateLabel } from '../shared/localDates'
 
 type Props = {
   metrics: TrackerMetricDefinition[]
   planning: GoalPlanningConfiguration
+  deadline?: string
   onChange: (planning: GoalPlanningConfiguration) => void
 }
 
-export function GoalPlanningEditor({ metrics, planning, onChange }: Props) {
+export function GoalPlanningEditor({ metrics, planning, deadline, onChange }: Props) {
   function updateTarget(kind: 'dailyTargets' | 'cumulativeTargets', metricId: string, raw: string) {
     const targets = { ...planning[kind] }
     if (raw === '') delete targets[metricId]
@@ -31,7 +33,7 @@ export function GoalPlanningEditor({ metrics, planning, onChange }: Props) {
       <option value="cumulative-deadline">Cumulative deadline · add incremental work toward a total</option>
     </select></label>
     <p className="field-hint">Changing modes preserves both target sets and all saved check-ins. Daily plans compare each scheduled day independently. Cumulative plans sum only metrics explicitly marked as incremental; snapshot values are never added together. Each measure keeps its own unit and plan.</p>
-    {planning.mode === 'cumulative-deadline' && <p className="goal-planning-note">Cumulative mode needs a deadline. Expected progress is distributed evenly across scheduled dates; required pace uses the remaining scheduled dates, including today when scheduled.</p>}
+    {planning.mode === 'cumulative-deadline' && <p className={`goal-planning-note${deadline ? '' : ' is-warning'}`} role={deadline ? undefined : 'status'}>{deadline ? <>Uses the tracker deadline: <strong>{calendarDateLabel(deadline)}</strong>. Expected progress is distributed across scheduled dates; required pace uses the remaining scheduled dates, including today when scheduled.</> : 'Choose a tracker deadline before saving a cumulative plan.'}</p>}
     <div className="goal-planning-metrics">
       {metrics.length === 0 && <p className="configuration-empty">Add a measure before configuring planning targets.</p>}
       {activeTrackerMetrics(metrics).map((metric) => {

@@ -30,7 +30,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
   useModalLayer(open && presentation === 'sheet' && !compact, popoverRef, () => {
     restoreTriggerFocus.current = true
     setOpen(false)
-  })
+  }, { manageHistoryEntry: false })
 
   useEffect(() => {
     const onOpen = (event: Event) => {

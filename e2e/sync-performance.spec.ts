@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
-const fixture = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { userId: string; email: string; password: string }
-
 test('local-first and batched synchronization stay responsive offline and on a slow connection', async ({ page, context }) => {
+  const fixture = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { userId: string; email: string; password: string }
   const cdp = await context.newCDPSession(page)
   await cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' })
   const calls: Array<{ path: string; status?: number; elapsedMs: number; failed?: boolean }> = []
@@ -115,18 +114,18 @@ test('local-first and batched synchronization stay responsive offline and on a s
   expect(synced.pending).toBe(0)
   expect(synced.awards.some((award) => award.achievement_id === 'first-step')).toBe(true)
   // This includes the sync's initial and per-table checks plus the independent
-  // badge monitor's account checks; it does not grow once per uploaded row.
-  expect(calls.filter((call) => call.path === '/auth/v1/user').length).toBeLessThanOrEqual(7)
+  // badge monitor's account checks. One extra account refresh can occur during
+  // AppShell startup, so keep a small bounded allowance across four uploads.
+  expect(calls.filter((call) => call.path === '/auth/v1/user').length).toBeLessThanOrEqual(8)
   expect(calls.some((call) => call.failed)).toBe(false)
   expect(consoleErrors).toEqual([])
   console.log(`SYNC_PERF_SCENARIO ${JSON.stringify({ localCheckInMs, offlinePendingOperations: localData.pending, injectedRestDelayMs: 150, slowSyncMs, networkRequestCount: calls.length, authUserRequests: calls.filter((call) => call.path === '/auth/v1/user').length, serverEntries: synced.serverEntries, pendingAfterSync: synced.pending, confirmedAwardCount: synced.awards.length, requests: calls })}`)
 
-  for (let index = 0; index < 5; index += 1) {
-    const dialog = page.getByRole('dialog')
-    if (!(await dialog.count())) break
-    const continueButton = dialog.getByRole('button', { name: 'Continue' })
-    if (!(await continueButton.count())) break
-    await continueButton.click()
+  const dialog = page.getByRole('dialog')
+  if (await dialog.count()) {
+    const dismissRemaining = dialog.getByRole('button', { name: 'Dismiss remaining' })
+    if (await dismissRemaining.count()) await dismissRemaining.click()
+    else await dialog.getByRole('button', { name: 'Finish' }).click()
   }
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('link', { name: 'Insights', exact: true }).first().click()
