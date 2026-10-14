@@ -14,7 +14,6 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, metricObservationForMilestone, trackerActiveStartDate, trackerCreationDate, type GoalPlanDayState } from '../../domain/trackers/planning'
-import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
@@ -193,11 +192,6 @@ export function GoalsPage() {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
                     const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates, timeZone: planningTimeZone })
-                    const todayPreview = createCumulativeAllocationPreview({ tracker, entries: goalEntries, metricId, totalTarget, startDate, asOfDate: planningToday, holidays: holidayDates })
-                    const todaySuggestion = todayPreview.days.find((day) => day.date === planningToday && day.eligible)?.amount
-                    const todaySaved = tracker.goalPlanning?.allocations?.[metricId]?.[planningToday]
-                    const todayValue = goalMetricValue(metric, goalEntries.find((entry) => entry.date === planningToday && entry.deletedAt === null))
-                    const todaysAllocation = todaySaved ?? todaySuggestion
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const format = formatTrackerNumber
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
@@ -208,8 +202,7 @@ export function GoalsPage() {
                         <div><span>Actual</span><div className="goal-plan-bar"><i className="actual" style={{ width: `${actualPercent}%` }} /></div></div>
                         <div><span>Expected by today</span><div className="goal-plan-bar"><i className="expected" style={{ width: `${expectedPercent}%` }} /></div></div>
                       </div>
-                      <dl className="goal-plan-facts"><div><dt>Actual progress</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected progress</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${format(plan.requiredDailyPace)}${unit} / scheduled day`}</dd></div></dl>
-                      <dl className="goal-today-plan-summary"><div><dt>{todaySaved === undefined ? 'Suggested allocation today' : 'Saved allocation today'}</dt><dd>{todaysAllocation == null ? 'No scheduled allocation' : `${format(todaysAllocation)}${unit}`}</dd></div><div><dt>Completed today</dt><dd>{format(todayValue)}{unit}</dd></div>{todaysAllocation != null && <div><dt>Remaining today</dt><dd>{format(Math.max(0, todaysAllocation - todayValue))}{unit}</dd></div>}<div><dt>Scheduled days remaining</dt><dd>{plan.scheduledDaysRemaining}</dd></div></dl>
+                      <dl className="goal-plan-facts"><div><dt>Completed</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected by today</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${format(plan.requiredDailyPace)}${unit} / scheduled day`}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
@@ -252,7 +245,7 @@ export function GoalsPage() {
             <div className="tracker-card-actions">
               <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
-              <Button variant="destructive" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete</Button>
+              <Button variant="destructive" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete goal</Button>
             </div>
             </>}
             </div>

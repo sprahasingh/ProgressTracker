@@ -24,6 +24,8 @@ afterEach(async () => { cleanup(); vi.restoreAllMocks(); await db.delete() })
 async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: string) {
   await user.click(await screen.findByRole('button', { name: new RegExp(goalName) }))
   await user.click(await screen.findByText('View daily plan'))
+  const schedule = screen.queryByText(/Daily schedule/)
+  if (schedule) await user.click(schedule)
 }
 
 describe('Goals page allocation preview', () => {
@@ -166,7 +168,7 @@ describe('Goals page allocation preview', () => {
     expect(await screen.findByRole('region', { name: 'Pages allocation preview' })).toBeInTheDocument()
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
     const tomorrow = shiftCalendarDate(today, 1)
-    fireEvent.change(screen.getByRole('spinbutton', { name: `Allocation for ${tomorrow}` }), { target: { value: '0' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` }), { target: { value: '0' } })
     expect(await screen.findByText(/remains unallocated\./)).toBeInTheDocument()
 
     await waitFor(async () => {
@@ -194,9 +196,8 @@ describe('Goals page allocation preview', () => {
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { questions: 3 }, note: '' })
 
     await waitFor(() => expect(screen.getAllByText('6 problems').length).toBeGreaterThanOrEqual(1))
-    expect(screen.getByText(/automatic suggestions below have been recalculated/)).toBeInTheDocument()
-    expect(screen.getByLabelText(`Suggested allocation for ${shiftCalendarDate(today, 1)}`)).toHaveTextContent('3 problems')
-    expect(screen.getByLabelText(`Suggested allocation for ${shiftCalendarDate(today, 2)}`)).toHaveTextContent('3 problems')
+    expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
   })
 
   it('recalculates displayed future suggestions after progress is created, edited, and deleted without replacing saved allocations', async () => {
@@ -214,29 +215,23 @@ describe('Goals page allocation preview', () => {
     await localRepository.saveTracker(tracker)
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
-    expect(await screen.findByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('3 problems')
-    expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('3 problems')
+    expect(await screen.findByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 6 }, note: '' })
-    await waitFor(() => expect(screen.getByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('2 problems'))
-    expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('2 problems')
-    expect(screen.getByRole('spinbutton', { name: `Saved allocation for ${tomorrow}` })).toHaveValue(3)
+    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
+    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3)
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 2 }, note: 'edited' })
-    await waitFor(() => expect(screen.getByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('4 problems'))
-    expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('4 problems')
+    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
     expect(await db.trackers.get(tracker.id)).toMatchObject({ goalPlanning: tracker.goalPlanning })
 
     cleanup()
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
-    await waitFor(() => expect(screen.getByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('4 problems'))
-    expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('4 problems')
+    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
 
     await localRepository.deleteTrackerEntry(tracker.id, today)
-    await waitFor(() => expect(screen.getByLabelText(`Suggested allocation for ${today}`)).toHaveTextContent('4 problems'))
-    expect(screen.getByLabelText(`Suggested allocation for ${tomorrow}`)).toHaveTextContent('3 problems')
-    expect(screen.getByLabelText(`Suggested allocation for ${nextDay}`)).toHaveTextContent('3 problems')
+    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
     await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })
     await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, today]).first()).resolves.toMatchObject({ values: { problems: 2 }, note: 'edited', deletedAt: expect.any(String) })
   })
@@ -313,7 +308,7 @@ describe('Goals page allocation preview', () => {
     expect(screen.getAllByRole('spinbutton')).toHaveLength(14)
     await user.click(screen.getByRole('button', { name: 'Next dates' }))
     expect(screen.getByText('Dates 15–28 of 46')).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton', { name: `Allocation for ${shiftCalendarDate(today, 14)}` })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 14)}` })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous dates' })).toBeEnabled()
   })
 
@@ -333,5 +328,30 @@ describe('Goals page allocation preview', () => {
     expect(goalStyles).toMatch(/\.goal-card-summary-name\s*\{[^}]*overflow-wrap:\s*anywhere/s)
     expect(goalStyles).toMatch(/\.goal-card-summary-metrics\s*\{[^}]*min-width:\s*0/s)
     expect(goalStyles).toMatch(/@media\s*\(max-width:\s*600px\)[\s\S]*?\.goal-card-trigger/)
+  })
+
+  it.each([320, 360, 390, 430, 768, 1280])('keeps goal actions available at %ipx in light and dark themes', async (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    const today = localCalendarDate(new Date(), testTimeZone)
+    await localRepository.saveTracker({
+      schemaVersion: 1, id: `responsive-actions-${width}`, name: 'Responsive actions goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [], milestones: [],
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    })
+    const root = document.documentElement
+    for (const theme of ['light', 'dark']) {
+      root.dataset.theme = theme
+      const { unmount } = render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /Responsive actions goal/ }))
+      const actions = screen.getByRole('link', { name: 'Edit goal' }).parentElement!
+      expect(within(actions).getByRole('link', { name: 'View history' })).toBeInTheDocument()
+      const deleteButton = within(actions).getByRole('button', { name: 'Delete goal' })
+      expect(deleteButton).toHaveClass('button-destructive')
+      expect(goalStyles).toMatch(/\.goal-expanded-details \.tracker-card-actions\s*\{[^}]*display:\s*grid/s)
+      expect(goalStyles).toMatch(/@media \(max-width:\s*430px\)\s*\{\s*\.goal-expanded-details \.tracker-card-actions\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/s)
+      unmount()
+    }
+    delete root.dataset.theme
   })
 })
