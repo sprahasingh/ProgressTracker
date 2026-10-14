@@ -87,6 +87,22 @@ describe('BadgeCelebrationMonitor', () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('new'))
   })
 
+  it('celebrates a server-confirmed requalification as a new event while retaining prior acknowledgement', async () => {
+    const revoked = { ...oldEvent, id: 'old-revoked', eventType: 'revoked' as const, reversesEventId: oldEvent.id }
+    const requalified = { ...oldEvent, id: 'requalified', generation: 2, recordedAt: new Date(Date.now() + 10_000).toISOString() }
+    mocks.getBadges.mockResolvedValue([{ achievementId: 'first-step', history: [oldEvent] }])
+    render(<BadgeCelebrationMonitor userId="user-1" />)
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:achievement-seen:user-1')).toContain('old'))
+
+    mocks.getBadges.mockResolvedValue([{ achievementId: 'first-step', history: [oldEvent, revoked, requalified] }])
+    notifyProgressionChange?.()
+    expect(await screen.findByRole('dialog', { name: 'First Step' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('old')
+    expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:user-1') ?? '[]')).toContain('requalified')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('requalified'))
+  })
+
   it('does not mark an award seen when a newer refresh supersedes pending XP attribution', async () => {
     let events: AchievementHistoryEvent[] = [oldEvent]
     mocks.getBadges.mockImplementation(async () => [{ achievementId: 'first-step', history: events }])
