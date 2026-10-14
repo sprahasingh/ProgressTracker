@@ -1,0 +1,46 @@
+import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+
+test('Wins navigation, badge collection, history, details, and hash-route refresh work at mobile and desktop sizes', async ({ page }) => {
+  const fixture = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { email: string; password: string }
+  await page.goto('/#/auth')
+  await page.getByRole('button', { name: 'Use password' }).click()
+  await page.getByLabel('Email address').last().fill(fixture.email)
+  await page.getByLabel('Password').fill(fixture.password)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 50_000 })
+
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: width < 500 ? 844 : 900 })
+    await page.goto('/#/achievements')
+    await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Achievement badges' })).toBeAttached()
+    const routeBeforeScroll = new URL(page.url()).hash
+    await page.getByRole('button', { name: 'Show all badges' }).click()
+    await expect(page.getByRole('heading', { name: 'Achievement badges' })).toBeInViewport()
+    expect(new URL(page.url()).hash).toBe(routeBeforeScroll)
+
+    await page.getByRole('button', { name: /Open score history/ }).first().click()
+    await expect(page.getByRole('dialog', { name: 'Score history' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close details' }).click()
+
+    await page.getByRole('button', { name: /view consistency details/i }).click()
+    await expect(page.getByRole('dialog', { name: 'Consistency' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close details' }).click()
+
+    await page.getByRole('button', { name: /view streak details/i }).click()
+    await expect(page.getByRole('dialog', { name: 'Streaks & recent activity' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close details' }).click()
+  }
+
+  await page.goto('/#/this-route-does-not-exist')
+  await expect(page.getByRole('heading', { name: 'We couldn’t find that page' })).toBeVisible()
+  await expect(page.getByText('Unexpected Application Error!')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'We couldn’t find that page' })).toBeVisible()
+  await page.getByRole('link', { name: 'Go to Today' }).click()
+  await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/ProgressTracker/')
+})

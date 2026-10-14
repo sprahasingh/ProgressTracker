@@ -345,6 +345,19 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   expect(history.badges.find((badge) => badge.id === 'perfect-day')?.count).toBe(1)
   expect(history.badges.find((badge) => badge.id === 'perfect-day')?.history).toEqual(expect.arrayContaining([expect.objectContaining({ date: todayDate, kind: 'unlocked' })]))
 
+  await page.goto('/#/achievements')
+  await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /30 confirmed XP\. Open score history/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /First Step, earned/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Perfect Day, earned/ })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: /30 confirmed XP\. Open score history/ })).toBeVisible()
+  await page.getByRole('button', { name: /30 confirmed XP\. Open score history/ }).click()
+  const persistedHistory = page.getByRole('dialog', { name: 'Score history' })
+  await expect(persistedHistory.locator('.progression-event-row').filter({ hasText: 'Qualifying check-in' }).filter({ hasText: '+10 XP' })).toHaveCount(1)
+  await expect(persistedHistory.locator('.progression-event-row').filter({ hasText: 'Perfect Day' }).filter({ hasText: '+20 XP' })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Close details' }).click()
+
   // Clearing then restoring a confirmed same-day check-in must revoke and
   // requalify its server events without duplicating the active date occurrence.
   await page.evaluate(async ({ id, date }) => {

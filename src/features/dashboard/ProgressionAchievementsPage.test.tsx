@@ -336,8 +336,18 @@ describe('Progression achievements interface', () => {
     expect(repeatableBadge).toHaveTextContent('Earned 2 times')
     expect(repeatableBadge).not.toHaveTextContent('×2 earned')
     expect(screen.getByRole('article', { name: '2 distinct badge types unlocked' })).toHaveTextContent('2 unlocked')
-    expect(screen.getByRole('link', { name: 'Show all badges' })).toHaveAttribute('href', '#progression-badges-heading')
+    expect(screen.getByRole('button', { name: 'Show all badges' })).toBeInTheDocument()
     expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+  })
+
+  it('scrolls to the badge collection without changing the hash-router route', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const heading = await screen.findByRole('heading', { name: 'Achievement badges' })
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(heading, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    await user.click(screen.getByRole('button', { name: 'Show all badges' }))
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 
   it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {
@@ -411,7 +421,7 @@ describe('Progression achievements interface', () => {
     renderPage()
     await user.click(await screen.findByRole('button', { name: /Consistency score not available/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Consistency' })
-    expect(within(dialog).getByText('No eligible history is available yet.')).toBeInTheDocument()
+    expect(within(dialog).getByText(/Today’s eligible activity will count after the date closes in UTC/)).toBeInTheDocument()
     expect(within(dialog).getByText('No eligible days yet')).toBeInTheDocument()
     expect(within(dialog).getByText(/Consistency becomes measurable after an eligible tracker day is completed/)).toBeInTheDocument()
     expect(within(dialog).queryByText('0%')).not.toBeInTheDocument()
