@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db } from './database'
 import { localRepository } from './localRepository'
 import type { StoredTrackerDefinition } from './models'
@@ -15,11 +15,14 @@ const baseTracker: StoredTrackerDefinition = {
 }
 const operationCount = import.meta.env.VITE_TRACKER_LIFECYCLE_STRESS === 'true' ? 2_500 : 150
 
-afterEach(async () => { db.close(); await db.delete() })
+beforeEach(() => { vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true') })
+afterEach(async () => { vi.unstubAllEnvs(); db.close(); await db.delete() })
 
 describe('tracker lifecycle state machine', () => {
   it.each([0x51a7e, 0x20a610, 0xdeadbeef, 0x20261012])('preserves lifecycle invariants for deterministic seed %i', async (seed) => {
-    await activateWorkspace('lifecycle-machine-owner')
+    // This state machine exercises local/guest lifecycle transitions. With the
+    // feature enabled, guest restores do not need account-server verification.
+    await activateWorkspace(null)
     await localRepository.saveTracker(baseTracker)
     const original = [
       await localRepository.saveTrackerEntry({ trackerId: baseTracker.id, date: '2026-10-07', outcome: 'recorded', values: { done: true }, note: 'initial seven' }),
@@ -84,6 +87,7 @@ describe('tracker lifecycle state machine', () => {
       const tracker = await db.trackers.get(baseTracker.id)
       expect(tracker).toBeDefined()
       expect(tracker?.deletedAt !== null).toBe(binned)
+      await expect(db.trackerVerification.get(baseTracker.id)).resolves.toBeUndefined()
       expect(await localRepository.listTrackers()).toHaveLength(binned || tracker?.status === 'archived' ? 0 : 1)
       expect(await localRepository.listDeletedTrackers()).toHaveLength(binned ? 1 : 0)
       if (!binned && tracker) {
@@ -102,6 +106,10 @@ describe('tracker lifecycle state machine', () => {
     await localRepository.restoreTracker(baseTracker.id)
     const restored = await localRepository.getTracker(baseTracker.id)
     expect(restored).toMatchObject({ deletedAt: null, metrics: baseTracker.metrics })
+    await expect(db.trackerVerification.get(baseTracker.id)).resolves.toBeUndefined()
+    await expect(localRepository.listTrackers()).resolves.toHaveLength(restored?.status === 'archived' ? 0 : 1)
+    await expect(localRepository.listTrackers(true)).resolves.toHaveLength(1)
+    await expect(localRepository.listDeletedTrackers()).resolves.toEqual([])
     expect(await localRepository.listTrackerEntriesForTracker(baseTracker.id)).toHaveLength(2)
   }, operationCount > 150 ? 90_000 : 5_000)
 })

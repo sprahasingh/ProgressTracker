@@ -7,7 +7,7 @@ import { activateWorkspace, db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { localCalendarDate, shiftCalendarDate } from '../../features/shared/localDates'
 import { getSupabaseClient } from './client'
-import { getAchievementHistory, getConfirmedXp, getEarnedAndLockedBadges, getProvisionalXp } from './progressionRepository'
+import { getAchievementHistory, getConfirmedXp, getEarnedAndLockedBadges, getProgressionHistory, getProgressionOverview, getProvisionalXp } from './progressionRepository'
 import { synchronizeWorkspace } from './syncEngine'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 
@@ -75,9 +75,11 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
   let admin: SupabaseClient | undefined
   let client: SupabaseClient | undefined
   let userId: string | undefined
+  let deletionUserId: string | undefined
 
   afterAll(async () => {
     if (userId && admin) await admin.auth.admin.deleteUser(userId)
+    if (deletionUserId && admin) await admin.auth.admin.deleteUser(deletionUserId)
     db.close()
     await db.delete()
     await activateWorkspace(null)
@@ -103,6 +105,9 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     if (!configuredClient) throw new Error('The application Supabase client is not configured for the local integration test.')
     await configuredClient.auth.setSession({ access_token: signedIn.session.access_token, refresh_token: signedIn.session.refresh_token })
     await activateWorkspace(userId)
+    // Keep fixture dates deterministic across developer machines. The suite
+    // uses UTC dates and must not inherit the machine's local workspace zone.
+    await db.settings.put({ id: 'general', timezone: 'UTC', appearance: 'system', backupReminderDays: null, updatedAt: new Date().toISOString() })
 
     const now = new Date().toISOString()
     const trackerId = crypto.randomUUID()
@@ -358,7 +363,207 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
       p_record: { id: crypto.randomUUID(), schema_version: 1, kind: 'habit', status: 'active', name: 'must not create', definition: { ...tracker, id: crypto.randomUUID() }, created_at: now, updated_at: now, deleted_at: null },
     })
     expect(ownershipFailure.error?.code).toBe('42501')
+
+    // Exercise the actual Wins data contract across server-confirmed deletion.
+    // Earlier cases intentionally create revision conflicts; clear those
+    // disposable fixtures so they do not block the unrelated delete sync.
+    await db.syncConflicts.where('ownerUserId').equals(userId).delete()
+    const winsBeforeDeletion = await getProgressionOverview(userId)
+    const badgesBeforeDeletion = await getEarnedAndLockedBadges(userId)
+    const historyBeforeDeletion = await getProgressionHistory(userId, 0, 200)
+    const milestoneBeforeDeletion = historyBeforeDeletion.rows.filter((event) => event.reasonCode === 'STREAK_MILESTONE')
+    expect(milestoneBeforeDeletion.length).toBeGreaterThan(0)
+    expect(badgesBeforeDeletion.some((badge) => badge.earned)).toBe(true)
+
+    await localRepository.deleteTracker(streakTracker.id)
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: 0 })
+    await expect(localRepository.requestPermanentDeletion(streakTracker.id, 'keep_wins')).resolves.toBe('queued')
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: 0 })
+
+    const winsAfterDeletion = await getProgressionOverview(userId)
+    const badgesAfterDeletion = await getEarnedAndLockedBadges(userId)
+    const historyAfterDeletion = await getProgressionHistory(userId, 0, 200)
+    expect(winsAfterDeletion.confirmedXp).toBe(winsBeforeDeletion.confirmedXp)
+    expect(winsAfterDeletion.officialLevel).toEqual(winsBeforeDeletion.officialLevel)
+    const summarizeBadges = (badges: typeof badgesAfterDeletion) => badges.map((badge) => ({
+      achievementId: badge.achievementId,
+      progress: badge.progress,
+      target: badge.target,
+      currentTier: badge.currentTier,
+      repeatable: badge.repeatable,
+      earned: badge.earned,
+      unlockedAt: badge.unlockedAt,
+      unlocks: badge.history.filter((event) => event.eventType === 'unlocked').map((event) => ({ tier: event.tier, generation: event.generation, recordedAt: event.recordedAt })),
+    })).sort((left, right) => left.achievementId.localeCompare(right.achievementId))
+    expect(summarizeBadges(badgesAfterDeletion)).toEqual(summarizeBadges(badgesBeforeDeletion))
+    expect(historyAfterDeletion.rows.filter((event) => event.reasonCode === 'STREAK_MILESTONE').map((event) => ({ effectiveDate: event.effectiveDate, xpDelta: event.xpDelta })))
+      .toEqual(milestoneBeforeDeletion.map((event) => ({ effectiveDate: event.effectiveDate, xpDelta: event.xpDelta })))
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.trackers WHERE user_id='${userId}' AND id='${streakTracker.id}';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.tracker_entries WHERE user_id='${userId}' AND tracker_id='${streakTracker.id}';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_event_sources WHERE user_id='${userId}' AND tracker_id='${streakTracker.id}';`)).toBe('0')
+    expect(await getProvisionalXp(userId, today)).toEqual([])
   }, 90_000)
+
+  it('serializes concurrent Delete Wins retries after First Step while preserving shared and unrelated rewards', async () => {
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:/)
+    if (!admin) {
+      if (!serviceRoleKey) throw new Error('The local integration service key is required for disposable test-user cleanup.')
+      admin = createClient(url!, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'delete-wins-admin' } })
+    }
+    const suffix = crypto.randomUUID()
+    const email = `delete-wins-integration-${suffix}@example.test`
+    const password = `LocalOnly-${suffix}-Aa9!`
+    const { data: created, error: createError } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+    if (createError || !created.user) throw new Error(`Could not create disposable Delete Wins user: ${createError?.message ?? 'missing user'}`)
+    deletionUserId = created.user.id
+    const deletionClient = createClient(url!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'delete-wins-login' } })
+    const { data: signedIn, error: signInError } = await deletionClient.auth.signInWithPassword({ email, password })
+    if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Delete Wins user: ${signInError?.message ?? 'missing session'}`)
+
+    const owner = created.user.id
+    const now = new Date().toISOString()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const targetId = crypto.randomUUID()
+    const remainingId = crypto.randomUUID()
+    const definition = (id: string, name: string) => ({
+      schemaVersion: 1, id, name, description: '', kind: 'habit', status: 'active', categoryId: null,
+      tags: [], icon: 'repeat', accent: 'apricot', schedule: { kind: 'every-day' },
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [], milestones: [],
+      createdAt: now, updatedAt: now, archivedAt: null, deletedAt: null,
+    })
+    const apply = (operationId: string, entity: string, revision: number | null, record: unknown) =>
+      deletionClient.rpc('apply_tracker_sync_operation', {
+        p_expected_user_id: owner, p_operation_id: operationId, p_entity: entity,
+        p_expected_revision: revision, p_record: record,
+      })
+    let targetEntryId: string | null = null
+    for (const [id, name] of [[targetId, 'Target tracker'], [remainingId, 'Remaining tracker']] as const) {
+      const tracker = definition(id, name)
+      const { data, error } = await apply(crypto.randomUUID(), 'tracker', null, {
+        id, schema_version: 1, kind: 'habit', status: 'active', name,
+        definition: tracker, created_at: now, updated_at: now, deleted_at: null,
+      })
+      if (error || data?.status !== 'applied') throw new Error(`Could not create Delete Wins tracker: ${error?.message ?? JSON.stringify(data)}`)
+      const entryId = crypto.randomUUID()
+      if (id === targetId) targetEntryId = entryId
+      const entry = { id: entryId, tracker_id: id, entry_date: today, outcome: 'recorded', entry_values: { done: true }, note: '', created_at: now, updated_at: now, deleted_at: null }
+      const result = await apply(crypto.randomUUID(), 'tracker_entry', null, entry)
+      if (result.error || result.data?.status !== 'applied') throw new Error(`Could not create Delete Wins check-in: ${result.error?.message ?? JSON.stringify(result.data)}`)
+    }
+    if (!targetEntryId) throw new Error('The target tracker check-in fixture was not created.')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${owner}' AND achievement_id='first-step' AND event_type='unlocked';`)).toBe('1')
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${owner}' AND reason_code='PERFECT_DAY_BONUS' AND current_xp>0;`)).toBe('20')
+
+    const targetTracker = definition(targetId, 'Target tracker')
+    const binResult = await apply(crypto.randomUUID(), 'tracker', 1, {
+      id: targetId, schema_version: 1, kind: 'habit', status: 'active', name: 'Target tracker',
+      definition: { ...targetTracker, deletedAt: now }, created_at: now, updated_at: now, deleted_at: now,
+    })
+    if (binResult.error || binResult.data?.status !== 'applied') throw new Error(`Could not place Delete Wins tracker in Bin: ${binResult.error?.message ?? JSON.stringify(binResult.data)}`)
+    const revision = await queryLocalDatabase(`SELECT server_revision FROM public.trackers WHERE user_id='${owner}' AND id='${targetId}';`)
+    const request = () => `SELECT (public.permanently_delete_tracker('${owner}'::uuid,'${crypto.randomUUID()}'::uuid,'${targetId}'::uuid,${revision},'delete_wins')->>'status');`
+    const outcomes = (await overlapPostgresTransactions(owner, [request(), request()])).sort()
+    expect(outcomes).toEqual(['already_deleted', 'deleted'])
+    const targetOriginalAward = `original.user_id='${owner}' AND original.idempotency_key=md5('${owner}:${targetEntryId}:daily-check-in-v1')::uuid AND original.reason_code='DAILY_CHECK_IN_COMPLETED'`
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events original WHERE original.user_id='${owner}' AND original.idempotency_key=md5('${owner}:${targetEntryId}:daily-check-in-v1')::uuid AND original.reason_code='DAILY_CHECK_IN_COMPLETED';`)).toBe('1')
+    const targetReversalsQuery = `SELECT count(*) FROM public.progression_events original JOIN public.progression_events reversal ON reversal.user_id=original.user_id AND reversal.reverses_event_id=original.id WHERE ${targetOriginalAward} AND reversal.reason_code='AWARD_REVERSAL';`
+    expect(await queryLocalDatabase(targetReversalsQuery)).toBe('1')
+    expect(await queryLocalDatabase(`SELECT coalesce(bool_and(reversal.xp_delta=-original.xp_delta),false)::text FROM public.progression_events original JOIN public.progression_events reversal ON reversal.user_id=original.user_id AND reversal.reverses_event_id=original.id WHERE ${targetOriginalAward} AND reversal.reason_code='AWARD_REVERSAL';`)).toBe('true')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.tracker_deletion_ledger WHERE user_id='${owner}' AND tracker_id='${targetId}';`)).toBe('1')
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${owner}' AND tracker_id='${remainingId}' AND reason_code='DAILY_CHECK_IN_COMPLETED';`)).toBe('10')
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${owner}' AND reason_code='PERFECT_DAY_BONUS';`)).toBe('20')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${owner}' AND achievement_id='first-step' AND event_type='revoked';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.trackers WHERE user_id='${owner}' AND id='${targetId}';`)).toBe('0')
+
+    const targetReversalIdsBeforeRetry = await queryLocalDatabase(`SELECT coalesce(string_agg(reversal.id::text,',' ORDER BY reversal.id),'') FROM public.progression_events original JOIN public.progression_events reversal ON reversal.user_id=original.user_id AND reversal.reverses_event_id=original.id WHERE ${targetOriginalAward} AND reversal.reason_code='AWARD_REVERSAL';`)
+    const revocationIdsBeforeRetry = await queryLocalDatabase(`SELECT coalesce(string_agg(id::text,',' ORDER BY id),'') FROM public.progression_achievement_events WHERE user_id='${owner}' AND event_type='revoked';`)
+    const retry = await deletionClient.rpc('permanently_delete_tracker', {
+      p_expected_user_id: owner,
+      p_operation_id: crypto.randomUUID(),
+      p_tracker_id: targetId,
+      p_expected_revision: Number(revision),
+      p_wins_retention: 'delete_wins',
+    })
+    expect(retry.error).toBeNull()
+    expect(retry.data?.status).toBe('already_deleted')
+    expect(await queryLocalDatabase(`SELECT coalesce(string_agg(reversal.id::text,',' ORDER BY reversal.id),'') FROM public.progression_events original JOIN public.progression_events reversal ON reversal.user_id=original.user_id AND reversal.reverses_event_id=original.id WHERE ${targetOriginalAward} AND reversal.reason_code='AWARD_REVERSAL';`)).toBe(targetReversalIdsBeforeRetry)
+    expect(await queryLocalDatabase(`SELECT coalesce(string_agg(id::text,',' ORDER BY id),'') FROM public.progression_achievement_events WHERE user_id='${owner}' AND event_type='revoked';`)).toBe(revocationIdsBeforeRetry)
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.tracker_deletion_ledger WHERE user_id='${owner}' AND tracker_id='${targetId}';`)).toBe('1')
+  }, 30_000)
+
+  it('retains recorded reward context once during concurrent Keep My Wins deletion and retry', async () => {
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:/)
+    if (!admin) {
+      if (!serviceRoleKey) throw new Error('The local integration service key is required for disposable test-user cleanup.')
+      admin = createClient(url!, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'keep-wins-admin' } })
+    }
+    const suffix = crypto.randomUUID()
+    const email = `keep-wins-integration-${suffix}@example.test`
+    const password = `LocalOnly-${suffix}-Aa9!`
+    const { data: created, error: createError } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+    if (createError || !created.user) throw new Error(`Could not create disposable Keep Wins user: ${createError?.message ?? 'missing user'}`)
+    deletionUserId = created.user.id
+    const deletionClient = createClient(url!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'keep-wins-login' } })
+    const { data: signedIn, error: signInError } = await deletionClient.auth.signInWithPassword({ email, password })
+    if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Keep Wins user: ${signInError?.message ?? 'missing session'}`)
+
+    const owner = created.user.id
+    const now = new Date().toISOString()
+    const today = localCalendarDate(new Date(), 'UTC')
+    const targetId = crypto.randomUUID()
+    const entryId = crypto.randomUUID()
+    const tracker = {
+      schemaVersion: 1, id: targetId, name: 'Original private tracker name', description: '', kind: 'habit', status: 'active', categoryId: null,
+      tags: [], icon: 'repeat', accent: 'apricot', schedule: { kind: 'every-day' },
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [], milestones: [],
+      createdAt: now, updatedAt: now, archivedAt: null, deletedAt: null,
+    }
+    const apply = (operationId: string, revision: number | null, record: unknown) => deletionClient.rpc('apply_tracker_sync_operation', {
+      p_expected_user_id: owner, p_operation_id: operationId, p_entity: 'tracker', p_expected_revision: revision, p_record: record,
+    })
+    const createdTracker = await apply(crypto.randomUUID(), null, {
+      id: targetId, schema_version: 1, kind: 'habit', status: 'active', name: tracker.name,
+      definition: tracker, created_at: now, updated_at: now, deleted_at: null,
+    })
+    if (createdTracker.error || createdTracker.data?.status !== 'applied') throw new Error(`Could not create Keep Wins tracker: ${createdTracker.error?.message ?? JSON.stringify(createdTracker.data)}`)
+    const entry = await deletionClient.rpc('apply_tracker_sync_operation', {
+      p_expected_user_id: owner, p_operation_id: crypto.randomUUID(), p_entity: 'tracker_entry', p_expected_revision: null,
+      p_record: { id: entryId, tracker_id: targetId, entry_date: today, outcome: 'recorded', entry_values: { done: true }, note: 'private note must not be retained', created_at: now, updated_at: now, deleted_at: null },
+    })
+    if (entry.error || entry.data?.status !== 'applied') throw new Error(`Could not create Keep Wins check-in: ${entry.error?.message ?? JSON.stringify(entry.data)}`)
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${owner}' AND achievement_id='first-step' AND event_type='unlocked';`)).toBe('1')
+
+    const binned = await deletionClient.rpc('apply_tracker_sync_operation', {
+      p_expected_user_id: owner, p_operation_id: crypto.randomUUID(), p_entity: 'tracker', p_expected_revision: 1,
+      p_record: { id: targetId, schema_version: 1, kind: 'habit', status: 'active', name: tracker.name, definition: { ...tracker, deletedAt: now }, created_at: now, updated_at: now, deleted_at: now },
+    })
+    if (binned.error || binned.data?.status !== 'applied') throw new Error(`Could not move Keep Wins tracker to Bin: ${binned.error?.message ?? JSON.stringify(binned.data)}`)
+    const revision = await queryLocalDatabase(`SELECT server_revision FROM public.trackers WHERE user_id='${owner}' AND id='${targetId}';`)
+    const request = () => `SELECT (public.permanently_delete_tracker('${owner}'::uuid,'${crypto.randomUUID()}'::uuid,'${targetId}'::uuid,${revision},'keep_wins')->>'status');`
+    const outcomes = (await overlapPostgresTransactions(owner, [request(), request()])).sort()
+    expect(outcomes).toEqual(['already_deleted', 'deleted'])
+    expect(await queryLocalDatabase(`SELECT tracker_display_name || '|' || reward_reason_code || '|' || c.xp_delta FROM public.progression_retained_reward_context c JOIN public.progression_events e ON e.user_id=c.user_id AND e.id=c.event_id WHERE c.user_id='${owner}' AND c.context_kind='score' AND e.idempotency_key=md5('${owner}:${entryId}:daily-check-in-v1')::uuid;`)).toBe('Original private tracker name|DAILY_CHECK_IN_COMPLETED|10')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_retained_reward_context c JOIN public.progression_achievement_events a ON a.user_id=c.user_id AND a.id=c.event_id WHERE c.user_id='${owner}' AND c.context_kind='achievement' AND a.achievement_id='first-step' AND c.tracker_display_name='Original private tracker name' AND c.reward_reason_code='DAILY_CHECK_IN_COMPLETED';`)).toBe('1')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_retained_reward_context c WHERE c.user_id='${owner}' AND (to_jsonb(c)::text LIKE '%${targetId}%' OR to_jsonb(c)::text LIKE '%${entryId}%' OR to_jsonb(c)::text LIKE '%private note must not be retained%');`)).toBe('0')
+    const applicationClient = getSupabaseClient()
+    if (!applicationClient) throw new Error('The application Supabase client is not configured for the local context-read test.')
+    const appSession = await applicationClient.auth.setSession(signedIn.session)
+    if (appSession.error) throw new Error(`Could not configure the app client for the disposable user: ${appSession.error.message}`)
+    const scoreHistory = await getProgressionHistory(owner, 0, 50)
+    const retainedScore = scoreHistory.rows.find((event) => event.reasonCode === 'DAILY_CHECK_IN_COMPLETED' && event.displayName === 'Original private tracker name')
+    expect(retainedScore).toMatchObject({ deletedTracker: true, sourceId: null, trackerId: null, xpDelta: 10 })
+    const badges = await getEarnedAndLockedBadges(owner)
+    expect(badges.find((badge) => badge.achievementId === 'first-step')?.history[0]).toMatchObject({
+      trackerDisplayName: 'Original private tracker name', rewardReasonCode: 'DAILY_CHECK_IN_COMPLETED', rewardXpDelta: 10,
+    })
+    const retry = await deletionClient.rpc('permanently_delete_tracker', {
+      p_expected_user_id: owner, p_operation_id: crypto.randomUUID(), p_tracker_id: targetId,
+      p_expected_revision: Number(revision), p_wins_retention: 'keep_wins',
+    })
+    expect(retry.error).toBeNull()
+    expect(retry.data?.status).toBe('already_deleted')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_retained_reward_context WHERE user_id='${owner}' AND tracker_display_name='Original private tracker name';`)).toBe('2')
+  }, 30_000)
 })
 
 export { suite as progressionLiveIntegrationSuite }

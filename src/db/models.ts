@@ -136,11 +136,17 @@ export type SyncOperation = {
 
 export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; serverRevision: number }
 export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday; remoteRecord: Record<string, unknown> | null; detectedAt: string; reason?: string }
-export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null }
+export type TrackerWinsRetention = 'keep_wins' | 'delete_wins'
+export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null; winsRetention?: TrackerWinsRetention }
 export type PermanentDeletionLedgerEntry = { key: string; ownerUserId: string; trackerId: string; permanentlyDeletedAt: string }
 export type HolidayPermanentDeletionRequest = { id: string; ownerUserId: string; holidayId: string; holidayDate: CalendarDate; requestedAt: string; status: 'pending' | 'conflict'; lastError: string | null }
 export type HolidayPermanentDeletionLedgerEntry = { key: string; ownerUserId: string; holidayId: string; permanentlyDeletedAt: string }
-export type TrackerVerification = { trackerId: string; status: 'pending-server-check' }
+export type TrackerVerification = { trackerId: string; status: 'pending-server-check'; purpose?: 'restore' | 'import' }
+export type PendingTrackerRestore = {
+  tracker: StoredTrackerDefinition
+  status: 'pending' | 'attention'
+  message: string
+}
 export type AppNotification = {
   id: string
   identity: string

@@ -71,6 +71,10 @@ function eventLabel(event: ProgressionEvent) {
   return reasonPresentation[event.reasonCode]?.label ?? 'Progression activity'
 }
 
+function reasonCodeLabel(reasonCode: string | null) {
+  return reasonCode ? reasonPresentation[reasonCode]?.label ?? 'Progression activity' : 'Reason unavailable'
+}
+
 function eventIcon(event: ProgressionEvent) {
   return reasonPresentation[event.reasonCode]?.icon ?? 'spark'
 }
@@ -363,7 +367,7 @@ function HistoryRow({ item, allEvents = [] }: { item: HistoryItem; allEvents?: P
   const sourceName = event?.displayName && event.displayName !== 'Progression reward' ? event.displayName : item.displayName
   return <li className={`progression-event-row${item.pending ? ' is-pending' : ''}${item.xpDelta < 0 ? ' is-reversed' : ''}`}>
     <span className={`progression-event-icon${item.xpDelta < 0 ? ' is-reversal' : ''}`}><AppIcon name={item.xpDelta < 0 ? 'reset' : event ? eventIcon(event) : 'status-pending'} /></span>
-    <span className="progression-event-copy"><strong>{label}</strong><span>{sourceName}</span><time dateTime={item.effectiveDate}>{formatCalendarDate(item.effectiveDate)}</time>
+    <span className="progression-event-copy"><strong>{label}</strong><span>{sourceName}</span>{event?.deletedTracker && <span className="progression-deleted-tracker-tag">Deleted tracker</span>}<time dateTime={item.effectiveDate}>{formatCalendarDate(item.effectiveDate)}</time>
       {reversed && <small className="progression-reversal-note">Reverses {eventLabel(reversed).toLowerCase()} from {formatCalendarDate(reversed.effectiveDate)}.</small>}
       {event?.reasonCode === 'LEGACY_XP_OPENING_BALANCE' && <small className="progression-reversal-note">XP reconstructed from past activity. This is an estimate, not a list of individual historical score events.</small>}
       {item.pending && <small className="progression-pending-note">Pending server confirmation</small>}
@@ -397,7 +401,7 @@ function BadgeDetailDialog({ badge, onClose }: { badge: AchievementState; onClos
     {badge.earned && badge.unlockedAt && <p className="progression-unlock-date">Unlocked {formatCalendarDate(badge.unlockedAt.slice(0, 10))}</p>}
     {!badge.earned && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{achievementProgressLabel(badge, definition.progressUnit)}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}
     <h3 className="progression-subheading">Achievement history</h3>
-    {badge.history.length ? <ul className="progression-badge-history">{[...badge.history].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {event.generation === 1 ? 'First award' : `Award ${event.generation}`}</span><time dateTime={event.recordedAt}>{formatCalendarDate(event.recordedAt.slice(0, 10))}</time></li>)}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
+    {badge.history.length ? <ul className="progression-badge-history">{[...badge.history].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {event.generation === 1 ? 'First award' : `Award ${event.generation}`}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}{event.trackerDisplayName && <><br /><span>{event.trackerDisplayName}</span><span className="progression-deleted-tracker-tag">Deleted tracker</span><small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small></>}</span><time dateTime={event.recordedAt}>{formatCalendarDate(event.recordedAt.slice(0, 10))}</time></li>)}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
   </ProgressionDetailDialog>
 }
 

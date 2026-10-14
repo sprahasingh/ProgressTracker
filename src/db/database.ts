@@ -429,7 +429,7 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
           }
         }
         for (const payload of copiedTrackers) {
-          await target.trackerVerification.put({ trackerId: payload.id, status: 'pending-server-check' })
+          await target.trackerVerification.put({ trackerId: payload.id, status: 'pending-server-check', purpose: 'import' })
           await queueSyncMutation(target, userId, 'tracker', payload)
         }
         for (const payload of copiedEntries) {

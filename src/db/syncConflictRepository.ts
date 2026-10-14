@@ -41,7 +41,7 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
   let queuedLocalChanges = false
-  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.holidayPermanentDeletionRequests], async () => {
+  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.holidayPermanentDeletionRequests, database.trackerVerification], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
     const conflict = await database.syncConflicts.get(conflictId)
@@ -70,6 +70,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         const fork = parseTracker({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() })
         if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
         await database.trackers.delete(conflict.entityId)
+        await database.trackerVerification.delete(conflict.entityId)
         await database.syncRecords.delete(stateKey)
         await database.trackers.put(fork)
         await queueSyncMutation(database, userId, 'tracker', fork)
@@ -107,7 +108,13 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     if (choice === 'use-cloud') {
       if (!remote || !remoteIsOwned || revision === null) throw new Error('The cloud copy is unavailable, so the local record was kept unchanged.')
       let recordId = conflict.entityId
-      if (conflict.entity === 'tracker') await database.trackers.put(trackerFromRemote(remote))
+      if (conflict.entity === 'tracker') {
+        await database.trackers.put(trackerFromRemote(remote))
+        // Choosing the reviewed cloud copy is an authoritative resolution of
+        // the restore state. A deleted cloud copy returns to the Bin; an active
+        // cloud copy becomes available normally.
+        await database.trackerVerification.delete(conflict.entityId)
+      }
       else if (conflict.entity === 'tracker_entry') {
         const cloudEntry = entryFromRemote(remote)
         recordId = cloudEntry.id

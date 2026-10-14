@@ -21,6 +21,7 @@ export type ProgressionEvent = {
   trackerId: string | null
   goalId: string | null
   displayName: string
+  deletedTracker: boolean
 }
 
 export type AchievementProgress = {
@@ -44,6 +45,10 @@ export type AchievementHistoryEvent = {
   sourceEventId: string | null
   sourceDate: string | null
   reversesEventId: string | null
+  retainedAfterTrackerDeletion: boolean
+  trackerDisplayName: string | null
+  rewardReasonCode: string | null
+  rewardXpDelta: number | null
 }
 
 export type AchievementState = {
@@ -86,6 +91,14 @@ type RawEvent = {
   progression_event_sources?: Array<{ source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string }> | null
 }
 
+type RetainedRewardContext = {
+  event_id: string
+  tracker_display_name: string
+  deleted_tracker: boolean
+  reward_reason_code: string
+  xp_delta: number | null
+}
+
 function progressionReadError(resource: string, error: { code?: string; message: string }): Error {
   const code = error.code ? ` ${error.code}` : ''
   return new Error(`${resource} request failed${code}: ${error.message}`)
@@ -99,7 +112,7 @@ type LocalSnapshot = {
   timeZone: string
 }
 
-function mapEvent(row: RawEvent): ProgressionEvent {
+function mapEvent(row: RawEvent, retained?: RetainedRewardContext): ProgressionEvent {
   const source = row.progression_event_sources?.[0]
   return {
     id: row.id,
@@ -112,8 +125,28 @@ function mapEvent(row: RawEvent): ProgressionEvent {
     sourceId: source?.source_id ?? null,
     trackerId: source?.tracker_id ?? null,
     goalId: source?.goal_id ?? null,
-    displayName: source?.display_name ?? 'Progression reward',
+    displayName: retained?.tracker_display_name ?? source?.display_name ?? 'Progression reward',
+    deletedTracker: retained?.deleted_tracker ?? false,
   }
+}
+
+async function getRetainedRewardContexts(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  userId: string,
+  eventIds: readonly string[],
+  contextKind: 'score' | 'achievement',
+): Promise<Map<string, RetainedRewardContext>> {
+  const contexts = new Map<string, RetainedRewardContext>()
+  for (let offset = 0; offset < eventIds.length; offset += 200) {
+    const ids = eventIds.slice(offset, offset + 200)
+    if (!ids.length) continue
+    const { data, error } = await client.from('progression_retained_reward_context')
+      .select('event_id,tracker_display_name,deleted_tracker,reward_reason_code,xp_delta')
+      .eq('user_id', userId).eq('context_kind', contextKind).in('event_id', ids)
+    if (error) throw progressionReadError('progression_retained_reward_context', error)
+    for (const row of (data ?? []) as RetainedRewardContext[]) contexts.set(row.event_id, row)
+  }
+  return contexts
 }
 
 async function assertAccount(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<void> {
@@ -132,7 +165,8 @@ async function queryAllEvents(client: NonNullable<ReturnType<typeof getSupabaseC
     rows.push(...page)
     if (page.length < pageSize) break
   }
-  return rows.map(mapEvent)
+  const retained = await getRetainedRewardContexts(client, userId, rows.map((row) => row.id), 'score')
+  return rows.map((row) => mapEvent(row, retained.get(row.id)))
 }
 
 async function getLocalSnapshot(userId: string): Promise<LocalSnapshot> {
@@ -207,13 +241,22 @@ export function calculateConsistencySummary(input: {
   }
 }
 
-function makeAchievementStates(progress: any[], history: any[]): AchievementState[] {
+function makeAchievementStates(
+  progress: any[],
+  history: any[],
+  retainedIds: ReadonlySet<string> = new Set(),
+  retainedContexts: ReadonlyMap<string, RetainedRewardContext> = new Map(),
+): AchievementState[] {
   const historyById = new Map<string, AchievementHistoryEvent[]>()
   for (const row of history) {
     const event: AchievementHistoryEvent = {
       id: row.id, achievementId: row.achievement_id, tier: row.tier, generation: row.generation,
       eventType: row.event_type, recordedAt: row.recorded_at, sourceEventId: row.source_event_id,
       sourceDate: row.source_date, reversesEventId: row.reverses_event_id,
+      retainedAfterTrackerDeletion: retainedIds.has(row.id),
+      trackerDisplayName: retainedContexts.get(row.id)?.tracker_display_name ?? null,
+      rewardReasonCode: retainedContexts.get(row.id)?.reward_reason_code ?? null,
+      rewardXpDelta: retainedContexts.get(row.id)?.xp_delta ?? null,
     }
     historyById.set(event.achievementId, [...(historyById.get(event.achievementId) ?? []), event])
   }
@@ -279,7 +322,9 @@ export async function getProgressionHistory(userId: string, page = 0, perPage = 
     .eq('user_id', userId).order('recorded_at', { ascending: false }).order('id', { ascending: false }).range(from, from + perPage)
   if (error) throw progressionReadError('progression_events (score history)', error)
   const rows = (data ?? []) as RawEvent[]
-  return { rows: rows.slice(0, perPage).map(mapEvent), hasMore: rows.length > perPage }
+  const pageRows = rows.slice(0, perPage)
+  const retained = await getRetainedRewardContexts(client, userId, pageRows.map((row) => row.id), 'score')
+  return { rows: pageRows.map((row) => mapEvent(row, retained.get(row.id))), hasMore: rows.length > perPage }
 }
 
 export async function getStreakAndMilestoneHistory(userId: string): Promise<ProgressionEvent[]> {
@@ -312,13 +357,17 @@ export async function getEarnedAndLockedBadges(userId: string): Promise<Achievem
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured.')
   await assertAccount(client, userId)
-  const [progress, history] = await Promise.all([
+  const [progress, history, retained] = await Promise.all([
     client.from('progression_achievement_progress').select('achievement_id,progress,target,current_tier,repeatable').eq('user_id', userId),
     client.from('progression_achievement_events').select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,reverses_event_id').eq('user_id', userId).order('recorded_at'),
+    client.from('progression_retained_achievement_unlocks').select('achievement_event_id').eq('user_id', userId),
   ])
   if (progress.error) throw progressionReadError('progression_achievement_progress', progress.error)
   if (history.error) throw progressionReadError('progression_achievement_events', history.error)
-  return makeAchievementStates(progress.data ?? [], history.data ?? [])
+  if (retained.error) throw progressionReadError('progression_retained_achievement_unlocks', retained.error)
+  const historyRows = history.data ?? []
+  const contexts = await getRetainedRewardContexts(client, userId, historyRows.map((row: { id: string }) => row.id), 'achievement')
+  return makeAchievementStates(progress.data ?? [], historyRows, new Set((retained.data ?? []).map((row: { achievement_event_id: string }) => row.achievement_event_id)), contexts)
 }
 
 export async function getAchievementHistory(userId: string): Promise<AchievementHistoryEvent[]> {
@@ -334,7 +383,9 @@ export async function getNewlyConfirmedRewards(userId: string, since: string): P
     .select('id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
     .eq('user_id', userId).gt('recorded_at', since).gt('xp_delta', 0).order('recorded_at').order('id')
   if (error) throw progressionReadError('progression_events (newly confirmed rewards)', error)
-  return ((data ?? []) as RawEvent[]).map(mapEvent)
+  const rows = (data ?? []) as RawEvent[]
+  const retained = await getRetainedRewardContexts(client, userId, rows.map((row) => row.id), 'score')
+  return rows.map((row) => mapEvent(row, retained.get(row.id)))
 }
 
 export async function getPerfectDayCompletion(userId: string, date: string): Promise<PerfectDayState> {

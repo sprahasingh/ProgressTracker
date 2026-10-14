@@ -14,6 +14,7 @@ project_id="$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml | h
 export SUPABASE_DB_CONTAINER="$(docker ps --filter "name=supabase_db_${project_id}" --format '{{.Names}}' | head -n 1)"
 export VITE_SUPABASE_URL="$SUPABASE_URL"
 export VITE_SUPABASE_PUBLISHABLE_KEY="$(get_status_value PUBLISHABLE_KEY)"
+export VITE_ENABLE_PERMANENT_DELETION=true
 export RUN_PROGRESS_TRACKER_LOCAL_INTEGRATION=true
 
 if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_ANON_KEY" || -z "$SUPABASE_SERVICE_ROLE_KEY" || -z "$VITE_SUPABASE_PUBLISHABLE_KEY" || -z "$SUPABASE_DB_CONTAINER" ]]; then

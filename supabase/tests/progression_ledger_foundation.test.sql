@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(15);
 
 select has_table('public', 'progression_events', 'progression event ledger exists');
 select has_table('public', 'progression_event_sources', 'erasable source associations exist');
@@ -30,9 +30,11 @@ select throws_ok($$insert into public.progression_events(user_id, event_category
   '42501', null, 'authenticated user cannot forge XP');
 reset role;
 
-delete from public.trackers where id = '00000000-0000-4000-8000-000000000711';
-select is((select count(*) from public.progression_event_sources), 0::bigint, 'permanent tracker deletion removes identifying source associations');
-select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000071'), 10::bigint, 'tracker anonymization preserves earned XP');
+select throws_ok($$delete from public.trackers where id = '00000000-0000-4000-8000-000000000711'$$,
+  '55000', 'permanent tracker deletion requires an explicit safe Wins retention choice', 'direct tracker deletion fails closed when account XP cannot be attributed safely');
+select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000711'), 1::bigint, 'blocked deletion retains tracker data');
+select is((select count(*) from public.progression_event_sources), 1::bigint, 'blocked deletion preserves progression source associations with the retained tracker');
+select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000071'), 10::bigint, 'blocked deletion preserves earned XP');
 
 select * from finish();
 rollback;
