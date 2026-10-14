@@ -92,6 +92,21 @@ describe('achievement thresholds', () => {
     expect(classifyAchievement(checklist, [true, true, true])).toBe('stretch')
     expect(evaluateQualificationRule({ kind: 'threshold', metricId: 'items', level: 'target' }, [checklist], { items: { a: true, b: false, c: false } }).qualified).toBe(false)
   })
+
+  it('counts three minimum-threshold check-ins as Today successes even when the separate streak target is unmet', () => {
+    const trackers = ['one', 'two', 'three'].map((id) => ({
+      ...base(), id,
+      metrics: [{ id: 'amount', name: 'Amount', valueType: 'quantity' as const,
+        thresholds: { direction: 'increase' as const, minimum: 5, target: 10, streakQualification: 'target' as const } }],
+    }))
+    const successes = trackers.map((tracker) => evaluateTrackerEntry(tracker, {
+      id: `entry-${tracker.id}`, trackerId: tracker.id, date: '2026-10-15', outcome: 'recorded',
+      values: { amount: 5 }, note: '', createdAt: tracker.createdAt, updatedAt: tracker.updatedAt, deletedAt: null,
+    }).qualified)
+
+    expect(successes).toEqual([true, true, true])
+    expect(trackers.map((tracker) => classifyAchievement(tracker.metrics[0]!, 5))).toEqual(['minimum', 'minimum', 'minimum'])
+  })
 })
 
 describe('qualification rules', () => {

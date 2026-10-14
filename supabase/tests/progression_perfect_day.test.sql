@@ -2,6 +2,8 @@ begin;
 select plan(9);
 
 insert into auth.users (id,email) values ('00000000-0000-4000-8000-000000000088','perfect-day@example.test');
+insert into public.app_settings (id,user_id,timezone,timezone_configured)
+values ('general','00000000-0000-4000-8000-000000000088','UTC',true);
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000088';
 

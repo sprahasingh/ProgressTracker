@@ -13,6 +13,9 @@ select ok(position('eligible_days_target' in pg_get_functiondef('public.reconcil
 insert into auth.users(id,email) values
  ('00000000-0000-4000-8000-000000000401','progression-achievements@example.test'),
  ('00000000-0000-4000-8000-000000000402','progression-achievements-other@example.test');
+insert into public.app_settings (id,user_id,timezone,timezone_configured) values
+ ('general','00000000-0000-4000-8000-000000000401','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000402','UTC',true);
 
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401'),0::bigint,'legacy opening XP does not fabricate achievement unlocks');
 select is((select count(*) from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='first-step'),1::bigint,'new account receives a locked progress record for each achievement');

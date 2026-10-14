@@ -8,6 +8,7 @@ import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncO
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
+import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
 import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
 import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -527,6 +528,10 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const database = await openDatabase()
   await accountState(database, userId)
   await assertUser(client, userId)
+  const localSettings = await localRepository.getAppSettings(userId)
+  const accountTimeZone = await ensureAccountWorkspaceTimeZone(userId, localSettings.timezone, client as unknown as SupabaseClient)
+  if (!accountTimeZone) throw new Error('Sync stopped because the workspace time zone could not be saved to your account.')
+  if (accountTimeZone !== localSettings.timezone) await localRepository.setTimeZone(accountTimeZone, userId)
 
   if (isPermanentDeletionEnabled()) await reconcileServerDeletionLedger(database, client, userId)
   if (isHolidayPermanentDeletionEnabled()) await reconcileServerHolidayDeletionLedger(database, client, userId)

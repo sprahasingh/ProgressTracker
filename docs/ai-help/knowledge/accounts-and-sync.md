@@ -146,4 +146,4 @@ When a revision conflict cannot be reconciled safely, the sync flow records the 
 - src/features/settings/appearance.ts
 - src/features/settings/UnifiedSettings.test.tsx
 **Answer:**
-No. The workspace time zone and appearance preferences are stored locally and currently do not synchronize between devices. Set them separately in each workspace.
+Appearance is stored locally on each device. A signed-in workspace's time zone is saved to the account and synchronized between devices; guest workspaces keep it locally.
