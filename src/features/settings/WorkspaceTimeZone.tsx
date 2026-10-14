@@ -16,6 +16,7 @@ import { getAuthRedirectUrl } from '../auth/authRedirect'
 import { SendFeedbackAction } from '../feedback/SendFeedback'
 import { MySupportQueries } from '../feedback/MySupportQueries'
 import { IdentitySharingSettings } from './IdentitySharingSettings'
+import { ensureAccountWorkspaceTimeZone, saveAccountWorkspaceTimeZone } from '../../services/supabase/workspaceTimeZone'
 
 type WorkspaceTimeZoneState = {
   timeZone: string
@@ -35,7 +36,14 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
     setLoaded(null)
     setError('')
     void localRepository.getAppSettings(ownerUserId).then((settings) => {
-      if (current) setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
+      if (!current) return
+      setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
+      if (!ownerUserId) return
+      void ensureAccountWorkspaceTimeZone(ownerUserId, settings.timezone).then(async (accountTimeZone) => {
+        if (!current || !accountTimeZone || accountTimeZone === settings.timezone) return
+        const updated = await localRepository.setTimeZone(accountTimeZone, ownerUserId)
+        if (current) setLoaded({ ownerUserId, timeZone: updated.timezone, appearance: updated.appearance })
+      }).catch(() => undefined)
     }).catch(() => {
       if (current) setError('Your workspace settings could not be loaded.')
     })
@@ -50,6 +58,9 @@ export function WorkspaceTimeZoneProvider({ ownerUserId, children }: { ownerUser
       setTimeZone: async (timeZone) => {
         const settings = await localRepository.setTimeZone(timeZone, ownerUserId)
         setLoaded({ ownerUserId, timeZone: settings.timezone, appearance: settings.appearance })
+        if (ownerUserId && !(await saveAccountWorkspaceTimeZone(ownerUserId, timeZone))) {
+          throw new Error('The time zone was saved on this device but could not be synced to your account. Try again when you are online.')
+        }
       },
       setAppearance: async (appearance) => {
         const settings = await localRepository.setAppearance(appearance, ownerUserId)
@@ -164,7 +175,7 @@ export function SettingsPage() {
     setError('')
     try {
       await setTimeZone(next)
-      notify({ kind: 'success', title: 'Time zone updated', description: 'Your calendar preference was saved on this device.' })
+      notify({ kind: 'success', title: 'Time zone updated', description: auth.user?.id ? 'Your calendar preference was saved to your account.' : 'Your calendar preference was saved on this device.' })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The time zone could not be saved.')
     }
@@ -195,7 +206,7 @@ export function SettingsPage() {
       {profileError && <p className="auth-error" role="alert">{profileError}</p>}
     </div>)}
     {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
-    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false, Boolean(auth.user?.id)))}
     {section('notifications', 'Notifications', <NotificationsSettings embedded />)}
     {section('privacy', 'Privacy', <IdentitySharingSettings />)}
     {section('security', 'Security', <p>Passwordless email sign-in remains available. Set or change a password in Sync &amp; Data below; password updates use Supabase Auth.</p>)}
@@ -209,19 +220,19 @@ export function SettingsPage() {
     <PageHeader headingId="settings-title" eyebrow="YOUR PREFERENCES" title="Settings" description="Adjust the calendar and appearance for this workspace." help={{ title: 'Workspace settings', summary: 'Choose how dates and colors appear on this device and workspace.', description: 'Calendar time zone determines which date is today and how scheduled opportunities are evaluated. Appearance chooses light, dark, or your device’s setting. These preferences are stored locally for this workspace and currently do not sync across devices.' }} />
     {auth.accountDeletionNotice && <p className="auth-success" role="status">{auth.accountDeletionNotice}</p>}
     {section('appearance', 'Appearance', renderAppearance(appearance, changeAppearance, error))}
-    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false))}
+    {section('calendar-time', 'Calendar & Time', renderPreferences(timeZone, appearance, changeTimeZone, changeAppearance, deviceZone, zones, error, false, Boolean(auth.user?.id)))}
     {section('feedback-support', 'Feedback & Support', <><p>Report a problem, suggest an improvement, or ask for help. Your message is sent to ProgressTracker support.</p><SendFeedbackAction /></>)}
   </section>
 }
 
-function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], error: string, includeAppearance = true) {
+function renderPreferences(timeZone: string, appearance: 'light' | 'dark' | 'system', changeTimeZone: (value: string) => void, changeAppearance: (value: 'light' | 'dark' | 'system') => void, deviceZone: string, zones: string[], error: string, includeAppearance = true, accountSynced = false) {
   return <div className="settings-card">
-      <label className="form-field"><span>Calendar time zone <InfoButton title="Calendar time zone" summary="Controls which local calendar date ProgressTracker treats as today." description="Schedules, streak days, deadlines, and date labels use this time zone. Changing it does not shift date-only historical entries. This preference is stored locally and is not yet synchronized across devices." /></span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
+      <label className="form-field"><span>Calendar time zone <InfoButton title="Calendar time zone" summary="Controls which local calendar date ProgressTracker treats as today." description={`Schedules, streak days, deadlines, and date labels use this time zone. Changing it does not shift date-only historical entries. This preference is stored ${accountSynced ? 'to your account and synchronized across devices' : 'locally on this device'}.`} /></span><select className="auth-input" value={timeZone} onChange={(event) => void changeTimeZone(event.target.value)}>
         {!zones.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
         {zones.map((zone) => <option value={zone} key={zone}>{zone.replaceAll('_', ' ')}</option>)}
       </select></label>
       {deviceZone !== timeZone && <button className="button button-secondary button-medium" onClick={() => void changeTimeZone(deviceZone)}>Use device time zone ({deviceZone.replaceAll('_', ' ')})</button>}
-      <p>Saved locally in this workspace and used to decide which calendar day is “today.” Date-only history entries stay on their original dates. This preference is not uploaded or synchronized to other devices yet.</p>
+      <p>Saved {accountSynced ? 'to your account' : 'locally in this workspace'} and used to decide which calendar day is “today.” Date-only history entries stay on their original dates.{accountSynced ? ' The setting is synchronized across devices.' : ''}</p>
       {includeAppearance && <>{renderAppearance(appearance, changeAppearance, error)}</>}
       {error && <p className="auth-error" role="alert">{error}</p>}
     </div>

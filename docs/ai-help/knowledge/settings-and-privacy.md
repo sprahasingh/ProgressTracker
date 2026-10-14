@@ -15,7 +15,7 @@
 - src/features/settings/appearance.test.ts
 - src/features/settings/WorkspaceAppearance.test.tsx
 **Answer:**
-Appearance and workspace time-zone preferences are stored locally and are not part of the account records synchronized between devices. Set them separately on each device where you use the app.
+Appearance is stored locally on each device. A signed-in workspace's time zone is saved to the account and synchronized between devices; guest workspaces keep it locally.
 
 ### ID: timezone-dates
 **Category:** settings-privacy

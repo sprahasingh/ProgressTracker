@@ -22,12 +22,15 @@ function localSyncClient(userId: string): SupabaseClient {
     data: { status: 'applied', record: { ...(args.p_record as Record<string, unknown>), user_id: userId, server_revision: 1 } },
     error: null,
   }))
-  const from = vi.fn(() => {
+  const from = vi.fn((table: string) => {
     const builder = {
       select: () => builder,
+      eq: () => builder,
       order: () => builder,
       limit: () => builder,
       gt: () => builder,
+      maybeSingle: vi.fn().mockResolvedValue({ data: table === 'app_settings' ? { timezone: 'UTC', timezone_configured: true } : null, error: null }),
+      upsert: vi.fn().mockResolvedValue({ error: null }),
       then: (resolve: (result: unknown) => unknown) => Promise.resolve(resolve({ data: [], error: null })),
     }
     return builder

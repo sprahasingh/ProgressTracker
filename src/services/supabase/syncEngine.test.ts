@@ -25,22 +25,27 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[] } = {}) {
-  const rpc = vi.fn().mockImplementation(() => options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }))
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[]; timezoneConfigured?: boolean; timezone?: string; timezoneWriteError?: boolean } = {}) {
+  const requestOrder: string[] = []
+  const rpc = vi.fn().mockImplementation(() => { requestOrder.push('rpc'); return options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }) })
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const getSession = vi.fn().mockResolvedValue({ data: { session: options.userId === '' ? null : { user: { id: options.userId ?? 'sync-user' } } }, error: null })
   const from = vi.fn((table: string) => {
+    requestOrder.push(`from:${table}`)
     const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : table === 'account_holiday_deletion_ledger' ? options.holidayLedgerRows ?? [] : []
     const builder = {
       select: () => builder,
+      eq: () => builder,
       order: () => builder,
       limit: () => builder,
       gt: () => builder,
+      maybeSingle: vi.fn().mockResolvedValue({ data: table === 'app_settings' ? { timezone: options.timezone ?? 'UTC', timezone_configured: options.timezoneConfigured ?? true } : null, error: null }),
+      upsert: vi.fn().mockImplementation(() => { requestOrder.push('app-settings-upsert'); return Promise.resolve({ error: options.timezoneWriteError ? new Error('timezone write rejected') : null }) }),
       then: (resolve: (result: unknown) => unknown) => Promise.resolve(resolve({ data: rows, error: null })),
     }
     return builder
   })
-  return { client: { auth: { getUser, getSession }, rpc, from } as unknown as SupabaseClient, rpc, getUser, getSession, from }
+  return { client: { auth: { getUser, getSession }, rpc, from } as unknown as SupabaseClient, rpc, getUser, getSession, from, requestOrder }
 }
 
 afterEach(async () => {
@@ -50,6 +55,26 @@ afterEach(async () => {
 })
 
 describe('account-scoped sync engine', () => {
+  it('establishes the saved workspace timezone before uploading tracker data', async () => {
+    await activateWorkspace('sync-user')
+    const pending = tracker('timezone-before-entry-sync')
+    await localRepository.saveTracker(pending)
+    const { client, requestOrder } = fakeClient({ timezoneConfigured: false, rpcResult: { status: 'applied', record: serverTracker(pending) } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(requestOrder.indexOf('app-settings-upsert')).toBeGreaterThanOrEqual(0)
+    expect(requestOrder.indexOf('app-settings-upsert')).toBeLessThan(requestOrder.indexOf('rpc'))
+  })
+
+  it('does not upload tracker records when account timezone establishment fails', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('timezone-required-for-sync'))
+    const { client, rpc } = fakeClient({ timezoneConfigured: false, timezoneWriteError: true })
+
+    await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('workspace time zone could not be saved')
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it('notifies workspace views when remote tracker or progress data is downloaded', async () => {
     await activateWorkspace('sync-user')
     const remote = tracker('remote-view-refresh')

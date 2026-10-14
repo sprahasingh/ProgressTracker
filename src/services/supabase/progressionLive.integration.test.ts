@@ -9,6 +9,7 @@ import { localCalendarDate, shiftCalendarDate } from '../../features/shared/loca
 import { getSupabaseClient } from './client'
 import { getAchievementHistory, getConfirmedXp, getEarnedAndLockedBadges, getProgressionHistory, getProgressionOverview, getProvisionalXp } from './progressionRepository'
 import { synchronizeWorkspace } from './syncEngine'
+import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 
 const environment = (globalThis as typeof globalThis & { process: { env: Record<string, string | undefined> } }).process.env
@@ -423,6 +424,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Delete Wins user: ${signInError?.message ?? 'missing session'}`)
 
     const owner = created.user.id
+    expect(await ensureAccountWorkspaceTimeZone(owner, 'UTC', deletionClient)).toBe('UTC')
     const now = new Date().toISOString()
     const today = localCalendarDate(new Date(), 'UTC')
     const targetId = crypto.randomUUID()
@@ -510,6 +512,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Keep Wins user: ${signInError?.message ?? 'missing session'}`)
 
     const owner = created.user.id
+    expect(await ensureAccountWorkspaceTimeZone(owner, 'UTC', deletionClient)).toBe('UTC')
     const now = new Date().toISOString()
     const today = localCalendarDate(new Date(), 'UTC')
     const targetId = crypto.randomUUID()
