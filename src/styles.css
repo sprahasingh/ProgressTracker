@@ -749,6 +749,11 @@ a { color: inherit; text-decoration: none; }
 .allocation-preview-summary small { color: var(--ink-subtle); font-size: 9px; }
 .allocation-preview-summary strong { color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
 .allocation-preview-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.allocation-schedule-disclosure { margin-top: 12px; }
+.allocation-schedule-disclosure > summary { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 680; }
+.allocation-schedule-disclosure[open] > summary { margin-bottom: 8px; }
+.allocation-schedule-disclosure > summary span { color: var(--ink-muted); font-size: 10px; font-weight: 500; }
+.allocation-schedule-disclosure > summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .allocation-preview-table { width: 100%; min-width: 470px; border-collapse: collapse; text-align: left; }
 .allocation-preview-table th, .allocation-preview-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--ink-muted); font-size: 10px; }
 .allocation-preview-table thead th { color: var(--ink-subtle); font-size: 9px; font-weight: 600; }
@@ -836,6 +841,22 @@ a { color: inherit; text-decoration: none; }
 .progression-pending-line svg { width: 14px; height: 14px; }
 .progression-pending-note { color: var(--ink-muted); font-size: 10px; line-height: 1.45; }
 .progression-summary-card { justify-content: flex-start; }
+.progression-summary-card:active { transform: translateY(0); background: var(--surface-muted); }
+.progression-unlocked-list { display: grid; gap: 8px; }
+.progression-unlocked-badge { display: grid; min-width: 0; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
+.progression-unlocked-badge:hover { border-color: var(--accent); background: var(--surface-muted); }
+.progression-unlocked-badge:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.progression-unlocked-badge:active { transform: scale(.99); }
+.progression-unlocked-badge > span { display: grid; min-width: 0; gap: 3px; }
+.progression-unlocked-badge strong { font-size: 13px; }
+.progression-unlocked-badge small, .progression-unlocked-badge time { color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.progression-unlocked-badge small { overflow-wrap: anywhere; }
+.progression-unlocked-badge time { white-space: nowrap; }
+@media (max-width: 480px) {
+  .progression-unlocked-badge { grid-template-columns: 36px minmax(0, 1fr); gap: 9px; padding: 9px; }
+  .progression-unlocked-badge .progression-badge { width: 36px; }
+  .progression-unlocked-badge time { grid-column: 2; white-space: normal; }
+}
 .progression-summary-card > strong { display: flex; align-items: baseline; gap: 4px; color: var(--ink); font-size: clamp(23px, 3vw, 31px); font-variant-numeric: tabular-nums; letter-spacing: -.8px; line-height: 1.05; }
 .progression-summary-card > strong small { color: var(--ink-muted); font-size: 12px; font-weight: 600; letter-spacing: 0; }
 .progression-summary-card > strong.is-negative { color: var(--danger); }
@@ -2858,10 +2879,17 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .goal-milestone-disclosure .goal-milestones { margin: 0; padding: 0 12px 12px; }
 .goal-history-disclosure .goal-card-summary { margin: 0; padding: 0 12px 12px; }
 .goal-expanded-details .tracker-card-actions { flex-wrap: wrap; margin: 12px 0 0; padding-top: 12px; }
+.goal-expanded-details .tracker-card-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 8px; }
+.goal-expanded-details .tracker-card-actions > * { min-width: 0; min-height: 40px; justify-content: center; white-space: normal; text-align: center; }
+.goal-expanded-details .tracker-card-actions > :last-child { justify-self: end; }
 .goal-plan-disclosure summary::-webkit-details-marker, .goal-milestone-disclosure summary::-webkit-details-marker, .goal-history-disclosure summary::-webkit-details-marker { display: none; }
 @media (max-width: 600px) {
   .goal-card-trigger { min-height: 110px; padding: 14px; }
   .goal-expanded-details { padding-right: 14px; padding-left: 14px; }
+}
+@media (max-width: 430px) {
+  .goal-expanded-details .tracker-card-actions { grid-template-columns: minmax(0, 1fr); }
+  .goal-expanded-details .tracker-card-actions > *, .goal-expanded-details .tracker-card-actions > :last-child { width: 100%; justify-self: stretch; }
 }
 @media (prefers-reduced-motion: reduce) { .goal-card, .goal-card-progress i { scroll-behavior: auto; transition: none; } }
 .allocation-page-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 8px; color: var(--ink-muted); font-size: 11px; }

@@ -163,6 +163,7 @@ export function ProgressionAchievementsPage() {
   const [detail, setDetail] = useState<Detail>(null)
   const [streakFilter, setStreakFilter] = useState<StreakFilter>('active')
   const [selectedBadge, setSelectedBadge] = useState<AchievementState | null>(null)
+  const [allBadgesOpen, setAllBadgesOpen] = useState(false)
   const refreshGeneration = useRef(0)
   const historyGeneration = useRef(0)
 
@@ -329,10 +330,10 @@ export function ProgressionAchievementsPage() {
             <span className="progression-card-label">ACTIVE STREAKS</span><strong>{activeStreakCount}</strong>
             <span>{activeTrackers.length ? `Across ${activeTrackers.length} active trackers` : 'Create or restore a tracker to begin'}</span><span className="progression-card-action">View streaks <AppIcon name="chevron-down" /></span>
           </button>
-          <article className="progression-summary-card progression-badges-summary" aria-label={`${distinctBadgesUnlocked} distinct badge types unlocked`}>
+          <button type="button" className="progression-summary-card progression-badges-summary" aria-label={`${distinctBadgesUnlocked} distinct badge types unlocked. Show all badges`} onClick={() => setAllBadgesOpen(true)}>
             <span className="progression-card-label">BADGES</span><strong>{distinctBadgesUnlocked}<small> unlocked</small></strong>
-            <span>Distinct badge types</span><button type="button" className="progression-card-action" onClick={() => document.getElementById('progression-badges-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Show all badges <AppIcon name="chevron-down" /></button>
-          </article>
+            <span>Distinct badge types</span><span className="progression-card-action">Show all badges <AppIcon name="chevron-down" /></span>
+          </button>
         </div>
         <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
           <strong>Recently unlocked</strong>
@@ -376,6 +377,22 @@ export function ProgressionAchievementsPage() {
       {visibleHistory.length > 0 && <ul className="progression-event-list progression-dialog-event-list">{visibleHistory.map((item) => <HistoryRow key={item.id} item={item} allEvents={pageData?.overview.scoreHistory ?? []} />)}</ul>}
       {historyPage.hasMore && <Button variant="secondary" disabled={historyLoading} onClick={() => void fetchHistoryPage(Math.floor(historyPage.rows.length / historyPageSize), false)}>{historyLoading ? 'Loading…' : 'Load more history'}</Button>}
       {pageData?.overview.provisionalXp ? <p className="progression-dialog-footnote">+{pageData.overview.provisionalXp.toLocaleString()} provisional XP is not in the confirmed total.</p> : null}
+    </ProgressionDetailDialog>}
+
+    {allBadgesOpen && pageData && <ProgressionDetailDialog title="All badges" eyebrow="UNLOCKED COLLECTION" onClose={() => setAllBadgesOpen(false)}>
+      {pageData.overview.achievements.filter((badge) => badge.earned && activeAchievementOccurrences(badge.history).length > 0).length === 0
+        ? <EmptyState title="Your badge shelf is ready" description="Badges will appear here after an achievement is confirmed." />
+        : <div className="progression-unlocked-list">{pageData.overview.achievements.filter((badge) => badge.earned && activeAchievementOccurrences(badge.history).length > 0).map((badge) => {
+          const definition = achievementDefinition(badge.achievementId)
+          if (!definition) return null
+          const occurrences = activeAchievementOccurrences(badge.history)
+          const earnedDate = badgeEarnedDate(badge)
+          return <button type="button" className="progression-unlocked-badge" key={badge.achievementId} onClick={() => { setAllBadgesOpen(false); setSelectedBadge(badge) }}>
+            <ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, occurrences.length) : 1} />
+            <span><strong>{definition.name}</strong><small>{definition.description}</small>{badge.repeatable && <small>Earned {occurrences.length} {occurrences.length === 1 ? 'time' : 'times'}</small>}</span>
+            {earnedDate && <time dateTime={earnedDate}>{formatCalendarDate(earnedDate)}</time>}
+          </button>
+        })}</div>}
     </ProgressionDetailDialog>}
 
     {detail === 'consistency' && pageData && <ProgressionDetailDialog title="Consistency" eyebrow="ROLLING 30 ELIGIBLE DAYS" onClose={() => setDetail(null)}>

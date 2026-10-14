@@ -335,19 +335,21 @@ describe('Progression achievements interface', () => {
     expect(repeatableBadge).toHaveTextContent('Unlocked')
     expect(repeatableBadge).toHaveTextContent('Earned 2 times')
     expect(repeatableBadge).not.toHaveTextContent('×2 earned')
-    expect(screen.getByRole('article', { name: '2 distinct badge types unlocked' })).toHaveTextContent('2 unlocked')
-    expect(screen.getByRole('button', { name: 'Show all badges' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2 distinct badge types unlocked. Show all badges' })).toHaveTextContent('2 unlocked')
     expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
   })
 
-  it('scrolls to the badge collection without changing the hash-router route', async () => {
+  it('opens a modal containing only active unlocked badges from the whole card button', async () => {
     const user = userEvent.setup()
     renderPage()
-    const heading = await screen.findByRole('heading', { name: 'Achievement badges' })
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(heading, 'scrollIntoView', { configurable: true, value: scrollIntoView })
-    await user.click(screen.getByRole('button', { name: 'Show all badges' }))
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    const card = await screen.findByRole('button', { name: /distinct badge types unlocked\. Show all badges/ })
+    card.focus()
+    await user.keyboard('{Enter}')
+    const dialog = await screen.findByRole('dialog', { name: 'All badges' })
+    expect(dialog).toHaveTextContent('First Step')
+    expect(dialog).not.toHaveTextContent('Momentum')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'All badges' })).not.toBeInTheDocument()
   })
 
   it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {
