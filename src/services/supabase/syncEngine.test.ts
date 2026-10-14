@@ -407,7 +407,7 @@ describe('account-scoped sync engine', () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker('delete-request'))
     await localRepository.deleteTracker('delete-request')
-    await localRepository.requestPermanentDeletion('delete-request')
+    await localRepository.requestPermanentDeletion('delete-request', 'keep_wins')
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     const { client, rpc } = fakeClient({ rpcError: { message: 'network unavailable' } })
     rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
@@ -427,7 +427,26 @@ describe('account-scoped sync engine', () => {
     expect(notifications).not.toContain('confirmed')
     await expect(db.trackers.get('delete-request')).resolves.toMatchObject({ deletedAt: expect.any(String) })
     await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('network unavailable') })
-    expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({ p_expected_user_id: 'sync-user', p_tracker_id: 'delete-request', p_expected_revision: 2 }))
+    expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({ p_expected_user_id: 'sync-user', p_tracker_id: 'delete-request', p_expected_revision: 2, p_wins_retention: 'keep_wins' }))
+  })
+
+  it('does not retry unsupported Wins deletion as a transient failure or clear local data', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('unsupported-delete'))
+    await localRepository.deleteTracker('unsupported-delete')
+    await localRepository.requestPermanentDeletion('unsupported-delete', 'delete_wins')
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'permanently_delete_tracker') return { data: null, error: { code: '55000', message: 'Wins history cannot be removed safely. Choose Keep my Wins history.' } }
+      const payload = args.p_record as Record<string, unknown>
+      const current = await db.trackers.get(String(payload.id))
+      return { data: { status: 'applied', record: serverTracker(current!, 'sync-user', 2) }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'failed', winsRetention: 'delete_wins', lastError: expect.stringContaining('Choose Keep my Wins history') })
+    await expect(db.trackers.get('unsupported-delete')).resolves.toMatchObject({ deletedAt: expect.any(String) })
   })
 
   it('purges local content only after the server confirms permanent deletion', async () => {
@@ -435,13 +454,13 @@ describe('account-scoped sync engine', () => {
     await localRepository.saveTracker(tracker('confirmed-delete'))
     await localRepository.saveTrackerEntry({ trackerId: 'confirmed-delete', date: '2026-10-09', outcome: 'recorded', values: {}, note: 'remove after confirmation' })
     await localRepository.deleteTracker('confirmed-delete')
-    await localRepository.requestPermanentDeletion('confirmed-delete')
+    await localRepository.requestPermanentDeletion('confirmed-delete', 'keep_wins')
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     const { client, rpc } = fakeClient()
     rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
       if (name === 'permanently_delete_tracker') return { data: { status: 'deleted', tracker_id: 'confirmed-delete', permanently_deleted_at: '2026-10-10 00:00:00+00' }, error: null }
-      const payload = args.p_record as StoredTrackerDefinition
-      return { data: { status: 'applied', record: serverTracker(payload, 'sync-user', 1) }, error: null }
+      const payload = args.p_record as Record<string, unknown>
+      return { data: { status: 'applied', record: { ...payload, user_id: 'sync-user', server_revision: 1 } }, error: null }
     })
 
     const notifications: string[] = []

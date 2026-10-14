@@ -157,7 +157,7 @@ export function TrackerLibraryPage() {
           ))}
         </div>
       )}
-      {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to the Bin?`} description="You can restore this tracker for 30 days. Its saved check-ins, measure definitions, and plan will be kept." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}
+      {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to the Bin?`} description="You can restore this tracker for 30 days. Its saved check-ins, measure definitions, and plan will be kept. If scheduled cleanup is enabled, it permanently removes the tracker after 30 days while keeping its recorded name and reward context in Wins. Manual deletion lets you choose what happens to Wins." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}
     </section>
   )
 }

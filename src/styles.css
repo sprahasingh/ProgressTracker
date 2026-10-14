@@ -970,6 +970,8 @@ a { color: inherit; text-decoration: none; }
 .progression-status-pill { padding: 5px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink-muted); font-size: 9px; font-weight: 700; }
 .progression-status-pill.is-earned { border-color: color-mix(in srgb, var(--positive) 36%, var(--line)); background: var(--positive-soft); color: var(--positive); }
 .progression-status-pill.is-tier { border-color: #d1b174; background: color-mix(in srgb, #d1b174 14%, var(--surface)); color: #8a6429; }
+.progression-deleted-tracker-tag { display: inline-flex; width: fit-content; margin-inline-start: 7px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink-muted); font-size: 9px; font-weight: 650; line-height: 1.3; vertical-align: middle; }
+.progression-retained-reason { display: block; margin-top: 3px; color: var(--ink-muted); font-size: 11px; }
 .progression-unlock-date { margin: 12px 0 0; color: var(--ink-muted); font-size: 10px; }
 .progression-badge-detail-progress { display: grid; gap: 8px; margin-top: 12px; }
 .progression-badge-detail-progress > div { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-muted); font-size: 10px; }
@@ -1172,6 +1174,14 @@ a { color: inherit; text-decoration: none; }
 .confirm-action-details > summary { min-height: 36px; color: var(--ink-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
 .confirm-action-details > summary svg { width: 16px; height: 16px; flex: 0 0 16px; stroke: currentColor; }
 .confirm-action-details > p { margin: 6px 0 2px; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.tracker-deletion-choice { display: grid; gap: 10px; min-width: 0; margin: 0 0 18px; padding: 0; border: 0; }
+.tracker-deletion-choice legend { margin-bottom: 8px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.tracker-deletion-choice label { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.tracker-deletion-choice label:has(input:checked) { border-color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.tracker-deletion-choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+.tracker-deletion-choice span { display: grid; gap: 4px; min-width: 0; }
+.tracker-deletion-choice strong { color: var(--ink); font-size: 13px; }
+.tracker-deletion-choice small { color: var(--ink-muted); font-size: 12px; line-height: 1.45; }
 .checkin-confirm-dialog .confirm-action-buttons { position: sticky; bottom: -20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--action-group-gap); margin-top: auto; padding: 12px 0 0; background: var(--surface); }
 .checkin-confirm-dialog .confirm-action-buttons > .button { width: 100%; min-width: 0; min-height: 44px; }
 .checkin-confirm-dialog :focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
@@ -2104,6 +2114,11 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .bin-page .page-header { margin-bottom: 22px; }
 .bin-system-note { margin: 0 0 18px; padding: 13px 16px; border: 1px solid color-mix(in srgb, var(--joy-sun) 40%, var(--line)); border-radius: 15px; background: color-mix(in srgb, var(--joy-sun-soft) 72%, var(--surface)); color: var(--ink); font-size: 13px; }
 .bin-card { border-top: 4px solid var(--joy-coral); }
+.bin-restore-pending { border-top-color: var(--warning); }
+.bin-restore-pending .bin-countdown[data-state="pending"] { background: var(--info-soft); color: var(--info-icon); }
+.bin-restore-pending .bin-countdown[data-state="attention"] { background: var(--warning-soft); color: var(--warning); }
+.bin-restore-help { font-size: 12px; }
+.bin-restore-help a { color: var(--accent-strong); font-weight: 700; }
 .bin-card h2 { margin: 15px 0 7px; }
 .bin-card > p { color: var(--ink-muted); font-size: 12px; }
 .bin-countdown { display: inline-flex; padding: 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--joy-teal-soft) 75%, var(--surface)); color: var(--joy-teal-strong); font-size: 10px; font-weight: 800; }

@@ -422,11 +422,12 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
   const identifiers = new Set(identifierTerms(question))
   const expandedTerms = new Set(conceptTerms(question))
   const searchTerms = new Set([...terms.flatMap(identifierTerms), ...expandedTerms, ...identifiers])
-  const currentTerms = new Set([...queryCurrentTerms(question), ...identifiers, ...(asksAiHelpImplementation ? focusTerms : [])])
   const followupTerms = new Set(isFollowUp(question) ? history.filter((message) => message.role === 'user').slice(-2).flatMap(({ content }) => identifierTerms(content)) : [])
   const pageTerms = new Set(identifierTerms(pageContext))
   const normalizedQuestion = canonicalize(question)
   const asksBin = /\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/.test(normalizedQuestion)
+  const hasOfflineBinMutationIntent = asksBin && /\b(?:offline|disconnected|change|sync|pending|queued)\b/.test(normalizedQuestion)
+  const currentTerms = new Set([...queryCurrentTerms(question), ...identifiers, ...(asksAiHelpImplementation || hasOfflineBinMutationIntent ? focusTerms : [])])
   const preferredPaths = asksBin
     ? /\b(?:permanent(?:ly)? delet|recover|restore)\b/.test(normalizedQuestion)
       ? ['src/features/trackers/TrackerBinPage.tsx', 'src/domain/trackers/schemaVersionGate.ts', 'src/app/AppShell.tsx', 'src/routes/router.tsx', '20261010000100_tracker_bin_permanent_deletion.sql']

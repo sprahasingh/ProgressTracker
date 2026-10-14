@@ -8,24 +8,24 @@ The frontend flag `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP` controls whether the Bin d
 
 ## Current deployment status
 
-The following hosted status was reported during the latest review:
+Verified for hosted project `fdhbbsjxyzmslzbvnadd` on 2026-10-14:
 
-- Migration `20261101000100_schedule_tracker_bin_cleanup.sql` has been applied.
-- The `progress-tracker-bin-cleanup` job is installed and active for 03:00 UTC daily (08:30 IST).
-- The protected database cleanup control has been explicitly enabled.
-- The last reported eligible tracker count was zero. The check date was not recorded here.
-- A successful scheduled execution has not been confirmed.
-- The production frontend flag has not been independently verified.
+- Hosted migration history ends at `20261104001400`. Migrations `20261104001500` through `20261104002200` remain pending on hosted Supabase.
+- The `progress-tracker-bin-cleanup` job remains installed and active at `0 3 * * *` (03:00 UTC daily).
+- `public.tracker_deletion_cleanup_control.enabled` is `false`. The scheduled function therefore takes its disabled branch and does not delete records.
+- The latest recorded execution on 2026-10-13 succeeded. Its run window has no corresponding permanent-deletion ledger records, so this confirms a successful no-op, not that a tracker was deleted.
+- The eligible tracker count was zero at inspection, and no records were due before the next scheduled run.
+- The eight pending migrations were applied only to the isolated hosted-data rehearsal copy. Its eight migrations, 335 pgTAP assertions, foreign-key validation, RLS checks, and disabled cleanup control passed.
+- The GitHub Pages build passes `VITE_ENABLE_PROGRESSION_UI` from the repository variable into Vite. That variable is currently configured as `true`, so a Pages build can expose the progression UI before pending hosted migrations are applied. Set it to `false` or pause Pages deployments during the migration window, then enable it only after post-migration checks pass.
+- The workflow does not pass `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP`; the frontend flag is separate from the database control and cannot enable scheduled deletion.
 
-Because execution success is unconfirmed, verify the latest run before treating cleanup as operationally confirmed. The GitHub Pages workflow currently does not pass `VITE_ENABLE_AUTOMATIC_BIN_CLEANUP` to its build step. Setting a repository variable alone therefore does not configure that production build; the deployment configuration must be updated before relying on the Bin wording gate.
-
-Forward-only migration `20261104001500_guard_tracker_deletion_with_progression_history.sql` blocks final tracker deletion for accounts with progression or achievement events because exact XP and achievement reconciliation is not yet supported. It turns the cleanup control off and leaves any cron job installed but inert. This agent did not apply the migration or inspect or change hosted settings.
+Keep the database cleanup control disabled. The hosted migration and deployment sequence must apply and verify migrations `20261104001500` through `20261104002200` before enabling progression UI. Do not enable automatic cleanup as part of this rollout.
 
 ## How automatic cleanup works
 
-The migration installs one active daily pg_cron job named `progress-tracker-bin-cleanup`, scheduled at `0 3 * * *`. It creates the cleanup control row disabled if the row is absent, but preserves an existing row. The routine does nothing while the control is disabled. In the hosted deployment described above, the control is enabled.
+The scheduling migration installs one active daily pg_cron job named `progress-tracker-bin-cleanup`, scheduled at `0 3 * * *`. It creates the cleanup control row disabled if the row is absent, but preserves an existing row. Migration `20261104001500` turns the control off. The later Wins retention implementation uses Keep Wins for expiry, but the routine still does nothing while the control is disabled. The hosted switch was verified off on 2026-10-14; recheck it immediately before any cleanup activation decision.
 
-Cleanup is server-side. The purge and finalization functions are not executable by ordinary authenticated users. The manual permanent-delete RPC and the frontend's `VITE_ENABLE_PERMANENT_DELETION` flag are separate features.
+Cleanup is server-side. The purge and finalization functions are not executable by ordinary authenticated users. The manual permanent-delete RPC and the frontend's `VITE_ENABLE_PERMANENT_DELETION` flag are separate features. Manual deletion offers Keep Wins and Delete Wins. Delete Wins is refused without changing data when the account has reconstructed XP, shared or goal rewards, achievement history, or other XP that cannot be attributed exactly to the selected tracker's entries. Scheduled expiry always chooses Keep Wins and must be explained when a tracker is moved to the Bin.
 
 ## Verify the scheduled job
 

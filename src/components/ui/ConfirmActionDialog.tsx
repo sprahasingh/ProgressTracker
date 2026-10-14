@@ -4,8 +4,9 @@ import { AppIcon } from './AppIcon'
 import { Button } from './Button'
 import { useModalLayer } from './useModalLayer'
 import { useVisualViewportBounds } from './useVisualViewportBounds'
+import type { ReactNode } from 'react'
 
-export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant }: {
+export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant, children }: {
   title: string
   description: string
   actionLabel: string
@@ -17,6 +18,7 @@ export function ConfirmActionDialog({ title, description, actionLabel, onCancel,
   details?: string
   layer?: 'default' | 'checkin'
   actionVariant?: 'primary' | 'secondary' | 'destructive'
+  children?: ReactNode
 }) {
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
@@ -28,6 +30,7 @@ export function ConfirmActionDialog({ title, description, actionLabel, onCancel,
     <section ref={dialogRef} className={`tracker-discard-dialog${layer === 'checkin' ? ' checkin-confirm-dialog' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-description" tabIndex={-1}>
       <h2 id="confirm-action-title">{title}</h2>
       <p id="confirm-action-description">{description}</p>
+      {children}
       {details && <details className="confirm-action-details"><summary><AppIcon name="info" />More details</summary><p>{details}</p></details>}
       <div className="confirm-action-buttons">
         <Button type="button" variant={layer === 'checkin' ? 'secondary' : 'quiet'} disabled={cancelDisabled} onClick={onCancel}>Cancel</Button>

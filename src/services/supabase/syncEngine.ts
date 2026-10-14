@@ -30,6 +30,8 @@ let syncQueue: Promise<void> = Promise.resolve()
 function keyFor(entity: 'tracker' | 'tracker_entry' | 'account_holiday', id: string) { return `${entity}:${id}` }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Sync could not complete. Your local records are retained.' }
 
+class PermanentDeletionRejectedError extends Error {}
+
 function toServerPayload(operation: SyncOperation): Record<string, unknown> {
   if (!operation.payload) throw new Error('This sync operation has no saved record payload.')
   if (operation.entity === 'tracker') {
@@ -94,10 +96,21 @@ function isPermanentWriteRejection(code: string | undefined): boolean {
 async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
   if (!operation.ownerUserId) throw new Error('This queued operation has no authenticated owner.')
   const revision: SyncRecordState = { key: keyFor(operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', operation.entityId), ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, serverRevision: record.server_revision }
-  await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification], async () => {
+  await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification, database.trackers], async () => {
     await database.syncRecords.put(revision)
-    if (operation.entity === 'tracker') await database.trackerVerification.delete(operation.entityId)
     const latest = await database.syncOperations.filter((candidate) => candidate.ownerUserId === operation.ownerUserId && candidate.entity === operation.entity && candidate.entityId === operation.entityId).first()
+    if (operation.entity === 'tracker' && latest?.id === operation.id) {
+      const current = await database.trackers.get(operation.entityId)
+      const payload = operation.payload as StoredTrackerDefinition | undefined
+      const sameDeletedAt = (left: string | null | undefined, right: string | null) => {
+        if (left === null || left === undefined || right === null) return left === right
+        const normalizedRight = normalizeSyncTimestamp(right, 'deleted_at') as string
+        return canonicalTimestamp(left) === canonicalTimestamp(normalizedRight)
+      }
+      if (current && payload && 'deleted_at' in record && current.updatedAt === payload.updatedAt && current.deletedAt === payload.deletedAt && sameDeletedAt(payload.deletedAt, record.deleted_at)) {
+        await database.trackerVerification.delete(operation.entityId)
+      }
+    }
     if (latest?.id === operation.id) await database.syncOperations.delete(latest.id)
     else if (latest) await database.syncOperations.put({ ...latest, expectedRevision: record.server_revision })
   })
@@ -218,14 +231,18 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
       const [tracker, revision] = await Promise.all([
         database.trackers.get(request.trackerId), database.syncRecords.get(keyFor('tracker', request.trackerId)),
       ])
+      if (!request.winsRetention) throw new PermanentDeletionRejectedError('This saved request needs a Wins retention choice. Reopen the Bin and choose how its XP and achievements should be handled.')
       if (!tracker?.deletedAt || !revision) throw new Error('The Bin deletion must sync successfully before permanent deletion can proceed.')
       trackerName = tracker.name
       publishPermanentDeletionNotification({ status: 'queued', ownerUserId: userId, trackerId: request.trackerId, trackerName })
       const { data, error } = await client.rpc('permanently_delete_tracker', {
         p_expected_user_id: userId, p_operation_id: request.id, p_tracker_id: request.trackerId,
-        p_expected_revision: revision.serverRevision,
+        p_expected_revision: revision.serverRevision, p_wins_retention: request.winsRetention,
       })
-      if (error) throw new Error(error.message)
+      if (error) {
+        if (['55000', '22023', '42501', 'PGRST202'].includes(error.code ?? '')) throw new PermanentDeletionRejectedError(error.message)
+        throw new Error(error.message)
+      }
       const result = data as { status?: string; tracker_id?: string; permanently_deleted_at?: string; record?: ServerTracker | null }
       if (result?.status === 'conflict') {
         await database.transaction('rw', [database.permanentDeletionRequests, database.syncConflicts], async () => {
@@ -245,7 +262,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
       deleted += 1
     } catch (cause) {
       const current = await database.permanentDeletionRequests.get(request.id)
-      if (current) await database.permanentDeletionRequests.put({ ...current, status: 'pending', lastError: errorMessage(cause) })
+      if (current) await database.permanentDeletionRequests.put({ ...current, status: cause instanceof PermanentDeletionRejectedError ? 'failed' : 'pending', lastError: errorMessage(cause) })
       publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName, message: errorMessage(cause) })
       failed += 1
     }

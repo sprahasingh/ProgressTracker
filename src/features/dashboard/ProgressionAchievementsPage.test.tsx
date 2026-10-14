@@ -38,9 +38,9 @@ const tracker: StoredTrackerDefinition = {
   metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [], milestones: [], createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 const entry: StoredTrackerEntry = { id: 'entry-1', trackerId: tracker.id, date: today, outcome: 'recorded', values: { done: true }, note: '', createdAt: `${today}T10:00:00.000Z`, updatedAt: `${today}T10:00:00.000Z`, deletedAt: null }
-const checkIn = { id: 'xp-1', effectiveDate: today, recordedAt: `${today}T10:00:00.000Z`, xpDelta: 10, eventCategory: 'check_in', reasonCode: 'DAILY_CHECK_IN_COMPLETED', reversesEventId: null, sourceId: entry.id, trackerId: tracker.id, goalId: null, displayName: 'Read each day' }
-const reversal = { id: 'reverse-1', effectiveDate: today, recordedAt: `${today}T11:00:00.000Z`, xpDelta: -10, eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: checkIn.id, sourceId: entry.id, trackerId: null, goalId: null, displayName: 'Deleted tracker' }
-const streakAward = { id: 'streak-1', effectiveDate: today, recordedAt: `${today}T12:00:00.000Z`, xpDelta: 35, eventCategory: 'streak_milestone', reasonCode: 'STREAK_MILESTONE', reversesEventId: null, sourceId: null, trackerId: tracker.id, goalId: null, displayName: 'Read each day' }
+const checkIn = { id: 'xp-1', effectiveDate: today, recordedAt: `${today}T10:00:00.000Z`, xpDelta: 10, eventCategory: 'check_in', reasonCode: 'DAILY_CHECK_IN_COMPLETED', reversesEventId: null, sourceId: entry.id, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
+const reversal = { id: 'reverse-1', effectiveDate: today, recordedAt: `${today}T11:00:00.000Z`, xpDelta: -10, eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: checkIn.id, sourceId: entry.id, trackerId: null, goalId: null, displayName: 'Deleted tracker', deletedTracker: false }
+const streakAward = { id: 'streak-1', effectiveDate: today, recordedAt: `${today}T12:00:00.000Z`, xpDelta: 35, eventCategory: 'streak_milestone', reasonCode: 'STREAK_MILESTONE', reversesEventId: null, sourceId: null, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
 const overview: ProgressionOverview = {
   legacyXpStatus: 'reconstructed',
   confirmedXp: 125,
@@ -50,7 +50,7 @@ const overview: ProgressionOverview = {
   scoreHistory: [checkIn, reversal, streakAward], streakHistory: [streakAward],
   consistency: { score: 75, eligibleDays: 2, dailyAdherence: [{ date: today, completed: 1, eligible: 1 }, { date: '2026-10-12', completed: 1, eligible: 2 }] },
   achievements: [
-    { achievementId: 'first-step', progress: 1, target: 1, currentTier: 1, repeatable: false, earned: true, unlockedAt: `${today}T11:00:00.000Z`, history: [{ id: 'unlock-1', achievementId: 'first-step', tier: 1, generation: 1, eventType: 'unlocked', recordedAt: `${today}T11:00:00.000Z`, sourceEventId: checkIn.id, sourceDate: today, reversesEventId: null }] },
+    { achievementId: 'first-step', progress: 1, target: 1, currentTier: 1, repeatable: false, earned: true, unlockedAt: `${today}T11:00:00.000Z`, history: [{ id: 'unlock-1', achievementId: 'first-step', tier: 1, generation: 1, eventType: 'unlocked', recordedAt: `${today}T11:00:00.000Z`, sourceEventId: checkIn.id, sourceDate: today, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }] },
     { achievementId: 'dedicated', progress: 23, target: 100, currentTier: 0, repeatable: true, earned: false, unlockedAt: null, history: [] },
   ],
 }
@@ -93,6 +93,50 @@ describe('Progression achievements interface', () => {
     expect(screen.getByText('125')).toBeInTheDocument()
   })
 
+  it('renders retained Wins with recorded tracker context and a non-navigable deletion tag', async () => {
+    const user = userEvent.setup()
+    const retainedUnlock = {
+      ...overview.achievements[0]!,
+      history: overview.achievements[0]!.history.map((event) => ({
+        ...event, sourceEventId: null, retainedAfterTrackerDeletion: true, trackerDisplayName: 'Read each day',
+        rewardReasonCode: 'DAILY_CHECK_IN_COMPLETED', rewardXpDelta: 10,
+      })),
+    }
+    const retainedStreak = { ...streakAward, trackerId: null, displayName: 'Read each day', deletedTracker: true }
+    const retainedHistory = [retainedStreak]
+    mocks.getProgressionOverview.mockResolvedValueOnce({
+      ...overview,
+      scoreHistory: retainedHistory,
+      streakHistory: retainedHistory,
+      achievements: [retainedUnlock, overview.achievements[1]!],
+    })
+    mocks.getProgressionHistory.mockResolvedValueOnce({ rows: retainedHistory, hasMore: false })
+    mocks.listTrackers.mockResolvedValueOnce([])
+    mocks.listTrackerEntriesBetween.mockResolvedValueOnce([])
+
+    renderPage()
+
+    expect(await screen.findByText('125')).toBeInTheDocument()
+    expect(screen.getByText('LEVEL 2')).toBeInTheDocument()
+    expect(screen.getByText('Streak milestone')).toBeInTheDocument()
+    expect(screen.getByText('Read each day')).toBeInTheDocument()
+    expect(screen.getByText('Deleted tracker')).toBeInTheDocument()
+    const rewardLine = screen.getByText('Streak milestone').closest('li')!
+    expect(rewardLine.querySelector('a')).toBeNull()
+    expect(rewardLine.querySelector('.progression-deleted-tracker-tag')).toHaveTextContent('Deleted tracker')
+    const badge = screen.getByRole('button', { name: /First Step, earned/ })
+    await user.click(badge)
+    const dialog = await screen.findByRole('dialog', { name: 'First Step' })
+    expect(within(dialog).getByText(/Retained historical achievement/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Unlocked.*First award/)).toBeInTheDocument()
+    expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
+    expect(within(dialog).getByText('Earned for: Qualifying check-in')).toBeInTheDocument()
+    expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
+    const earnedDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(`${today}T12:00:00.000Z`))
+    expect(within(dialog).getByText(earnedDate)).toBeInTheDocument()
+  })
+
   it('opens paginated history with date filters and shows reversals and anonymized sources', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -105,6 +149,8 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
     expect(within(dialog).getByText(/Reverses qualifying check-in/)).toBeInTheDocument()
     expect(within(dialog).getByText('Pending server confirmation')).toBeInTheDocument()
+    const activeReward = within(dialog).getByText('Qualifying check-in').closest('li')!
+    expect(activeReward.querySelector('.progression-deleted-tracker-tag')).toBeNull()
   })
 
   it('renders history in a fixed blurred viewport overlay and closes on outside tap', async () => {
