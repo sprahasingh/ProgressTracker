@@ -15,14 +15,13 @@ const provisionalEntry: StoredTrackerEntry = {
 }
 
 describe('progression policy and summaries', () => {
-  it('keeps all fourteen badge IDs stable and only marks repeatable awards repeatable', () => {
+  it('keeps the stable achievement definitions free of a duplicate client cadence list', () => {
     expect(PROGRESSION_ACHIEVEMENTS.map(({ id }) => id)).toEqual([
       'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century',
       'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'consistency-star',
       'dedicated', 'perfect-month', 'the-comeback',
     ])
-    expect(PROGRESSION_ACHIEVEMENTS.filter((achievement) => 'repeatable' in achievement && achievement.repeatable).map(({ id }) => id))
-      .toEqual(['perfect-week', 'dedicated', 'perfect-month', 'the-comeback'])
+    expect(PROGRESSION_ACHIEVEMENTS.some((achievement) => 'repeatable' in achievement || 'awardCadence' in achievement)).toBe(false)
   })
 
   it('estimates only pending qualifying local activity and keeps provisional IDs stable', () => {

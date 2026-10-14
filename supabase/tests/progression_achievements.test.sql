@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(44);
 
 select has_table('public','progression_achievement_progress','server-derived achievement progress exists');
 select has_table('public','progression_achievement_events','append-only achievement history exists');
@@ -7,6 +7,8 @@ select is((select relrowsecurity from pg_class where oid='public.progression_ach
 select ok(has_table_privilege('authenticated','public.progression_achievement_events','select'),'authenticated users can read achievement history through owner RLS');
 select ok(not has_table_privilege('authenticated','public.progression_achievement_events','insert'),'clients cannot forge achievement unlocks');
 select ok(not has_table_privilege('authenticated','public.progression_achievement_progress','update'),'clients cannot change achievement progress');
+select ok(position('v_record.achievement_id=''consistency-star'' and v_consistency_days < 30' in pg_get_functiondef('public.reconcile_progression_achievements_base(uuid)'::regprocedure)) > 0,'Consistency Star requires the full 30 eligible-day window');
+select ok(position('eligible_days_target' in pg_get_functiondef('public.reconcile_progression_achievements_base(uuid)'::regprocedure)) > 0,'Consistency Star publishes server-computed qualification details');
 
 insert into auth.users(id,email) values
  ('00000000-0000-4000-8000-000000000401','progression-achievements@example.test'),
@@ -38,6 +40,13 @@ reset role;
 
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='first-step' and event_type='unlocked'),1::bigint,'first-step unlock is recorded once');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='perfect-day' and event_type='unlocked'),1::bigint,'Perfect Day unlock is server-confirmed');
+select is((select (qualification_details->>'eligible_days')::integer from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='consistency-star'),0,'Consistency Star reports no completed eligible days for a fresh same-day check-in');
+select is((select (qualification_details->>'eligible_days_target')::integer from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='consistency-star'),30,'Consistency Star publishes its 30-day window target');
+select is((select qualification_details->>'adherence_percent' from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='consistency-star'),null::text,'Consistency Star does not invent an adherence score before a completed eligible day');
+select is((select (qualification_details->>'adherence_target_percent')::numeric from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='consistency-star'),80::numeric,'Consistency Star publishes its 80 percent adherence target');
+select is((select repeatable from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='perfect-day'),true,'Perfect Day cadence is repeatable');
+select is((select repeatable from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='milestone-maker'),true,'Milestone Maker cadence is repeatable');
+select is((select repeatable from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='goal-crusher'),true,'Goal Crusher cadence is repeatable');
 select ok((select source_event_id is not null and source_date=current_date from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='first-step' and event_type='unlocked'),'unlock retains its authoritative event and date reference');
 select ok(not exists(select 1 from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and source_reference::text like '%private tracker name%' or source_reference::text like '%private note%'),'achievement sources do not retain tracker names or notes');
 
@@ -67,6 +76,7 @@ select is((public.apply_tracker_sync_operation(
 ))->>'status','applied'::text,'requalified check-in is accepted');
 reset role;
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='first-step' and event_type='unlocked'),2::bigint,'requalification creates a new generation rather than duplicating an active unlock');
+select is((select count(distinct occurrence_key) from public.progression_achievement_occurrences where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='perfect-day'),1::bigint,'Perfect Day reversal and requalification retain one distinct day occurrence');
 
 select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000000401');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='first-step' and event_type='unlocked'),2::bigint,'repeated reconciliation does not duplicate unlock events');
@@ -86,11 +96,12 @@ select '00000000-0000-4000-8000-000000000401',generated.award_key,'DAILY_CHECK_I
 from generated join inserted on inserted.id=generated.event_id;
 
 select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000000401');
-select is((select current_tier from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated'),2,'repeatable check-in achievement progress stores the current tier');
-select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and tier in (1,2) and event_type='unlocked'),2::bigint,'repeatable achievement creates one unlock per earned tier');
-select is((select count(distinct source_event_id) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),2::bigint,'each repeatable tier points to its own crossing event');
+select is((select current_tier from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated'),1,'Dedicated progress stores one-time unlocked state');
+select is((select repeatable from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated'),false,'Dedicated is classified as one-time by the server');
+select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),1::bigint,'Dedicated creates only its initial one-time unlock');
+select is((select count(distinct source_event_id) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),1::bigint,'Dedicated points to only its first 100-check-in crossing event');
 select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000000401');
-select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),2::bigint,'retrying repeatable reconciliation does not duplicate tiers');
+select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000401' and achievement_id='dedicated' and event_type='unlocked'),1::bigint,'retrying reconciliation does not duplicate the one-time Dedicated award');
 
 delete from auth.users where id='00000000-0000-4000-8000-000000000401';
 select is((select count(*) from public.trackers where id='00000000-0000-4000-8000-000000000411'),0::bigint,'account deletion cascade bypasses the tracker XP guard and removes tracker data');

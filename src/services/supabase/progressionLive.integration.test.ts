@@ -75,11 +75,13 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
   let admin: SupabaseClient | undefined
   let client: SupabaseClient | undefined
   let userId: string | undefined
-  let deletionUserId: string | undefined
+  const deletionUserIds: string[] = []
 
   afterAll(async () => {
     if (userId && admin) await admin.auth.admin.deleteUser(userId)
-    if (deletionUserId && admin) await admin.auth.admin.deleteUser(deletionUserId)
+    if (admin) {
+      for (const id of new Set(deletionUserIds)) await admin.auth.admin.deleteUser(id)
+    }
     db.close()
     await db.delete()
     await activateWorkspace(null)
@@ -415,7 +417,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const password = `LocalOnly-${suffix}-Aa9!`
     const { data: created, error: createError } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     if (createError || !created.user) throw new Error(`Could not create disposable Delete Wins user: ${createError?.message ?? 'missing user'}`)
-    deletionUserId = created.user.id
+    deletionUserIds.push(created.user.id)
     const deletionClient = createClient(url!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'delete-wins-login' } })
     const { data: signedIn, error: signInError } = await deletionClient.auth.signInWithPassword({ email, password })
     if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Delete Wins user: ${signInError?.message ?? 'missing session'}`)
@@ -502,7 +504,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const password = `LocalOnly-${suffix}-Aa9!`
     const { data: created, error: createError } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
     if (createError || !created.user) throw new Error(`Could not create disposable Keep Wins user: ${createError?.message ?? 'missing user'}`)
-    deletionUserId = created.user.id
+    deletionUserIds.push(created.user.id)
     const deletionClient = createClient(url!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'keep-wins-login' } })
     const { data: signedIn, error: signInError } = await deletionClient.auth.signInWithPassword({ email, password })
     if (signInError || !signedIn.session) throw new Error(`Could not sign in disposable Keep Wins user: ${signInError?.message ?? 'missing session'}`)
