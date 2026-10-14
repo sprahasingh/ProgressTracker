@@ -8,7 +8,7 @@ import { Surface } from '../../components/ui/Surface'
 import { AppIcon } from '../../components/ui/AppIcon'
 import { localRepository } from '../../db/localRepository'
 import type { PendingTrackerRestore, PermanentDeletionRequest, StoredTrackerDefinition, TrackerWinsRetention } from '../../db/models'
-import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
@@ -25,17 +25,24 @@ function recoveryLabel(deletedAt: string, now: number, accountOwned: boolean) {
   return `${days} ${days === 1 ? 'day' : 'days'} left to restore · recovery ends ${deadline.toLocaleDateString(undefined, { dateStyle: 'medium' })}`
 }
 
-function binDescription(automaticCleanupEnabled: boolean, permanentDeletionEnabled: boolean) {
-  if (automaticCleanupEnabled) return 'Scheduled cleanup permanently removes eligible tracker data after 30 days and keeps its recorded name and reward context in Wins. You can restore trackers during recovery.'
-  if (permanentDeletionEnabled) return 'Restore a deleted tracker during its 30-day recovery period, or choose what happens to its Wins when you permanently delete it. Automatic deletion after 30 days is not configured.'
-  return 'Deleted trackers can be restored for 30 days. Automatic cleanup is not configured, and permanent deletion isn’t available in this app version.'
+function binDescription(permanentDeletionEnabled: boolean) {
+  return permanentDeletionEnabled
+    ? 'Restore trackers from the Bin during recovery, or permanently delete one and choose what happens to its Wins.'
+    : 'Restore trackers from the Bin during recovery. Permanent deletion isn’t available in this app version.'
+}
+
+function deletionRequestMessage(request: PermanentDeletionRequest) {
+  if (request.status === 'conflict') return 'This tracker changed on another device. Resolve the account issue before trying again.'
+  if (request.status === 'pending' && !request.lastError) return 'Deletion is waiting to finish.'
+  if (request.status === 'pending') return 'Deletion could not be confirmed. Reconnect and try again.'
+  if (request.winsRetention === 'delete_wins') return 'Delete Tracker and Wins could not be completed safely. Nothing was deleted. Choose Keep My Wins or try again later.'
+  return 'Deletion could not be completed. Your tracker is still in the Bin. Please try again.'
 }
 
 export function TrackerBinPage() {
   const { notify } = useToast()
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncNow, isOnline } = useAuth()
   const permanentDeletionEnabled = isPermanentDeletionEnabled()
-  const automaticCleanupEnabled = isAutomaticBinCleanupEnabled()
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const ready = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const workspaceKey = ready ? owner ?? 'guest' : null
@@ -81,7 +88,7 @@ export function TrackerBinPage() {
   async function restore(tracker: StoredTrackerDefinition) {
     setBusyId(tracker.id); setError('')
     try { await localRepository.restoreTracker(tracker.id); await refresh(); notify({ kind: 'success', title: 'Tracker restored', description: tracker.status === 'archived' ? 'It is back in Archived with its saved history.' : 'It is active again with its saved history.', dedupeKey: `tracker:${tracker.id}` }) }
-    catch { notify({ kind: 'error', title: 'Couldn’t restore tracker', description: 'Your data is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` }) }
+    catch { notify({ kind: 'error', title: 'Couldn’t restore tracker', description: 'Your tracker is still in the Bin. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` }) }
     finally { setBusyId(null) }
   }
 
@@ -104,17 +111,17 @@ export function TrackerBinPage() {
   }
 
   return <section className="tracker-page bin-page" aria-labelledby="bin-title">
-    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={binDescription(automaticCleanupEnabled, permanentDeletionEnabled)} help={{ title: 'The Bin', summary: automaticCleanupEnabled ? 'Scheduled cleanup attempts to permanently delete eligible Bin items after 30 days and preserves recorded tracker names and reward context in Wins.' : 'Restore a deleted tracker during its 30-day recovery period.', description: `A tracker in the Bin retains its saved progress and planning data until it is restored or deletion is confirmed. The countdown starts from the server-confirmed deletion time for signed-in accounts. Manual Delete Wins is refused when the account has reconstructed, shared, goal-linked, achievement, or unattributed rewards that cannot be reversed exactly. Keep my Wins history retains recorded tracker names and reward reasons in a separate historical context record; tracker and activity data are deleted. It does not retain notes, entries, or tracker identifiers. If scheduled cleanup is configured, it uses Keep my Wins history. An offline deletion request remains pending until the server confirms it.` }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
+    <PageHeader headingId="bin-title" eyebrow="A SECOND CHANCE" title="The Bin" description={binDescription(permanentDeletionEnabled)} help={{ title: 'The Bin', summary: 'Restore a tracker or permanently delete it.', description: 'Moving a tracker here keeps its saved progress and rewards. Restore it to use it again. Permanent deletion cannot be undone; choose whether to keep or remove its Wins.' }} action={<Link className="button button-secondary button-medium" to="/trackers">Back to trackers</Link>} />
     {owner && !permanentDeletionEnabled && <p className="bin-system-note" role="status" data-ai-capability="bin.permanent_delete" data-ai-availability="disabled">Permanent deletion isn’t available in this app version. You can restore trackers during their 30-day recovery period.</p>}
-    {owner && permanentDeletionEnabled && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion requests will remain pending until the server confirms them.</p>}
+    {owner && permanentDeletionEnabled && !isOnline && <p className="bin-system-note" role="status">You’re offline. Permanent deletion will finish when you reconnect.</p>}
     {error && <p className="form-alert" role="alert">{error}</p>}
-    {loading ? <p role="status" className="tracker-loading">Opening your Bin…</p> : trackers.length === 0 && pendingRestores.length === 0 ? <Surface><EmptyState icon={<AppIcon name="bin" className="empty-state-svg-icon" />} title="Your Bin is empty" description="When you delete a tracker, it will appear here with 30 days to restore it." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} /></Surface> : <div className="tracker-card-grid">
-      {pendingRestores.map(({ tracker, status: restoreStatus, message }) => <Surface className="bin-card bin-restore-pending" key={`restore:${tracker.id}`}>
-        <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabel[tracker.kind]}</span><span className="bin-countdown" data-state={restoreStatus}>{restoreStatus === 'attention' ? 'Restore needs attention' : 'Restore pending verification'}</span></div>
+    {loading ? <p role="status" className="tracker-loading">Opening your Bin…</p> : trackers.length === 0 && pendingRestores.length === 0 ? <Surface><EmptyState icon={<AppIcon name="bin" className="empty-state-svg-icon" />} title="Your Bin is empty" description="Trackers you move here can be restored during recovery or permanently deleted." action={<Link className="button button-primary button-medium" to="/trackers">View trackers</Link>} /></Surface> : <div className="tracker-card-grid">
+      {pendingRestores.map(({ tracker, status: restoreStatus }) => <Surface className="bin-card bin-restore-pending" key={`restore:${tracker.id}`}>
+        <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabel[tracker.kind]}</span><span className="bin-countdown" data-state={restoreStatus}>{restoreStatus === 'attention' ? 'Restore needs attention' : 'Restore in progress'}</span></div>
         <h2>{tracker.name}</h2>
-        <p>This tracker is saved on this device. Its activity and planning data are preserved while the server checks the restoration.</p>
-        <p className="bin-pending" role="status">{restoreStatus === 'pending' && !isOnline ? 'You’re offline. This restoration is saved locally and will wait for server confirmation when you reconnect. The tracker remains unavailable until then.' : message}</p>
-        {restoreStatus === 'attention' && <p className="bin-restore-help">Resolve this tracker’s sync issue in <Link to="/auth">Sync &amp; account</Link>. It will remain unavailable until the server confirms the restore.</p>}
+        <p>Your saved progress and plan are preserved while the restore finishes.</p>
+        <p className="bin-pending" role="status">{restoreStatus === 'pending' ? isOnline ? 'Restore is waiting to finish. The tracker stays unavailable until it does.' : 'You’re offline. Restore will finish when you reconnect; the tracker stays unavailable until then.' : 'Restore needs attention. Your tracker and progress are still saved.'}</p>
+        {restoreStatus === 'attention' && <p className="bin-restore-help">Review your account status in <Link to="/auth">Account and sync</Link> before trying again.</p>}
       </Surface>)}
       {trackers.map((tracker) => {
         const request = requests.find((item) => item.trackerId === tracker.id)
@@ -125,30 +132,31 @@ export function TrackerBinPage() {
           <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabel[tracker.kind]}</span><span className="tracker-kind-chip">Was {tracker.status === 'archived' ? 'Archived' : 'Active'}</span><span className={expired ? 'bin-countdown expired' : 'bin-countdown'}>{recoveryLabel(tracker.deletedAt!, now, Boolean(owner))}</span></div>
           <h2>{tracker.name}</h2>
           <p>Moved to Bin {new Date(tracker.deletedAt!).toLocaleString()} · {tracker.metrics.length} {tracker.metrics.length === 1 ? 'measure' : 'measures'} · progress and planning are preserved</p>
-          {request && <p className="bin-pending" role="status">{request.status === 'pending' && !request.lastError ? 'Permanent deletion pending server confirmation.' : request.status === 'pending' ? `Deletion not confirmed; it will retry when sync runs. ${request.lastError}` : request.lastError ?? 'Deletion needs attention.'}</p>}
+          {request && <p className="bin-pending" role={request.status === 'failed' || request.status === 'conflict' ? 'alert' : 'status'}>{deletionRequestMessage(request)}</p>}
           <div className="tracker-card-actions">
             <Button data-ai-capability="bin.restore" variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || requestBlocked} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
-            {permanentDeletionEnabled && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="available" variant="destructive" size="small" aria-busy={busyId === tracker.id} disabled={Boolean(busyId) || requestBlocked} onClick={() => openPermanentDeletion(tracker)}>{request?.status === 'pending' ? 'Deletion pending' : request?.status === 'conflict' ? 'Resolve sync conflict' : busyId === tracker.id ? 'Deleting…' : 'Permanently delete'}</Button>}
+            {permanentDeletionEnabled && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="available" variant="destructive" size="small" aria-busy={busyId === tracker.id} disabled={Boolean(busyId) || requestBlocked} onClick={() => openPermanentDeletion(tracker)}>{request?.status === 'pending' ? 'Deletion in progress' : request?.status === 'conflict' ? 'Resolve account issue' : busyId === tracker.id ? 'Deleting…' : 'Permanently Delete'}</Button>}
           </div>
         </Surface>
       })}
     </div>}
     {pendingPermanentDeletion && <ConfirmActionDialog
-      title={`Delete “${pendingPermanentDeletion.name}” permanently?`}
-      description="This erases the tracker and its saved activity irreversibly. Choose how its Wins should be handled. The server will leave everything unchanged if it cannot safely apply your choice."
-      actionLabel="Permanently delete tracker" destructive
+      className="tracker-deletion-dialog"
+      title={`Permanently Delete “${pendingPermanentDeletion.name}”?`}
+      description="This cannot be undone. Choose what happens to this tracker’s Wins."
+      actionLabel="Permanently Delete" destructive
       onCancel={() => setPendingPermanentDeletion(null)}
       onConfirm={() => { const tracker = pendingPermanentDeletion; const retention = winsRetention; setPendingPermanentDeletion(null); void permanentlyDelete(tracker, retention) }}
     >
       <fieldset className="tracker-deletion-choice">
-        <legend>Wins history after deletion</legend>
+        <legend>Choose what happens to its Wins</legend>
         <label>
           <input type="radio" name="tracker-wins-retention" value="keep_wins" checked={winsRetention === 'keep_wins'} onChange={() => setWinsRetention('keep_wins')} />
-          <span><strong>Keep my Wins history</strong><small>Your earned XP and achievements remain in your history, including the tracker name and what each reward was earned for. The tracker and its activity data are permanently deleted.</small></span>
+          <span><strong>Keep My Wins</strong><small>Permanently removes the tracker and its activity. Keeps your XP, badges, achievements, and reward history with appropriate tracker context.</small></span>
         </label>
         <label>
           <input type="radio" name="tracker-wins-retention" value="delete_wins" checked={winsRetention === 'delete_wins'} onChange={() => setWinsRetention('delete_wins')} />
-          <span><strong>Delete tracker and its Wins history</strong><small>The tracker, its activity data, and safely attributable rewards are removed. Your level or badge progress may decrease. Reconstructed XP, shared rewards, and unsupported achievement history cannot be reversed, so the server may refuse this option without deleting anything.</small></span>
+          <span><strong>Delete Tracker and Wins</strong><small>Permanently removes the tracker and its activity. Reverses only rewards linked to this tracker; other rewards and achievements stay. If rewards can’t be safely separated, nothing will be deleted.</small></span>
         </label>
       </fieldset>
     </ConfirmActionDialog>}

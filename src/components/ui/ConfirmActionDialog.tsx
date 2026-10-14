@@ -6,7 +6,7 @@ import { useModalLayer } from './useModalLayer'
 import { useVisualViewportBounds } from './useVisualViewportBounds'
 import type { ReactNode } from 'react'
 
-export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant, children }: {
+export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant, className, children }: {
   title: string
   description: string
   actionLabel: string
@@ -18,6 +18,7 @@ export function ConfirmActionDialog({ title, description, actionLabel, onCancel,
   details?: string
   layer?: 'default' | 'checkin'
   actionVariant?: 'primary' | 'secondary' | 'destructive'
+  className?: string
   children?: ReactNode
 }) {
   const backdropRef = useRef<HTMLDivElement>(null)
@@ -27,7 +28,7 @@ export function ConfirmActionDialog({ title, description, actionLabel, onCancel,
   useEffect(() => { dialogRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus() }, [])
   const variant = actionVariant ?? (destructive ? 'destructive' : 'primary')
   const dialog = <div ref={backdropRef} className={`modal-backdrop tracker-discard-backdrop${layer === 'checkin' ? ' checkin-confirm-backdrop' : ''}`} role="presentation">
-    <section ref={dialogRef} className={`tracker-discard-dialog${layer === 'checkin' ? ' checkin-confirm-dialog' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-description" tabIndex={-1}>
+    <section ref={dialogRef} className={`tracker-discard-dialog${className ? ` ${className}` : ''}${layer === 'checkin' ? ' checkin-confirm-dialog' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-description" tabIndex={-1}>
       <h2 id="confirm-action-title">{title}</h2>
       <p id="confirm-action-description">{description}</p>
       {children}

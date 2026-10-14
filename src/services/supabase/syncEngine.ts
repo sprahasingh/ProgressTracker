@@ -240,7 +240,14 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
         p_expected_revision: revision.serverRevision, p_wins_retention: request.winsRetention,
       })
       if (error) {
-        if (['55000', '22023', '42501', 'PGRST202'].includes(error.code ?? '')) throw new PermanentDeletionRejectedError(error.message)
+        if (error.code === '55000') {
+          throw new PermanentDeletionRejectedError(request.winsRetention === 'delete_wins'
+            ? 'Delete Tracker and Wins is unavailable because some rewards cannot be safely separated. Nothing was deleted. Choose Keep My Wins to preserve them.'
+            : 'This tracker could not be deleted safely. Nothing was deleted. Your tracker is still in the Bin.')
+        }
+        if (error.code === '22023') throw new PermanentDeletionRejectedError('Move this tracker to the Bin before permanently deleting it.')
+        if (error.code === '42501') throw new PermanentDeletionRejectedError('You don’t have access to delete this tracker. Sign in to the account that owns it.')
+        if (error.code === 'PGRST202') throw new PermanentDeletionRejectedError('Permanent deletion is unavailable right now. Your tracker is still in the Bin.')
         throw new Error(error.message)
       }
       const result = data as { status?: string; tracker_id?: string; permanently_deleted_at?: string; record?: ServerTracker | null }
@@ -262,8 +269,11 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
       deleted += 1
     } catch (cause) {
       const current = await database.permanentDeletionRequests.get(request.id)
-      if (current) await database.permanentDeletionRequests.put({ ...current, status: cause instanceof PermanentDeletionRejectedError ? 'failed' : 'pending', lastError: errorMessage(cause) })
-      publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName, message: errorMessage(cause) })
+      const message = cause instanceof PermanentDeletionRejectedError
+        ? errorMessage(cause)
+        : 'We couldn’t confirm permanent deletion. Your tracker is still in the Bin. Reconnect and try again.'
+      if (current) await database.permanentDeletionRequests.put({ ...current, status: cause instanceof PermanentDeletionRejectedError ? 'failed' : 'pending', lastError: message })
+      publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName, message })
       failed += 1
     }
   }

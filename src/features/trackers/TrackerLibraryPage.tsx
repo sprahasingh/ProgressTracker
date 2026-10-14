@@ -99,7 +99,7 @@ export function TrackerLibraryPage() {
     try {
       await localRepository.deleteTracker(tracker.id)
       await refresh()
-      notify({ kind: 'success', title: 'Tracker moved to the Bin', description: 'You can restore it with its history and plan for 30 days.', dedupeKey: `tracker:${tracker.id}` })
+      notify({ kind: 'success', title: 'Moved to Bin', description: 'You can restore it from the Bin.', dedupeKey: `tracker:${tracker.id}` })
     } catch {
       notify({ kind: 'error', title: 'Couldn’t move tracker to the Bin', description: 'Your tracker is unchanged. Please try again.', duration: 0, dedupeKey: `tracker:${tracker.id}` })
     }
@@ -112,7 +112,7 @@ export function TrackerLibraryPage() {
         eyebrow="YOUR PRACTICE"
         title="Trackers & Goals"
         description="Habits, goals, challenges, and projects you choose to make progress on."
-        help={{ title: 'Trackers', summary: 'Your active routines, goals, challenges, and projects live here.', description: 'Open a tracker to record a check-in or edit its setup. Archive hides a tracker from active work while retaining it. Delete moves it to the Bin for 30 days, where you can restore the tracker and its history. Permanent deletion is an account-wide operation and requires server confirmation.' }}
+        help={{ title: 'Trackers', summary: 'Your active routines, goals, challenges, and projects live here.', description: 'Open a tracker to record a check-in or edit its setup. Archive hides a tracker from active work while retaining it. Move a tracker to the Bin to keep its progress and restore it later.' }}
         action={<Link className="button button-primary button-medium" to="/trackers/new">＋ Create tracker</Link>}
       />
       <SectionTabs label="Trackers and goals" items={trackerSectionTabs} />
@@ -157,7 +157,7 @@ export function TrackerLibraryPage() {
           ))}
         </div>
       )}
-      {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to the Bin?`} description="You can restore this tracker for 30 days. Its saved check-ins, measure definitions, and plan will be kept. If scheduled cleanup is enabled, it permanently removes the tracker after 30 days while keeping its recorded name and reward context in Wins. Manual deletion lets you choose what happens to Wins." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}
+      {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to Bin?`} description="Your tracker and its saved progress will be moved to the Bin. You can restore it while it’s in the Bin. Moving it won’t remove your earned XP, badges, or achievements. When you permanently delete the tracker, you can choose what happens to its Wins." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}
     </section>
   )
 }
@@ -209,9 +209,9 @@ function TrackerActionsMenu({ tracker, onArchive, onRestore, onDelete }: {
     <button ref={triggerRef} type="button" className="button button-secondary button-small tracker-actions-trigger" aria-label={`More actions for ${tracker.name}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>⋯</button>
     {open && <div className="tracker-actions-popover" role="menu" aria-label={`${tracker.name} actions`} ref={menuRef}>
       {tracker.status === 'archived'
-        ? <button type="button" role="menuitem" onClick={() => void run(onRestore)}>Restore tracker</button>
+        ? <button type="button" role="menuitem" onClick={() => void run(onRestore)}>Restore</button>
         : <button type="button" role="menuitem" onClick={() => void run(onArchive)}>Archive tracker</button>}
-      <button type="button" role="menuitem" className="destructive" onClick={() => void run(onDelete)}>Delete tracker</button>
+      <button type="button" role="menuitem" className="destructive" onClick={() => void run(onDelete)}>Move to Bin</button>
     </div>}
   </div>
 }
