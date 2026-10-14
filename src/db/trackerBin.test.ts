@@ -33,7 +33,10 @@ function localSyncClient(userId: string): SupabaseClient {
     return builder
   })
   return {
-    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId } }, error: null }) },
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId } }, error: null }),
+      getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: userId } } }, error: null }),
+    },
     rpc,
     from,
   } as unknown as SupabaseClient

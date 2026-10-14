@@ -206,7 +206,7 @@ export function ProgressionAchievementsPage() {
     else { setLoading(false); setPageData(null) }
     return () => { refreshGeneration.current += 1 }
   }, [refresh, workspaceReady])
-  useWorkspaceDataChanges(owner, workspaceReady, refresh)
+  useWorkspaceDataChanges(owner, workspaceReady, refresh, true)
 
   const streaks = useMemo(() => pageData?.trackers.map((tracker) => ({
     tracker,

@@ -19,7 +19,7 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 }
 
 export default async function globalSetup(_config: FullConfig) {
-  const output = execFileSync('supabase', ['status', '--workdir', workdir, '--output', 'env'], { encoding: 'utf8' })
+  const output = execFileSync('supabase', ['status', '--workdir', workdir, '--output', 'env'], { encoding: 'utf8', env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: 'true' } })
   const env = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
     const match = line.match(/^([A-Z_]+)="(.*)"$/)
     return match ? [[match[1]!, match[2]!]] : []

@@ -3,7 +3,7 @@ import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { publishPermanentDeletionNotification } from '../permanentDeletionNotifications'
-import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
+import { publishWorkspaceDataChange, publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -71,6 +71,12 @@ async function assertUser(client: SyncClient, expectedUserId: string) {
   if (error || data.user?.id !== expectedUserId) throw new Error('Sync stopped because the authenticated session does not match this account workspace.')
 }
 
+/** Check the locally held identity between requests; the server still enforces auth.uid() and the expected owner on every RPC/read. */
+async function assertCurrentSession(client: SyncClient, expectedUserId: string) {
+  const { data, error } = await client.auth.getSession()
+  if (error || data.session?.user.id !== expectedUserId) throw new Error('Sync stopped because the authenticated session does not match this account workspace.')
+}
+
 async function accountState(database: ProgressTrackerDatabase, expectedUserId: string) {
   const metadata = await database.workspaceMetadata.get('workspace')
   if (!metadata || metadata.userId !== expectedUserId) throw new Error('Sync stopped because this local database is not owned by the authenticated account.')
@@ -127,13 +133,15 @@ async function reconcileServerDeletionLedger(database: ProgressTrackerDatabase, 
     if (cursor) query = query.gt('tracker_id', cursor)
     const { data, error } = await query
     if (error) throw new Error(`Permanent-deletion ledger could not be checked; uploads are paused: ${error.message}`)
+    await accountState(database, userId)
+    await assertCurrentSession(client, userId)
     const page = (data ?? []) as Array<{ user_id: string; tracker_id: string; permanently_deleted_at: string }>
     if (page.some((row) => row.user_id !== userId)) throw new Error('Deletion ledger returned another account’s record; sync was stopped.')
     rows.push(...page)
     if (page.length < pageSize) break
     cursor = page[page.length - 1]!.tracker_id
     await accountState(database, userId)
-    await assertUser(client, userId)
+    await assertCurrentSession(client, userId)
   }
   await localRepository.reconcilePermanentDeletionLedger(userId, rows.map((row) => ({
     tracker_id: row.tracker_id,
@@ -152,13 +160,15 @@ async function reconcileServerHolidayDeletionLedger(database: ProgressTrackerDat
     if (cursor) query = query.gt('holiday_id', cursor)
     const { data, error } = await query
     if (error) throw new Error(`Holiday deletion ledger could not be checked; uploads are paused: ${error.message}`)
+    await accountState(database, userId)
+    await assertCurrentSession(client, userId)
     const page = (data ?? []) as Array<{ user_id: string; holiday_id: string; permanently_deleted_at: string }>
     if (page.some((row) => row.user_id !== userId)) throw new Error('Holiday deletion ledger returned another account’s record; sync was stopped.')
     rows.push(...page)
     if (page.length < pageSize) break
     cursor = page[page.length - 1]!.holiday_id
     await accountState(database, userId)
-    await assertUser(client, userId)
+    await assertCurrentSession(client, userId)
   }
   await localRepository.reconcilePermanentHolidayDeletionLedger(userId, rows.map((row) => ({
     holiday_id: row.holiday_id,
@@ -175,7 +185,7 @@ async function processPermanentHolidayDeletionRequests(database: ProgressTracker
   for (const request of requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
     try {
       await accountState(database, userId)
-      await assertUser(client, userId)
+      await assertCurrentSession(client, userId)
       const [holiday, revision] = await Promise.all([
         database.accountHolidays.get(request.holidayId), database.syncRecords.get(keyFor('account_holiday', request.holidayId)),
       ])
@@ -227,7 +237,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
     let trackerName = request.trackerId
     try {
       await accountState(database, userId)
-      await assertUser(client, userId)
+      await assertCurrentSession(client, userId)
       const [tracker, revision] = await Promise.all([
         database.trackers.get(request.trackerId), database.syncRecords.get(keyFor('tracker', request.trackerId)),
       ])
@@ -300,7 +310,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
         break
       }
       await accountState(database, userId)
-      await assertUser(client, userId)
+      await assertCurrentSession(client, userId)
       const payload = toServerPayload(operation)
       const { data, error } = operation.entity === 'account_holiday'
         ? await client.rpc('apply_account_holiday_sync_operation', {
@@ -313,7 +323,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
         })
       if (error?.code === '23505' && operation.entity === 'tracker_entry') {
         const payload = operation.payload as StoredTrackerEntry
-        await assertUser(client, userId)
+        await assertCurrentSession(client, userId)
         const { data: duplicate, error: duplicateError } = await client.from('tracker_entries').select('*')
           .eq('user_id', userId).eq('tracker_id', payload.trackerId).eq('entry_date', payload.date).maybeSingle()
         if (duplicateError) throw new Error(duplicateError.message)
@@ -488,14 +498,18 @@ async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(
     if (cursor) query = query.gt('id', cursor)
     const { data, error } = await query
     if (error) throw new Error(error.message)
+    await accountState(database, userId)
+    await assertCurrentSession(client, userId)
     const rows = (data ?? []) as T[]
     if (!rows.length) break
     for (const row of rows) {
       if (row.user_id !== userId) throw new Error('The cloud returned a record for a different account; this page was not merged.')
-      // A session may change while the page request is in flight. Recheck before
-      // applying each row so a response fetched under an old session is discarded.
+      // Row ownership is checked above; the server identity was revalidated
+      // immediately after the RLS-scoped page response. Keep per-row workspace
+      // and local-session checks before IndexedDB writes without another Auth
+      // network request for each row.
       await accountState(database, userId)
-      await assertUser(client, userId)
+      await assertCurrentSession(client, userId)
       const result = await apply(row)
       downloaded += result.downloaded
       conflicts += result.conflicts
@@ -529,10 +543,11 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
   const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded
-  // Progression clients use this signal to discard provisional awards and
-  // reload the authoritative ledger, including successful uploads that did
-  // not require downloading a changed tracker row.
-  publishWorkspaceDataChange(userId)
+  const changed = trackerPull.changed + entryPull.changed + holidayPull.changed
+  // Progression views need server confirmation even when an upload did not
+  // change the local workspace records. Other mounted local views do not.
+  if (changed > 0) publishWorkspaceDataChange(userId)
+  else publishWorkspaceSyncCompleted(userId)
   return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed + holidayDeletions.failed }
 }
 
