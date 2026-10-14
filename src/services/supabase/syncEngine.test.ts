@@ -28,6 +28,7 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
 function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[] } = {}) {
   const rpc = vi.fn().mockImplementation(() => options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }))
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
+  const getSession = vi.fn().mockResolvedValue({ data: { session: options.userId === '' ? null : { user: { id: options.userId ?? 'sync-user' } } }, error: null })
   const from = vi.fn((table: string) => {
     const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : table === 'account_holiday_deletion_ledger' ? options.holidayLedgerRows ?? [] : []
     const builder = {
@@ -39,7 +40,7 @@ function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?
     }
     return builder
   })
-  return { client: { auth: { getUser }, rpc, from } as unknown as SupabaseClient, rpc, getUser, from }
+  return { client: { auth: { getUser, getSession }, rpc, from } as unknown as SupabaseClient, rpc, getUser, getSession, from }
 }
 
 afterEach(async () => {
@@ -56,12 +57,12 @@ describe('account-scoped sync engine', () => {
       id: 'remote-view-progress', user_id: 'sync-user', tracker_id: remote.id, entry_date: '2026-10-09', outcome: 'recorded',
       entry_values: { pages: 6 }, note: '', created_at: '2026-10-09T09:00:00.000Z', updated_at: '2026-10-09T09:00:00.000Z', deleted_at: null, server_revision: 1,
     }
-    const owners: Array<string | null> = []
-    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId) => owners.push(ownerId))
+    const events: Array<{ ownerId: string | null; kind: string }> = []
+    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId, kind) => events.push({ ownerId, kind }))
     try {
       const { client } = fakeClient({ trackerRows: [serverTracker(remote)], trackerEntryRows: [remoteEntry] })
       await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 2 })
-      expect(owners).toEqual(['sync-user'])
+      expect(events).toEqual([{ ownerId: 'sync-user', kind: 'data' }])
       await expect(db.trackerEntries.get(remoteEntry.id)).resolves.toMatchObject({ trackerId: remote.id, values: { pages: 6 } })
     } finally {
       unsubscribe()
@@ -72,12 +73,12 @@ describe('account-scoped sync engine', () => {
     await activateWorkspace('sync-user')
     const pending = tracker('confirmed-checkin-notice')
     await localRepository.saveTracker(pending)
-    const owners: Array<string | null> = []
-    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId) => owners.push(ownerId))
+    const events: Array<{ ownerId: string | null; kind: string }> = []
+    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId, kind) => events.push({ ownerId, kind }))
     try {
       const { client } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(pending) } })
       await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, downloaded: 0, conflicts: 0, failed: 0 })
-      expect(owners).toEqual(['sync-user'])
+      expect(events).toEqual([{ ownerId: 'sync-user', kind: 'sync-complete' }])
     } finally {
       unsubscribe()
     }
@@ -723,14 +724,27 @@ describe('account-scoped sync engine', () => {
   it('discards a cloud page when the authenticated account changes before a row is merged', async () => {
     await activateWorkspace('sync-user')
     const remote = tracker('session-switched-row')
-    const { client, getUser } = fakeClient({ trackerRows: [serverTracker(remote)] })
-    getUser
-      .mockResolvedValueOnce({ data: { user: { id: 'sync-user' } }, error: null })
-      .mockResolvedValueOnce({ data: { user: { id: 'sync-user' } }, error: null })
-      .mockResolvedValueOnce({ data: { user: { id: 'other-user' } }, error: null })
+    const { client, getSession } = fakeClient({ trackerRows: [serverTracker(remote)] })
+    getSession
+      .mockResolvedValueOnce({ data: { session: { user: { id: 'sync-user' } } }, error: null })
+      .mockResolvedValueOnce({ data: { session: { user: { id: 'other-user' } } }, error: null })
 
     await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('does not match this account workspace')
     await expect(db.trackers.get(remote.id)).resolves.toBeUndefined()
+  })
+
+  it('keeps Auth network validation bounded to pages instead of repeating it for every downloaded record', async () => {
+    await activateWorkspace('sync-user')
+    const trackerRows = Array.from({ length: 50 }, (_, index) => serverTracker(tracker(`page-tracker-${index}`)))
+    const { client, getUser, getSession } = fakeClient({ trackerRows })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 50, failed: 0 })
+
+    // One initial identity check plus one RLS-page check for each of the three
+    // synchronized tables. The 50 row-level checks use the cached session.
+    expect(getUser).toHaveBeenCalledTimes(4)
+    expect(getSession).toHaveBeenCalledTimes(53)
+    await expect(db.trackers.count()).resolves.toBe(50)
   })
 
   it('downloads PostgreSQL-style tracker timestamps as canonical UTC without changing their instants', async () => {

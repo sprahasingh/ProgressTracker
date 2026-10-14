@@ -30,14 +30,21 @@ async function confirmedAwardState(page: Page, achievementId: string) {
     const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
     const { data: { session } } = await client.auth.getSession()
     if (!session?.user) return { userId: null, count: 0, pending: -1, failures: ['No authenticated session'] }
-    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
     const database = await import('/ProgressTracker/src/db/database.ts')
-    const badge = (await repository.getEarnedAndLockedBadges(session.user.id)).find((item) => item.achievementId === id)
+    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+    const { data: history, error } = await client.from('progression_achievement_events')
+      .select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,reverses_event_id')
+      .eq('user_id', session.user.id).eq('achievement_id', id)
+    if (error) throw new Error(`Achievement polling read failed (${error.code ?? 'unknown'}).`)
     const operations = await database.db.syncOperations.where('ownerUserId').equals(session.user.id).toArray()
     const outstanding = operations.filter((operation) => operation.status === 'pending')
     return {
       userId: session.user.id,
-      count: badge?.validAwardCount ?? 0,
+      count: repository.activeAchievementOccurrences((history ?? []).map((row: any) => ({
+        id: row.id, achievementId: row.achievement_id, tier: row.tier, generation: row.generation,
+        eventType: row.event_type, recordedAt: row.recorded_at, sourceEventId: row.source_event_id,
+        sourceDate: row.source_date, reversesEventId: row.reverses_event_id,
+      }))).length,
       pending: outstanding.length,
       failures: outstanding.filter((operation) => operation.attempts > 0 || operation.lastError).map((operation) => operation.lastError ?? `attempts=${operation.attempts}`),
     }
@@ -74,9 +81,29 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const browserErrors: string[] = []
   const authRequests: Array<{ path: string; status?: number; elapsedMs: number; failure?: string }> = []
   const authStarted = new Map<string, number>()
+  const syncCalls: Array<{ path: string; status?: number; elapsedMs: number; failed?: boolean }> = []
+  const syncStarted = new Map<string, number>()
+  let measureSync = false
   page.on('pageerror', (error) => browserErrors.push(error.message))
   page.on('request', (request) => {
+    if (measureSync) {
+      const path = new URL(request.url()).pathname
+      if (/\/(?:auth\/v1\/user|rest\/v1)(?:\/|$)/.test(path)) syncStarted.set(request.url(), performance.now())
+    }
     if (new URL(request.url()).pathname.startsWith('/auth/v1/')) authStarted.set(request.url(), Date.now())
+  })
+  page.on('requestfinished', async (request) => {
+    const started = syncStarted.get(request.url())
+    if (started === undefined) return
+    const response = await request.response()
+    syncCalls.push({ path: new URL(request.url()).pathname, status: response?.status(), elapsedMs: Math.round(performance.now() - started) })
+    syncStarted.delete(request.url())
+  })
+  page.on('requestfailed', (request) => {
+    const started = syncStarted.get(request.url())
+    if (started === undefined) return
+    syncCalls.push({ path: new URL(request.url()).pathname, elapsedMs: Math.round(performance.now() - started), failed: true })
+    syncStarted.delete(request.url())
   })
   page.on('requestfinished', async (request) => {
     if (new URL(request.url()).pathname.startsWith('/auth/v1/')) {
@@ -92,6 +119,10 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
       authStarted.delete(request.url())
     }
   })
+  // Server progression fixtures use the account's UTC default. Keep this test
+  // browser on that same calendar day even when the host machine is elsewhere.
+  const timezoneSession = await context.newCDPSession(page)
+  await timezoneSession.send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' })
   await page.goto('/#/auth')
   await page.getByRole('button', { name: 'Use password' }).click()
   await page.getByLabel('Email address').last().fill(credentials.email)
@@ -122,13 +153,24 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   // confirmation causes AppShell's progression monitor to show the first award.
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Done', exact: true }).click()
+  const localCheckInStartedAt = performance.now()
   await checkinAction.click()
   await expect(page.getByText(/Saved on this device/)).toBeVisible()
+  const localCheckInMs = Math.round(performance.now() - localCheckInStartedAt)
   await expect(page.locator('.badge-celebration')).toHaveCount(0)
   await page.getByRole('button', { name: 'Close check-in details' }).click()
+  measureSync = true
+  const serverSyncStartedAt = performance.now()
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 60_000, message: 'AppShell online synchronization should confirm the first Perfect Day award and clear its local queue' }).toMatchObject({ userId, count: 1, pending: 0 })
+  await expect(page.locator('.topbar-sync-state')).toHaveAttribute('aria-label', /Synced/, { timeout: 60_000 })
+  const serverSyncMs = Math.round(performance.now() - serverSyncStartedAt)
+  measureSync = false
+  const progressionStartedAt = performance.now()
+  await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000, message: 'Server progression reconciliation should confirm the Perfect Day occurrence' }).toMatchObject({ userId, count: 1, pending: 0 })
+  const progressionReconciliationMs = Math.round(performance.now() - progressionStartedAt)
+  await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
+  console.log(`SYNC_PERF ${JSON.stringify({ localCheckInMs, serverSyncMs, progressionReconciliationMs, syncRequestCount: syncCalls.length, syncRequests: syncCalls, pendingAtMeasurementEnd: syncStarted.size })}`)
   try {
     await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
   } catch (error) {
@@ -290,6 +332,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   // card's accessible name and count. It remains a valid restoration target.
   const winsNavigation = page.getByRole('link', { name: 'Wins', exact: true })
   await winsNavigation.focus()
+  await context.setOffline(true)
   const repeats = await page.evaluate(async () => {
     const repository = await import('/ProgressTracker/src/db/localRepository.ts')
     const trackers = await repository.localRepository.listTrackers()
@@ -303,14 +346,31 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     return { inserted: 4 }
   })
   expect(repeats.inserted).toBe(4)
+  await page.route('**/rest/v1/**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const response = await route.fetch()
+    await route.fulfill({ response })
+  })
+  syncCalls.length = 0
+  measureSync = true
+  const slowSyncStartedAt = performance.now()
+  await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 60_000, message: 'AppShell sync should persist four distinct Perfect Day occurrences' }).toMatchObject({ userId, count: 5, pending: 0 })
+  await expect(page.locator('.topbar-sync-state')).toHaveAttribute('aria-label', /Synced/, { timeout: 60_000 })
+  await expect(winCount).toContainText('Earned 5 times', { timeout: 60_000 })
+  const repeatedAwardState = await confirmedAwardState(page, 'perfect-day')
+  expect(repeatedAwardState).toMatchObject({ userId, count: 5, pending: 0 })
+  const slowSyncMs = Math.round(performance.now() - slowSyncStartedAt)
+  measureSync = false
+  await page.unrouteAll({ behavior: 'wait' })
+  console.log(`SYNC_PERF_SLOW ${JSON.stringify({ injectedRestDelayMs: 150, pendingCheckIns: repeats.inserted, serverSyncMs: slowSyncMs, requestCount: syncCalls.length, requests: syncCalls, pendingAtMeasurementEnd: syncStarted.size })}`)
   await expect(winCount).toContainText('Earned 5 times')
 
   // The five-day fixture earns Momentum as well as four distinct Perfect Day
   // occurrences. Derive the expected queue directly from persisted history,
   // since same-sync awards are ordered by their server timestamps and IDs.
-  await expect.poll(() => confirmedAwardState(page, 'momentum'), { timeout: 30_000, message: 'The five-day fixture should confirm its first Momentum award' }).toMatchObject({ userId, count: 1, pending: 0 })
+  const momentumState = await confirmedAwardState(page, 'momentum')
+  expect(momentumState).toMatchObject({ userId, count: 1, pending: 0 })
   const expectedQueue = await page.evaluate(async (id) => {
     const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
     const catalog = await import('/ProgressTracker/src/features/dashboard/achievementCatalog.ts')

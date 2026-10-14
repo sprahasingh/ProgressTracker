@@ -386,10 +386,7 @@ export async function getAchievementProgress(userId: string): Promise<Achievemen
   }))
 }
 
-export async function getEarnedAndLockedBadges(userId: string): Promise<AchievementState[]> {
-  const client = getSupabaseClient()
-  if (!client) throw new Error('Supabase is not configured.')
-  await assertAccount(client, userId)
+async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<AchievementState[]> {
   const { error: refreshError } = await client.rpc('refresh_my_progression_qualification_progress')
   if (refreshError) throw progressionReadError('refresh_my_progression_qualification_progress', refreshError)
   const [progress, history, retained] = await Promise.all([
@@ -403,6 +400,13 @@ export async function getEarnedAndLockedBadges(userId: string): Promise<Achievem
   const historyRows = history.data ?? []
   const contexts = await getRetainedRewardContexts(client, userId, historyRows.map((row: { id: string }) => row.id), 'achievement')
   return makeAchievementStates(progress.data ?? [], historyRows, new Set((retained.data ?? []).map((row: { achievement_event_id: string }) => row.achievement_event_id)), contexts)
+}
+
+export async function getEarnedAndLockedBadges(userId: string): Promise<AchievementState[]> {
+  const client = getSupabaseClient()
+  if (!client) throw new Error('Supabase is not configured.')
+  await assertAccount(client, userId)
+  return readEarnedAndLockedBadges(client, userId)
 }
 
 export async function getAchievementHistory(userId: string): Promise<AchievementHistoryEvent[]> {
@@ -486,7 +490,7 @@ export async function getProgressionOverview(userId: string): Promise<Progressio
   if (!client) throw new Error('Supabase is not configured.')
   await assertAccount(client, userId)
   const [events, local, achievements, legacyXpStatus] = await Promise.all([
-    queryAllEvents(client, userId), getLocalSnapshot(userId), getEarnedAndLockedBadges(userId), getLegacyXpStatus(client),
+    queryAllEvents(client, userId), getLocalSnapshot(userId), readEarnedAndLockedBadges(client, userId), getLegacyXpStatus(client),
   ])
   const provisionalRewards = localProvisional(local, localCalendarDate(new Date(), local.timeZone), events)
   const summary = summarizeProgression({ events, provisionalRewards })

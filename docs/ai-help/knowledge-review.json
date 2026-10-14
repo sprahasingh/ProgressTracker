@@ -1,15 +1,15 @@
 {
   "offline-sync": {
     "src/db/localRepository.ts": "79f44235791f0521d0eddaf5f215bfa587bd0ae0b17e2636bc3969fbe3f73017",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "cross-device-sync": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc"
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47"
   },
   "sync-conflicts": {
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/db/syncConflictRepository.ts": "bbae0661b62c88e68222ddbbdd5b8d26712c0a45d165bcf4b84557dfe73a8863",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
@@ -29,15 +29,15 @@
   },
   "offline-sync-later": {
     "src/db/localRepository.ts": "79f44235791f0521d0eddaf5f215bfa587bd0ae0b17e2636bc3969fbe3f73017",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "sync-deletion": {
     "src/db/localRepository.ts": "79f44235791f0521d0eddaf5f215bfa587bd0ae0b17e2636bc3969fbe3f73017",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc"
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47"
   },
   "sync-conflict-preserves-versions": {
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/db/syncConflictRepository.ts": "bbae0661b62c88e68222ddbbdd5b8d26712c0a45d165bcf4b84557dfe73a8863",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
@@ -207,7 +207,7 @@
   },
   "history-clear-sync": {
     "src/db/localRepository.ts": "79f44235791f0521d0eddaf5f215bfa587bd0ae0b17e2636bc3969fbe3f73017",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/features/history/HistoryPage.tsx": "6de091158687c2647355028f7001bd9568839e8c0104a6bb39a1b9aece6a41a6"
   },
   "history-reenter-cleared": {
@@ -349,7 +349,7 @@
   "local-settings": {
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
     "src/features/settings/WorkspaceTimeZone.tsx": "400318aec7b98dfbead801c2deca1abd63f128ffb4e43fe542d92d0a0019e111",
-    "src/services/supabase/syncEngine.ts": "8b01b9762c1830c59b859516569e560dba67afc4b81d03d36d4f24b16ccefcfc",
+    "src/services/supabase/syncEngine.ts": "86734f411e3d58212b100a486bab2d6982a792cdd898a39bca274048c4649f47",
     "src/features/settings/appearance.test.ts": "554dfe730f1cc496ae35502d57373d22d2bb793e59c7d4101e69760b662dbfb6",
     "src/features/settings/WorkspaceAppearance.test.tsx": "544ace6e6a697be95cdb38748c2b93c80c7e8a887f5ab53460d1119464ab1ec6"
   },
@@ -372,9 +372,9 @@
   "points-and-rewards": {
     "src/domain/trackers/progressionModel.ts": "ce50b303df5c3b1dd69dce173d6bc66137e4cacfa01257c2839f4b4b996252ad",
     "src/domain/trackers/progression.ts": "09ac5f7398b58f9e1f00a27211c363bc2acf2e6ed605d6c15921ee4f7b739b0d",
-    "src/services/supabase/progressionRepository.ts": "f993839303f0b4be6aca196c787e56455920f430c1dbfdd182a59bebfd735141",
+    "src/services/supabase/progressionRepository.ts": "54f66411619fa96ef10edffb10043aab02abbb6d2004d50852f864afd6993485",
     "src/features/dashboard/AchievementsPage.tsx": "262c9621755d4c65b4c6d4e0b1b6dc63e6d95878392ac354de7777d44735e8c3",
-    "src/features/dashboard/ProgressionAchievementsPage.tsx": "9cb2df999cb722732a0c9f5330d67a01bcd896719f939939cc07bd4c286b104f",
+    "src/features/dashboard/ProgressionAchievementsPage.tsx": "8dc4444ea60e3700bce8cd458efad4845fbfa73b9346791188ef37bda4d77faf",
     "src/features/dashboard/achievementCatalog.ts": "d672c731e56a3b7a9621cb16d286b689702da0fb0c6994a83d7935658c43dc76",
     "src/features/dashboard/BadgeCelebrationDialog.tsx": "e1f77dc0ba419faa2c0910293effe1ff434fff6b1b0ea60b7db16b3ee79c7b4e",
     "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "5048b3e9a80ed00f08e63fbba1e73ba0056a2692671a6b2b015efae78dcc4329",
