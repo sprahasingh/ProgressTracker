@@ -7,14 +7,21 @@ import { achievementDefinition } from './achievementCatalog'
 import { ProgressionBadge } from './ProgressionBadge'
 import { getAchievementAwardXp, getEarnedAndLockedBadges, subscribeToProgressionChanges, type AchievementHistoryEvent } from '../../services/supabase/progressionRepository'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 
-type Celebration = AchievementHistoryEvent
+type Celebration = AchievementHistoryEvent & { repeatable: boolean }
 const storageKey = (userId: string) => `progress-tracker:achievement-seen:${userId}`
 const pendingStorageKey = (userId: string) => `progress-tracker:achievement-pending:${userId}`
 const retryDelay = (attempt: number) => new Promise((resolve) => window.setTimeout(resolve, 250 * 2 ** attempt))
 
+export function badgeCelebrationLevel(repeatable: boolean, occurrence: number): 'first' | 'repeat' | 'milestone' {
+  if (occurrence === 1 || !repeatable) return 'first'
+  return occurrence === 5 || occurrence === 10 || occurrence === 25 || occurrence === 50 || (occurrence > 0 && occurrence % 100 === 0) ? 'milestone' : 'repeat'
+}
+
 /** Watches persisted server unlock events, baselines historical events on first account load, and serializes new celebrations. */
 export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
+  const { timeZone } = useWorkspaceTimeZone()
   const [queue, setQueue] = useState<Celebration[]>([])
   const seeded = useRef(false)
   const initialReadStartedAt = useRef(0)
@@ -33,7 +40,7 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       }
       if (!badges) throw readError
       if (requestId !== refreshSequence.current) return
-      const events = badges.flatMap((badge) => badge.history).sort((a, b) => a.recordedAt.localeCompare(b.recordedAt) || a.id.localeCompare(b.id))
+      const events = badges.flatMap((badge) => badge.history.map((event) => ({ ...event, repeatable: badge.repeatable }))).sort((a, b) => a.recordedAt.localeCompare(b.recordedAt) || a.id.localeCompare(b.id))
       const key = storageKey(userId)
       const pendingKey = pendingStorageKey(userId)
       let seen: string[] = []
@@ -85,18 +92,25 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
   }, [refresh, userId])
 
   const current = queue[0]
+  const acknowledge = useCallback((event: Celebration) => {
+    const key = storageKey(userId)
+    let seen: string[] = []
+    try { seen = JSON.parse(localStorage.getItem(key) ?? '[]') as string[] } catch { seen = [] }
+    if (!seen.includes(event.id)) localStorage.setItem(key, JSON.stringify([...seen, event.id].slice(-3000)))
+    let pending: string[] = []
+    try { pending = JSON.parse(localStorage.getItem(pendingStorageKey(userId)) ?? '[]') as string[] } catch { pending = [] }
+    localStorage.setItem(pendingStorageKey(userId), JSON.stringify(pending.filter((id) => id !== event.id)))
+  }, [userId])
   const close = useCallback(() => {
     if (current) {
-      const key = storageKey(userId)
-      let seen: string[] = []
-      try { seen = JSON.parse(localStorage.getItem(key) ?? '[]') as string[] } catch { seen = [] }
-      if (!seen.includes(current.id)) localStorage.setItem(key, JSON.stringify([...seen, current.id].slice(-3000)))
-      let pending: string[] = []
-      try { pending = JSON.parse(localStorage.getItem(pendingStorageKey(userId)) ?? '[]') as string[] } catch { pending = [] }
-      localStorage.setItem(pendingStorageKey(userId), JSON.stringify(pending.filter((id) => id !== current.id)))
+      acknowledge(current)
     }
     setQueue((items) => items.slice(1))
-  }, [current, userId])
+  }, [acknowledge, current])
+  const finish = useCallback(() => {
+    queue.forEach(acknowledge)
+    setQueue([])
+  }, [acknowledge, queue])
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -106,23 +120,29 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
   if (!current) return null
   const definition = achievementDefinition(current.achievementId)
   if (!definition) return null
-  const milestone = current.tier >= 5 && (current.tier === 5 || current.tier === 10 || current.tier === 25 || current.tier === 50 || current.tier % 100 === 0)
-  const grand = current.tier === 1 || milestone
-  const label = current.tier === 1 ? 'First unlock' : milestone ? `${current.tier} achievement awards` : 'Achievement unlocked'
+  const level = badgeCelebrationLevel(current.repeatable, current.tier)
+  const milestone = level === 'milestone'
+  const grand = level !== 'repeat'
+  const label = current.tier === 1 ? 'New Achievement Unlocked!' : milestone ? 'Achievement Milestone!' : 'Achievement Earned Again!'
+  const ordinal = (count: number) => `${count}${count % 100 >= 11 && count % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[count % 10] ?? 'th'}`
+  const occurrenceLabel = current.tier === 1 ? 'First Unlock' : milestone ? `${ordinal(current.tier)} ${definition.name}!` : `Earned for the ${ordinal(current.tier)} time`
+  const earnedAt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(current.recordedAt))
+  const index = queue.findIndex((event) => event.id === current.id)
   return createPortal(<div ref={backdropRef} className="modal-backdrop progression-dialog-backdrop badge-celebration-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
     <section ref={dialogRef} className={`progression-dialog badge-celebration${grand ? ' is-grand' : ' is-subtle'}`} role="dialog" aria-modal="true" aria-labelledby="badge-celebration-title" tabIndex={-1}>
       {grand && <div className="badge-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ '--confetti-index': index } as React.CSSProperties} />)}</div>}
       <header className="progression-dialog-header badge-celebration-header">
         <div className="badge-celebration-heading">
           <span className="eyebrow">{label}</span>
+          {queue.length > 1 && <span className="badge-celebration-queue">Badge {index + 1} of {queue.length}</span>}
           <div className="badge-celebration-title-row">
             <h2 id="badge-celebration-title">{definition.name}</h2>
-            <InfoButton title="Achievement celebration" label="About this celebration" compact summary="This badge was confirmed by your account." description="Celebrations are shown for newly confirmed award events. Existing award history is kept without replaying old celebrations." />
+            <InfoButton title={definition.name} label="About this celebration" compact summary={definition.description} description={`${definition.requirement} ${current.repeatable ? 'This badge is repeatable.' : 'This badge can be earned once.'}`} />
           </div>
         </div>
         <button ref={closeRef} type="button" className="info-dialog-close badge-celebration-close" aria-label="Close celebration" onClick={close}><AppIcon name="close" /></button>
       </header>
-      <div className="progression-dialog-content badge-celebration-content"><ProgressionBadge achievementId={current.achievementId} tier={current.tier} size="large" /><p>{definition.description}</p><p className="badge-celebration-occurrence">{current.tier === 1 ? 'First award' : `Award ${current.tier}`} · qualifying date {current.sourceDate ?? 'unavailable'} · confirmed {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(current.recordedAt))}</p>{current.rewardXpDelta && current.rewardXpDelta > 0 && <p>+{current.rewardXpDelta} XP confirmed · listed in your reward history</p>}<button className="button button-primary button-medium" onClick={close}>Continue</button></div>
+      <div className="progression-dialog-content badge-celebration-content"><ProgressionBadge achievementId={current.achievementId} tier={current.tier} size="large" /><p>{definition.description}</p><p className="badge-celebration-occurrence">{occurrenceLabel}{current.repeatable && current.tier > 1 ? ` · ${current.tier} valid awards` : ''}</p><p className="badge-celebration-earned">Earned {earnedAt}{current.sourceDate ? ` · qualifying date ${current.sourceDate}` : ''}</p><p className="badge-celebration-xp">{current.rewardXpDelta !== null && current.rewardXpDelta > 0 ? `+${current.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p><div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Next Badge' : 'Finish'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div></div>
     </section>
   </div>, document.body)
 }
