@@ -31,6 +31,21 @@ Standard Mode counts the tracker’s scheduled dates as opportunities and pauses
 **Answer:**
 Your current streak is the run of recent tracking opportunities you have met. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays.
 
+### ID: all-trackers-streak
+**Category:** streaks
+**Question:** How does the All Trackers streak work?
+**Aliases:**
+- Is the All Trackers streak the sum of my tracker streaks?
+- What is an account-wide Perfect Day streak?
+**Keywords:** All Trackers, account streak, Perfect Day, shared streak
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/progression.ts
+- src/features/dashboard/DashboardPage.tsx
+- src/domain/trackers/progression.test.ts
+**Answer:**
+It counts consecutive dates when at least one tracker has a required opportunity and every required tracker qualifies. It is separate from each tracker’s own streak. Standard Mode holidays and rest days are neutral; Strict Mode requires active-period dates. A known failed opportunity ends the run, while a neutral or still-pending date does not add a day or prematurely break the confirmed run.
+
 ### ID: rest-days-streaks
 **Category:** streaks
 **Question:** How do rest days affect streaks?

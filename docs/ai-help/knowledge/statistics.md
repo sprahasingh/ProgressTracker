@@ -46,11 +46,28 @@ A recorded check-in qualifies when its outcome and values meet the tracker’s c
 - src/services/supabase/progressionRepository.ts
 - src/features/dashboard/AchievementsPage.tsx
 - src/features/dashboard/ProgressionAchievementsPage.tsx
+- src/features/dashboard/achievementCatalog.ts
 - src/features/dashboard/LegacyAchievementsPage.tsx
 - src/domain/trackers/schemaVersionGate.ts
 - supabase/migrations/20261104002200_preserve_deleted_tracker_reward_context.sql
+- supabase/migrations/20261104002300_add_perfect_month_and_comeback_achievements.sql
 **Answer:**
-The existing Achievements view keeps its legacy points calculated from local saved history. The progression view, when explicitly enabled for a build, shows server-confirmed XP: 10 for a qualifying check-in, 20 for a Perfect Day, streak milestone rewards, and goal milestone or completion rewards. Offline rewards are labeled provisional until the server confirms them; they do not change the official level or unlock badges. A later correction can add a reversal to score history. For existing accounts, past activity may appear as one estimate labeled “XP reconstructed from past activity.” If there is no retained pre-cutover entry history, historical XP is unavailable. This estimate is not individual historical rewards and does not unlock achievements. Permanent deletion offers Keep my Wins history, which retains eligible confirmed awards and their recorded reward context, and Delete tracker and its Wins, which the server refuses if it cannot reverse rewards exactly. The progression view stays disabled unless the build sets `VITE_ENABLE_PROGRESSION_UI=true`.
+The existing Achievements view keeps its legacy points calculated from local saved history. When progression is enabled for a build, Wins shows server-confirmed XP, level, milestones, and 14 achievement badges. The two repeatable badges added most recently are Perfect Month and The Comeback. Perfect Month requires every date in a completed workspace-timezone month to qualify as a Perfect Day and the month to contain no account-wide holiday. The Comeback requires a missed required opportunity immediately after a qualifying opportunity, followed by seven consecutive qualifying opportunities. Standard Mode pauses these sequences for holidays and unscheduled dates; Strict Mode requires activity on holidays and rest days. These badges do not grant XP, and reconstructed history does not unlock them. Offline rewards are labeled provisional until the server confirms them; they do not change the official level or unlock badges. A later correction can add a reversal to score history. For existing accounts, past activity may appear as one estimate labeled “XP reconstructed from past activity.” If there is no retained pre-cutover entry history, historical XP is unavailable. This estimate is not individual historical rewards and does not unlock achievements. Permanent deletion offers Keep my Wins history, which retains eligible confirmed awards and their recorded reward context, and Delete tracker and its Wins, which the server refuses if it cannot reverse rewards exactly. The progression view stays disabled unless the build sets `VITE_ENABLE_PROGRESSION_UI=true`.
+
+### ID: repeatable-progress-badges
+**Category:** statistics
+**Question:** What do Perfect Month and The Comeback badges require?
+**Aliases:**
+- How do I earn Perfect Month?
+- How do I earn The Comeback badge?
+**Keywords:** Perfect Month, The Comeback, achievement, holiday, streak, badge
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/progressionModel.ts
+- src/features/dashboard/achievementCatalog.ts
+- supabase/migrations/20261104002300_add_perfect_month_and_comeback_achievements.sql
+**Answer:**
+Perfect Month is earned after a completed month when every date had at least one eligible tracker and every eligible tracker qualified for a Perfect Day, with no workspace holiday during that month. The Comeback is earned after a qualifying tracker opportunity is followed by a missed required opportunity, then seven consecutive qualifying eligible opportunities. A saved skip is not a missed trigger. Standard Mode treats holidays and rest days as neutral; Strict Mode requires qualifying activity on holidays and rest days. Both badges can be earned again for a different month or recovery episode. They add no XP, and unsupported history is not reconstructed.
 
 ### ID: completion-missed-dates
 **Category:** statistics

@@ -17,7 +17,7 @@ select is((select count(*) from public.progression_achievement_progress where us
 
 set local role authenticated;
 set local request.jwt.claim.sub='00000000-0000-4000-8000-000000000401';
-select is((select count(*) from public.progression_achievement_progress),12::bigint,'owner sees all current achievement progress');
+select is((select count(*) from public.progression_achievement_progress),14::bigint,'owner sees all current achievement progress');
 select is((select count(*) from public.progression_achievement_events),0::bigint,'owner initially has no earned achievements');
 reset role;
 
@@ -44,7 +44,7 @@ select ok(not exists(select 1 from public.progression_achievement_events where u
 set local role authenticated;
 set local request.jwt.claim.sub='00000000-0000-4000-8000-000000000402';
 select is((select count(*) from public.progression_achievement_events),0::bigint,'other account cannot read earned achievements');
-select is((select count(*) from public.progression_achievement_progress),12::bigint,'other account sees only its own locked progress');
+select is((select count(*) from public.progression_achievement_progress),14::bigint,'other account sees only its own locked progress');
 reset role;
 
 set local role authenticated;

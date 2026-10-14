@@ -122,6 +122,8 @@ export type AchievementFacts = {
   completedGoals: number
   consistencyScore: number | null
   completedConsistencyDays: number
+  perfectMonths?: number
+  comebacks?: number
 }
 
 export const PROGRESSION_ACHIEVEMENTS = [
@@ -132,18 +134,20 @@ export const PROGRESSION_ACHIEVEMENTS = [
   { id: 'unstoppable', name: 'Unstoppable', field: 'longestStreak', target: 30 },
   { id: 'century', name: 'Century', field: 'longestStreak', target: 100 },
   { id: 'perfect-day', name: 'Perfect Day', field: 'perfectDays', target: 1 },
-  { id: 'perfect-week', name: 'Perfect Week', field: 'perfectWeeks', target: 1 },
+  { id: 'perfect-week', name: 'Perfect Week', field: 'perfectWeeks', target: 1, repeatable: true },
   { id: 'milestone-maker', name: 'Milestone Maker', field: 'goalMilestones', target: 1 },
   { id: 'goal-crusher', name: 'Goal Crusher', field: 'completedGoals', target: 1 },
   { id: 'consistency-star', name: 'Consistency Star', field: 'consistencyScore', target: 80, minimumDays: 30 },
-  { id: 'dedicated', name: 'Dedicated', field: 'qualifyingCheckIns', target: 100 },
+  { id: 'dedicated', name: 'Dedicated', field: 'qualifyingCheckIns', target: 100, repeatable: true },
+  { id: 'perfect-month', name: 'Perfect Month', field: 'perfectMonths', target: 1, repeatable: true },
+  { id: 'the-comeback', name: 'The Comeback', field: 'comebacks', target: 1, repeatable: true },
 ] as const
 
 export function getAchievementEligibility(facts: AchievementFacts) {
   return PROGRESSION_ACHIEVEMENTS.map((achievement) => {
     const value = facts[achievement.field]
     const eligible = achievement.field === 'consistencyScore'
-      ? facts.completedConsistencyDays >= achievement.minimumDays && value !== null && value >= achievement.target
+      ? facts.completedConsistencyDays >= achievement.minimumDays && value !== null && value !== undefined && value >= achievement.target
       : (value ?? 0) >= achievement.target
     return { id: achievement.id, name: achievement.name, eligible, progress: Math.min(value ?? 0, achievement.target), target: achievement.target }
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateProgressRewards, calculateStreak } from './progression'
+import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, evaluatePerfectPeriod, evaluateTrackerProgressionDay } from './progression'
 import type { TrackerDefinition, TrackerEntry } from './types'
 
 const tracker = (overrides: Partial<TrackerDefinition> = {}): TrackerDefinition => ({
@@ -142,6 +142,94 @@ describe('streak calculation', () => {
     expect(() => calculateStreak(tracker(), [entry('2026-01-01'), entry('2026-01-01')], '2026-01-01')).toThrow(/More than one/)
     expect(() => calculateStreak(tracker(), [{ ...entry('2026-01-01'), trackerId: 'other' }], '2026-01-01')).toThrow(/different tracker/)
     expect(() => calculateStreak(tracker(), [], '2026-02-30')).toThrow(/Invalid calendar date/)
+  })
+})
+
+describe('shared progression day evaluator', () => {
+  it('distinguishes qualifying partial progress, pending, a saved skip, and a finalized miss', () => {
+    const minimum = tracker({ qualificationRule: undefined })
+    expect(evaluateTrackerProgressionDay({ tracker: minimum, entries: [entry('2026-01-01', { pages: 2 })], date: '2026-01-01', today: '2026-01-03' }).state).toBe('qualified')
+    expect(evaluateTrackerProgressionDay({ tracker: minimum, entries: [entry('2026-01-01', { pages: 1 })], date: '2026-01-01', today: '2026-01-03' }).state).toBe('failed')
+    expect(evaluateTrackerProgressionDay({ tracker: minimum, entries: [], date: '2026-01-03', today: '2026-01-03' }).state).toBe('pending')
+    expect(evaluateTrackerProgressionDay({ tracker: minimum, entries: [{ ...entry('2026-01-01'), outcome: 'skipped' }], date: '2026-01-01', today: '2026-01-03' }).state).toBe('failed')
+    expect(evaluateTrackerProgressionDay({ tracker: minimum, entries: [], date: '2026-01-01', today: '2026-01-03' }).state).toBe('failed')
+  })
+
+  it('makes holidays and rest dates neutral in Standard Mode and required in Strict Mode', () => {
+    const weekday = tracker({ startDate: '2026-01-09', schedule: { kind: 'weekdays' } })
+    const date = '2026-01-10'
+    const common = { entries: [], date, today: date, holidays: new Set([date]) }
+    expect(evaluateTrackerProgressionDay({ ...common, tracker: weekday }).state).toBe('neutral')
+    expect(evaluateTrackerProgressionDay({ ...common, tracker: { ...weekday, strictMode: true } }).state).toBe('pending')
+    expect(evaluateTrackerProgressionDay({ ...common, tracker: weekday, entries: [{ ...entry(date), outcome: 'skipped' }] }).state).toBe('neutral')
+  })
+
+  it('qualifies an account Perfect Day only when every required tracker qualifies', () => {
+    const first = tracker()
+    const second = tracker({ id: 'second', name: 'Second', schedule: { kind: 'weekdays' } })
+    const third = tracker({ id: 'third', name: 'Third' })
+    const date = '2026-01-10'
+    const entries = [entry(date), { ...entry(date), id: 'second-entry', trackerId: second.id }, { ...entry(date), id: 'third-entry', trackerId: third.id }]
+    const evaluated = evaluateAllTrackersDay({ trackers: [first, second, third], entries, date, today: date })
+    expect(evaluated).toMatchObject({ state: 'perfect', requiredTrackerIds: [first.id, third.id], failedTrackerIds: [], pendingTrackerIds: [] })
+    expect(evaluateAllTrackersDay({ trackers: [first, second, third], entries: entries.map((item) => item.trackerId === third.id ? { ...item, outcome: 'skipped' as const } : item), date, today: date }).state).toBe('failed')
+  })
+
+  it('does not count pending required trackers as Perfect Days, but reports a known failure first', () => {
+    const first = tracker()
+    const second = tracker({ id: 'second', name: 'Second' })
+    const date = '2026-01-03'
+    expect(evaluateAllTrackersDay({ trackers: [first, second], entries: [entry(date)], date, today: date })).toMatchObject({ state: 'pending', pendingTrackerIds: ['second'] })
+    expect(evaluateAllTrackersDay({ trackers: [first, second], entries: [{ ...entry(date), outcome: 'skipped' }], date, today: date }).state).toBe('failed')
+  })
+
+  it('keeps All Trackers streak separate and pauses it on neutral dates', () => {
+    const first = tracker({ startDate: '2026-01-01', schedule: { kind: 'weekdays' } })
+    const second = tracker({ id: 'second', name: 'Second', startDate: '2026-01-01', schedule: { kind: 'weekdays' } })
+    const dates = ['2026-01-05', '2026-01-06']
+    const entries = dates.flatMap((date) => [entry(date), { ...entry(date), id: `second-${date}`, trackerId: second.id }])
+    const result = calculateAllTrackersStreak({ trackers: [first, second], entries, asOfDate: '2026-01-07', holidays: new Set(['2026-01-07']) })
+    expect(result).toMatchObject({ current: 2, longest: 2, lastPerfectDate: '2026-01-06', state: 'neutral' })
+    const broken = calculateAllTrackersStreak({ trackers: [first, second], entries: [...entries, { ...entry('2026-01-07'), outcome: 'skipped' }], asOfDate: '2026-01-07' })
+    expect(broken.current).toBe(0)
+    expect(calculateAllTrackersStreak({ trackers: [], entries: [], asOfDate: '2026-01-07' })).toMatchObject({ current: 0, longest: 0, state: 'neutral' })
+  })
+
+  it('ignores a tracker before its creation date and does not let its later failure erase earlier history', () => {
+    const first = tracker({ createdAt: '2026-01-01T00:00:00.000Z', startDate: '2026-01-01' })
+    const later = tracker({ id: 'later', name: 'Later', createdAt: '2026-01-03T00:00:00.000Z', startDate: '2026-01-03' })
+    const result = calculateAllTrackersStreak({ trackers: [first, later], entries: [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-03'), { ...entry('2026-01-03'), id: 'later-jan3', trackerId: later.id }], asOfDate: '2026-01-03' })
+    expect(result).toMatchObject({ current: 1, longest: 1, lastPerfectDate: '2026-01-03', state: 'perfect' })
+  })
+
+  it('qualifies a completed week with three required dates and neutral Standard Mode holidays', () => {
+    const dateList = ['2026-01-05', '2026-01-06', '2026-01-07']
+    expect(evaluatePerfectPeriod({
+      trackers: [tracker({ schedule: { kind: 'weekdays' } })], entries: dateList.map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11',
+      today: '2026-01-12', minimumRequiredDates: 3, holidays: new Set(['2026-01-08', '2026-01-09']),
+    })).toMatchObject({ state: 'qualified', requiredDates: 3, qualifyingDates: 3 })
+    expect(evaluatePerfectPeriod({
+      trackers: [tracker({ schedule: { kind: 'specific-dates', dates: dateList.slice(0, 2) } })], entries: dateList.slice(0, 2).map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11',
+      today: '2026-01-12', minimumRequiredDates: 3,
+    }).state).toBe('insufficient')
+  })
+
+  it('requires Strict Mode holiday opportunities and at least twelve required dates in a month', () => {
+    const dates = Array.from({ length: 14 }, (_, index) => `2026-01-${String(index + 1).padStart(2, '0')}`)
+    const holidays = new Set(['2026-01-06', '2026-01-07'])
+    expect(evaluatePerfectPeriod({
+      trackers: [tracker({ schedule: { kind: 'specific-dates', dates } })], entries: dates.map((date) => entry(date)), startDate: '2026-01-01', endDate: '2026-01-31',
+      today: '2026-02-01', minimumRequiredDates: 12, holidays,
+    }).state).toBe('qualified')
+    expect(evaluatePerfectPeriod({
+      trackers: [tracker({ strictMode: true })], entries: Array.from({ length: 31 }, (_, index) => entry(`2026-01-${String(index + 1).padStart(2, '0')}`)).filter((item) => item.date !== '2026-01-06'), startDate: '2026-01-01', endDate: '2026-01-31',
+      today: '2026-02-01', minimumRequiredDates: 12, holidays,
+    }).state).toBe('failed')
+    const elevenDates = dates.slice(0, 11)
+    expect(evaluatePerfectPeriod({
+      trackers: [tracker({ schedule: { kind: 'specific-dates', dates: elevenDates } })], entries: elevenDates.map((date) => entry(date)), startDate: '2026-01-01', endDate: '2026-01-31',
+      today: '2026-02-01', minimumRequiredDates: 12,
+    }).state).toBe('insufficient')
   })
 })
 

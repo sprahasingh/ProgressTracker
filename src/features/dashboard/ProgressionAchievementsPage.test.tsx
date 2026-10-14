@@ -250,6 +250,23 @@ describe('Progression achievements interface', () => {
     expect(await screen.findByRole('dialog', { name: 'Dedicated' })).toHaveTextContent('23 / 100 check-ins')
   })
 
+  it('shows numeric milestone thresholds on badge art separately from repeatable award counts', async () => {
+    const dedicated = { ...overview.achievements[1]!, progress: 200, currentTier: 2, repeatable: true, earned: true, unlockedAt: `${today}T11:00:00.000Z` }
+    const momentum = { ...overview.achievements[1]!, achievementId: 'momentum', progress: 0, target: 3, repeatable: false }
+    const firstFlameState = { ...momentum, achievementId: 'first-flame', target: 7 }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, momentum, firstFlameState, dedicated] })
+    renderPage()
+
+    const momentumBadge = await screen.findByRole('button', { name: /Momentum, locked/ })
+    expect(momentumBadge.querySelector('.badge-threshold-value')).toHaveTextContent('3')
+    expect(momentumBadge.querySelector('.badge-threshold-unit')).toHaveTextContent('DAYS')
+    const firstFlame = screen.getByRole('button', { name: /First Flame, locked/ })
+    expect(firstFlame.querySelector('.badge-threshold-value')).toHaveTextContent('7')
+    const repeatableBadge = screen.getByRole('button', { name: /Dedicated, earned/ })
+    expect(repeatableBadge.querySelector('.badge-threshold-value')).toHaveTextContent('100')
+    expect(repeatableBadge).toHaveTextContent('×2 earned')
+  })
+
   it('distinguishes unavailable historical XP from a zero XP balance', async () => {
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, legacyXpStatus: 'unavailable', confirmedXp: 0, officialLevel: { level: 1, currentLevelXp: 0, nextLevelXp: 100, progressXp: 0, requiredXp: 100 }, provisionalXp: 0, provisionalRewards: [], scoreHistory: [], streakHistory: [] })
     renderPage()

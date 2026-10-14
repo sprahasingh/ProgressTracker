@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
@@ -21,9 +21,16 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 25))
   vi.restoreAllMocks()
   await db.delete()
+  vi.useRealTimers()
 })
 
 describe('foreground reminders', () => {
+  beforeEach(() => {
+    // Keep the workspace date stable while leaving async timers real.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-14T12:15:00.000Z'))
+  })
+
   it('evaluates local progress at the configured timezone slot and deduplicates it', async () => {
     const now = new Date()
     const dueTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`

@@ -890,6 +890,10 @@ a { color: inherit; text-decoration: none; }
 .badge-inner-ring { fill: none; stroke: #fff6d5; stroke-opacity: .8; stroke-width: 1.5; }
 .badge-highlight { fill: none; stroke: #fff; stroke-linecap: round; stroke-opacity: .52; stroke-width: 2.5; }
 .badge-glyph { color: #fff4cf; stroke-width: 1.65; filter: drop-shadow(0 1px 1px rgb(40 23 9 / 32%)); }
+.badge-threshold { pointer-events: none; }
+.badge-threshold-value, .badge-threshold-unit { fill: #fff8df; paint-order: stroke; stroke: rgb(61 39 24 / 82%); stroke-linejoin: round; text-anchor: middle; font-family: var(--font-sans); font-weight: 850; }
+.badge-threshold-value { stroke-width: 2px; font-size: 13px; }
+.badge-threshold-unit { stroke-width: 1.5px; font-size: 6px; letter-spacing: .45px; }
 .badge-platinum-ornament { fill: none; stroke: #f9d1af; stroke-linejoin: round; stroke-width: 1; }
 .badge-gold-ornament { fill: none; stroke: #fff0bd; stroke-linecap: round; stroke-width: 1.2; }
 .badge-gold-ornament circle { stroke-dasharray: 1 5; }
@@ -3284,6 +3288,9 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .calendar-toolbar > .tracker-filter { min-width: 0; }
 .calendar-toolbar > .tracker-filter select, .calendar-toolbar .history-filter input { min-height: 44px; }
 .calendar-status-key { margin: 8px 0 10px; overflow: hidden; }
+.calendar-status-guide-row { display: flex; min-width: 0; align-items: center; gap: 2px; padding-right: 5px; }
+.calendar-status-guide-row > .calendar-status-guide-toggle { flex: 1 1 auto; min-width: 0; }
+.calendar-status-guide-row > .info-button { width: 44px; height: 44px; flex: 0 0 44px; }
 .calendar-status-guide-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .calendar-status-guide-toggle:hover { background: var(--surface-muted); }
 .calendar-status-guide-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }

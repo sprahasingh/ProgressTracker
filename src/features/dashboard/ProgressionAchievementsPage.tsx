@@ -17,7 +17,7 @@ import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveSta
 import { getProgressionHistory, getProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
-import { achievementDefinition, badgeTierLabel } from './achievementCatalog'
+import { achievementDefinition } from './achievementCatalog'
 import { ProgressionBadge } from './ProgressionBadge'
 import { ProgressionDetailDialog } from './ProgressionDetailDialog'
 
@@ -384,7 +384,7 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
   return <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned${earnedAt ? ` ${earnedAt}` : ''}` : `locked, ${achievementProgressLabel(badge, definition.progressUnit)} progress. ${definition.shortRequirement}`}. View badge details`}>
     <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} />
     <strong>{definition.name}</strong><span>{badge.earned ? 'Earned' : 'Locked'}</span>
-    {badge.earned && badge.repeatable && <small>{badgeTierLabel(badge.currentTier)} tier</small>}
+    {badge.earned && badge.repeatable && <small>×{badge.currentTier} earned</small>}
     <span className="progression-badge-requirement-summary">{definition.shortRequirement}</span>
     {!badge.earned && <span className="progression-badge-progress">{achievementProgressLabel(badge, definition.progressUnit)}</span>}
     {earnedAt && <time dateTime={badge.unlockedAt!}>{earnedAt}</time>}
@@ -396,7 +396,7 @@ function BadgeDetailDialog({ badge, onClose }: { badge: AchievementState; onClos
   if (!definition) return null
   const tier = badge.earned && badge.repeatable ? badge.currentTier : Math.max(1, badge.currentTier + (badge.earned ? 0 : 1))
   return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}>
-    <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Earned' : 'Locked'}</span>{badge.earned && badge.repeatable && <span className="progression-status-pill is-tier">{badgeTierLabel(badge.currentTier)} tier</span>}<p>{definition.description}</p></div></div>
+    <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Earned' : 'Locked'}</span>{badge.earned && badge.repeatable && <span className="progression-status-pill is-tier">×{badge.currentTier} earned</span>}<p>{definition.description}</p></div></div>
     <div className="progression-badge-requirement"><strong>Unlock requirement</strong><p>{definition.requirement}</p></div>
     {badge.earned && badge.unlockedAt && <p className="progression-unlock-date">Unlocked {formatCalendarDate(badge.unlockedAt.slice(0, 10))}</p>}
     {!badge.earned && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{achievementProgressLabel(badge, definition.progressUnit)}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}

@@ -232,7 +232,7 @@ describe('Today check-ins', () => {
     expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
     const activityCard = screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')!
     expect(activityCard).toHaveClass('status-pending')
-    expect(screen.getByRole('status', { name: 'Pending' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Tracker: Pending' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Open Daily reading, Pending' }))
     expect(screen.getByLabelText('Pages')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save check-in' })).toBeEnabled()
@@ -412,7 +412,7 @@ describe('Today check-ins', () => {
     act(() => publishWorkspaceDataChange(null))
 
     await waitFor(() => expect(screen.getByRole('button', { name: /Open Daily reading/ }).closest('.today-checkin-card')).toHaveClass('status-completed'))
-    expect(screen.getByRole('status', { name: 'Completed' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Tracker: Completed' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Information about Daily reading daily requirements' }))
     expect(await screen.findByRole('dialog')).toHaveTextContent(/Completed\s*5/)
   })
@@ -533,6 +533,25 @@ describe('Today check-ins', () => {
     expect(screen.getByText('Meditated', { selector: 'legend' })).toBeInTheDocument()
     expect(screen.queryByText('Did you complete this today?')).not.toBeInTheDocument()
     expect(screen.getByLabelText(/Mood/)).toBeInTheDocument()
+  })
+
+  it('distinguishes an unanswered boolean measure from an explicitly false value', async () => {
+    const yesNo = {
+      ...tracker(), id: 'boolean-clarity-tracker', name: 'Daily meditation', customFields: [],
+      metrics: [{ id: 'done', name: 'Completed', valueType: 'boolean' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+    }
+    await localRepository.saveTracker(yesNo)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Unrecorded')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Tracker: Pending' })).toBeInTheDocument()
+    expect(screen.queryByText('Not complete')).not.toBeInTheDocument()
+
+    await localRepository.saveTrackerEntry({ trackerId: yesNo.id, date: today(), outcome: 'recorded', values: { done: false }, note: '' })
+    act(() => publishWorkspaceDataChange(null))
+    expect(await screen.findByText('Not complete')).toBeInTheDocument()
+    expect(screen.queryByText('Unrecorded')).not.toBeInTheDocument()
   })
 
   it('uses saved binary state for contextual copy and shows a two-second success message only after saving', async () => {

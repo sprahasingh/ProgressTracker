@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateProgressionLevel, estimateProvisionalCheckInReward, getAchievementEligibility, PROGRESSION_REWARDS, selectProvisionalRewards, summarizeProgression, xpRequiredForLevel } from './progressionModel'
+import { calculateProgressionLevel, estimateProvisionalCheckInReward, getAchievementEligibility, PROGRESSION_ACHIEVEMENTS, PROGRESSION_REWARDS, selectProvisionalRewards, summarizeProgression, xpRequiredForLevel } from './progressionModel'
 
 const provisionalTracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'provisional-habit', name: 'Read', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -15,6 +15,16 @@ const provisionalEntry: StoredTrackerEntry = {
 }
 
 describe('progression policy and summaries', () => {
+  it('keeps all fourteen badge IDs stable and only marks repeatable awards repeatable', () => {
+    expect(PROGRESSION_ACHIEVEMENTS.map(({ id }) => id)).toEqual([
+      'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century',
+      'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'consistency-star',
+      'dedicated', 'perfect-month', 'the-comeback',
+    ])
+    expect(PROGRESSION_ACHIEVEMENTS.filter((achievement) => 'repeatable' in achievement && achievement.repeatable).map(({ id }) => id))
+      .toEqual(['perfect-week', 'dedicated', 'perfect-month', 'the-comeback'])
+  })
+
   it('estimates only pending qualifying local activity and keeps provisional IDs stable', () => {
     expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: provisionalEntry, pendingSync: true, today: '2026-10-13' }))
       .toEqual({ id: 'check-in:pending-entry', effectiveDate: '2026-10-12', xpDelta: 10 })
@@ -71,9 +81,9 @@ describe('progression policy and summaries', () => {
   })
 
   it('only marks achievements eligible when their authoritative facts meet their criteria', () => {
-    const facts = { qualifyingCheckIns: 100, longestStreak: 100, perfectDays: 1, perfectWeeks: 1, goalMilestones: 1, completedGoals: 1, consistencyScore: null, completedConsistencyDays: 0 }
+    const facts = { qualifyingCheckIns: 100, longestStreak: 100, perfectDays: 1, perfectWeeks: 1, goalMilestones: 1, completedGoals: 1, consistencyScore: null, completedConsistencyDays: 0, perfectMonths: 2, comebacks: 3 }
     expect(getAchievementEligibility(facts).filter((item) => item.eligible).map((item) => item.id)).toEqual([
-      'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century', 'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'dedicated',
+      'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century', 'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'dedicated', 'perfect-month', 'the-comeback',
     ])
   })
 })

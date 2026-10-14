@@ -115,7 +115,9 @@ select ok(not exists (
           and source_event.reason_code='PERFECT_DAY_BONUS' and source_event.event_category='daily_bonus'
           and source_event.metadata - 'award_generation' - 'rule' = '{}'::jsonb
           and source_event.metadata->>'award_generation'='1'
-          and source_event.metadata->>'rule'='Every eligible tracker was completed for this date'
+          and source_event.metadata->>'rule' in (
+            'Every eligible tracker was completed for this date',
+            'Every required tracker qualified on this date')
           and source.tracker_id is null and source.goal_id is null and source.source_id is null
           and source.display_name='Deleted tracker'
           and source_event.metadata::text not like '%00000000-0000-4000-8000-000000000772%'
