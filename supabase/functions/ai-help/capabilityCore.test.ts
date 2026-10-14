@@ -80,14 +80,15 @@ describe('AI Help capability index and factual claim validation', () => {
   })
 
   it('uses current UI state to distinguish an enabled control from a hidden or disabled one', () => {
-    const text = 'The Permanently delete control is rendered in The Bin. Hosted manual deletion RPC and permissions, and the production feature flag, must be verified.'
-    const claim = { text: 'Permanently delete is available.', kind: 'availability' as const, evidenceRefs: [source], capabilityIds: ['bin.permanent_delete'], prerequisites: ['hosted manual deletion RPC and permissions verified', 'production feature flag enabled'] }
+    const text = 'The Permanently Delete control is rendered in The Bin. Hosted manual deletion RPC and permissions, and the production feature flag, must be verified.'
+    const claim = { text: 'Permanently Delete is available.', kind: 'availability' as const, evidenceRefs: [source], capabilityIds: ['bin.permanent_delete'], prerequisites: ['signed in', 'tracker is in The Bin'] }
     const base = { claims: [claim], index, allowedEvidence: new Set([source]), evidenceByRef: { [source]: text }, enforcement: true }
     expect(validateStructuredClaims(base).issues).toContain('availability_unknown')
     expect(validateStructuredClaims({ ...base, runtimeAvailability: { 'bin.permanent_delete': 'disabled' } }).issues).toContain('availability_conflict')
     expect(validateStructuredClaims({ ...base, runtimeAvailability: { 'bin.permanent_delete': 'available' } }).issues).not.toContain('availability_unknown')
-    const disabledClaim = { ...claim, text: 'Permanently delete is disabled.' }
-    expect(validateStructuredClaims({ ...base, claims: [disabledClaim], evidenceByRef: { [source]: 'Permanently delete is unavailable because the production feature flag is disabled.' }, runtimeAvailability: { 'bin.permanent_delete': 'disabled' } }).valid).toBe(true)
+    const disabledClaim = { ...claim, text: 'Permanently Delete is disabled.' }
+    const disabledResult = validateStructuredClaims({ ...base, claims: [disabledClaim], evidenceByRef: { [source]: 'Permanently Delete is unavailable because the production feature flag is disabled.' }, runtimeAvailability: { 'bin.permanent_delete': 'disabled' } })
+    expect(disabledResult).toMatchObject({ valid: true, issues: [] })
   })
 
   it('uses runtime observations only when frontend and Edge capability versions match', () => {

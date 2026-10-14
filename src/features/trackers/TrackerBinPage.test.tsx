@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { StoredTrackerDefinition } from '../../db/models'
+import { ToastProvider } from '../../components/ui/ToastProvider'
 import { TrackerBinPage } from './TrackerBinPage'
 
 const mocks = vi.hoisted(() => ({
@@ -43,11 +44,11 @@ describe('Tracker Bin', () => {
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    expect(await screen.findByText('Restore pending verification')).toBeInTheDocument()
-    expect(screen.getByText(/You’re offline\. This restoration is saved locally and will wait for server confirmation when you reconnect/)).toHaveAttribute('role', 'status')
-    expect(screen.getByText(/tracker remains unavailable until then/)).toBeInTheDocument()
+    expect(await screen.findByText('Restore in progress')).toBeInTheDocument()
+    expect(screen.getByText(/You’re offline\. Restore will finish when you reconnect/)).toHaveAttribute('role', 'status')
+    expect(screen.getByText(/tracker stays unavailable until then/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Restore' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Permanently delete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Permanently Delete' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Your Bin is empty' })).not.toBeInTheDocument()
   })
 
@@ -59,8 +60,8 @@ describe('Tracker Bin', () => {
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
     expect(await screen.findByText('Restore needs attention')).toBeInTheDocument()
-    expect(screen.getByText('The cloud record changed. Review the sync conflict in Account.')).toHaveAttribute('role', 'status')
-    expect(screen.getByRole('link', { name: 'Sync & account' })).toHaveAttribute('href', '/auth')
+    expect(screen.getByText('Restore needs attention. Your tracker and progress are still saved.')).toHaveAttribute('role', 'status')
+    expect(screen.getByRole('link', { name: 'Account and sync' })).toHaveAttribute('href', '/auth')
     expect(screen.queryByText('Tracker restored')).not.toBeInTheDocument()
   })
 
@@ -72,21 +73,18 @@ describe('Tracker Bin', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Permanent deletion isn’t available in this app version')
     expect(screen.queryByText(/hosted database migration/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Permanently delete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Permanently Delete' })).not.toBeInTheDocument()
   })
 
-  it('only claims automatic deletion when the dedicated verified-cleanup build flag is enabled', async () => {
+  it('describes Bin recovery without promising automatic deletion', async () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'false')
     mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
     const { unmount } = render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
-    expect(await screen.findByText(/Automatic deletion after 30 days is not configured/)).toBeInTheDocument()
+    expect(await screen.findByText(/permanently delete one and choose what happens to its Wins/i)).toBeInTheDocument()
     unmount()
-
-    vi.stubEnv('VITE_ENABLE_AUTOMATIC_BIN_CLEANUP', 'true')
-    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
-    expect(await screen.findByText(/Scheduled cleanup permanently removes eligible tracker data after 30 days and keeps its recorded name and reward context in Wins/)).toBeInTheDocument()
+    expect(screen.queryByText(/scheduled cleanup|cron|cleanup flag|reward context/i)).not.toBeInTheDocument()
   })
 
   it('shows the recovery countdown and confirms before restoring a goal', async () => {
@@ -111,18 +109,22 @@ describe('Tracker Bin', () => {
     mocks.requestPermanentDeletion.mockResolvedValue('queued')
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete' }))
-    expect(await screen.findByRole('alertdialog', { name: 'Delete “Read 12 books” permanently?' })).toHaveTextContent('irreversibly')
-    expect(screen.getByRole('radio', { name: /Keep my Wins history/ })).toBeChecked()
-    expect(screen.getByText(/including the tracker name and what each reward was earned for/)).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Permanently Delete' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Permanently Delete “Read 12 books”?' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveClass('tracker-deletion-dialog')
+    expect(dialog).toHaveTextContent('This cannot be undone.')
+    expect(screen.getByRole('radio', { name: /Keep My Wins/ })).toBeChecked()
+    expect(screen.getByText(/Keeps your XP, badges, achievements, and reward history with appropriate tracker context/)).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Choose what happens to its Wins' })).toBeInTheDocument()
     expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: 'Permanently delete' }))
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete tracker' }))
+    await user.click(screen.getByRole('button', { name: 'Permanently Delete' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith('trash-goal', 'keep_wins')
-    expect(await screen.findByText(/Permanent deletion requests will remain pending until the server confirms them/)).toBeInTheDocument()
+    expect(await screen.findByText(/Permanent deletion will finish when you reconnect/)).toBeInTheDocument()
   })
 
   it('queues the explicit Delete Wins choice without silently changing it to retention', async () => {
@@ -133,10 +135,11 @@ describe('Tracker Bin', () => {
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete' }))
-    await user.click(screen.getByRole('radio', { name: /Delete tracker and its Wins history/ }))
-    expect(screen.getByRole('radio', { name: /Delete tracker and its Wins history/ })).toBeChecked()
-    await user.click(screen.getByRole('button', { name: 'Permanently delete tracker' }))
+    await user.click(await screen.findByRole('button', { name: 'Permanently Delete' }))
+    await user.click(screen.getByRole('radio', { name: /Delete Tracker and Wins/ }))
+    expect(screen.getByRole('radio', { name: /Delete Tracker and Wins/ })).toBeChecked()
+    expect(screen.getByText(/If rewards can’t be safely separated, nothing will be deleted/)).toBeInTheDocument()
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith('trash-goal', 'delete_wins')
   })
 
@@ -146,13 +149,18 @@ describe('Tracker Bin', () => {
     mocks.listPermanentDeletionRequests.mockResolvedValue([])
     mocks.requestPermanentDeletion.mockRejectedValue(new Error('request failed'))
     const user = userEvent.setup()
-    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+    render(<ToastProvider><MemoryRouter><TrackerBinPage /></MemoryRouter></ToastProvider>)
 
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete' }))
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete tracker' }))
+    await user.click(await screen.findByRole('button', { name: 'Permanently Delete' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
 
     expect(await screen.findByRole('heading', { name: 'Read 12 books' })).toBeInTheDocument()
+    expect(await screen.findByRole('alert', { name: 'Couldn’t request permanent deletion' })).toHaveTextContent('Your tracker is unchanged. Check your connection and try again.')
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: 'Permanently Delete' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
+    expect(mocks.requestPermanentDeletion).toHaveBeenCalledTimes(2)
   })
 
   it('shows a disabled deleting state while the deletion request is pending', async () => {
@@ -164,15 +172,15 @@ describe('Tracker Bin', () => {
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete' }))
-    await user.click(await screen.findByRole('button', { name: 'Permanently delete tracker' }))
+    await user.click(await screen.findByRole('button', { name: 'Permanently Delete' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
     const deleting = await screen.findByRole('button', { name: 'Deleting…' })
     expect(deleting).toBeDisabled()
     expect(deleting).toHaveAttribute('aria-busy', 'true')
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledTimes(1)
 
     resolveRequest('queued')
-    expect(await screen.findByText(/Permanent deletion requests will remain pending until the server confirms them/)).toBeInTheDocument()
+    expect(await screen.findByText(/Permanent deletion will finish when you reconnect/)).toBeInTheDocument()
   })
 
   it('blocks restore and another delete attempt until a sync conflict is resolved', async () => {
@@ -181,9 +189,9 @@ describe('Tracker Bin', () => {
     mocks.listPermanentDeletionRequests.mockResolvedValue([{ id: 'delete-conflict', ownerUserId: 'bin-account', trackerId: deletedTracker.id, requestedAt: new Date().toISOString(), status: 'conflict', lastError: 'The cloud tracker changed. Resolve its sync conflict before deleting it permanently.' }])
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    expect(await screen.findByText(/Resolve its sync conflict before deleting it permanently/)).toBeInTheDocument()
+    expect(await screen.findByText(/This tracker changed on another device/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Restore' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Resolve sync conflict' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Resolve account issue' })).toBeDisabled()
   })
 
   it('keeps account recovery decisions server-authoritative after the local countdown expires', async () => {

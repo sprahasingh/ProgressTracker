@@ -426,7 +426,7 @@ describe('account-scoped sync engine', () => {
     expect(notifications).toContain('failed')
     expect(notifications).not.toContain('confirmed')
     await expect(db.trackers.get('delete-request')).resolves.toMatchObject({ deletedAt: expect.any(String) })
-    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('network unavailable') })
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('Reconnect and try again') })
     expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({ p_expected_user_id: 'sync-user', p_tracker_id: 'delete-request', p_expected_revision: 2, p_wins_retention: 'keep_wins' }))
   })
 
@@ -438,15 +438,37 @@ describe('account-scoped sync engine', () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     const { client, rpc } = fakeClient()
     rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
-      if (name === 'permanently_delete_tracker') return { data: null, error: { code: '55000', message: 'Wins history cannot be removed safely. Choose Keep my Wins history.' } }
+      if (name === 'permanently_delete_tracker') return { data: null, error: { code: '55000', message: 'Wins history contains reconstructed, incomplete, or unattributed rewards and cannot be removed safely.' } }
       const payload = args.p_record as Record<string, unknown>
       const current = await db.trackers.get(String(payload.id))
       return { data: { status: 'applied', record: serverTracker(current!, 'sync-user', 2) }, error: null }
     })
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
-    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'failed', winsRetention: 'delete_wins', lastError: expect.stringContaining('Choose Keep my Wins history') })
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'failed', winsRetention: 'delete_wins', lastError: 'Delete Tracker and Wins is unavailable because some rewards cannot be safely separated. Nothing was deleted. Choose Keep My Wins to preserve them.' })
     await expect(db.trackers.get('unsupported-delete')).resolves.toMatchObject({ deletedAt: expect.any(String) })
+  })
+
+  it('sends Delete Tracker and Wins to the server and clears local activity only after confirmation', async () => {
+    await activateWorkspace('sync-user')
+    await localRepository.saveTracker(tracker('delete-wins-confirmed'))
+    await localRepository.saveTrackerEntry({ trackerId: 'delete-wins-confirmed', date: '2026-10-09', outcome: 'recorded', values: {}, note: 'remove after confirmation' })
+    await localRepository.deleteTracker('delete-wins-confirmed')
+    await localRepository.requestPermanentDeletion('delete-wins-confirmed', 'delete_wins')
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'permanently_delete_tracker') return { data: { status: 'deleted', tracker_id: 'delete-wins-confirmed', permanently_deleted_at: '2026-10-10 00:00:00+00' }, error: null }
+      const payload = args.p_record as Record<string, unknown>
+      return { data: { status: 'applied', record: { ...payload, user_id: 'sync-user', server_revision: 1 } }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('permanently_delete_tracker', expect.objectContaining({
+      p_expected_user_id: 'sync-user', p_tracker_id: 'delete-wins-confirmed', p_wins_retention: 'delete_wins',
+    }))
+    await expect(db.trackers.get('delete-wins-confirmed')).resolves.toBeUndefined()
+    await expect(db.trackerEntries.where('trackerId').equals('delete-wins-confirmed').count()).resolves.toBe(0)
   })
 
   it('purges local content only after the server confirms permanent deletion', async () => {

@@ -66,13 +66,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       deletionLifecycle.current.set(dedupeKey, 'terminal')
       notify({ kind: 'success', title: 'Tracker permanently deleted.', duration: 4000, dedupeKey })
     } else if (event.status === 'queued') {
-      notify({ kind: 'warning', title: 'Deletion request queued.', description: `“${event.trackerName}” will be removed across devices after the server confirms it.`, duration: 0, dedupeKey })
+      notify({ kind: 'warning', title: 'Deletion in progress', description: `“${event.trackerName}” will be removed from your account when the choice is confirmed.`, duration: 0, dedupeKey })
     } else if (event.status === 'conflict') {
       deletionLifecycle.current.set(dedupeKey, 'terminal')
-      notify({ kind: 'error', title: 'Deletion needs attention', description: event.message ?? 'Resolve the tracker’s sync conflict before retrying permanent deletion.', duration: 0, dedupeKey })
+      notify({ kind: 'error', title: 'Deletion needs attention', description: event.message ?? 'This tracker changed on another device. Resolve the account issue before trying again.', duration: 0, dedupeKey })
     } else {
       deletionLifecycle.current.set(dedupeKey, 'terminal')
-      notify({ kind: 'error', title: 'Couldn’t confirm tracker deletion', description: `${event.message ?? 'The server did not confirm deletion.'} Your tracker remains in the Bin. Check your connection and sync again to retry.`, duration: 0, dedupeKey })
+      notify({ kind: 'error', title: 'Couldn’t finish deletion', description: `${event.message ?? 'Deletion could not be completed.'} Your tracker remains in the Bin.`, duration: 0, dedupeKey })
     }
   }), [notify])
   useEffect(() => subscribeToHolidayDeletionNotifications((event) => {

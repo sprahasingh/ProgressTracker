@@ -13,7 +13,7 @@
 - src/features/trackers/TrackerLibraryPage.tsx
 - src/features/trackers/TrackerBinPage.test.tsx
 **Answer:**
-Trackers deleted through the tracker flow appear in The Bin, where you can choose Restore. A signed-in account restore may remain under server verification; while it is pending, the tracker is unavailable for tracking and remains visible in The Bin with its activity and planning data preserved. Once the server confirms restoration, the tracker returns to its prior active or archived state. Archiving or pausing a tracker is different: it stays in your tracker library and keeps its history.
+Move a tracker to the Bin to keep its saved progress and plan. Choose Restore to use it again. If a restore is still in progress, the tracker stays unavailable until it finishes. Archiving is different: an archived tracker stays in your library with its history.
 
 ### ID: bin-retention
 **Category:** trackers
@@ -21,16 +21,13 @@ Trackers deleted through the tracker flow appear in The Bin, where you can choos
 **Aliases:**
 - Is a deleted tracker erased immediately?
 - How long can I restore something from The Bin?
-**Keywords:** delete, Bin, soft delete, restore, retention, permanent deletion
+**Keywords:** Move to Bin, Bin, Restore, Permanently Delete, Keep My Wins, Delete Tracker and Wins
 **Suggestible:** false
 **Sources:**
 - src/features/trackers/TrackerBinPage.tsx
 - src/db/localRepository.ts
-- supabase/migrations/20261101000100_schedule_tracker_bin_cleanup.sql
-- supabase/migrations/20261104002100_reconcile_delete_wins_progression.sql
-- supabase/migrations/20261104002200_preserve_deleted_tracker_reward_context.sql
 **Answer:**
-Deleting a tracker moves it to The Bin, where it can be restored for 30 days with its saved progress and plan. Permanent deletion requires server confirmation and offers two choices. Keep my Wins history deletes tracker and activity data but retains the complete confirmed Wins record: XP (including reconstructed XP), the level derived from it, unlocked badges and their dates and repeatable awards, milestone rewards, and achievement progress. For source-linked rewards, Wins also retains the recorded tracker name and reward reason, plus the reward date and amount. When a stored tracker source has only a generic name, Wins says “Tracker name unavailable.” Older deletion history whose source details were already erased cannot be reconstructed and remains generic. Notes, metrics, activity records, tracker IDs, and entry IDs are not retained in the historical context. Shared account-level rewards remain shared. Deleted activity cannot earn future rewards. Delete tracker and its Wins history reverses only exact tracker-linked rewards; the server refuses this choice without changing data if reconstructed XP, shared or goal rewards, achievement history, or unattributed XP prevents safe reconciliation. If scheduled cleanup is configured, it uses Keep my Wins history. The cleanup switch remains off until its schedule and database safeguards have been verified.
+Moving a tracker to the Bin keeps its saved progress and rewards. You can restore it while it is in the Bin. Permanently Delete cannot be undone. Choose Keep My Wins to remove the tracker and its activity while preserving earned XP, badges, achievements, reward history, and appropriate tracker context. Choose Delete Tracker and Wins to remove the tracker and its activity and reverse only rewards linked to it. Other rewards and achievements stay. If rewards cannot be safely separated, nothing is deleted; choose Keep My Wins instead.
 
 ### ID: edit-tracker-history
 **Category:** trackers
