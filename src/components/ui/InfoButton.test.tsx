@@ -89,6 +89,33 @@ describe('InfoButton', () => {
     nav.remove()
   })
 
+  it('closes a mobile sheet without creating a browser-history entry', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('info-button')) return new DOMRect(180, 380, 44, 44)
+      if (this.classList.contains('info-popover')) return new DOMRect(0, 0, 300, 220)
+      if (this.classList.contains('mobile-nav')) return new DOMRect(0, 760, 390, 84)
+      return new DOMRect(0, 0, 0, 0)
+    })
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('info-popover') ? 620 : 0
+    })
+    const nav = document.createElement('div')
+    nav.className = 'mobile-nav'
+    document.body.append(nav)
+    const pushState = vi.spyOn(window.history, 'pushState')
+    const back = vi.spyOn(window.history, 'back')
+    render(<InfoButton title="Goal planning" summary="Summary." description={'Details. '.repeat(80)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Goal planning' }))
+    expect(screen.getByRole('dialog', { name: 'Goal planning' })).toHaveAttribute('data-presentation', 'sheet')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Goal planning' })).not.toBeInTheDocument()
+    expect(pushState).not.toHaveBeenCalled()
+    expect(back).not.toHaveBeenCalled()
+    nav.remove()
+  })
+
   it.each([320, 360, 390, 430, 768, 1024, 1440])('clamps the popup inside a %ipx viewport near the right edge', (width) => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })

@@ -129,6 +129,7 @@ export function TrackerSetupPage() {
   const [primaryQuantityBackup, setPrimaryQuantityBackup] = useState<TrackerMetricDefinition | null>(null)
   const [goalPlanning, setGoalPlanning] = useState<GoalPlanningConfiguration>(emptyGoalPlanning)
   const [goalAmount, setGoalAmount] = useState('')
+  const [planningEditorTouched, setPlanningEditorTouched] = useState(false)
   const [goalPlanOpen, setGoalPlanOpen] = useState(false)
   const [savedTracker, setSavedTracker] = useState<TrackerDefinition | null>(null)
   const [loading, setLoading] = useState(Boolean(trackerId))
@@ -256,8 +257,23 @@ export function TrackerSetupPage() {
   }
 
   function changeGoalPlanning(next: GoalPlanningConfiguration) {
-    setGoalPlanning(next)
-    if (next.mode === 'cumulative-deadline' && !values.deadline) {
+    setPlanningEditorTouched(true)
+    const primaryMetric = configuration.metrics[0]
+    let synchronized = next
+    if (!existing && values.kind === 'goal' && primaryMetric && primaryMetric.valueType !== 'boolean') {
+      const targets = next.mode === 'cumulative-deadline' ? { ...next.cumulativeTargets } : { ...next.dailyTargets }
+      const shortcutTarget = goalAmount === '' ? undefined : Number(goalAmount)
+      const target = targets[primaryMetric.id] ?? (Number.isFinite(shortcutTarget) && shortcutTarget! > 0 ? shortcutTarget : undefined)
+      if (target !== undefined) {
+        targets[primaryMetric.id] = target
+        synchronized = next.mode === 'cumulative-deadline'
+          ? { ...next, progressSemantics: { ...next.progressSemantics, [primaryMetric.id]: 'incremental' }, cumulativeTargets: targets }
+          : { ...next, dailyTargets: targets }
+        setGoalAmount(String(target))
+      }
+    }
+    setGoalPlanning(synchronized)
+    if (synchronized.mode === 'cumulative-deadline' && !values.deadline) {
       const message = 'Cumulative planning requires a deadline. Choose a date or change Planning mode to Daily recurring.'
       setFieldErrors((current) => ({ ...current, deadline: message }))
       setGoalPlanOpen(true)
@@ -266,6 +282,23 @@ export function TrackerSetupPage() {
     } else {
       setFieldErrors((current) => current.deadline?.startsWith('Cumulative planning requires') ? { ...current, deadline: '' } : current)
     }
+  }
+
+  function changeGoalAmount(raw: string) {
+    setGoalAmount(raw)
+    setFieldErrors((current) => ({ ...current, goalAmount: '' }))
+    if (!planningEditorTouched || existing) return
+    const metric = configuration.metrics[0]
+    if (!metric || metric.valueType === 'boolean') return
+    const targetMap = goalPlanning.mode === 'cumulative-deadline' ? 'cumulativeTargets' : 'dailyTargets'
+    setGoalPlanning((current) => {
+      const targets = { ...current[targetMap] }
+      if (raw === '') delete targets[metric.id]
+      else targets[metric.id] = Number(raw)
+      return current.mode === 'cumulative-deadline'
+        ? { ...current, progressSemantics: { ...current.progressSemantics, [metric.id]: 'incremental' }, cumulativeTargets: targets }
+        : { ...current, dailyTargets: targets }
+    })
   }
 
   function changeKind(value: string) {
@@ -455,7 +488,7 @@ export function TrackerSetupPage() {
         ? { ...metric, unit: metric.unit?.trim() }
         : metric)
       let submittedPlanning = goalPlanning
-      if (isNewPlannedGoal && enteredGoalAmount !== undefined && submittedMetrics[0]) {
+      if (isNewPlannedGoal && enteredGoalAmount !== undefined && submittedMetrics[0] && !planningEditorTouched) {
         const metricId = submittedMetrics[0].id
         submittedPlanning = {
           ...emptyGoalPlanning(),
@@ -463,13 +496,16 @@ export function TrackerSetupPage() {
           progressSemantics: form.deadline ? { [metricId]: 'incremental' } : {},
           ...(form.deadline ? { cumulativeTargets: { [metricId]: enteredGoalAmount } } : { dailyTargets: { [metricId]: enteredGoalAmount } }),
         }
+      } else if (values.kind === 'goal' && !existing && planningEditorTouched) {
+        submittedPlanning = goalPlanning
       } else if (existing?.kind === 'goal' && existing.goalPlanning && enteredGoalAmount !== undefined && submittedMetrics[0]) {
         const metricId = submittedMetrics[0].id
         submittedPlanning = existing.goalPlanning.mode === 'daily-recurring'
           ? { ...goalPlanning, dailyTargets: { ...goalPlanning.dailyTargets, [metricId]: enteredGoalAmount } }
           : { ...goalPlanning, cumulativeTargets: { ...goalPlanning.cumulativeTargets, [metricId]: enteredGoalAmount } }
       }
-      const planWasConfigured = existing?.goalPlanning !== undefined || isNewPlannedGoal || (
+      const hasPlanningTargets = Object.keys(submittedPlanning.dailyTargets).length > 0 || Object.keys(submittedPlanning.cumulativeTargets).length > 0
+      const planWasConfigured = existing?.goalPlanning !== undefined || isNewPlannedGoal || (!existing && values.kind === 'goal' && planningEditorTouched && hasPlanningTargets) || (
         existing?.schemaVersion === 1 && JSON.stringify(goalPlanning) !== JSON.stringify(emptyGoalPlanning())
       )
       const persistGoalPlanning = kind === 'goal' && planWasConfigured
@@ -586,6 +622,14 @@ export function TrackerSetupPage() {
 
   const selectedKind = existing?.kind ?? values.kind
   const targetNumber = Number(goalAmount)
+  const hasShortcutTarget = Boolean(goalAmount) && Number.isFinite(targetNumber) && targetNumber > 0
+  let planningForEditor = goalPlanning
+  if (!existing && selectedKind === 'goal' && !planningEditorTouched && hasShortcutTarget && configuration.metrics[0]?.valueType !== 'boolean') {
+    const metricId = configuration.metrics[0]!.id
+    planningForEditor = values.deadline
+      ? { ...goalPlanning, mode: 'cumulative-deadline', progressSemantics: { ...goalPlanning.progressSemantics, [metricId]: 'incremental' }, cumulativeTargets: { ...goalPlanning.cumulativeTargets, [metricId]: targetNumber } }
+      : { ...goalPlanning, mode: 'daily-recurring', dailyTargets: { ...goalPlanning.dailyTargets, [metricId]: targetNumber } }
+  }
   const pace = selectedKind === 'goal' && !existing && goalAmount && values.deadline
     ? suggestedPace(targetNumber, values.startDate, values.deadline, scheduleFromForm(values.schedule, existing))
     : null
@@ -617,8 +661,8 @@ export function TrackerSetupPage() {
           </section>}
           {!existing && selectedKind === 'goal' && configuration.metrics[0]?.valueType !== 'boolean' && <details className="optional-goal-plan" open={goalPlanOpen || Boolean(fieldErrors.goalAmount)} onToggle={(event) => setGoalPlanOpen(event.currentTarget.open)}>
             <summary>Add a target or deadline <span>Optional</span></summary>
-            <p>A target without a deadline becomes a daily goal. Add a deadline to track a total and get a suggested pace.</p>
-            <div className="goal-target-row"><label className="form-field"><span>Target amount {configuration.metrics[0]?.unit ? <em>· {configuration.metrics[0].unit}</em> : null}</span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => { setGoalAmount(event.target.value); setFieldErrors((current) => ({ ...current, goalAmount: '' })) }} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : undefined} />{fieldErrors.goalAmount && <small id="goal-amount-error" className="auth-error">{fieldErrors.goalAmount}</small>}</label><label className="form-field"><span>Deadline <em>optional</em></span><input data-validation-path="deadline" aria-label="Goal deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label></div>
+            <p>Set a daily target, or add a deadline to make this a total to complete by that date. Advanced planning uses these same values for the primary measure.</p>
+            <div className="goal-target-row"><label className="form-field"><span>{planningForEditor.mode === 'cumulative-deadline' ? 'Total by deadline' : 'Daily target'} {configuration.metrics[0]?.unit ? <em>· {configuration.metrics[0].unit}</em> : null}</span><input aria-label="Total amount" className="auth-input" type="number" min="0.01" max={Number.MAX_SAFE_INTEGER} step="any" value={goalAmount} onChange={(event) => changeGoalAmount(event.target.value)} placeholder="100" aria-invalid={Boolean(fieldErrors.goalAmount)} aria-describedby={fieldErrors.goalAmount ? 'goal-amount-error' : undefined} />{fieldErrors.goalAmount && <small id="goal-amount-error" className="auth-error">{fieldErrors.goalAmount}</small>}</label><label className="form-field"><span>Deadline <em>optional</em></span><input data-validation-path="deadline" aria-label="Goal deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label></div>
             {pace && <p className="goal-pace-suggestion">Suggested pace: about <strong>{pace}</strong> per scheduled day.</p>}
           </details>}
           {existing && (existing.kind !== 'habit' || Boolean(existing.deadline)) && <label className="form-field tracker-deadline-field"><span>Deadline {goalPlanning.mode === 'cumulative-deadline' ? <em>required for cumulative planning</em> : <em>optional</em>} <InfoButton title="Deadline" summary="Choose the date you want this goal or challenge to be completed." description="For example, a goal to solve 100 problems by October 31. Deadline status and cumulative pace use this calendar date in the planner’s time zone. Editing the date recalculates expected and remaining scheduled days; it does not erase historical progress." /></span><input data-validation-path="deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
@@ -636,7 +680,7 @@ export function TrackerSetupPage() {
               <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Milestones</summary><TrackerConfigurationEditor section="milestones" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
-              {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="advanced-subsection"><summary>Goal planning{goalPlanning.mode === 'cumulative-deadline' ? ' · deadline required' : ''}</summary><GoalPlanningEditor metrics={configuration.metrics} planning={goalPlanning} onChange={changeGoalPlanning} /></details>}
+              {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="advanced-subsection"><summary>Goal planning{planningForEditor.mode === 'cumulative-deadline' ? ' · deadline required' : ''}</summary><GoalPlanningEditor metrics={configuration.metrics} planning={planningForEditor} deadline={values.deadline} onChange={changeGoalPlanning} /></details>}
             </div>
           </details>
           <footer className="tracker-form-actions">

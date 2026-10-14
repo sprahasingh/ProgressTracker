@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const databaseContainer = process.env.SUPABASE_DB_CONTAINER!
 const email = 'browser-achievement-e2e@progress-tracker.invalid'
-const credentials = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as { userId: string; email: string; password: string }
+let credentials: { userId: string; email: string; password: string }
 const viewportMatrix = [
   { width: 320, height: 568 },
   { width: 360, height: 640 },
@@ -17,7 +17,7 @@ const viewportMatrix = [
   { width: 844, height: 390 },
 ] as const
 
-const userId = credentials.userId
+let userId: string
 
 function runDatabase(sql: string): string {
   return execFileSync('docker', ['exec', databaseContainer, 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres', '-c', sql], { encoding: 'utf8', stdio: 'pipe', timeout: 90_000 }).trim()
@@ -26,7 +26,9 @@ function runDatabase(sql: string): string {
 async function dismissCurrentCelebration(page: Page) {
   const dialog = page.getByRole('dialog', { name: /First Step|Perfect Day/i })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Continue' }).click()
+  const nextBadge = dialog.getByRole('button', { name: 'Next Badge' })
+  if (await nextBadge.count()) await nextBadge.click()
+  else await dialog.getByRole('button', { name: 'Finish' }).click()
 }
 
 async function confirmedAwardState(page: Page, achievementId: string) {
@@ -77,11 +79,10 @@ async function waitForWinsData(page: Page) {
   }
 }
 
-test.beforeAll(() => {
-  if (credentials.email !== email || !/^[0-9a-f-]{36}$/i.test(userId)) throw new Error('The isolated Auth prerequisite did not provide the named disposable account.')
-})
-
 test('AppShell check-in, server awards, Wins history, and responsive sequential celebrations', async ({ page, context }, testInfo) => {
+  credentials = JSON.parse(readFileSync('/private/tmp/progression-playwright-auth.json', 'utf8')) as typeof credentials
+  userId = credentials.userId
+  if (credentials.email !== email || !/^[0-9a-f-]{36}$/i.test(userId)) throw new Error('The isolated Auth prerequisite did not provide the named disposable account.')
   const browserErrors: string[] = []
   const authRequests: Array<{ path: string; status?: number; elapsedMs: number; failure?: string }> = []
   const authStarted = new Map<string, number>()
@@ -191,15 +192,16 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect(firstDialog.getByText(/qualifying date/)).toBeVisible()
   await expect(firstDialog.getByText(/XP confirmed/)).toContainText('+10 XP confirmed')
   await expect(firstDialog.getByRole('button', { name: 'About this celebration' })).toBeVisible()
-  await expect(firstDialog.getByRole('button', { name: 'Continue' })).toBeVisible()
+  await expect(firstDialog.getByRole('button', { name: 'Next Badge' })).toBeVisible()
   await expect(firstDialog.locator('.badge-celebration-title-row')).toContainText('First Step')
   await expect(firstDialog.locator('.badge-celebration-title-row').getByRole('button', { name: 'About this celebration' })).toBeVisible()
   await expect(firstDialog.locator('header').getByRole('button', { name: 'Close celebration' })).toBeVisible()
-  await firstDialog.getByRole('button', { name: 'Continue' }).focus()
+  const dismissRemaining = firstDialog.getByRole('button', { name: 'Dismiss remaining' })
+  await dismissRemaining.focus()
   await page.keyboard.press('Tab')
   await expect(firstDialog.getByRole('button', { name: 'About this celebration' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(firstDialog.getByRole('button', { name: 'Continue' })).toBeFocused()
+  await expect(dismissRemaining).toBeFocused()
 
   // Exercise modal geometry, theme tokens, backdrop effects, scroll lock,
   // confetti containment, reduced motion, and visible actions across all sizes.
@@ -227,7 +229,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
         const closeButton = dialog.querySelector<HTMLElement>('.badge-celebration-close')!
         const description = dialog.querySelector<HTMLElement>('.badge-celebration-content > p')!
         const occurrence = dialog.querySelector<HTMLElement>('.badge-celebration-occurrence')!
-        const continueButton = dialog.querySelector<HTMLElement>('.badge-celebration-content > .button')!
+        const continueButton = dialog.querySelector<HTMLElement>('.badge-celebration-actions .button-primary')!
         const content = dialog.querySelector<HTMLElement>('.badge-celebration-content')!
         const rect = (element: HTMLElement) => {
           const bounds = element.getBoundingClientRect()
@@ -289,7 +291,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
       await expect(firstDialog.locator('.badge-celebration-content > p').first()).toBeInViewport()
       await firstDialog.locator('.badge-celebration-occurrence').scrollIntoViewIfNeeded()
       await expect(firstDialog.locator('.badge-celebration-occurrence')).toBeInViewport()
-      const continueButton = firstDialog.getByRole('button', { name: 'Continue' })
+      const continueButton = firstDialog.getByRole('button', { name: /Next Badge|Finish/ })
       await continueButton.scrollIntoViewIfNeeded()
       await expect(continueButton).toBeInViewport()
       await firstDialog.locator('.badge-celebration-content').evaluate((element) => { element.scrollTop = 0 })
@@ -315,7 +317,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await dismissCurrentCelebration(page)
   const firstPerfectDay = page.getByRole('dialog', { name: /Perfect Day/i })
   await expect(firstPerfectDay.getByText(/first unlock/i)).toBeVisible()
-  await firstPerfectDay.getByRole('button', { name: 'Continue' }).click()
+  await firstPerfectDay.getByRole('button', { name: 'Finish' }).click()
   await expect(page.locator('.badge-celebration')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe(originalBodyOverflow)
 
@@ -384,9 +386,9 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect.poll(() => confirmedAwardState(page, 'first-step'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
   await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
   await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
-  await page.getByRole('dialog', { name: /First Step/i }).getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('dialog', { name: /First Step/i }).getByRole('button', { name: 'Next Badge' }).click()
   await expect(page.getByRole('dialog', { name: /Perfect Day/i })).toBeVisible()
-  await page.getByRole('dialog', { name: /Perfect Day/i }).getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('dialog', { name: /Perfect Day/i }).getByRole('button', { name: 'Finish' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const requalifiedHistory = await page.evaluate(async (id) => {
     const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
@@ -498,20 +500,21 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.locator('h2')).toHaveText(expected.name!)
-    const details = dialog.locator('.badge-celebration-occurrence')
-    await expect(details).toBeVisible()
-    if (expected.sourceDate) await expect(details).toContainText(expected.sourceDate)
-    else await expect(details).toContainText('qualifying date unavailable')
+    const occurrenceDetails = dialog.locator('.badge-celebration-occurrence')
+    await expect(occurrenceDetails).toBeVisible()
+    const earnedDetails = dialog.locator('.badge-celebration-earned')
+    await expect(earnedDetails).toBeVisible()
+    if (expected.sourceDate) await expect(earnedDetails).toContainText(`qualifying date ${expected.sourceDate}`)
     if (expected.rewardXpDelta && expected.rewardXpDelta > 0) await expect(dialog.getByText(`+${expected.rewardXpDelta} XP confirmed`)).toBeVisible()
     const label = (await dialog.locator('.eyebrow').innerText()).trim()
     if (expected.achievementId === 'perfect-day') occurrenceLabels.push(label)
     presentedAwards.push({ achievementId: expected.achievementId, tier: expected.tier })
     if (occurrence === 0) await page.keyboard.press('Escape')
-    else await dialog.getByRole('button', { name: 'Continue' }).click()
+    else await dialog.getByRole('button', { name: /Next Badge|Finish/ }).click()
   }
   expect(presentedAwards).toEqual(expectedQueue.map(({ achievementId, tier }) => ({ achievementId, tier })))
   expect(occurrenceLabels).toHaveLength(4)
-  expect(occurrenceLabels).toContain('5 achievement awards')
+  expect(occurrenceLabels).toContain('Achievement Milestone!')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(winsNavigation).toBeFocused()
 
@@ -557,7 +560,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 60_000, message: 'AppShell sync should confirm the final distinct future-date award' }).toMatchObject({ userId, count: 6 })
   const repeatDialog = page.getByRole('dialog', { name: /Perfect Day/i })
   await expect(repeatDialog).toBeVisible()
-  await expect(repeatDialog.locator('.eyebrow')).toHaveText('Achievement unlocked')
+  await expect(repeatDialog.locator('.eyebrow')).toHaveText('Achievement Earned Again!')
   await expect(repeatDialog).toHaveClass(/is-subtle/)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
