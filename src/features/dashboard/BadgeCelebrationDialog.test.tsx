@@ -14,7 +14,7 @@ vi.mock('../../components/ui/useVisualViewportBounds', () => ({ useVisualViewpor
 vi.mock('../../components/ui/InfoButton', () => ({ InfoButton: ({ label }: { label: string }) => <button type="button" aria-label={label}>Info</button> }))
 vi.mock('./ProgressionBadge', () => ({ ProgressionBadge: ({ achievementId }: { achievementId: string }) => <span>{achievementId} art</span> }))
 
-import { BadgeCelebrationMonitor } from './BadgeCelebrationDialog'
+import { BadgeCelebrationMonitor, badgeCelebrationLevel } from './BadgeCelebrationDialog'
 
 const oldEvent = { id: 'old', achievementId: 'first-step', tier: 1, generation: 1, eventType: 'unlocked' as const, recordedAt: '2026-01-01T10:00:00Z', sourceEventId: null, sourceDate: '2026-01-01', reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }
 const newEvent = { ...oldEvent, id: 'new', achievementId: 'momentum', recordedAt: new Date(Date.now() + 10_000).toISOString(), sourceDate: '2026-01-02' }
@@ -22,6 +22,14 @@ const newEvent = { ...oldEvent, id: 'new', achievementId: 'momentum', recordedAt
 describe('BadgeCelebrationMonitor', () => {
   afterEach(cleanup)
   beforeEach(() => { localStorage.clear(); mocks.getBadges.mockReset(); mocks.getXp.mockReset().mockResolvedValue(new Map()); mocks.subscribe.mockReset() })
+
+  it('selects grand first unlocks, repeat celebrations, and only the specified repeat milestones', () => {
+    expect(badgeCelebrationLevel(false, 1)).toBe('first')
+    expect(badgeCelebrationLevel(true, 1)).toBe('first')
+    for (const occurrence of [5, 10, 25, 50, 100, 200]) expect(badgeCelebrationLevel(true, occurrence)).toBe('milestone')
+    for (const occurrence of [2, 4, 6, 24, 51, 199]) expect(badgeCelebrationLevel(true, occurrence)).toBe('repeat')
+    expect(badgeCelebrationLevel(false, 5)).toBe('first')
+  })
 
   it('baselines old history and serially presents only newly confirmed events', async () => {
     let events = [oldEvent]
@@ -34,10 +42,10 @@ describe('BadgeCelebrationMonitor', () => {
     await waitFor(() => expect(mocks.subscribe).toHaveBeenCalled())
     notifyProgressionChange?.()
     expect(await screen.findByRole('heading', { name: 'Momentum' })).toBeInTheDocument()
-    expect(screen.getByText('First unlock')).toBeInTheDocument()
+    expect(screen.getByText('New Achievement Unlocked!')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('dialog').querySelector('button.button-primary')!)
-    expect(await screen.findByText('Achievement unlocked')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Achievement Earned Again!')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     notifyProgressionChange?.()
@@ -68,7 +76,7 @@ describe('BadgeCelebrationMonitor', () => {
     expect(await screen.findByRole('heading', { name: 'Momentum' })).toBeInTheDocument()
     resolveInitial([{ achievementId: 'first-step', history: [oldEvent, newEvent] }])
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
-    expect(screen.getByText('First unlock')).toBeInTheDocument()
+    expect(screen.getByText('New Achievement Unlocked!')).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).not.toContain('new')
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:user-1') ?? '[]')).toContain('new')
   })
@@ -83,7 +91,7 @@ describe('BadgeCelebrationMonitor', () => {
     expect(await screen.findByRole('heading', { name: 'Momentum' })).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).not.toContain('new')
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:user-1') ?? '[]')).toContain('new')
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('new'))
   })
 
@@ -99,7 +107,7 @@ describe('BadgeCelebrationMonitor', () => {
     expect(await screen.findByRole('dialog', { name: 'First Step' })).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('old')
     expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:user-1') ?? '[]')).toContain('requalified')
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:user-1') ?? '[]')).toContain('requalified'))
   })
 
@@ -139,7 +147,7 @@ describe('BadgeCelebrationMonitor', () => {
     expect(dialog).toBeInTheDocument()
     expect(dialog).not.toHaveTextContent('+10 XP confirmed')
     resolveXp(new Map([['reward-event-1', 10]]))
-    expect(await screen.findByText('+10 XP confirmed · listed in your reward history')).toBeInTheDocument()
+    expect(await screen.findByText('+10 XP confirmed')).toBeInTheDocument()
   })
 
   it('removes a queued unlock if the server reverses it before presentation completes', async () => {

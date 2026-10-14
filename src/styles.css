@@ -944,7 +944,7 @@ a { color: inherit; text-decoration: none; }
 .progression-dialog-event-list .progression-event-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
 .progression-dialog-footnote { margin: 12px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.5; }
 .badge-celebration-backdrop { z-index: 1700; background: rgb(12 13 14 / 56%); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); }
-.badge-celebration { position: relative; isolation: isolate; }
+.badge-celebration { position: relative; isolation: isolate; width: min(460px, 100%); animation: badge-dialog-in 420ms cubic-bezier(.2,.85,.3,1) both; }
 .badge-celebration-header { align-items: flex-start; gap: 12px; }
 .badge-celebration-heading { min-width: 0; flex: 1 1 auto; }
 .badge-celebration-title-row { display: flex; min-width: 0; align-items: center; gap: 4px; margin-top: 6px; }
@@ -952,16 +952,25 @@ a { color: inherit; text-decoration: none; }
 .badge-celebration-title-row .info-button { flex: 0 0 44px; margin: 0; }
 .badge-celebration-close { flex: 0 0 auto; }
 .badge-celebration.is-grand { border-color: color-mix(in srgb, var(--accent-strong) 36%, var(--line)); }
+.badge-celebration.is-grand::before { position: absolute; z-index: -1; top: 105px; left: 50%; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, rgb(238 167 104 / 30%), rgb(215 165 77 / 14%) 48%, transparent 72%); content: ''; transform: translateX(-50%); pointer-events: none; }
+.badge-celebration.is-grand .progression-badge.is-large { animation: badge-art-pop 720ms cubic-bezier(.18,1.35,.45,1) both; }
+.badge-celebration.is-subtle { animation-duration: 260ms; }
+.badge-celebration-queue { display: inline-block; margin-top: 6px; color: var(--ink-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .badge-celebration-content { display: grid; justify-items: center; gap: 13px; text-align: center; }
 .badge-celebration-content > p { max-width: 38rem; margin: 0; color: var(--ink-muted); line-height: 1.6; }
-.badge-celebration-occurrence { font-size: 12px; }
-.badge-celebration-content > .button { min-width: 140px; margin-top: 5px; }
+.badge-celebration-occurrence { color: var(--ink) !important; font-size: 14px; font-weight: 650; }
+.badge-celebration-earned, .badge-celebration-xp { font-size: 12px; }
+.badge-celebration-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-top: 5px; }
+.badge-celebration-actions > .button { min-width: 140px; }
+.badge-celebration .progression-badge { filter: drop-shadow(0 9px 18px rgb(215 165 77 / 18%)); }
+@keyframes badge-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes badge-art-pop { 0% { transform: scale(.76) rotate(-5deg); } 68% { transform: scale(1.07) rotate(2deg); } 100% { transform: scale(1) rotate(0); } }
 .badge-confetti { position: absolute; z-index: -1; inset: 112px 0 auto; height: 125px; overflow: hidden; pointer-events: none; }
 .badge-confetti i { position: absolute; top: -8px; left: calc(5% + var(--confetti-index) * 5.2%); width: 7px; height: 13px; border-radius: 2px; background: var(--accent-strong); opacity: .75; animation: badge-confetti-fall 1.8s ease-out both; animation-delay: calc(var(--confetti-index) * 24ms); }
 .badge-confetti i:nth-child(3n) { background: var(--joy-teal); }
 .badge-confetti i:nth-child(3n + 1) { background: var(--joy-apricot, var(--accent)); }
 @keyframes badge-confetti-fall { to { transform: translateY(140px) rotate(230deg); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .badge-confetti i { animation: none; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .badge-confetti i { animation: none; opacity: 0; } .badge-celebration, .badge-celebration.is-grand .progression-badge.is-large { animation: none; } }
 .progression-detail-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .progression-detail-score strong { color: var(--accent-strong); font-size: 34px; font-variant-numeric: tabular-nums; }
 .progression-detail-score span { color: var(--ink-muted); font-size: 11px; }
