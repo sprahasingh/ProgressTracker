@@ -9,8 +9,12 @@ const viewportMatrix = [
   { width: 320, height: 568 },
   { width: 360, height: 640 },
   { width: 390, height: 844 },
+  { width: 430, height: 932 },
   { width: 768, height: 1024 },
+  { width: 1024, height: 768 },
+  { width: 1280, height: 800 },
   { width: 1440, height: 900 },
+  { width: 844, height: 390 },
 ] as const
 
 const userId = credentials.userId
@@ -221,6 +225,10 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
         const badgeTitle = dialog.querySelector<HTMLElement>('.badge-celebration-title-row h2')!
         const infoButton = dialog.querySelector<HTMLElement>('.badge-celebration-title-row .info-button')!
         const closeButton = dialog.querySelector<HTMLElement>('.badge-celebration-close')!
+        const description = dialog.querySelector<HTMLElement>('.badge-celebration-content > p')!
+        const occurrence = dialog.querySelector<HTMLElement>('.badge-celebration-occurrence')!
+        const continueButton = dialog.querySelector<HTMLElement>('.badge-celebration-content > .button')!
+        const content = dialog.querySelector<HTMLElement>('.badge-celebration-content')!
         const rect = (element: HTMLElement) => {
           const bounds = element.getBoundingClientRect()
           return { x: bounds.x, y: bounds.y, right: bounds.right, bottom: bounds.bottom, width: bounds.width, height: bounds.height }
@@ -231,12 +239,21 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
           bodyOverflow: document.body.style.overflow,
           blur: getComputedStyle(backdrop).backdropFilter,
           backdropPadding: getComputedStyle(backdrop).padding,
-          dialogScrollable: dialog.scrollHeight > dialog.clientHeight,
+          contentScrollable: content.scrollHeight > content.clientHeight,
           confettiClipped: getComputedStyle(confetti).overflow === 'hidden',
           confettiWithinDialog: confettiBounds.left >= bounds.left && confettiBounds.right <= bounds.right && confettiBounds.top >= bounds.top,
           titleBounds: rect(badgeTitle),
           infoBounds: rect(infoButton),
           closeBounds: rect(closeButton),
+          descriptionBounds: rect(description),
+          occurrenceBounds: rect(occurrence),
+          continueBounds: rect(continueButton),
+          horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          overflowingElements: [...document.body.querySelectorAll<HTMLElement>('*')]
+            .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
+            .filter(({ bounds }) => bounds.right > window.innerWidth + 1 || bounds.left < -1)
+            .slice(0, 8)
+            .map(({ element, bounds }) => `${element.tagName.toLowerCase()}.${String(element.className).replace(/\s+/g, '.')}:${Math.round(bounds.left)}..${Math.round(bounds.right)}`),
           theme: document.documentElement.dataset.theme ?? 'light',
           surface: getComputedStyle(dialog).backgroundColor,
         }
@@ -259,13 +276,28 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
       expect(state.infoBounds.right).toBeLessThanOrEqual(state.closeBounds.x + 1)
       expect(state.infoBounds.width).toBeGreaterThanOrEqual(40)
       expect(state.closeBounds.x + state.closeBounds.width).toBeLessThanOrEqual(size.width + 1)
+      for (const element of [state.titleBounds, state.infoBounds, state.closeBounds]) {
+        expect(element.x, JSON.stringify({ size, theme, element })).toBeGreaterThanOrEqual(-1)
+        expect(element.y, JSON.stringify({ size, theme, element })).toBeGreaterThanOrEqual(-1)
+        expect(element.right, JSON.stringify({ size, theme, element })).toBeLessThanOrEqual(size.width + 1)
+        expect(element.bottom, JSON.stringify({ size, theme, element })).toBeLessThanOrEqual(size.height + 1)
+      }
+      expect(state.horizontalOverflow, JSON.stringify({ size, theme, overflowingElements: state.overflowingElements })).toBe(false)
+      if (size.height <= 400) expect(state.contentScrollable).toBe(true)
       expect(Math.abs(state.titleBounds.y + state.titleBounds.height / 2 - state.infoBounds.y - state.infoBounds.height / 2)).toBeLessThanOrEqual(state.titleBounds.height / 2)
-      await expect(firstDialog.getByRole('button', { name: 'Continue' })).toBeInViewport()
+      await firstDialog.locator('.badge-celebration-content > p').first().scrollIntoViewIfNeeded()
+      await expect(firstDialog.locator('.badge-celebration-content > p').first()).toBeInViewport()
+      await firstDialog.locator('.badge-celebration-occurrence').scrollIntoViewIfNeeded()
+      await expect(firstDialog.locator('.badge-celebration-occurrence')).toBeInViewport()
+      const continueButton = firstDialog.getByRole('button', { name: 'Continue' })
+      await continueButton.scrollIntoViewIfNeeded()
+      await expect(continueButton).toBeInViewport()
+      await firstDialog.locator('.badge-celebration-content').evaluate((element) => { element.scrollTop = 0 })
       await page.screenshot({ path: testInfo.outputPath(`celebration-${size.width}x${size.height}-${theme}.png`) })
       layoutSnapshots.push({ ...size, theme, bounds: currentBounds, bodyOverflow: state.bodyOverflow, blur: state.blur, surface: state.surface })
     }
   }
-  expect(layoutSnapshots).toHaveLength(10)
+  expect(layoutSnapshots).toHaveLength(viewportMatrix.length * 2)
   for (const size of viewportMatrix) {
     const lightSurface = layoutSnapshots.find((snapshot) => snapshot.width === size.width && snapshot.theme === 'light')?.surface
     const darkSurface = layoutSnapshots.find((snapshot) => snapshot.width === size.width && snapshot.theme === 'dark')?.surface
@@ -291,6 +323,12 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     const { localCalendarDate } = await import('/ProgressTracker/src/features/shared/localDates.ts')
     return localCalendarDate(new Date(), 'UTC')
   })
+  const browserTrackerId = await page.evaluate(async () => {
+    const repository = await import('/ProgressTracker/src/db/localRepository.ts')
+    const tracker = (await repository.localRepository.listTrackers()).find((item) => item.name === 'Browser celebration habit')
+    if (!tracker) throw new Error('The first-check-in tracker is missing from the local workspace.')
+    return tracker.id
+  })
   const history = await page.evaluate(async () => {
     const repo = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
     const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
@@ -304,6 +342,67 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   expect(history.xp).toBe(30)
   expect(history.badges.find((badge) => badge.id === 'perfect-day')?.count).toBe(1)
   expect(history.badges.find((badge) => badge.id === 'perfect-day')?.history).toEqual(expect.arrayContaining([expect.objectContaining({ date: todayDate, kind: 'unlocked' })]))
+
+  // Clearing then restoring a confirmed same-day check-in must revoke and
+  // requalify its server events without duplicating the active date occurrence.
+  await page.evaluate(async ({ id, date }) => {
+    const database = await import('/ProgressTracker/src/db/localRepository.ts')
+    const clientModule = await import('/ProgressTracker/src/services/supabase/client.ts')
+    const sync = await import('/ProgressTracker/src/services/supabase/syncEngine.ts')
+    const client = clientModule.getSupabaseClient()!
+    const { data: { session } } = await client.auth.getSession()
+    if (!session?.user) throw new Error('The browser session disappeared before clearing the check-in.')
+    await database.localRepository.deleteTrackerEntry(id, date)
+    return sync.synchronizeWorkspace(session.user.id, client)
+  }, { id: browserTrackerId, date: todayDate })
+  await expect.poll(() => confirmedAwardState(page, 'first-step'), { timeout: 30_000 }).toMatchObject({ userId, count: 0, pending: 0 })
+  await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000 }).toMatchObject({ userId, count: 0, pending: 0 })
+  expect(await page.evaluate(async () => {
+    const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
+    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+    const { data: { session } } = await client.auth.getSession()
+    if (!session?.user) throw new Error('The browser session disappeared during undo verification.')
+    return (await repository.getProgressionOverview(session.user.id)).confirmedXp
+  })).toBe(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  await page.evaluate(async ({ id, date }) => {
+    const database = await import('/ProgressTracker/src/db/localRepository.ts')
+    const clientModule = await import('/ProgressTracker/src/services/supabase/client.ts')
+    const sync = await import('/ProgressTracker/src/services/supabase/syncEngine.ts')
+    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+    const client = clientModule.getSupabaseClient()!
+    const { data: { session } } = await client.auth.getSession()
+    if (!session?.user) throw new Error('The browser session disappeared before restoring the check-in.')
+    const trackers = await database.localRepository.listTrackers()
+    const tracker = trackers.find((item) => item.id === id)!
+    await database.localRepository.saveTrackerEntry({ trackerId: id, date, outcome: 'recorded', values: { [tracker.metrics[0]!.id]: true }, note: 'same-day requalification' })
+    await sync.synchronizeWorkspace(session.user.id, client)
+    const history = await repository.getAchievementHistory(session.user.id)
+    return history
+  }, { id: browserTrackerId, date: todayDate })
+  await expect.poll(() => confirmedAwardState(page, 'first-step'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
+  await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
+  await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('dialog', { name: /First Step/i }).getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByRole('dialog', { name: /Perfect Day/i })).toBeVisible()
+  await page.getByRole('dialog', { name: /Perfect Day/i }).getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const requalifiedHistory = await page.evaluate(async (id) => {
+    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+    const history = await repository.getAchievementHistory(id)
+    const current = (achievementId: string) => history.filter((event) => event.achievementId === achievementId)
+    return {
+      firstStep: current('first-step'),
+      perfectDay: current('perfect-day'),
+      xp: (await repository.getProgressionOverview(id)).confirmedXp,
+    }
+  }, userId)
+  expect(requalifiedHistory.firstStep.filter((event) => event.eventType === 'unlocked')).toHaveLength(2)
+  expect(requalifiedHistory.firstStep.filter((event) => event.eventType === 'revoked')).toHaveLength(1)
+  expect(requalifiedHistory.perfectDay.filter((event) => event.eventType === 'unlocked')).toHaveLength(2)
+  expect(requalifiedHistory.perfectDay.filter((event) => event.eventType === 'revoked')).toHaveLength(1)
+  expect(requalifiedHistory.xp).toBe(30)
 
   // Arrange only this disposable account for the same five-day repeat fixture
   // as the passing local API integration, then create entries through the
@@ -434,7 +533,9 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     const { data: { session } } = await client.auth.getSession()
     if (!session?.user) throw new Error('The persisted browser session disappeared before refresh verification.')
     const badge = (await repo.getEarnedAndLockedBadges(session.user.id)).find((item) => item.achievementId === 'perfect-day')!
-    return { count: badge.validAwardCount, dates: badge.history.filter((event) => event.eventType === 'unlocked').map((event) => event.sourceDate).sort(), timestamps: badge.history.filter((event) => event.eventType === 'unlocked').map((event) => event.recordedAt), xp: (await repo.getProgressionOverview(session.user.id)).confirmedXp }
+    const revoked = new Set(badge.history.filter((event) => event.eventType === 'revoked' && event.reversesEventId).map((event) => event.reversesEventId))
+    const active = badge.history.filter((event) => event.eventType === 'unlocked' && !revoked.has(event.id))
+    return { count: badge.validAwardCount, dates: active.map((event) => event.sourceDate).sort(), timestamps: active.map((event) => event.recordedAt), xp: (await repo.getProgressionOverview(session.user.id)).confirmedXp }
   })
   expect(refreshState.count).toBe(5)
   expect(new Set(refreshState.dates).size).toBe(5)

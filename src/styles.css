@@ -3101,6 +3101,18 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .nav-link[aria-current='page'], .mobile-nav-link[aria-current='page'],
 .mobile-more-trigger[aria-current='page'], .mobile-more.has-active-route .mobile-more-trigger,
 .mobile-more-item[aria-current='page'] { color: var(--accent-strong); }
+
+/* Keep all top-bar controls inside the narrowest supported phone viewport. */
+@media (max-width: 380px) {
+  .topbar { gap: 2px; padding-right: 8px; padding-left: 8px; }
+  .topbar-spacer { min-width: 0; }
+  .topbar .ai-help-trigger { width: 32px; min-width: 32px; height: 32px; min-height: 32px; flex-basis: 32px; }
+  .topbar .notification-center { margin-left: 2px; }
+  .topbar .notification-center-trigger { width: 36px; height: 36px; }
+  .topbar .avatar { flex-basis: 34px; width: 34px; height: 34px; margin-left: 2px; }
+  .topbar-sync-state .sync-status-compact { display: none; }
+  .install-app-button { display: none; }
+}
 .mobile-more-trigger[aria-current='page'], .mobile-more.has-active-route .mobile-more-trigger { color: var(--accent-strong); }
 .mobile-more-trigger:focus-visible, .mobile-more-item:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .mobile-more-menu { right: 0; left: auto; width: min(230px, calc(100vw - 24px)); max-height: min(60vh, 420px); overflow-y: auto; }
