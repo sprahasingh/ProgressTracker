@@ -14,6 +14,20 @@
 **Answer:**
 Each active tracker card is a snapshot for the workspace-local current date. It shows today’s status, that tracker’s current streak and personal best, and its latest saved check-in with that entry’s date, outcome, and values. These refer to separate dates and purposes.
 
+### ID: insight-all-trackers-streak
+**Category:** insights
+**Question:** What does the All Trackers streak on Insights measure?
+**Aliases:**
+- Is All Trackers streak the sum of tracker streaks?
+- How is my Perfect Day streak calculated?
+**Keywords:** Insights, All Trackers streak, Perfect Day, account streak
+**Suggestible:** true
+**Sources:**
+- src/features/dashboard/DashboardPage.tsx
+- src/domain/trackers/progression.ts
+**Answer:**
+It is the consecutive run of account days on which every required tracker qualifies, with at least one required tracker that day. It is not a sum of separate tracker streaks. Standard Mode holidays and rest days are neutral; Strict Mode dates within a tracker’s active period require a qualifying check-in. A pending current day does not prematurely break the confirmed run.
+
 ### ID: insight-current-status
 **Category:** insights
 **Question:** Does an Insights tracker card show today or my latest check-in?

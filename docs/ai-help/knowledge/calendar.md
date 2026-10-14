@@ -12,7 +12,7 @@
 - src/features/calendar/CalendarPage.tsx
 - src/domain/trackers/activityHeatmap.ts
 **Answer:**
-The calendar lets you navigate dates and review tracker activity for the selected period. Its date indicators summarize scheduled opportunities and saved progress; open a date to review or update the entries available for that day.
+The calendar lets you navigate dates and review tracker activity for the selected period. Its date indicators summarize scheduled opportunities and saved progress; open a date to review or update the entries available for that day. Use the information button beside Status guide for the difference between saved outcomes and derived statuses, and how holidays, tracker periods, All Trackers, and streak qualification affect the summary.
 
 ### ID: calendar-activity-statuses
 **Category:** calendar
@@ -26,7 +26,7 @@ The calendar lets you navigate dates and review tracker activity for the selecte
 - src/domain/trackers/activityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-Completed means a saved recorded check-in met the configured success rule. Partial means it has positive progress but misses that rule; No progress means a saved recorded check-in has no qualifying positive progress. Missed is derived when a required past date has no active saved entry, while Skipped is an intentional saved outcome. Pending is for an open opportunity today; Upcoming is a future opportunity. Rest day is an in-period date excluded by the schedule in Standard Mode. Outside period has no current opportunity; a saved entry there is shown as a Historical entry. Holiday is a workspace-wide date. Expand the Status guide to see all statuses, including context states. In All Trackers, a date summarizes active trackers; mixed statuses are marked on the cell and selecting the date shows each tracker’s result. The summary and saved-entry count use that same tracker scope. Selecting one tracker, including a paused or archived tracker, shows its retained activity.
+Completed means a saved recorded check-in met the configured completion rule, but completion does not always mean it qualifies for a streak. Partial and No progress are saved outcomes; Skipped is an intentional saved outcome. Pending, Missed, Upcoming, Rest day, Outside period, Historical entry, Holiday, Tracker inactive, and No active trackers are derived from saved data and date, schedule, mode, or tracker context. Standard Mode treats holidays as neutral, while Strict Mode still requires activity on an active date. Rest day can also describe an in-period date outside the tracker’s schedule; dates before the effective start or after a deadline are Outside period. The Status guide’s information button explains these distinctions. In All Trackers, a date summarizes active trackers; mixed statuses are marked on the cell and selecting the date shows each tracker’s result. The summary and saved-entry count use that same tracker scope. Selecting one tracker, including a paused or archived tracker, shows its retained activity.
 
 ### ID: calendar-inspect-past-date
 **Category:** calendar

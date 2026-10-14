@@ -126,7 +126,7 @@ describe('local progress dashboard', () => {
     ]
     const childOrder = Array.from(overview.children)
     expect(regions.map((region) => childOrder.indexOf(region))).toEqual([2, 3, 4, 5])
-    expect(overview.querySelector('.dashboard-stats')?.children).toHaveLength(4)
+    expect(overview.querySelector('.dashboard-stats')?.children).toHaveLength(5)
     await user.selectOptions(screen.getByRole('combobox', { name: 'Show activity for' }), first.id)
     expect(screen.getByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Drink water' })).not.toBeInTheDocument()

@@ -62,7 +62,7 @@ select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-00000000
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000091','00000000-0000-4000-8000-000000000931','tracker_entry',1,jsonb_build_object('id','00000000-0000-4000-8000-000000000930','tracker_id','00000000-0000-4000-8000-000000000913','entry_date',current_date::text,'outcome','recorded','entry_values',jsonb_build_object('done',true),'note','','created_at',current_date::text||'T00:00:00Z')))->>'status','applied'::text,'same-day skipped entry can be completed after cutover');
 reset role;
 select is((select count(*) from public.progression_events e join public.progression_event_sources s on s.event_id=e.id and s.user_id=e.user_id where e.user_id='00000000-0000-4000-8000-000000000091' and e.reason_code='DAILY_CHECK_IN_COMPLETED' and s.source_id='00000000-0000-4000-8000-000000000930'),1::bigint,'completing previously skipped cutover-day activity receives one new check-in award');
-select is((select sum(xp_delta) from public.progression_events where user_id='00000000-0000-4000-8000-000000000091'),150::bigint,'editing an entry already included in the estimate does not award it twice while a skipped entry earns one award when completed');
+select is((select sum(xp_delta) from public.progression_events where user_id='00000000-0000-4000-8000-000000000091'),170::bigint,'editing an entry already included in the estimate is not awarded twice, the skipped entry earns one check-in award, and the newly complete account day earns one shared Perfect Day bonus');
 select is((select count(*) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000091' and reason_code = 'LEGACY_XP_OPENING_BALANCE'), 1::bigint, 'historical reconstruction creates one opening event, not per-entry historical awards');
 select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000091' and reason_code='DAILY_CHECK_IN_COMPLETED'),1::bigint,'only the previously skipped post-cutover completion receives a check-in award');
 select is((select metadata->>'calculation_version' from public.progression_events where user_id = '00000000-0000-4000-8000-000000000091' and reason_code = 'LEGACY_XP_OPENING_BALANCE'), 'legacy-tracker-rewards-v1', 'opening balance records the calculation version');
@@ -71,7 +71,7 @@ select ok((select initialized_at is not null and scoring_version = 1 from public
 
 select public.initialize_progression_account('00000000-0000-4000-8000-000000000091');
 select is((select count(*) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000091' and reason_code = 'LEGACY_XP_OPENING_BALANCE'), 1::bigint, 'repeated initialization does not duplicate the opening event');
-select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000091'), 150::bigint, 'repeated initialization leaves the account total unchanged after the valid post-cutover award');
+select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000091'), 170::bigint, 'repeated initialization leaves the account total unchanged after check-in and shared Perfect Day awards');
 
 select ok(position('v_legacy_xp_kind := ''unavailable''' in pg_get_functiondef('public.initialize_progression_account(uuid)'::regprocedure)) > 0,
   'unrepresentable legacy balances are recorded as unavailable');

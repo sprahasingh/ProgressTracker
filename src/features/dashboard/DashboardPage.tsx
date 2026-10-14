@@ -12,7 +12,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { calculateProgressRewards, calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
+import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, qualifiesForStreak } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -116,6 +116,12 @@ export function DashboardPage() {
     const trackerEntries = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
     return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays), timeZone)] as const
   })), [visibleTrackers, visibleEntries, data.holidays, today, timeZone])
+  const allTrackersStreak = useMemo(() => calculateAllTrackersStreak({
+    trackers: data.trackers, entries: data.entries, asOfDate: today, holidays: new Set(data.holidays), timeZone,
+  }), [data.trackers, data.entries, data.holidays, today, timeZone])
+  const allTrackersToday = useMemo(() => evaluateAllTrackersDay({
+    trackers: data.trackers, entries: data.entries, date: today, today, holidays: new Set(data.holidays), timeZone,
+  }), [data.trackers, data.entries, data.holidays, today, timeZone])
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
   const weekEntries = visibleEntries.filter((entry) => entry.date >= weekStart && entry.date <= today)
@@ -163,6 +169,7 @@ export function DashboardPage() {
           <StatCard label={selectedTracker ? 'Selected tracker' : 'Active trackers'} value={String(visibleTrackers.length)} detail={selectedTracker ? selectedTracker.name : 'ready for your next check-in'} help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
           <StatCard label="Successes · 7 days" value={String(successfulWeek.length)} detail={`${scheduledWeek} elapsed opportunities`} help="Counts recorded check-ins that met their success rule on a day eligible under that tracker’s policy during the last seven calendar days." />
           <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of eligible opportunities' : 'nothing eligible this week'} help="Streak-qualified check-ins divided by elapsed opportunities over the last seven calendar days. Each tracker uses its own streak qualification and policy. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Today remains open until it ends." />
+          <StatCard label="All Trackers streak" value={`${allTrackersStreak.current}`} detail={allTrackersToday.state === 'perfect' ? 'Perfect Day achieved today' : allTrackersToday.state === 'pending' ? 'Today is still in progress' : allTrackersToday.state === 'failed' ? 'A required target was missed today' : allTrackersToday.state === 'neutral' ? 'No required activity today' : 'Today’s status is not yet available'} help="Consecutive Perfect Days where every required active tracker met its target. Standard Mode holidays and rest days are neutral; Strict Mode requires activity during the tracker period. This account-wide streak is separate from each tracker’s own streak." />
           <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" help="A playful summary of points earned from active tracker streaks and qualifying check-ins. It does not change your records or goals." />
         </div>
         <ActivityHeatmap days={heatmapDays} trackerName={selectedTracker?.name ?? null} rangeSelection={effectiveRange} year={effectiveYear} years={yearOptions} onRangeChange={selectHeatmapRange} onYearChange={selectHeatmapYear} scrollToStart={effectiveRange === 'year' && isHistoricalHeatmapYear(effectiveYear, today)} />

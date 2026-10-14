@@ -27,6 +27,7 @@ export type TodayMetricDetails = {
   name: string
   unit: string
   isBoolean: boolean
+  booleanValue?: 'unrecorded' | 'true' | 'false'
   completed: number | boolean
   expected?: number
   expectedLabel?: string
@@ -65,6 +66,9 @@ function scheduleDescription(tracker: StoredTrackerDefinition): string {
 export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry | undefined, today: string, entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, timeZone = 'UTC'): TodayMetricDetails[] {
   return activeTrackerMetrics(tracker.metrics).map((metric) => {
     const value = entry?.outcome === 'recorded' ? entry.values[metric.id] : undefined
+    const booleanValue: TodayMetricDetails['booleanValue'] = metric.valueType === 'boolean'
+      ? value === true ? 'true' : value === false ? 'false' : 'unrecorded'
+      : undefined
     const completed = metric.valueType === 'boolean'
       ? value === true
       : typeof value === 'number' ? value
@@ -73,6 +77,7 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
     const thresholds = metric.thresholds
     const common = {
       id: metric.id, name: metric.name, unit, isBoolean: metric.valueType === 'boolean', completed,
+      ...(booleanValue ? { booleanValue } : {}),
       minimum: thresholds?.minimum, target: thresholds?.target, stretch: thresholds?.stretch, direction: thresholds?.direction,
     }
 
@@ -145,7 +150,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
       <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress and daily expectation`}>
         {metrics.map((metric) => <div className="today-target-metric" key={metric.id}>
           <span className="today-target-name">{metric.name}</span>
-          {metric.isBoolean ? <><strong className="today-target-value">{historical ? 'Complete this activity' : 'Complete today'}</strong><small className="today-target-remaining">{metric.completed ? 'Completed' : 'Not completed'}</small></> : <>
+          {metric.isBoolean ? <><strong className="today-target-value">{historical ? 'Complete this activity' : 'Complete today'}</strong><small className="today-target-remaining">{metric.booleanValue === 'true' ? 'Recorded as complete' : metric.booleanValue === 'false' ? 'Recorded as not complete' : 'No value recorded'}</small></> : <>
             <span className="today-requirement-label">{requirementLabel(metric.expectedLabel === 'Target threshold' ? 'Today’s target' : metric.expectedLabel === 'Minimum threshold' ? 'Today’s minimum' : metric.expectedLabel ?? 'Progress today')}</span>
             <strong className="today-target-value">{metric.expected === undefined ? amount(Number(metric.completed), metric.unit) : `${formatTrackerNumber(Number(metric.completed))} / ${amount(metric.expected, metric.unit)}`}</strong>
             {metric.remaining !== undefined && <small className="today-target-remaining">{amount(metric.remaining, metric.unit)} remaining</small>}
@@ -163,7 +168,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
         <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
           {metrics.map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}{metric.unit && <span>{metric.unit}</span>}</h4>
             <dl>
-              <div><dt>Completed</dt><dd>{metric.isBoolean ? metric.completed ? 'Complete' : 'Not yet' : amount(Number(metric.completed), metric.unit)}</dd></div>
+              <div><dt>{metric.isBoolean ? 'Saved value' : 'Completed'}</dt><dd>{metric.isBoolean ? metric.booleanValue === 'true' ? 'Complete' : metric.booleanValue === 'false' ? 'Not complete' : 'Unrecorded' : amount(Number(metric.completed), metric.unit)}</dd></div>
               {metric.isBoolean ? <div><dt>Expected</dt><dd>Complete this check-in</dd></div> : metric.expected !== undefined && <div><dt>{requirementLabel(metric.expectedLabel ?? 'Expected')}</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
               {!metric.isBoolean && metric.remaining !== undefined && <div><dt>Remaining</dt><dd>{amount(metric.remaining, metric.unit)}</dd></div>}
             </dl>

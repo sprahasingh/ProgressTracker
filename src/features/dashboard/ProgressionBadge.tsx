@@ -1,10 +1,11 @@
 import { useId } from 'react'
 import { AppIcon, type AppIconName } from '../../components/ui/AppIcon'
-import { badgeTierLabel } from './achievementCatalog'
+import { achievementDefinition, badgeTierLabel } from './achievementCatalog'
 
 const badgeIcons: Record<string, AppIconName> = {
   'first-step': 'check', momentum: 'habit', 'first-flame': 'spark', 'steady-flame': 'spark', unstoppable: 'trackers', century: 'calendar',
   'perfect-day': 'today', 'perfect-week': 'calendar', 'milestone-maker': 'goal', 'goal-crusher': 'goal', 'consistency-star': 'insights', dedicated: 'check',
+  'perfect-month': 'calendar', 'the-comeback': 'reset',
 }
 
 export function ProgressionBadge({ achievementId, tier = 1, locked = false, size = 'normal' }: {
@@ -15,7 +16,10 @@ export function ProgressionBadge({ achievementId, tier = 1, locked = false, size
 }) {
   const gradientId = useId().replaceAll(':', '')
   const tierName = badgeTierLabel(tier).toLowerCase()
-  return <svg className={`progression-badge progression-badge-${tierName}${locked ? ' is-locked' : ''}${size === 'large' ? ' is-large' : ''}`} viewBox="0 0 120 120" role="img" aria-label={`${locked ? 'Locked' : tierName} ${achievementId.replaceAll('-', ' ')} badge`}>
+  const threshold = achievementDefinition(achievementId)?.badgeThreshold
+  const [thresholdValue, thresholdUnit] = threshold?.split(' ') ?? []
+  const name = achievementDefinition(achievementId)?.name ?? achievementId.replaceAll('-', ' ')
+  return <svg className={`progression-badge progression-badge-${tierName}${locked ? ' is-locked' : ''}${size === 'large' ? ' is-large' : ''}${threshold ? ' has-threshold' : ''}`} viewBox="0 0 120 120" role="img" aria-label={`${locked ? 'Locked' : tierName} ${name} badge${threshold ? `, ${threshold.toLowerCase()} threshold` : ''}`}>
     <defs>
       <linearGradient id={`${gradientId}-metal`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" className="badge-metal-light"/><stop offset=".48" className="badge-metal-mid"/><stop offset="1" className="badge-metal-dark"/></linearGradient>
       <radialGradient id={`${gradientId}-core`} cx="38%" cy="28%" r="78%"><stop offset="0" className="badge-core-light"/><stop offset="1" className="badge-core-dark"/></radialGradient>
@@ -29,7 +33,8 @@ export function ProgressionBadge({ achievementId, tier = 1, locked = false, size
     <circle className="badge-inner-ring" cx="61" cy="59" r="32" />
     <circle className="badge-core" cx="61" cy="59" r="27" fill={`url(#${gradientId}-core)`} />
     <path className="badge-highlight" d="M40 39c7-8 18-12 30-10" />
-    <AppIcon name={badgeIcons[achievementId] ?? 'spark'} className="badge-glyph" x="45" y="43" width="32" height="32" />
+    <AppIcon name={badgeIcons[achievementId] ?? 'spark'} className="badge-glyph" x={threshold ? '49' : '45'} y={threshold ? '36' : '43'} width={threshold ? '22' : '32'} height={threshold ? '22' : '32'} />
+    {threshold && thresholdValue && <g className="badge-threshold" aria-hidden="true"><text className="badge-threshold-value" x="61" y="69">{thresholdValue}</text><text className="badge-threshold-unit" x="61" y="79">{thresholdUnit}</text></g>}
     {locked && <g className="badge-lock-mark" aria-hidden="true"><circle cx="61" cy="84" r="13"/><rect x="55" y="82" width="12" height="10" rx="2"/><path d="M57.5 82v-2.5a3.5 3.5 0 0 1 7 0V82"/></g>}
   </svg>
 }
