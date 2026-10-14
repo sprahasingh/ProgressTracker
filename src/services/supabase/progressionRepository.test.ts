@@ -9,8 +9,8 @@ const tracker: StoredTrackerDefinition = {
   customFields: [], milestones: [], createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
-function entry(id: string, date: string, outcome: StoredTrackerEntry['outcome'] = 'recorded'): StoredTrackerEntry {
-  return { id, trackerId: tracker.id, date, outcome, values: { done: false }, note: '', createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null }
+function entry(id: string, date: string, outcome: StoredTrackerEntry['outcome'] = 'recorded', done = outcome === 'recorded'): StoredTrackerEntry {
+  return { id, trackerId: tracker.id, date, outcome, values: { done }, note: '', createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null }
 }
 
 describe('progression data contract calculations', () => {
@@ -77,5 +77,11 @@ describe('progression data contract calculations', () => {
     const result = calculateConsistencySummary({ trackers: [{ ...tracker, status: 'archived' }], entries: [], today: '2026-10-13' })
     expect(result.score).toBeNull()
     expect(result.eligibleDays).toBe(0)
+  })
+
+  it('does not count a recorded entry that fails the tracker qualification rule', () => {
+    const oneDayTracker = { ...tracker, startDate: '2026-10-12', createdAt: '2026-10-12T00:00:00.000Z', updatedAt: '2026-10-12T00:00:00.000Z' }
+    const result = calculateConsistencySummary({ trackers: [oneDayTracker], entries: [entry('failed-rule', '2026-10-12', 'recorded', false)], today: '2026-10-13', timeZone: 'UTC' })
+    expect(result).toMatchObject({ score: 0, eligibleDays: 1, dailyAdherence: [{ date: '2026-10-12', completed: 0, eligible: 1 }] })
   })
 })

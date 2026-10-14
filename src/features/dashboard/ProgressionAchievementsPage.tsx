@@ -11,7 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { PROGRESSION_REWARDS } from '../../domain/trackers/progressionModel'
-import { calculateStreak } from '../../domain/trackers/progression'
+import { calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker, isArchivedTracker } from '../../domain/trackers/lifecycle'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { activeAchievementOccurrences, getProgressionHistory, getProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
@@ -214,6 +214,22 @@ export function ProgressionAchievementsPage() {
   })) ?? [], [pageData, today, timeZone])
   const activeTrackers = useMemo(() => pageData?.trackers.filter(isActiveTracker) ?? [], [pageData])
   const archivedTrackers = useMemo(() => pageData?.trackers.filter(isArchivedTracker) ?? [], [pageData])
+  const hasQualifiedOpenDay = Boolean(pageData && activeTrackers.some((tracker) => {
+    if (!isTrackerInActivePeriod(tracker, today, timeZone) || tracker.strictMode !== true && (pageData.holidays.has(today) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
+    const entry = pageData.entries.find((item) => item.trackerId === tracker.id && item.date === today)
+    return Boolean(entry && qualifiesForStreak(tracker, entry))
+  }))
+  const pendingOpenDay = Boolean(pageData?.overview.provisionalRewards.some((reward) => reward.effectiveDate === today))
+  const consistencyContext = pageData
+    ? pageData.overview.consistency.eligibleDays === 0
+      ? activeTrackers.length === 0 ? 'No active trackers are available to measure.'
+        : pendingOpenDay ? 'Today’s qualifying check-in is waiting for sync; consistency updates after the date closes.'
+          : hasQualifiedOpenDay ? `Today’s eligible activity will count after the date closes in ${timeZone}.`
+            : 'Consistency appears after your first completed eligible day closes.'
+      : pageData.overview.consistency.eligibleDays < 30
+        ? `${pageData.overview.consistency.eligibleDays} closed eligible days; the 30-day view is still building.`
+        : `Across ${pageData.overview.consistency.eligibleDays} closed eligible days.`
+    : ''
   const visibleStreaks = streakFilter === 'active'
     ? streaks.filter(({ tracker }) => isActiveTracker(tracker))
     : streaks.filter(({ tracker }) => isArchivedTracker(tracker))
@@ -302,7 +318,7 @@ export function ProgressionAchievementsPage() {
           </button>
           <button type="button" className="progression-summary-card" onClick={() => setDetail('consistency')} aria-label={`Consistency score ${pageData.overview.consistency.score ?? 'not available'}, view consistency details`}>
             <span className="progression-card-label">CONSISTENCY</span><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}`}<small>{pageData.overview.consistency.score === null ? '' : ' / 100'}</small></strong>
-            <span>{pageData.overview.consistency.eligibleDays ? `${pageData.overview.consistency.eligibleDays} eligible days` : 'No eligible history yet'}</span>
+            <span>{consistencyContext}</span>
             <span className="progression-card-action">View 30-day details <AppIcon name="chevron-down" /></span>
           </button>
           <button type="button" className="progression-summary-card" onClick={openHistory} aria-label={`${weeklyXp >= 0 ? 'Plus' : 'Minus'} ${Math.abs(weeklyXp)} XP this week, open score history`}>
@@ -315,7 +331,7 @@ export function ProgressionAchievementsPage() {
           </button>
           <article className="progression-summary-card progression-badges-summary" aria-label={`${distinctBadgesUnlocked} distinct badge types unlocked`}>
             <span className="progression-card-label">BADGES</span><strong>{distinctBadgesUnlocked}<small> unlocked</small></strong>
-            <span>Distinct badge types</span><a className="progression-card-action" href="#progression-badges-heading">Show all badges <AppIcon name="chevron-down" /></a>
+            <span>Distinct badge types</span><button type="button" className="progression-card-action" onClick={() => document.getElementById('progression-badges-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Show all badges <AppIcon name="chevron-down" /></button>
           </article>
         </div>
         <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
@@ -363,13 +379,13 @@ export function ProgressionAchievementsPage() {
     </ProgressionDetailDialog>}
 
     {detail === 'consistency' && pageData && <ProgressionDetailDialog title="Consistency" eyebrow="ROLLING 30 ELIGIBLE DAYS" onClose={() => setDetail(null)}>
-      <div className="progression-detail-score"><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}%`}</strong><span>{pageData.overview.consistency.eligibleDays ? `Across ${pageData.overview.consistency.eligibleDays} completed eligible activity days` : 'No eligible history is available yet.'}</span></div>
+      <div className="progression-detail-score"><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}%`}</strong><span>{consistencyContext}</span></div>
       <p className="progression-dialog-intro">Each eligible day contributes its completed trackers divided by eligible trackers. The score is the average across the most recent 30 eligible days.</p>
       {pageData.overview.consistency.dailyAdherence.length ? <div className="progression-consistency-list" aria-label="Recent daily adherence">
         {[...pageData.overview.consistency.dailyAdherence].reverse().map((day) => <div className="progression-consistency-day" key={day.date} aria-label={`${formatCalendarDate(day.date)}: ${day.completed} completed of ${day.eligible} eligible, ${Math.round(day.completed / day.eligible * 100)} percent`}>
           <span>{formatCalendarDate(day.date)}</span><span className="progression-consistency-track"><span style={{ width: `${Math.min(100, day.completed / day.eligible * 100)}%` }} /></span><strong>{day.completed}/{day.eligible}</strong>
         </div>)}
-      </div> : <EmptyState title="No eligible days yet" description="Consistency becomes measurable after an eligible tracker day is completed. Skips, future dates, and the still-open day do not count." />}
+      </div> : <EmptyState title="No eligible days yet" description="Consistency becomes measurable after an eligible tracker day is completed and closed. Skips, future dates, and the still-open day do not count." />}
       <div className="progression-exclusion-note"><strong>What is excluded?</strong><p>Future dates and the still-open current day do not count. Days without an eligible tracker are omitted. Scheduled days, holidays, and Strict Mode follow your tracker settings.</p></div>
     </ProgressionDetailDialog>}
 

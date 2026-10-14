@@ -204,7 +204,7 @@ async function getLocalSnapshot(userId: string): Promise<LocalSnapshot> {
   }
 }
 
-function eligibleAndCompleted(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string, requireQualifyingEntry = false) {
+function eligibleAndCompleted(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string, requireQualifyingEntry = true) {
   const byTracker = new Map(entries.filter((entry) => entry.date === date).map((entry) => [entry.trackerId, entry]))
   let eligible = 0
   let completed = 0
