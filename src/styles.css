@@ -818,9 +818,9 @@ a { color: inherit; text-decoration: none; }
 .progression-section-heading .eyebrow { color: var(--ink-subtle); font-size: 9px; letter-spacing: 1.25px; }
 .progression-authority, .progression-collection-count { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; color: var(--ink-muted); font-size: 10px; }
 .progression-authority svg { width: 15px; height: 15px; color: var(--positive); }
-.progression-overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.progression-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .progression-level-card, .progression-summary-card { display: flex; min-width: 0; min-height: 154px; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); color: var(--ink); cursor: pointer; text-align: left; }
-.progression-level-card { grid-column: span 3; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--accent-soft) 62%, var(--surface))); }
+.progression-level-card { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--accent-soft) 62%, var(--surface))); }
 .progression-level-card:hover, .progression-summary-card:hover, .progression-detail-card:hover, .progression-badge-card:hover { border-color: color-mix(in srgb, var(--accent) 62%, var(--line)); transform: translateY(-1px); }
 .progression-level-card:focus-visible, .progression-summary-card:focus-visible, .progression-detail-card:focus-visible, .progression-badge-card:focus-visible, .progression-text-button:focus-visible, .progression-range-filter button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .progression-level-top { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }
@@ -882,6 +882,8 @@ a { color: inherit; text-decoration: none; }
 .progression-badge-card > .progression-badge-requirement-summary { display: -webkit-box; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.35; }
 .progression-badge-card > small { color: #946323; font-weight: 700; }
 .progression-badge-progress { font-variant-numeric: tabular-nums; }
+.progression-badge-progress-consistency { display: grid; gap: 2px; max-width: 100%; line-height: 1.3; overflow-wrap: anywhere; }
+.progression-consistency-qualification p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .progression-badge { display: block; width: 88px; max-width: 100%; flex: 0 0 auto; overflow: visible; }
 .progression-badge.is-large { width: 152px; }
 .progression-badge-card .progression-badge { width: min(90px, 100%); }
@@ -941,6 +943,25 @@ a { color: inherit; text-decoration: none; }
 .progression-dialog-event-list { margin-bottom: 14px; }
 .progression-dialog-event-list .progression-event-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
 .progression-dialog-footnote { margin: 12px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.5; }
+.badge-celebration-backdrop { z-index: 1700; background: rgb(12 13 14 / 56%); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); }
+.badge-celebration { position: relative; isolation: isolate; }
+.badge-celebration-header { align-items: flex-start; gap: 12px; }
+.badge-celebration-heading { min-width: 0; flex: 1 1 auto; }
+.badge-celebration-title-row { display: flex; min-width: 0; align-items: center; gap: 4px; margin-top: 6px; }
+.badge-celebration-title-row h2 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.badge-celebration-title-row .info-button { flex: 0 0 44px; margin: 0; }
+.badge-celebration-close { flex: 0 0 auto; }
+.badge-celebration.is-grand { border-color: color-mix(in srgb, var(--accent-strong) 36%, var(--line)); }
+.badge-celebration-content { display: grid; justify-items: center; gap: 13px; text-align: center; }
+.badge-celebration-content > p { max-width: 38rem; margin: 0; color: var(--ink-muted); line-height: 1.6; }
+.badge-celebration-occurrence { font-size: 12px; }
+.badge-celebration-content > .button { min-width: 140px; margin-top: 5px; }
+.badge-confetti { position: absolute; z-index: -1; inset: 112px 0 auto; height: 125px; overflow: hidden; pointer-events: none; }
+.badge-confetti i { position: absolute; top: -8px; left: calc(5% + var(--confetti-index) * 5.2%); width: 7px; height: 13px; border-radius: 2px; background: var(--accent-strong); opacity: .75; animation: badge-confetti-fall 1.8s ease-out both; animation-delay: calc(var(--confetti-index) * 24ms); }
+.badge-confetti i:nth-child(3n) { background: var(--joy-teal); }
+.badge-confetti i:nth-child(3n + 1) { background: var(--joy-apricot, var(--accent)); }
+@keyframes badge-confetti-fall { to { transform: translateY(140px) rotate(230deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .badge-confetti i { animation: none; opacity: 0; } }
 .progression-detail-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .progression-detail-score strong { color: var(--accent-strong); font-size: 34px; font-variant-numeric: tabular-nums; }
 .progression-detail-score span { color: var(--ink-muted); font-size: 11px; }
@@ -1002,7 +1023,6 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 900px) {
   .progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .progression-level-card { grid-column: 1 / -1; }
-  .progression-summary-card:last-child { grid-column: 1 / -1; }
   .progression-badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
@@ -1012,8 +1032,9 @@ a { color: inherit; text-decoration: none; }
   .progression-overview-grid { gap: 8px; }
   .progression-level-card, .progression-summary-card { min-height: 143px; padding: 13px; border-radius: 17px; }
   .progression-level-card { grid-column: 1 / -1; min-height: 150px; }
-  .progression-summary-card:last-child { grid-column: auto; }
   .progression-summary-card > strong { font-size: 25px; }
+  .progression-badges-summary > strong { gap: 2px; }
+  .progression-badges-summary .progression-card-action { font-size: 10px; }
   .progression-detail-cards { grid-template-columns: 1fr; gap: 8px; }
   .progression-badge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   .progression-badge-card { min-height: 159px; padding: 10px 5px; }
@@ -3296,21 +3317,30 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .calendar-toolbar > .tracker-filter { min-width: 0; }
 .calendar-toolbar > .tracker-filter select, .calendar-toolbar .history-filter input { min-height: 44px; }
 .calendar-status-key { margin: 8px 0 10px; overflow: hidden; }
-.calendar-status-guide-row { display: flex; min-width: 0; align-items: center; gap: 2px; padding-right: 5px; }
-.calendar-status-guide-row > .calendar-status-guide-toggle { flex: 1 1 auto; min-width: 0; }
-.calendar-status-guide-row > .info-button { width: 44px; height: 44px; flex: 0 0 44px; }
-.calendar-status-guide-toggle { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.calendar-status-guide-toggle:hover { background: var(--surface-muted); }
-.calendar-status-guide-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.calendar-status-guide-row { display: flex; min-width: 0; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 10px 3px 12px; }
+.calendar-status-guide-heading { display: flex; min-width: 0; align-items: center; gap: 2px; }
 .calendar-status-guide-title { font-size: 12px; font-weight: 700; }
-.calendar-status-guide-preview { display: inline-flex; align-items: center; gap: 4px; margin-inline: auto; }
-.calendar-status-guide-preview .calendar-dot { display: grid; width: 24px; height: 24px; place-items: center; margin: 0; }
-.calendar-status-guide-preview svg { width: 13px; height: 13px; }
-.calendar-status-guide-action { color: var(--accent-strong); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.calendar-status-guide-heading > .info-button { width: 38px; height: 38px; flex: 0 0 38px; }
+.calendar-status-guide-heading > .info-button::before { width: 25px; height: 25px; }
+.calendar-status-guide-heading > .info-button-icon { width: 18px; height: 18px; }
+.calendar-status-guide-action { min-height: 40px; padding: 5px 2px 5px 10px; border: 0; background: transparent; color: var(--accent-strong); font: 700 11px/1.3 var(--font-sans); white-space: nowrap; cursor: pointer; }
+.calendar-status-guide-action:hover { text-decoration: underline; }
+.calendar-status-guide-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 5px; }
 .calendar-status-guide-content[hidden] { display: none; }
 .calendar-context-legend { margin: 0; padding: 4px 12px 8px; color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
 .calendar-status-key .calendar-legend { margin: 0; padding: 4px 12px 12px; border: 0; border-radius: 0; background: transparent; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; font-size: 11px; }
 .calendar-status-key .calendar-legend > span { min-width: 0; }
+.calendar-status-guide-dialog-content { display: grid; gap: 13px; }
+.calendar-status-guide-dialog-content section h3 { margin: 0 0 6px; color: var(--ink); font-size: 12px; }
+.calendar-status-guide-dialog-content ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.calendar-status-guide-dialog-content li { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px; }
+.calendar-status-guide-dialog-content li > .calendar-dot { display: grid; width: 24px; height: 24px; place-items: center; margin: 1px 0 0; }
+.calendar-status-guide-dialog-content li > .calendar-dot svg { width: 14px; height: 14px; }
+.calendar-status-guide-dialog-content li > span { display: grid; gap: 1px; }
+.calendar-status-guide-dialog-content li strong { color: var(--ink); font-size: 11px; }
+.calendar-status-guide-dialog-content li small, .calendar-status-guide-aggregate { margin: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.45; }
+.calendar-status-guide-aggregate { padding-top: 9px; border-top: 1px solid var(--line); }
+.calendar-status-guide-aggregate strong { color: var(--ink); }
 .calendar-layout { gap: 12px; }
 .calendar-month-card, .calendar-day-details { padding: 15px; }
 .calendar-month-card > h2 { margin-bottom: 10px; }
@@ -3344,10 +3374,9 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 @media (max-width: 380px) {
   .calendar-page .page-header { grid-template-columns: minmax(0, 1fr); }
   .calendar-page .page-header-action { grid-column: 1; grid-row: 2; justify-self: start; }
-  .calendar-status-guide-toggle { min-height: 48px; flex-wrap: wrap; gap: 4px 8px; }
-  .calendar-status-guide-title { flex: 1 0 auto; }
-  .calendar-status-guide-preview { order: 3; flex: 1 0 100%; margin: 0; }
-  .calendar-status-guide-action { margin-left: auto; }
+  .calendar-status-guide-row { min-height: 48px; gap: 6px; padding-inline: 9px; }
+  .calendar-status-guide-title { font-size: 11px; }
+  .calendar-status-guide-action { font-size: 10px; }
   .calendar-status-key .calendar-legend { gap: 6px; padding-inline: 9px; font-size: 10px; }
   .calendar-activity-list li { grid-template-columns: 28px minmax(0, 1fr); }
   .calendar-activity-list li > a { grid-column: 2; justify-self: start; }
@@ -3394,11 +3423,6 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 /* Calendar refinements keep the month grid prominent and expose status names. */
 .calendar-layout { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 14px; }
 .calendar-status-key { border-color: color-mix(in srgb, var(--line) 70%, transparent); background: var(--surface-muted); }
-.calendar-status-guide-toggle { min-height: 44px; gap: 8px; padding: 5px 11px; }
-.calendar-status-guide-preview { flex: 1 1 auto; justify-content: center; flex-wrap: wrap; gap: 5px 12px; min-width: 0; }
-.calendar-status-guide-item { display: inline-flex; min-width: 0; align-items: center; gap: 5px; color: var(--ink-muted); font-size: 10px; font-weight: 550; line-height: 1.2; white-space: nowrap; }
-.calendar-status-guide-item .calendar-dot { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; margin: 0; }
-.calendar-status-guide-item .calendar-dot svg { width: 12px; height: 12px; }
 .calendar-day-details, .calendar-activity-list li, .calendar-activity-list li > div { min-width: 0; }
 .calendar-activity-list li > div strong { overflow-wrap: anywhere; }
 .calendar-activity-list li > a { min-width: 0; white-space: normal; text-align: center; }
@@ -3413,10 +3437,6 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 @media (max-width: 760px) {
   .calendar-layout { gap: 10px; }
 }
-@media (max-width: 380px) {
-  .calendar-status-guide-preview { order: 3; flex: 1 0 100%; justify-content: flex-start; margin: 0; }
-}
-
 /* Navigation destinations use their label color for their icon. */
 .nav-icon, .mobile-nav-icon, .mobile-more-icon { color: inherit; }
 .mobile-nav-link, .mobile-more-trigger, .mobile-more-item { color: var(--ink-muted); }

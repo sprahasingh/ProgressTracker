@@ -33,6 +33,19 @@ export type AchievementProgress = {
   sourceEventId: string | null
   sourceDate: string | null
   updatedAt: string
+  qualificationDetails?: AchievementQualificationDetails
+}
+
+export type AchievementQualificationDetails = {
+  status?: 'in_progress' | 'qualified' | 'ineligible' | 'unavailable' | 'waiting' | 'recovery_possible' | 'episode_confirmed'
+  label?: string
+  message?: string
+  progress?: number
+  target?: number
+  eligible_days?: number
+  eligible_days_target?: number
+  adherence_percent?: number | null
+  adherence_target_percent?: number
 }
 
 export type AchievementHistoryEvent = {
@@ -59,7 +72,11 @@ export type AchievementState = {
   repeatable: boolean
   earned: boolean
   unlockedAt: string | null
+  validAwardCount?: number
+  firstEarnedAt?: string | null
+  lastEarnedAt?: string | null
   history: AchievementHistoryEvent[]
+  qualificationDetails?: AchievementQualificationDetails
 }
 
 export type ConsistencySummary = { score: number | null; eligibleDays: number; dailyAdherence: Array<{ date: string; completed: number; eligible: number }> }
@@ -241,7 +258,15 @@ export function calculateConsistencySummary(input: {
   }
 }
 
-function makeAchievementStates(
+export function activeAchievementOccurrences(history: readonly AchievementHistoryEvent[]): AchievementHistoryEvent[] {
+  const revokedIds = new Set(history.filter((event) => event.eventType === 'revoked' && event.reversesEventId).map((event) => event.reversesEventId))
+  return [...new Map(history
+    .filter((event) => event.eventType === 'unlocked' && !revokedIds.has(event.id))
+    .map((event) => [event.id, event])).values()]
+    .sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id))
+}
+
+export function makeAchievementStates(
   progress: any[],
   history: any[],
   retainedIds: ReadonlySet<string> = new Set(),
@@ -262,16 +287,23 @@ function makeAchievementStates(
   }
   return progress.map((row) => {
     const events = (historyById.get(row.achievement_id) ?? []).sort((a, b) => a.recordedAt.localeCompare(b.recordedAt))
-    const byTier = new Map<number, AchievementHistoryEvent>()
-    for (const event of events) {
-      if (event.eventType === 'unlocked') byTier.set(event.tier, event)
-      else if (event.reversesEventId) byTier.delete(event.tier)
-    }
-    const latest = [...byTier.values()].sort((a, b) => b.tier - a.tier)[0]
+    // This persisted flag is set by the server-side achievement reconciler and
+    // is the sole cadence authority consumed by every client surface.
+    const repeatable = Boolean(row.repeatable)
+    const active = activeAchievementOccurrences(events)
+    // One-time achievements have one current valid award. Historical retries
+    // remain in the audit list, but never inflate the visible count.
+    const valid = repeatable ? active : active.slice(0, 1)
+    const first = valid[0] ?? null
+    const latest = valid.at(-1) ?? null
     return {
       achievementId: row.achievement_id, progress: Number(row.progress), target: Number(row.target),
-      currentTier: row.current_tier, repeatable: row.repeatable, earned: Boolean(latest),
-      unlockedAt: latest?.recordedAt ?? null, history: events,
+      currentTier: valid.length, repeatable, earned: valid.length > 0,
+      unlockedAt: first?.recordedAt ?? null, validAwardCount: valid.length,
+      firstEarnedAt: first?.sourceDate ?? first?.recordedAt ?? null,
+      lastEarnedAt: latest?.sourceDate ?? latest?.recordedAt ?? null,
+      history: events,
+      qualificationDetails: row.qualification_details ?? {},
     }
   })
 }
@@ -344,12 +376,13 @@ export async function getAchievementProgress(userId: string): Promise<Achievemen
   if (!client) throw new Error('Supabase is not configured.')
   await assertAccount(client, userId)
   const { data, error } = await client.from('progression_achievement_progress')
-    .select('achievement_id,progress,target,current_tier,repeatable,source_event_id,source_date,updated_at')
+    .select('achievement_id,progress,target,current_tier,repeatable,source_event_id,source_date,updated_at,qualification_details')
     .eq('user_id', userId).order('achievement_id')
   if (error) throw progressionReadError('progression_achievement_progress', error)
   return (data ?? []).map((row: any) => ({
     achievementId: row.achievement_id, progress: Number(row.progress), target: Number(row.target), currentTier: row.current_tier,
     repeatable: row.repeatable, sourceEventId: row.source_event_id, sourceDate: row.source_date, updatedAt: row.updated_at,
+    qualificationDetails: row.qualification_details ?? {},
   }))
 }
 
@@ -357,8 +390,10 @@ export async function getEarnedAndLockedBadges(userId: string): Promise<Achievem
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured.')
   await assertAccount(client, userId)
+  const { error: refreshError } = await client.rpc('refresh_my_progression_qualification_progress')
+  if (refreshError) throw progressionReadError('refresh_my_progression_qualification_progress', refreshError)
   const [progress, history, retained] = await Promise.all([
-    client.from('progression_achievement_progress').select('achievement_id,progress,target,current_tier,repeatable').eq('user_id', userId),
+    client.from('progression_achievement_progress').select('achievement_id,progress,target,current_tier,repeatable,qualification_details').eq('user_id', userId),
     client.from('progression_achievement_events').select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,reverses_event_id').eq('user_id', userId).order('recorded_at'),
     client.from('progression_retained_achievement_unlocks').select('achievement_event_id').eq('user_id', userId),
   ])
@@ -373,6 +408,28 @@ export async function getEarnedAndLockedBadges(userId: string): Promise<Achievem
 export async function getAchievementHistory(userId: string): Promise<AchievementHistoryEvent[]> {
   const badges = await getEarnedAndLockedBadges(userId)
   return badges.flatMap((badge) => badge.history).sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
+}
+
+/** Returns positive, unreversed XP only when an achievement references a real ledger event. */
+export async function getAchievementAwardXp(userId: string, sourceEventIds: readonly string[]): Promise<Map<string, number>> {
+  const client = getSupabaseClient()
+  if (!client) throw new Error('Supabase is not configured.')
+  await assertAccount(client, userId)
+  const result = new Map<string, number>()
+  for (let offset = 0; offset < sourceEventIds.length; offset += 200) {
+    const ids = sourceEventIds.slice(offset, offset + 200)
+    if (!ids.length) continue
+    const { data, error } = await client.from('progression_events').select('id,xp_delta').eq('user_id', userId).in('id', ids).gt('xp_delta', 0)
+    if (error) throw progressionReadError('progression_events (achievement reward attribution)', error)
+    const rows = (data ?? []) as Array<{ id: string; xp_delta: number }>
+    if (!rows.length) continue
+    const { data: reversals, error: reversalError } = await client.from('progression_events').select('reverses_event_id')
+      .eq('user_id', userId).in('reverses_event_id', rows.map((row) => row.id))
+    if (reversalError) throw progressionReadError('progression_events (achievement reward reversal)', reversalError)
+    const reversed = new Set((reversals ?? []).map((row: { reverses_event_id: string }) => row.reverses_event_id))
+    rows.forEach((row) => { if (!reversed.has(row.id)) result.set(row.id, Number(row.xp_delta)) })
+  }
+  return result
 }
 
 export async function getNewlyConfirmedRewards(userId: string, since: string): Promise<ProgressionEvent[]> {

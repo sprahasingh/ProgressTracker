@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateConsistencySummary } from './progressionRepository'
+import { activeAchievementOccurrences, calculateConsistencySummary, makeAchievementStates, type AchievementHistoryEvent } from './progressionRepository'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'consistency-tracker', name: 'Daily reading', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -14,6 +14,45 @@ function entry(id: string, date: string, outcome: StoredTrackerEntry['outcome'] 
 }
 
 describe('progression data contract calculations', () => {
+  it('uses occurrence identities and exact reversals to derive the same live state for every badge surface', () => {
+    const unlock = (id: string, date: string, tier: number): AchievementHistoryEvent => ({
+      id, achievementId: 'perfect-week', tier, generation: 1, eventType: 'unlocked', recordedAt: `${date}T12:00:00.000Z`,
+      sourceEventId: null, sourceDate: date, reversesEventId: null, retainedAfterTrackerDeletion: false,
+      trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null,
+    })
+    const first = unlock('week-1', '2026-09-07', 1)
+    const second = unlock('week-2', '2026-09-14', 2)
+    const third = unlock('week-3', '2026-09-21', 3)
+    const reversedThird = { ...third, id: 'reverse-week-3', eventType: 'revoked' as const, reversesEventId: third.id }
+    const history = [first, second, third, reversedThird, reversedThird]
+    expect(activeAchievementOccurrences(history).map(({ id }) => id)).toEqual(['week-1', 'week-2'])
+    const [badge] = makeAchievementStates(
+      [{ achievement_id: 'perfect-week', progress: 0, target: 1, current_tier: 3, repeatable: true }],
+      history.map((event) => ({
+        id: event.id, achievement_id: event.achievementId, tier: event.tier, generation: event.generation,
+        event_type: event.eventType, recorded_at: event.recordedAt, source_event_id: event.sourceEventId,
+        source_date: event.sourceDate, reverses_event_id: event.reversesEventId,
+      })),
+    )
+    expect(badge).toMatchObject({ earned: true, repeatable: true, validAwardCount: 2, currentTier: 2, firstEarnedAt: '2026-09-07', lastEarnedAt: '2026-09-14' })
+  })
+
+  it('keeps one-time awards at one valid occurrence and does not infer an award from progress alone', () => {
+    const raw = (id: string, eventType: 'unlocked' | 'revoked', reversesEventId: string | null = null) => ({
+      id, achievement_id: 'first-step', tier: 1, generation: 1, event_type: eventType,
+      recorded_at: `2026-09-01T12:00:00.000Z`, source_event_id: null, source_date: '2026-09-01', reverses_event_id: reversesEventId,
+    })
+    const [earned] = makeAchievementStates(
+      [{ achievement_id: 'first-step', progress: 1, target: 1, current_tier: 1, repeatable: false }],
+      [raw('dedicated-1', 'unlocked'), raw('dedicated-2', 'unlocked')],
+    )
+    expect(earned).toMatchObject({ earned: true, repeatable: false, validAwardCount: 1, currentTier: 1 })
+    const [locked] = makeAchievementStates(
+      [{ achievement_id: 'first-step', progress: 1, target: 1, current_tier: 0, repeatable: false }], [],
+    )
+    expect(locked).toMatchObject({ earned: false, validAwardCount: 0, progress: 1, target: 1 })
+  })
+
   it('averages recorded eligible activity across the latest 30 closed days and excludes skips, today, and future dates', () => {
     const entries = Array.from({ length: 30 }, (_, index) => {
       const time = Date.parse('2026-09-13T00:00:00.000Z') + index * 86_400_000

@@ -167,11 +167,10 @@ export function CalendarPage() {
     <PageHeader headingId="calendar-title" eyebrow="YOUR ACTIVITY" title="Calendar" description="See what was scheduled, what you completed, and where you took a break." help={{ title: 'Calendar activity', summary: 'Each All Trackers date summarizes active trackers; select a date to see individual results.', description: 'Missed means an elapsed required date has no active saved check-in; it is derived, not a saved failure. Pending is an open opportunity today; Upcoming is a future opportunity. Select one tracker to see only its activity and streak. Standard Mode holidays pause check-ins; Strict Mode still requires qualifying activity. Saved check-ins remain visible. Historical entries outside the active period are retained and shown as historical.' }} action={<Link className="button button-secondary button-small calendar-holiday-action" to="/holidays" aria-label="Manage holidays">Manage holidays</Link>} />
     <div className="calendar-toolbar"><TrackerFilter trackers={visibleData?.trackers ?? []} selectedId={trackerFilter.selectedId} onChange={trackerFilter.select} label="Tracker" /><label className="history-filter"><span>Month</span><input className="auth-input" type="month" max={today.slice(0, 7)} value={month} onChange={(event) => changeMonth(event.target.value)} /></label><Link className="button button-quiet button-small" to={`/calendar?date=${today}`}>Today</Link></div>
     <div className="calendar-status-key">
-      <div className="calendar-status-guide-row"><button className="calendar-status-guide-toggle" type="button" aria-expanded={statusGuideExpanded} aria-controls="calendar-status-guide-content" onClick={() => setStatusGuideExpanded((expanded) => !expanded)}>
-        <span className="calendar-status-guide-title">Status guide</span>
-        <span className="calendar-status-guide-preview">{(['completed', 'missed', 'holiday', 'pending'] as const).map((status) => <span key={status} className={`calendar-status-guide-item ${status}`}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i><span>{ACTIVITY_STATUS_PRESENTATION[status].label}</span></span>)}</span>
-        <span className="calendar-status-guide-action">{statusGuideExpanded ? 'Hide statuses' : 'Show all statuses'}</span>
-      </button><InfoButton label="Explain calendar statuses" title="Calendar statuses" summary="The calendar combines saved check-ins with date and schedule context." description="Completed means a saved entry meets the tracker’s completion rule; it may differ from streak qualification. Partial and No progress describe saved entries that do not meet that rule. Skipped is an intentionally saved skip. Pending is an open required opportunity today, Missed is a past required opportunity without a saved outcome, and Upcoming is a future opportunity. Holiday is a workspace holiday. Standard Mode treats holidays as neutral; Strict Mode still requires qualifying progress on them. Rest day means a date with no scheduled opportunity inside the tracker’s active period. Dates outside the start date or deadline appear as Outside period, or Historical entry when saved activity exists. Tracker inactive and No active trackers describe unavailable tracker sets. All Trackers shows one aggregate date status; select a date to inspect each tracker’s outcome." /></div>
+      <div className="calendar-status-guide-row">
+        <div className="calendar-status-guide-heading"><span className="calendar-status-guide-title">Status guide</span><InfoButton label="Explain calendar statuses" title="Calendar status guide" content={<CalendarStatusGuide />} /></div>
+        <button className="calendar-status-guide-action" type="button" aria-expanded={statusGuideExpanded} aria-controls="calendar-status-guide-content" onClick={() => setStatusGuideExpanded((expanded) => !expanded)}>{statusGuideExpanded ? 'Hide statuses' : 'Show all statuses'}</button>
+      </div>
       <div id="calendar-status-guide-content" className="calendar-status-guide-content" hidden={!statusGuideExpanded}>
         <p className="calendar-context-legend">Each All Trackers date summarizes active trackers. Select a date to see each tracker’s result; a dotted outline marks mixed statuses.</p>
         <div className="calendar-legend" aria-label="Activity status legend">{(['completed', 'partial', 'no-progress', 'missed', 'skipped', 'pending', 'upcoming', 'holiday', 'rest-day', 'outside-period', 'historical', 'inactive', 'no-trackers'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div>
@@ -202,6 +201,41 @@ function MonthCalendar({ days, selected, today, entryScopeLabel, onSelect }: { d
   while (cells.length % 7) cells.push(null)
   const weeks = Array.from({ length: cells.length / 7 }, (_, index) => cells.slice(index * 7, index * 7 + 7))
   return <table className="activity-calendar" aria-label="Daily activity calendar"><thead><tr>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <th scope="col" key={day}>{day}</th>)}</tr></thead><tbody>{weeks.map((week, weekIndex) => <tr key={weekIndex}>{week.map((day, index) => day ? <td key={day.date} className={`calendar-day${day.date === selected ? ' calendar-day-selected' : ''}${day.date === today ? ' calendar-day-today' : ''}${day.holiday ? ' calendar-day-holiday' : ''}`}><button type="button" className={`calendar-cell-status ${day.visualStatus}${day.mixed ? ' mixed' : ''}`} aria-pressed={day.date === selected} aria-label={`${calendarDateLabel(day.date, { weekday: 'long', month: 'long', day: 'numeric' })}: ${ACTIVITY_STATUS_PRESENTATION[day.visualStatus].label}${day.mixed ? ', mixed statuses across active trackers' : ''}; ${day.completed} completed, ${day.partial} partial, ${day.noProgress} no progress, ${day.pending} pending, ${day.upcoming} upcoming, ${day.missed} missed, ${day.skipped} skipped, ${day.restDay} rest day${day.restDay === 1 ? '' : 's'}, ${day.historical} historical entr${day.historical === 1 ? 'y' : 'ies'}, ${day.outsidePeriod} tracker${day.outsidePeriod === 1 ? '' : 's'} outside period, ${day.inactive} inactive tracker${day.inactive === 1 ? '' : 's'}${day.holiday ? ', workspace holiday' : ''}${day.entries ? `, ${day.entries} ${entryScopeLabel} check-in${day.entries === 1 ? '' : 's'}` : ''}`} onClick={() => onSelect(day.date)}><span>{Number(day.date.slice(8, 10))}</span><i className="calendar-cell-mark" aria-hidden="true"><ActivityStatusIcon status={day.visualStatus} /></i>{day.mixed && <b className="calendar-mixed-indicator" aria-hidden="true">•</b>}</button></td> : <td aria-hidden="true" className="calendar-day calendar-day-empty" key={`empty-${weekIndex}-${index}`} />)}</tr>)}</tbody></table>
+}
+
+const calendarStatusGroups: Array<{ title: string; items: Array<{ status: ActivityStatus; description: string }> }> = [
+  { title: 'Saved activity', items: [
+    { status: 'completed', description: 'A saved entry meets the tracker’s completion rule; streak qualification may differ.' },
+    { status: 'partial', description: 'Progress was saved, but the completion rule was not met.' },
+    { status: 'no-progress', description: 'An entry was saved without qualifying progress.' },
+    { status: 'skipped', description: 'A skip was intentionally saved; it is not a completed check-in.' },
+    { status: 'historical', description: 'Saved activity remains visible outside the tracker’s active period.' },
+  ] },
+  { title: 'Scheduled dates', items: [
+    { status: 'pending', description: 'Today’s required opportunity is still open.' },
+    { status: 'missed', description: 'A past required opportunity has no saved outcome.' },
+    { status: 'upcoming', description: 'A future tracking opportunity.' },
+    { status: 'holiday', description: 'Standard Mode treats holidays as neutral; Strict Mode still requires qualifying progress.' },
+    { status: 'rest-day', description: 'No scheduled opportunity falls on this date within the active period.' },
+    { status: 'outside-period', description: 'The date is before the tracker’s start or after its deadline.' },
+  ] },
+  { title: 'Tracker availability', items: [
+    { status: 'inactive', description: 'The tracker is not currently active.' },
+    { status: 'no-trackers', description: 'There are no active trackers to summarize.' },
+  ] },
+]
+
+function CalendarStatusGuide() {
+  return <div className="calendar-status-guide-dialog-content">
+    {calendarStatusGroups.map((group) => <section key={group.title} aria-labelledby={`calendar-status-group-${group.title.toLowerCase().replaceAll(' ', '-')}`}>
+      <h3 id={`calendar-status-group-${group.title.toLowerCase().replaceAll(' ', '-')}`}>{group.title}</h3>
+      <ul>{group.items.map(({ status, description }) => <li key={status}>
+        <i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>
+        <span><strong>{ACTIVITY_STATUS_PRESENTATION[status].label}</strong><small>{description}</small></span>
+      </li>)}</ul>
+    </section>)}
+    <p className="calendar-status-guide-aggregate"><strong>All Trackers</strong> shows one aggregate date status across active trackers. Select a date to inspect each tracker’s outcome; mixed statuses are marked.</p>
+  </div>
 }
 
 function formatEntry(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry): string {

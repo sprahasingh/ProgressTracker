@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
+    "test:e2e:achievements": "playwright test --config playwright.config.ts",
     "test:progression:integration": "bash scripts/test-progression-live.sh",
     "test:lifecycle-stress": "VITE_TRACKER_LIFECYCLE_STRESS=true vitest run src/db/trackerLifecycleStateMachine.test.ts",
     "test:watch": "vitest",
@@ -29,6 +30,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",

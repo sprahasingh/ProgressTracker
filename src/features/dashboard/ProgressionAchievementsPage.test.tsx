@@ -6,6 +6,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import type { ProgressionOverview } from '../../services/supabase/progressionRepository'
 import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
+import { achievementDefinition } from './achievementCatalog'
 
 const mocks = vi.hoisted(() => ({
   getProgressionOverview: vi.fn(),
@@ -19,6 +20,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/supabase/progressionRepository', () => ({
   getProgressionOverview: mocks.getProgressionOverview,
   getProgressionHistory: mocks.getProgressionHistory,
+  activeAchievementOccurrences: (history: Array<{ id: string; eventType: string; reversesEventId: string | null }>) => {
+    const reversed = new Set(history.filter((event) => event.eventType === 'revoked' && event.reversesEventId).map((event) => event.reversesEventId))
+    return [...new Map(history.filter((event) => event.eventType === 'unlocked' && !reversed.has(event.id)).map((event) => [event.id, event])).values()]
+  },
 }))
 vi.mock('../../db/localRepository', () => ({ localRepository: {
   listTrackers: mocks.listTrackers,
@@ -50,9 +55,19 @@ const overview: ProgressionOverview = {
   scoreHistory: [checkIn, reversal, streakAward], streakHistory: [streakAward],
   consistency: { score: 75, eligibleDays: 2, dailyAdherence: [{ date: today, completed: 1, eligible: 1 }, { date: '2026-10-12', completed: 1, eligible: 2 }] },
   achievements: [
-    { achievementId: 'first-step', progress: 1, target: 1, currentTier: 1, repeatable: false, earned: true, unlockedAt: `${today}T11:00:00.000Z`, history: [{ id: 'unlock-1', achievementId: 'first-step', tier: 1, generation: 1, eventType: 'unlocked', recordedAt: `${today}T11:00:00.000Z`, sourceEventId: checkIn.id, sourceDate: today, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }] },
-    { achievementId: 'dedicated', progress: 23, target: 100, currentTier: 0, repeatable: true, earned: false, unlockedAt: null, history: [] },
+    { achievementId: 'first-step', progress: 1, target: 1, currentTier: 1, repeatable: false, earned: true, unlockedAt: `${today}T11:00:00.000Z`, history: [{ id: 'unlock-1', achievementId: 'first-step', tier: 1, generation: 1, eventType: 'unlocked', recordedAt: `${today}T11:00:00.000Z`, sourceEventId: checkIn.id, sourceDate: today, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }], qualificationDetails: {} },
+    { achievementId: 'dedicated', progress: 23, target: 100, currentTier: 0, repeatable: false, earned: false, unlockedAt: null, history: [], qualificationDetails: {} },
   ],
+}
+
+function overviewWithConsistency(details: NonNullable<ProgressionOverview['achievements'][number]['qualificationDetails']>, earned = false): ProgressionOverview {
+  const badge = {
+    achievementId: 'consistency-star', progress: details.adherence_percent ?? 0, target: 80, currentTier: earned ? 1 : 0,
+    repeatable: false, earned, unlockedAt: earned ? `${today}T12:00:00.000Z` : null,
+    history: earned ? [{ id: 'consistency-unlock', achievementId: 'consistency-star', tier: 1, generation: 1, eventType: 'unlocked' as const, recordedAt: `${today}T12:00:00.000Z`, sourceEventId: checkIn.id, sourceDate: today, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }] : [],
+    qualificationDetails: details,
+  }
+  return { ...overview, achievements: [...overview.achievements, badge] }
 }
 
 let injectedStylesheet: HTMLStyleElement | null = null
@@ -75,6 +90,59 @@ beforeEach(() => {
 afterEach(() => { cleanup(); injectedStylesheet?.remove(); injectedStylesheet = null; vi.unstubAllEnvs(); vi.clearAllMocks() })
 
 describe('Progression achievements interface', () => {
+  it('keeps badge definitions free of duplicated cadence classifications', () => {
+    expect('repeatable' in (achievementDefinition('dedicated') ?? {})).toBe(false)
+    expect('awardCadence' in (achievementDefinition('perfect-day') ?? {})).toBe(false)
+  })
+
+  it('shows authoritative eligible-day and adherence progress separately for an incomplete window', async () => {
+    const user = userEvent.setup()
+    mocks.getProgressionOverview.mockResolvedValueOnce(overviewWithConsistency({
+      status: 'in_progress', label: 'Consistency Star qualification', eligible_days: 18, eligible_days_target: 30,
+      adherence_percent: 80, adherence_target_percent: 80,
+    }))
+    renderPage()
+    const card = await screen.findByRole('button', { name: /Consistency Star, locked/i })
+    expect(card).toHaveTextContent('Eligible days: 18 / 30')
+    expect(card).toHaveTextContent('Adherence: 80% (target: 80%)')
+    expect(card).not.toHaveTextContent('80% / 80%')
+    expect(card.querySelector('.progression-level-track')).toBeNull()
+
+    await user.click(card)
+    const dialog = await screen.findByRole('dialog', { name: 'Consistency Star' })
+    expect(dialog).toHaveTextContent('Eligible days: 18 / 30')
+    expect(dialog).toHaveTextContent('Adherence: 80% (target: 80%)')
+    expect(dialog.querySelector('.progression-level-track')).toBeNull()
+  })
+
+  it('keeps a complete day window visibly unqualified when adherence is below target', async () => {
+    mocks.getProgressionOverview.mockResolvedValueOnce(overviewWithConsistency({
+      status: 'in_progress', label: 'Consistency Star qualification', eligible_days: 30, eligible_days_target: 30,
+      adherence_percent: 79.5, adherence_target_percent: 80,
+    }))
+    renderPage()
+    const card = await screen.findByRole('button', { name: /Consistency Star, locked/i })
+    expect(card).toHaveTextContent('Eligible days: 30 / 30')
+    expect(card).toHaveTextContent('Adherence: 79.5% (target: 80%)')
+    expect(card.querySelector('.progression-level-track')).toBeNull()
+  })
+
+  it('shows complete server qualification details for an unlocked Consistency Star', async () => {
+    const user = userEvent.setup()
+    mocks.getProgressionOverview.mockResolvedValueOnce(overviewWithConsistency({
+      status: 'qualified', label: 'Consistency Star qualification', eligible_days: 30, eligible_days_target: 30,
+      adherence_percent: 82.3, adherence_target_percent: 80,
+    }, true))
+    renderPage()
+    const card = await screen.findByRole('button', { name: /Consistency Star, earned/i })
+    expect(card).toHaveTextContent('Unlocked')
+    expect(card).not.toHaveTextContent('80% / 80%')
+    await user.click(card)
+    const dialog = await screen.findByRole('dialog', { name: 'Consistency Star' })
+    expect(dialog).toHaveTextContent('Eligible days: 30 / 30')
+    expect(dialog).toHaveTextContent('Adherence: 82.3% (target: 80%)')
+  })
+
   it('separates confirmed XP and pending rewards and shows the server level', async () => {
     renderPage()
     expect(await screen.findByText('125')).toBeInTheDocument()
@@ -132,9 +200,9 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
     expect(within(dialog).getByText('Earned for: Qualifying check-in')).toBeInTheDocument()
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
-    const earnedDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-      .format(new Date(`${today}T12:00:00.000Z`))
-    expect(within(dialog).getByText(earnedDate)).toBeInTheDocument()
+    const earnedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      .format(new Date(`${today}T11:00:00.000Z`))
+    expect(within(dialog).getByText(earnedTimestamp)).toBeInTheDocument()
   })
 
   it('opens paginated history with date filters and shows reversals and anonymized sources', async () => {
@@ -237,7 +305,7 @@ describe('Progression achievements interface', () => {
     const dialog = await screen.findByRole('dialog', { name: 'First Step' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveClass('progression-dialog')
-    expect(within(dialog).getByText('Earned')).toBeInTheDocument()
+    expect(within(dialog).getByText('Unlocked')).toBeInTheDocument()
     expect(within(dialog).getByText('Save one qualifying check-in.')).toBeInTheDocument()
     expect(within(dialog).getByText(/Unlocked · First award/)).toBeInTheDocument()
     await user.keyboard('{Escape}')
@@ -250,8 +318,8 @@ describe('Progression achievements interface', () => {
     expect(await screen.findByRole('dialog', { name: 'Dedicated' })).toHaveTextContent('23 / 100 check-ins')
   })
 
-  it('shows numeric milestone thresholds on badge art separately from repeatable award counts', async () => {
-    const dedicated = { ...overview.achievements[1]!, progress: 200, currentTier: 2, repeatable: true, earned: true, unlockedAt: `${today}T11:00:00.000Z` }
+  it('uses the server cadence and valid count supplied in the shared achievement state', async () => {
+    const dedicated = { ...overview.achievements[1]!, progress: 200, currentTier: 2, repeatable: true, earned: true, validAwardCount: 2, unlockedAt: `${today}T11:00:00.000Z` }
     const momentum = { ...overview.achievements[1]!, achievementId: 'momentum', progress: 0, target: 3, repeatable: false }
     const firstFlameState = { ...momentum, achievementId: 'first-flame', target: 7 }
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, momentum, firstFlameState, dedicated] })
@@ -264,7 +332,34 @@ describe('Progression achievements interface', () => {
     expect(firstFlame.querySelector('.badge-threshold-value')).toHaveTextContent('7')
     const repeatableBadge = screen.getByRole('button', { name: /Dedicated, earned/ })
     expect(repeatableBadge.querySelector('.badge-threshold-value')).toHaveTextContent('100')
-    expect(repeatableBadge).toHaveTextContent('×2 earned')
+    expect(repeatableBadge).toHaveTextContent('Unlocked')
+    expect(repeatableBadge).toHaveTextContent('Earned 2 times')
+    expect(repeatableBadge).not.toHaveTextContent('×2 earned')
+    expect(screen.getByRole('article', { name: '2 distinct badge types unlocked' })).toHaveTextContent('2 unlocked')
+    expect(screen.getByRole('link', { name: 'Show all badges' })).toHaveAttribute('href', '#progression-badges-heading')
+    expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+  })
+
+  it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {
+    const unlocked = (id: string, tier: number, sourceDate: string) => ({ id, achievementId: 'perfect-week', tier, generation: 1, eventType: 'unlocked' as const, recordedAt: `${sourceDate}T12:00:00.000Z`, sourceEventId: null, sourceDate, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null })
+    const first = unlocked('week-1', 1, '2026-09-06')
+    const second = unlocked('week-2', 2, '2026-09-13')
+    const reversed = unlocked('week-3', 3, '2026-09-20')
+    const badge = { achievementId: 'perfect-week', progress: 2, target: 1, currentTier: 2, repeatable: true, earned: true, unlockedAt: `${today}T12:00:00.000Z`, history: [first, second, second, reversed, { ...reversed, id: 'week-3-reversal', eventType: 'revoked' as const, reversesEventId: 'week-3' }] }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, overview.achievements[1]!, badge] })
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = await screen.findByRole('button', { name: /Perfect Week, earned/ })
+    expect(card).toHaveTextContent('Earned 2 times')
+    expect(card).not.toHaveTextContent('Earned 3 times')
+    await user.click(card)
+    const dialog = await screen.findByRole('dialog', { name: 'Perfect Week' })
+    expect(dialog).toHaveTextContent('Earned 2 times')
+    expect(dialog).toHaveTextContent('Most recent')
+    expect(dialog).toHaveTextContent('Sep 13, 2026')
+    expect(within(dialog).getByText(/Award 2/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Revoked · Award 3/)).toBeInTheDocument()
   })
 
   it('distinguishes unavailable historical XP from a zero XP balance', async () => {

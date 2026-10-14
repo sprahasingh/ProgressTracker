@@ -100,14 +100,18 @@ select ok(not exists (
       achievement.source_reference::text like '%00000000-0000-4000-8000-000000000772%'
       or achievement.source_reference::text like '%00000000-0000-4000-8000-000000000774%'
       or achievement.source_reference::text like '%sole tracker%'
-      or achievement.source_reference - 'rule' - 'reason' - 'source' <> '{}'::jsonb
+      or achievement.source_reference - 'rule' - 'reason' - 'source' - 'occurrence' <> '{}'::jsonb
+      or (achievement.source_reference ? 'occurrence'
+        and achievement.source_reference->>'occurrence' <> 'ledger-award')
       or (achievement.source_reference ? 'source'
         and achievement.source_reference <> '{"source":"tracker deletion"}'::jsonb)
       or (achievement.source_reference ? 'rule' and achievement.source_reference->>'rule' not in (
         'First qualifying saved check-in',
-        'One server-confirmed Perfect Day after achievement cutover'))
-      or (achievement.source_reference ? 'reason' and achievement.source_reference->>'reason' <>
-        'Eligibility no longer holds after an accepted historical correction')
+        'One server-confirmed Perfect Day after achievement cutover',
+        'A distinct server-confirmed reward source qualified'))
+      or (achievement.source_reference ? 'reason' and achievement.source_reference->>'reason' not in (
+        'Eligibility no longer holds after an accepted historical correction',
+        'The source reward was reversed'))
       or (achievement.source_event_id is not null and not exists (
         select 1 from public.progression_events source_event
         join public.progression_event_sources source on source.user_id=source_event.user_id and source.event_id=source_event.id

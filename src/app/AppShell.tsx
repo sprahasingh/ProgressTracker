@@ -10,6 +10,7 @@ import { ForegroundReminderMonitor } from '../features/notifications/ForegroundR
 import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
 import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
 import { useMaintainerAccess } from '../features/ai-knowledge/useMaintainerAccess'
+import { BadgeCelebrationMonitor } from '../features/dashboard/BadgeCelebrationDialog'
 
 type NavigationDestination = {
   group: 'primary' | 'more'
@@ -135,6 +136,7 @@ export function AppShell() {
 
   return (
     <ToastProvider><div className="app-frame">
+      {status === 'signed-in' && user?.id && <BadgeCelebrationMonitor userId={user.id} />}
       <a className="skip-link" href="#main-content" onClick={(event) => {
         event.preventDefault()
         document.getElementById('main-content')?.focus()
