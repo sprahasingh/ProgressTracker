@@ -110,10 +110,10 @@ const suite = describe.skipIf(!enabled)('live Wins and badge celebration flow', 
     expect(within(firstDialog).getByText(/qualifying date/)).toHaveTextContent(today)
     expect(within(firstDialog).getByText(/XP confirmed/)).toHaveTextContent('+10 XP confirmed')
     expect(within(firstDialog).getByRole('button', { name: 'About this celebration' })).toBeInTheDocument()
-    fireEvent.click(within(firstDialog).getByRole('button', { name: 'Continue' }))
+    fireEvent.click(within(firstDialog).getByRole('button', { name: 'Next Badge' }))
     const secondDialog = await screen.findByRole('dialog', { name: /Perfect Day/i })
     expect(within(secondDialog).getByText(/first unlock/i)).toBeInTheDocument()
-    fireEvent.click(within(secondDialog).getByRole('button', { name: 'Continue' }))
+    fireEvent.click(within(secondDialog).getByRole('button', { name: 'Finish' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     const perfectDayCard = await screen.findByRole('button', { name: /Perfect Day, earned/i })
     expect(within(perfectDayCard).getByText(/Most recent ·/)).toBeInTheDocument()
@@ -166,7 +166,11 @@ const suite = describe.skipIf(!enabled)('live Wins and badge celebration flow', 
     for (let offset = -4; offset <= 0; offset += 1) {
       await localRepository.saveTrackerEntry({ trackerId: repeatTracker.id, date: shiftCalendarDate(today, offset), outcome: 'recorded', values: { done: true }, note: 'distinct repeat date' })
     }
-    await expect(synchronizeWorkspace(userId, authClient)).resolves.toMatchObject({ uploaded: 5, failed: 0 })
+    const repeatedSync = await synchronizeWorkspace(userId, authClient)
+    const repeatedSyncDiagnostics = (await db.syncOperations.where('ownerUserId').equals(userId).toArray())
+      .filter((operation) => operation.entity === 'tracker_entry')
+      .map(({ entityId, status, attempts, lastError }) => ({ entityId, status, attempts, lastError }))
+    expect(repeatedSync, JSON.stringify(repeatedSyncDiagnostics)).toMatchObject({ uploaded: 5, failed: 0 })
     const repeatedPerfectDay = (await getEarnedAndLockedBadges(userId)).find((badge) => badge.achievementId === 'perfect-day')
     expect(repeatedPerfectDay?.validAwardCount).toBe(5)
     const reversedPerfectDayEvents = new Set(repeatedPerfectDay?.history.filter((event) => event.eventType === 'revoked').map((event) => event.reversesEventId))
@@ -180,19 +184,19 @@ const suite = describe.skipIf(!enabled)('live Wins and badge celebration flow', 
       const dialog = screen.queryByRole('dialog')
       if (!dialog) break
       const title = within(dialog).getByRole('heading', { level: 2 }).textContent ?? ''
-      const label = within(dialog).getByText(/First unlock|Achievement unlocked|\d+ achievement awards/i).textContent ?? ''
+      const label = dialog.querySelector('.badge-celebration-occurrence')?.textContent ?? ''
       repeatLabels.push(`${title}:${label}`)
       const dialogText = dialog.textContent
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }))
+      fireEvent.click(within(dialog).getByRole('button', { name: /^(Next Badge|Finish)$/ }))
       await waitFor(() => {
         const currentDialog = screen.queryByRole('dialog')
         expect(!currentDialog || currentDialog.textContent !== dialogText).toBe(true)
       })
     }
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(repeatLabels).toContain('Perfect Day:First unlock')
-    expect(repeatLabels).toContain('Perfect Day:Achievement unlocked')
-    expect(repeatLabels).toContain('Perfect Day:5 achievement awards')
+    expect(repeatLabels.some((label) => label.startsWith('Perfect Day:First Unlock'))).toBe(true)
+    expect(repeatLabels.some((label) => label.startsWith('Perfect Day:Earned for the 2nd time'))).toBe(true)
+    expect(repeatLabels.some((label) => label.includes('5 valid awards'))).toBe(true)
     expect((await getProgressionOverview(userId)).confirmedXp).toBe(160)
     pageView.unmount()
     restoredCelebrationView.unmount()

@@ -57,6 +57,19 @@ async function confirmedAwardState(page: Page, achievementId: string) {
   }, achievementId)
 }
 
+async function expectWorkspaceSynced(page: Page, userId: string, timeout = 60_000) {
+  try {
+    await expect(page.locator('.topbar-sync-state')).toHaveAttribute('aria-label', /Synced/, { timeout })
+  } catch (error) {
+    const operations = await page.evaluate(async (ownerId) => {
+      const { db } = await import('/ProgressTracker/src/db/database.ts')
+      return (await db.syncOperations.where('ownerUserId').equals(ownerId).toArray())
+        .map(({ entity, entityId, status, attempts, lastError }) => ({ entity, entityId, status, attempts, lastError }))
+    }, userId)
+    throw new Error(`Workspace did not sync. Pending/conflicted operations: ${JSON.stringify(operations)}. ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 async function waitForWinsData(page: Page) {
   const badge = page.getByRole('button', { name: /Perfect Day, earned/i })
   const alert = page.getByRole('alert').filter({ hasText: /Progression data could not be loaded|Supabase rejected a progression read|connected Supabase project does not expose/i })
@@ -168,7 +181,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const serverSyncStartedAt = performance.now()
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(page.locator('.topbar-sync-state')).toHaveAttribute('aria-label', /Synced/, { timeout: 60_000 })
+  await expectWorkspaceSynced(page, userId)
   const serverSyncMs = Math.round(performance.now() - serverSyncStartedAt)
   measureSync = false
   const progressionStartedAt = performance.now()
@@ -470,7 +483,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const slowSyncStartedAt = performance.now()
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(page.locator('.topbar-sync-state')).toHaveAttribute('aria-label', /Synced/, { timeout: 60_000 })
+  await expectWorkspaceSynced(page, userId)
   await expect(winCount).toContainText('Earned 5 times', { timeout: 60_000 })
   const repeatedAwardState = await confirmedAwardState(page, 'perfect-day')
   expect(repeatedAwardState).toMatchObject({ userId, count: 5, pending: 0 })
