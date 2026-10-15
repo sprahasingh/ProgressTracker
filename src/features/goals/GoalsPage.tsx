@@ -56,6 +56,7 @@ export function GoalsPage() {
   const [error, setError] = useState<{ workspaceKey: string; message: string } | null>(null)
   const [expandedGoals, setExpandedGoals] = useState<Set<string>>(() => new Set())
   const [visitedGoals, setVisitedGoals] = useState<Set<string>>(() => new Set())
+  const [goalFilter, setGoalFilter] = useState<'active' | 'completed' | 'all'>('active')
   const goals = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.goals : []
   const holidayDates = useMemo(() => new Set(workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidays : []), [workspaceKey, snapshot])
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
@@ -122,9 +123,10 @@ export function GoalsPage() {
 
   useWorkspaceDataChanges(expectedOwner, workspaceReady, refresh)
 
-  const activeCount = goals.filter(({ tracker }) => tracker.status === 'active' && (!tracker.deadline || tracker.deadline >= today)).length
+  const activeCount = goals.filter(({ tracker }) => tracker.status === 'active').length
   const overdueCount = goals.filter(({ tracker }) => tracker.status === 'active' && Boolean(tracker.deadline && tracker.deadline < today)).length
   const completedCount = goals.filter(({ tracker }) => tracker.status === 'completed').length
+  const filteredGoals = goals.filter(({ tracker }) => goalFilter === 'all' || (goalFilter === 'completed' ? tracker.status === 'completed' : tracker.status === 'active'))
   const goalSummaries = useMemo(() => new Map(goals.map(({ tracker, entries }) => [tracker.id, buildGoalProgressSummary(tracker, entries, timeZone, holidayDates)])), [goals, today, timeZone, holidayDates])
 
   return <section className="tracker-page goals-page" aria-labelledby="goals-title">
@@ -132,14 +134,14 @@ export function GoalsPage() {
     <SectionTabs label="Trackers and goals" items={trackerSectionTabs} />
     {visibleError && <div role="alert" className="form-alert">{visibleError}</div>}
     {visibleLoading ? <p role="status" className="tracker-loading">Loading your goals…</p> : visibleError ? <Surface><EmptyState title="Your goals are still saved" description="This device could not open your goal list. Try loading it again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : goals.length === 0 ? <Surface><EmptyState title="Choose something worth working toward" description="Goals use the same private, offline-first tracker workspace. Add a deadline, measures, and milestones when you create one." action={<Link className="button button-primary button-medium" to="/trackers/new">Create your first goal</Link>} /></Surface> : <>
-      <div className="dashboard-stats" role="group" aria-label="Goal summary">
-        <GoalStat label="In progress" value={activeCount} detail="active and within deadline" help="Counts active goals whose deadline is today or later, plus active goals without a deadline." />
-        <GoalStat label="Overdue" value={overdueCount} detail="active goals past their deadline" help="Counts active goals whose deadline is before today in the goal’s planning time zone." />
-        <GoalStat label="Completed" value={completedCount} detail="goals you have finished" help="Counts goals whose status is completed. Their history remains available." />
-        <GoalStat label="All goals" value={goals.length} detail="including paused and archived goals" help="Counts every goal in this workspace, including paused and archived goals, but not Bin items." />
+      <div className="goals-toolbar">
+        <div className="goals-filter" role="group" aria-label="Filter goals">
+          {([['active', `In progress${activeCount ? ` · ${activeCount}` : ''}`], ['completed', `Completed${completedCount ? ` · ${completedCount}` : ''}`], ['all', `All goals · ${goals.length}`]] as const).map(([filter, label]) => <button key={filter} type="button" className={`goals-filter-option${goalFilter === filter ? ' selected' : ''}`} aria-pressed={goalFilter === filter} onClick={() => setGoalFilter(filter)}>{label}</button>)}
+        </div>
+        {overdueCount > 0 && <span className="goals-overdue-note">{overdueCount} past deadline</span>}
       </div>
       <div className="tracker-card-grid">
-        {goals.map(({ tracker, entries: goalEntries }) => {
+        {filteredGoals.length === 0 ? <Surface className="goals-filter-empty"><p>{goalFilter === 'completed' ? 'Completed goals will appear here.' : 'No goals in progress. Choose one goal to focus on next.'}</p>{goalFilter === 'active' && <Link className="button button-secondary button-small" to="/trackers/new">Create a goal</Link>}</Surface> : filteredGoals.map(({ tracker, entries: goalEntries }) => {
           const planningTimeZone = timeZone
           const planningToday = localCalendarDate(new Date(), planningTimeZone)
           const recorded = goalEntries.filter((entry) => entry.outcome === 'recorded')
@@ -153,7 +155,7 @@ export function GoalsPage() {
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
           const expanded = expandedGoals.has(tracker.id)
           const goalDetailId = `goal-details-${encodeURIComponent(tracker.id)}`
-          const summaryMetrics = goalSummaries.get(tracker.id) ?? []
+          const summaryMetrics = (goalSummaries.get(tracker.id) ?? []).slice(0, 1)
           const daysRemaining = tracker.deadline ? Math.ceil((Date.parse(`${tracker.deadline}T00:00:00.000Z`) - Date.parse(`${planningToday}T00:00:00.000Z`)) / 86_400_000) : undefined
           return <Surface className={`goal-card status-card status-${goalStatusColor}`} key={tracker.id}>
             <button className="goal-card-trigger" type="button" aria-expanded={expanded} aria-controls={goalDetailId} onClick={() => {
@@ -165,8 +167,9 @@ export function GoalsPage() {
               <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
               <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
               <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}{metricSummary.expected !== undefined && <small>Expected by today {formatTrackerNumber(metricSummary.expected)}{metricSummary.unit}{metricSummary.requiredPace === null ? ' · No Auto days remain' : metricSummary.requiredPace !== undefined ? ` · ${formatTrackerNumber(metricSummary.requiredPace)}${metricSummary.unit}/Auto day` : ''}{metricSummary.paceLabel ? ` · ${metricSummary.paceLabel}` : ''}</small>}</>}</span>)}</span>
-              <span className="goal-card-expand-hint">{expanded ? 'Hide details' : 'View goal details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
+              <span className="goal-card-expand-hint">{expanded ? 'Close details' : 'View progress details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
             </button>
+            <div className="goal-card-primary-action"><Link className="button button-primary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Open plan</Link></div>
             <div className="goal-expanded-details" id={goalDetailId} hidden={!expanded}>
             {visitedGoals.has(tracker.id) && <>
             {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
@@ -253,7 +256,7 @@ export function GoalsPage() {
               <span>{latest ? `${latestInPeriod ? latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · ' : 'Latest historical check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
             </div></LazyDisclosure>
             <div className="tracker-card-actions">
-              <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
+              <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit settings</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
               <Button variant="destructive" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete goal</Button>
             </div>
@@ -321,10 +324,6 @@ function goalDayStatusLabel(status: string): string {
   if (status === 'future') return 'Upcoming'
   if (status === 'skipped') return 'Skipped · intentionally saved'
   return status
-}
-
-function GoalStat({ label, value, detail, help }: { label: string; value: number; detail: string; help: string }) {
-  return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
 }
 
 function LazyDisclosure({ className, summary, children }: { className: string; summary: string; children: ReactNode }) {
