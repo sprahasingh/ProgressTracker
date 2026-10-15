@@ -15,7 +15,7 @@ insert into auth.users (id, email) values
 
 insert into public.trackers (id, user_id, kind, status, name, definition) values
   ('00000000-0000-4000-8000-000000000111', '00000000-0000-4000-8000-000000000011', 'habit', 'active', 'Owner one tracker',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000111","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}'),
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000111","kind":"habit","status":"active","startDate":"2026-10-09","metrics":[],"schedule":{"kind":"every-day"}}'),
   ('00000000-0000-4000-8000-000000000112', '00000000-0000-4000-8000-000000000012', 'goal', 'active', 'Owner two tracker',
    '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000112","kind":"goal","status":"active","metrics":[],"schedule":{"kind":"none"}}');
 

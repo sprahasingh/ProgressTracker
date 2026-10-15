@@ -8,7 +8,7 @@ select is((public.apply_tracker_sync_operation(
  '00000000-0000-4000-8000-000000000077','00000000-0000-4000-8000-000000000770','tracker',null,
  jsonb_build_object('id','00000000-0000-4000-8000-000000000771','schema_version',1,'kind','goal','status','active','name','Finish course',
   'created_at',current_date::text||'T00:00:00Z','definition',jsonb_build_object('schemaVersion',1,'id','00000000-0000-4000-8000-000000000771','kind','goal','status','active',
-   'createdAt',current_date::text||'T00:00:00Z','metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','thresholds',jsonb_build_object('direction','increase','streakQualification','any-recorded-value'))),
+   'createdAt',current_date::text||'T00:00:00Z','startDate',(current_date-1)::text,'metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','thresholds',jsonb_build_object('direction','increase','streakQualification','any-recorded-value'))),
    'schedule',jsonb_build_object('kind','every-day'),'milestones',jsonb_build_array(jsonb_build_object('id','checkpoint-10','title','Reach ten','description','','metricId','pages','targetValue',10,'position',0))))
 ))->>'status','applied'::text,'goal tracker is accepted');
 

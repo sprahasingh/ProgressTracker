@@ -17,6 +17,10 @@ insert into auth.users(id,email) values
  ('00000000-0000-4000-8000-000000000510','consistency-at@example.test'),
  ('00000000-0000-4000-8000-000000000511','milestone-maker@example.test'),
  ('00000000-0000-4000-8000-000000000512','goal-crusher@example.test');
+insert into public.app_settings(id,user_id,timezone,timezone_configured)
+select 'general',id,'UTC',true from auth.users
+where id between '00000000-0000-4000-8000-000000000501'::uuid and '00000000-0000-4000-8000-000000000512'::uuid
+on conflict (user_id) do update set timezone='UTC',timezone_configured=true;
 
 create temporary table badge_threshold_fixtures(user_id uuid primary key, tracker_id uuid unique, entry_count integer) on commit drop;
 insert into badge_threshold_fixtures values

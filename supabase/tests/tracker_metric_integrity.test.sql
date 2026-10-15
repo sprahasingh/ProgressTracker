@@ -4,7 +4,7 @@ select plan(8);
 insert into auth.users (id, email) values ('00000000-0000-4000-8000-000000000091', 'metric-integrity@example.test');
 insert into public.trackers (id, user_id, kind, status, name, definition) values
 ('00000000-0000-4000-8000-000000000191', '00000000-0000-4000-8000-000000000091', 'goal', 'active', 'Integrity tracker',
- '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000191","kind":"goal","status":"active","metrics":[{"id":"measure-a","name":"Pages","valueType":"quantity","unit":"pages"},{"id":"measure-b","name":"Sessions","valueType":"quantity","unit":"sessions"}],"schedule":{"kind":"every-day"}}');
+ '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000191","kind":"goal","status":"active","startDate":"2026-10-10","metrics":[{"id":"measure-a","name":"Pages","valueType":"quantity","unit":"pages"},{"id":"measure-b","name":"Sessions","valueType":"quantity","unit":"sessions"}],"schedule":{"kind":"every-day"}}');
 insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values) values
 ('00000000-0000-4000-8000-000000000291', '00000000-0000-4000-8000-000000000091', '00000000-0000-4000-8000-000000000191', '2026-10-10', 'recorded', '{"measure-a":12}');
 

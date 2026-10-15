@@ -1,5 +1,5 @@
 begin;
-select plan(40);
+select plan(47);
 set local timezone = 'UTC';
 
 select has_function('public', 'progression_perfect_month_qualifies', array['uuid', 'date', 'uuid'], 'Perfect Month uses a server-side eligibility selector');
@@ -13,12 +13,15 @@ insert into auth.users(id,email) values
  ('00000000-0000-4000-8000-000000000420','perfect-month@example.test'),
  ('00000000-0000-4000-8000-000000000422','comeback-standard@example.test'),
  ('00000000-0000-4000-8000-000000000423','comeback-strict@example.test'),
- ('00000000-0000-4000-8000-000000000424','perfect-month-holiday@example.test');
-insert into public.app_settings(user_id,timezone) values
- ('00000000-0000-4000-8000-000000000420','UTC'),
- ('00000000-0000-4000-8000-000000000422','UTC'),
- ('00000000-0000-4000-8000-000000000423','UTC'),
- ('00000000-0000-4000-8000-000000000424','UTC');
+ ('00000000-0000-4000-8000-000000000424','perfect-month-holiday@example.test'),
+ ('00000000-0000-4000-8000-000000000425','perfect-year-leap@example.test');
+insert into public.app_settings(id,user_id,timezone,timezone_configured) values
+ ('general','00000000-0000-4000-8000-000000000420','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000422','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000423','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000424','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000425','UTC',true)
+on conflict (user_id) do update set timezone='UTC',timezone_configured=true;
 
 create temporary table extended_badge_fixture_dates on commit drop as
 select date_trunc('month', current_date::timestamp - interval '1 month')::date as month_start,
@@ -34,6 +37,8 @@ where a.user_id in (
  '00000000-0000-4000-8000-000000000420','00000000-0000-4000-8000-000000000422',
  '00000000-0000-4000-8000-000000000423','00000000-0000-4000-8000-000000000424'
 );
+update public.progression_achievement_accounts set initialized_at='2024-01-01T00:00:00Z'
+where user_id='00000000-0000-4000-8000-000000000425';
 
 alter table public.trackers disable trigger user;
 alter table public.tracker_entries disable trigger user;
@@ -48,7 +53,8 @@ from (values
  ('00000000-0000-4000-8000-000000000421'::uuid,'00000000-0000-4000-8000-000000000420'::uuid,false),
  ('00000000-0000-4000-8000-000000004221'::uuid,'00000000-0000-4000-8000-000000000422'::uuid,false),
  ('00000000-0000-4000-8000-000000004231'::uuid,'00000000-0000-4000-8000-000000000423'::uuid,true),
- ('00000000-0000-4000-8000-000000004241'::uuid,'00000000-0000-4000-8000-000000000424'::uuid,false)
+ ('00000000-0000-4000-8000-000000004241'::uuid,'00000000-0000-4000-8000-000000000424'::uuid,false),
+ ('00000000-0000-4000-8000-000000004251'::uuid,'00000000-0000-4000-8000-000000000425'::uuid,false)
 ) x(tracker_id,user_id,strict_mode) cross join extended_badge_fixture_dates d;
 
 insert into public.account_holidays(id,user_id,holiday_date,reason)
@@ -87,6 +93,18 @@ from public.trackers t cross join extended_badge_fixture_dates f
 cross join (select generate_series(0,5) as day_offset union all select generate_series(7,13)) offsets
 where t.id='00000000-0000-4000-8000-000000004231';
 
+-- Keep a complete leap year and a complete common year to exercise exact
+-- 366/365-day boundaries. The explicit start date predates tracker creation.
+update public.trackers
+set created_at='2024-01-01T00:00:00Z', updated_at='2024-01-01T00:00:00Z',
+    definition=jsonb_set(jsonb_set(definition,'{createdAt}','"2024-01-01T00:00:00Z"'),'{startDate}','"2024-01-01"')
+where id='00000000-0000-4000-8000-000000004251';
+insert into public.tracker_entries(id,user_id,tracker_id,entry_date,outcome,entry_values,created_at,updated_at)
+select md5(t.id::text||':'||d.day::date::text)::uuid,t.user_id,t.id,d.day::date,'recorded','{"done":true}'::jsonb,
+  d.day at time zone 'UTC',d.day at time zone 'UTC'
+from public.trackers t cross join lateral generate_series('2024-01-01'::timestamp,'2025-12-31'::timestamp,interval '1 day') d(day)
+where t.id='00000000-0000-4000-8000-000000004251';
+
 -- Flush deferred foreign-key trigger events from the bulk fixture inserts
 -- before changing trigger state again. PostgreSQL rejects ALTER TABLE while
 -- deferred trigger events remain queued in the transaction.
@@ -94,11 +112,13 @@ set constraints all immediate;
 alter table public.tracker_entries enable trigger user;
 alter table public.trackers enable trigger user;
 
-select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000420', (select month_start from extended_badge_fixture_dates)), true, 'a complete month with at least twelve qualifying required dates qualifies');
-select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select month_start from extended_badge_fixture_dates)), true, 'a Standard Mode holiday is neutral and does not disqualify a month');
+select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000420', (select month_start from extended_badge_fixture_dates)), true, 'a complete month with every calendar date confirmed qualifies');
+select ok(not public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select month_start from extended_badge_fixture_dates)), 'a Standard Mode holiday cannot satisfy a required Perfect Month date');
 select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select older_month_start from extended_badge_fixture_dates)), true, 'a holiday in one month does not disqualify a different month');
 select ok(not public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000420', date_trunc('month', current_date::timestamp)::date), 'the still-open current month is never awarded');
-select ok(public.progression_perfect_week_qualifies('00000000-0000-4000-8000-000000000420', date_trunc('week', (select older_month_start::timestamp + interval '7 days' from extended_badge_fixture_dates))::date), 'a completed Monday-based week with at least three qualifying dates qualifies');
+select ok(public.progression_perfect_week_qualifies('00000000-0000-4000-8000-000000000420', date_trunc('week', (select older_month_start::timestamp + interval '7 days' from extended_badge_fixture_dates))::date), 'a completed Monday-based week with all seven dates confirmed qualifies');
+select ok(not public.progression_perfect_week_qualifies('00000000-0000-4000-8000-000000000422', date_trunc('week', (select month_start::timestamp + interval '7 days' from extended_badge_fixture_dates))::date), 'six of seven dates cannot qualify Perfect Week');
+select ok(not public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000422', (select month_start from extended_badge_fixture_dates)), 'a partial calendar month cannot qualify Perfect Month');
 select is((select count(*) from public.progression_comeback_candidates('00000000-0000-4000-8000-000000000422', (select month_start from extended_badge_fixture_dates), current_date - 1) where source_tracker_id='00000000-0000-4000-8000-000000004221'), 1::bigint, 'Standard Mode pauses the comeback sequence for its holiday');
 select is((select missed_on from public.progression_comeback_candidates('00000000-0000-4000-8000-000000000422', (select month_start from extended_badge_fixture_dates), current_date - 1) where source_tracker_id='00000000-0000-4000-8000-000000004221'), (select month_start + 3 from extended_badge_fixture_dates), 'Standard Mode identifies the missed required opportunity');
 select is((select count(*) from public.progression_comeback_candidates('00000000-0000-4000-8000-000000000423', (select month_start from extended_badge_fixture_dates), current_date - 1) where source_tracker_id='00000000-0000-4000-8000-000000004231'), 1::bigint, 'Strict Mode treats the holiday as a required opportunity and accepts recovery after it');
@@ -110,7 +130,7 @@ select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000
 select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000000423');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-month' and event_type='unlocked'), 2::bigint, 'two qualified months create separate Perfect Month events');
 select is((select current_tier from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-month'), 2, 'Perfect Month progress records the repeatable earned count');
-select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000424' and achievement_id='perfect-month' and event_type='unlocked'), 2::bigint, 'neutral holidays do not prevent a qualifying month award');
+select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000424' and achievement_id='perfect-month' and event_type='unlocked'), 1::bigint, 'only the month without a Standard Mode holiday earns Perfect Month');
 select ok((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-week' and event_type='unlocked') > 0, 'completed qualifying weeks create repeatable Perfect Week events');
 create temporary table perfect_week_retry_count on commit drop as
 select count(*)::integer as event_count from public.progression_achievement_events
@@ -157,6 +177,24 @@ select is((select count(*) from public.progression_achievement_events where user
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000422' and achievement_id='the-comeback' and event_type='revoked'), 1::bigint, 'Delete Wins records the Comeback revocation');
 select is((select current_tier from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000422' and achievement_id='the-comeback'), 0, 'Delete Wins removes the tracker-specific Comeback from the active badge count');
 select ok(not exists(select 1 from public.progression_achievement_event_sources where user_id='00000000-0000-4000-8000-000000000422' and source_tracker_id='00000000-0000-4000-8000-000000004221'), 'Delete Wins removes tracker identifiers from private badge attribution');
+
+-- Set the historical year cutover only after other accounts have finished
+-- reconciliation so this fixture does not force unrelated accounts to scan
+-- several extra calendar years.
+update public.progression_policy_cutovers set perfect_year_start='2024-01-01' where id;
+select is((select count(*) from public.tracker_entries where tracker_id='00000000-0000-4000-8000-000000004251' and entry_date between '2024-01-01' and '2024-12-31'),366::bigint,'leap-year fixture contains all 366 calendar dates');
+select ok(public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2024-01-01'), 'Perfect Year qualifies with all 366 dates in a leap year');
+select is((select count(*) from public.tracker_entries where tracker_id='00000000-0000-4000-8000-000000004251' and entry_date between '2025-01-01' and '2025-12-31'),365::bigint,'common-year fixture contains all 365 calendar dates');
+select ok(public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2025-01-01'), 'Perfect Year qualifies with all 365 dates in a common year');
+delete from public.tracker_entries where tracker_id='00000000-0000-4000-8000-000000004251' and entry_date='2024-02-29';
+select ok(not public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2024-01-01'), 'missing leap day disqualifies Perfect Year');
+alter table public.tracker_entries disable trigger user;
+insert into public.tracker_entries(id,user_id,tracker_id,entry_date,outcome,entry_values,created_at,updated_at)
+select md5(t.id::text||':2024-02-29')::uuid,t.user_id,t.id,'2024-02-29','recorded','{"done":true}'::jsonb,
+  '2024-02-29T12:00:00Z','2024-02-29T12:00:00Z'
+from public.trackers t where t.id='00000000-0000-4000-8000-000000004251';
+set constraints all immediate;
+alter table public.tracker_entries enable trigger user;
 
 select * from finish();
 rollback;
