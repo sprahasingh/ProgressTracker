@@ -12,6 +12,7 @@ export type CumulativeAllocationPreview = {
   unallocatedWork: number
   overAllocatedWork: number
   days: AllocationPreviewDay[]
+  manualConflicts: Array<{ date: string; amount: number; reason: 'holiday' | 'rest-day' | 'outside-window' }>
 }
 export type AllocationPreviewTotals = {
   plannedTotal: number
@@ -67,6 +68,13 @@ export function createCumulativeAllocationPreview(input: {
   }
 
   const eligible = days.filter((day) => day.eligible)
+  const manualConflicts = Object.entries(manualPlans).flatMap(([date, amount]) => {
+    if (date <= input.asOfDate) return []
+    const day = days.find((item) => item.date === date)
+    if (day?.eligible) return []
+    const reason = date > input.tracker.deadline! ? 'outside-window' as const : day?.holiday ? 'holiday' as const : 'rest-day' as const
+    return [{ date, amount, reason }]
+  })
   // Old allocation maps mixed generated dates and user edits. Keep those values
   // as history and require an explicit choice before treating them as fixed.
   const fixedOutstandingValues: number[] = []
@@ -112,6 +120,7 @@ export function createCumulativeAllocationPreview(input: {
     unallocatedWork,
     overAllocatedWork,
     days,
+    manualConflicts,
   }
 }
 

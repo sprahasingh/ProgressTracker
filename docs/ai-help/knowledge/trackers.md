@@ -88,6 +88,21 @@ The schedule defines the regular days when a tracker has a check-in opportunity.
 **Answer:**
 The tracker’s active period begins on its configured start date, or its creation date in the workspace time zone when no start date is set, and ends at its deadline when one is set. A configured start date can be before tracker creation, allowing eligible past activity to be recorded. Dates outside the active period are not tracking opportunities; a deadline stops schedule-based calculations from counting later dates.
 
+### ID: tracker-duration-modes
+**Category:** trackers
+**Question:** What is the difference between Calendar Days, Effective Days, and Ongoing?
+**Aliases:**
+- How does an Effective Days deadline work?
+- Do holidays change my tracker deadline?
+**Keywords:** Calendar Days, Effective Days, Ongoing, deadline, holiday, rest day, duration
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/scheduling.ts
+- src/features/trackers/TrackerSetupPage.tsx
+- src/domain/trackers/challengeDay.ts
+**Answer:**
+Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of eligible days and projects the deadline to the last one; workspace holidays and dates excluded by the tracker’s schedule do not consume days. Missed check-ins still consume eligible days. Ongoing has no fixed deadline. These day counts are separate from completed check-ins and streaks.
+
 ### ID: retire-measure
 **Category:** trackers
 **Question:** What happens when I retire a measure?

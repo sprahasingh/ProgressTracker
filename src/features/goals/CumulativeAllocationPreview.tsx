@@ -65,6 +65,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const format = (value: number) => `${formatTrackerNumber(value)}${unit}`
   const latestEntries = latestEntriesByDate(entries, metricId)
   const holidayConflicts = preview.days.filter((day) => day.holiday && (storedManual[day.date] ?? 0) > 0)
+  const conflictedManualDates = preview.manualConflicts.map((conflict) => conflict.date)
   const pageDays = preview.days.slice(pageStart, pageStart + 14)
   const pageEnd = Math.min(preview.days.length, pageStart + pageDays.length)
   const futureManualDates = Object.keys(manualValues).filter((date) => date > asOfDate || date === asOfDate && eligibleDays.some((day) => day.date === date))
@@ -130,7 +131,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       if (resolveHolidayConflicts) holidayConflicts.forEach((day) => { delete nextMetricAllocations[day.date] })
       const candidate = {
         ...tracker,
-        schemaVersion: 5 as const,
+        schemaVersion: (tracker.schemaVersion >= 6 ? 6 : 5) as 5 | 6,
         goalPlanning: {
           ...tracker.goalPlanning,
           planningTimeZone: timeZone,
@@ -161,11 +162,12 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       {dirty && <div className="allocation-plan-actions"><button className="button button-primary button-small" type="button" onClick={() => void savePlan()} disabled={saving || !manualPlanWritesEnabled || (legacyDatesNeedingReview.length > 0 && legacyPlanChoice === 'unreviewed')}>{saving ? 'Saving…' : 'Save manual changes'}</button><button className="button button-secondary button-small" type="button" onClick={discardChanges} disabled={saving}>Discard Changes</button></div>}
     </header>
     <p className="allocation-preview-note">{dirty ? 'Manual changes are not saved yet.' : 'Auto amounts recalculate from remaining work and scheduled days.'}</p>
-    {!manualPlanWritesEnabled && <p className="allocation-preview-warning" role="status">Saving manual plans is disabled in this production build until the schema v5 migration is applied and verified.</p>}
+    {!manualPlanWritesEnabled && <p className="allocation-preview-warning" role="status">Saving manual plans is disabled until the required tracker schema migration is enabled for this build.</p>}
     {error && <p className="allocation-preview-warning" role="alert">{error}</p>}
     {savedLocally && <p className="allocation-save-status" role="status">{savedMessage}</p>}
     {!hasExplicitManualMap && legacyDatesNeedingReview.length > 0 && <div className="allocation-legacy-notice" role="status"><span>This older saved plan does not identify which dates you edited and which were auto-filled. Choose how to handle its future dates before saving your changes.</span><div><button className="button button-secondary button-small" type="button" onClick={preservePreviousPlan}>Keep previous future values as manual</button><button className="button button-quiet button-small" type="button" onClick={useAutomaticPlan}>Use the recalculated plan</button></div></div>}
     {holidayConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{holidayConflicts.length} holiday date{holidayConflicts.length === 1 ? '' : 's'} have manual allocations. They are preserved and excluded from this preview until released.</p><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues((current) => { const next = { ...current }; holidayConflicts.forEach((day) => delete next[day.date]); return next }); setResolveHolidayConflicts(true); setDirty(true); setSavedLocally(false) }}>Release holiday allocations</button></div>}
+    {preview.manualConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{preview.manualConflicts.length} future Manual allocation{preview.manualConflicts.length === 1 ? ' is' : 's are'} outside the eligible plan window. They remain saved and do not affect current Auto pace.</p><ul>{preview.manualConflicts.map((conflict) => <li key={conflict.date}>{calendarDateLabel(conflict.date)} · {format(conflict.amount)} · {conflict.reason === 'outside-window' ? 'after the projected deadline' : conflict.reason === 'holiday' ? 'holiday' : 'scheduled rest day'}</li>)}</ul><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues((current) => Object.fromEntries(Object.entries(current).filter(([date]) => !conflictedManualDates.includes(date)))); setDirty(true); setSavedLocally(false); setSavedMessage('') }}>Remove these future overrides</button></div>}
     <div className="allocation-planning-controls" aria-label="Planning controls">
       <span><strong>{eligibleDays.length}</strong> scheduled days left</span>
       <span><strong>{preview.automaticDayCount}</strong> Auto days</span>

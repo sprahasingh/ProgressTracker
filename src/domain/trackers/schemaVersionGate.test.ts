@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isTrackerSchemaWriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -42,6 +42,18 @@ describe('schema v5 production write gate', () => {
     expect(isSchemaV5WriteEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'true')
     expect(isSchemaV5WriteEnabled()).toBe(true)
+  })
+})
+
+describe('schema v6 production write gate', () => {
+  it('keeps unified scheduling disabled until its hosted migration is verified', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', '')
+    expect(isSchemaV6WriteEnabled()).toBe(false)
+    expect(isTrackerSchemaWriteEnabled(6)).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    expect(isSchemaV6WriteEnabled()).toBe(true)
+    expect(isTrackerSchemaWriteEnabled(6)).toBe(true)
   })
 })
 

@@ -56,6 +56,7 @@ jobs:
           VITE_ENABLE_TRACKER_SCHEMA_V3: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V3 }}
           VITE_ENABLE_TRACKER_SCHEMA_V4: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V4 }}
           VITE_ENABLE_TRACKER_SCHEMA_V5: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V5 }}
+          VITE_ENABLE_TRACKER_SCHEMA_V6: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V6 }}
           VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
           VITE_ENABLE_HOLIDAY_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION }}
           VITE_ENABLE_PROGRESSION_UI: ${{ vars.VITE_ENABLE_PROGRESSION_UI }}
@@ -74,6 +75,10 @@ jobs:
           fi
           if [ "$VITE_ENABLE_TRACKER_SCHEMA_V4" != "true" ]; then
             echo "::error::Set the repository variable VITE_ENABLE_TRACKER_SCHEMA_V4 to true after verifying the hosted V4 migration."
+            exit 1
+          fi
+          if [ "$VITE_ENABLE_TRACKER_SCHEMA_V6" != "true" ]; then
+            echo "::error::Set the repository variable VITE_ENABLE_TRACKER_SCHEMA_V6 to true after verifying the hosted V6 migration."
             exit 1
           fi
           if [ "$VITE_ENABLE_PERMANENT_DELETION" != "true" ]; then

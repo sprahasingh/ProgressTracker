@@ -101,6 +101,11 @@ const goalPlanningSchema = z.object({
   allocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
   manualAllocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
 })
+const trackerSchedulingSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('calendar') }),
+  z.object({ mode: z.literal('effective'), effectiveDays: z.number().int().positive().max(100_000), planningTimeZone: z.string().min(1).optional() }),
+  z.object({ mode: z.literal('ongoing') }),
+])
 
 function isIanaTimeZone(value: string): boolean {
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false }
@@ -127,7 +132,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -140,6 +145,7 @@ export const trackerDefinitionSchema = z.object({
   schedule: scheduleSchema,
   startDate: calendarDate.optional(),
   deadline: calendarDate.optional(),
+  scheduling: trackerSchedulingSchema.optional(),
   metrics: z.array(metricSchema),
   qualificationRule: ruleSchema.optional(),
   customFields: z.array(customFieldSchema),
@@ -156,8 +162,15 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined || tracker.goalPlanning?.manualAllocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
   if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4 || tracker.schemaVersion === 5) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4 || tracker.schemaVersion === 5 || tracker.schemaVersion === 6) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
   if (tracker.schemaVersion === 5 && (tracker.kind !== 'goal' || tracker.goalPlanning?.mode !== 'cumulative-deadline' || !tracker.goalPlanning.planningTimeZone || !tracker.goalPlanning.allocations || !tracker.goalPlanning.manualAllocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 5 requires a timezone-aware cumulative goal with separate manual allocations.' })
+  if (tracker.schemaVersion === 6 && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema version 6 requires an explicit scheduling mode.' })
+  if (tracker.schemaVersion < 6 && tracker.scheduling !== undefined) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Explicit scheduling modes require tracker schema version 6.' })
+  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
+  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
+  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && tracker.schedule.kind === 'none') context.addIssue({ code: 'custom', path: ['schedule'], message: 'Effective scheduling needs at least one eligible scheduled day.' })
+  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
@@ -225,7 +238,7 @@ export const trackerDefinitionSchema = z.object({
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
           const effectiveStartDate = trackerActiveStartDate(tracker, plan.planningTimeZone)
           const historicalAllocation = date < effectiveStartDate
-          const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
+          const scheduled = allocationField === 'manualAllocations' || historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
           if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
         }
       }

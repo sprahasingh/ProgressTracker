@@ -86,6 +86,8 @@ export type TrackerMilestoneDefinition = {
 }
 
 export type GoalPlanningMode = 'daily-recurring' | 'cumulative-deadline'
+export type TrackerSchedulingMode = 'calendar' | 'effective' | 'ongoing'
+export type TrackerScheduling = { mode: TrackerSchedulingMode; effectiveDays?: number; planningTimeZone?: string }
 export type MetricProgressSemantics = 'incremental' | 'snapshot'
 export type GoalPlanningConfiguration = {
   mode: GoalPlanningMode
@@ -104,7 +106,7 @@ export type GoalPlanningConfiguration = {
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3 | 4 | 5
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6
   id: string
   name: string
   description: string
@@ -117,6 +119,8 @@ export type TrackerDefinition = {
   schedule: TrackerSchedule
   startDate?: string
   deadline?: string
+  /** v6 scheduling authority. Older versions infer calendar/ongoing from deadline presence. */
+  scheduling?: TrackerScheduling
   metrics: TrackerMetricDefinition[]
   qualificationRule?: TrackerRule
   customFields: CustomFieldDefinition[]

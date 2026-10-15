@@ -18,6 +18,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 afterEach(async () => {
   cleanup()
+  vi.unstubAllEnvs()
   routeParams.trackerId = undefined
   await db.delete()
 })
@@ -349,15 +350,18 @@ describe('tracker setup flow', () => {
   })
 
   it('creates a cumulative goal when an optional target and deadline are added', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
     await user.type(screen.getByRole('textbox', { name: 'What do you want to achieve?' }), 'Solve DSA problems')
     await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'problems')
-    await user.click(screen.getByText('Add a target or deadline'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Schedule duration' }), 'calendar')
+    await user.click(screen.getByText('Add a target'))
     await user.type(screen.getByRole('spinbutton', { name: 'Total amount' }), '100')
-    expect(screen.getByLabelText('Goal deadline')).toBeVisible()
-    await user.type(screen.getByLabelText('Goal deadline'), '2099-12-31')
+    expect(screen.getByLabelText('Tracker deadline')).toBeVisible()
+    await user.type(screen.getByLabelText('Tracker deadline'), '2099-12-31')
     expect(screen.getByRole('spinbutton', { name: 'Total amount' })).toHaveValue(100)
     expect(screen.getByText(/Suggested pace:/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
@@ -367,7 +371,7 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('link', { name: 'Customize my plan' })).toHaveAttribute('href', expect.stringMatching(/\/trackers\/.*\/edit/))
     const [saved] = await localRepository.listTrackers()
     expect(saved).toMatchObject({
-      schemaVersion: 2, kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' },
+      schemaVersion: 6, kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' }, scheduling: { mode: 'calendar' },
       goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { [saved!.metrics[0]!.id]: 'incremental' }, cumulativeTargets: { [saved!.metrics[0]!.id]: 100 } },
       metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }],
     })
@@ -380,13 +384,14 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
     await user.type(screen.getByRole('textbox', { name: 'What do you want to achieve?' }), 'Complete 100 practice problems')
     await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'problems')
-    await user.click(screen.getByText('Add a target or deadline'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Schedule duration' }), 'calendar')
+    await user.click(screen.getByText('Add a target'))
     await user.type(screen.getByRole('spinbutton', { name: 'Total amount' }), '100')
-    await user.type(screen.getByLabelText('Goal deadline'), '2027-01-21')
+    await user.type(screen.getByLabelText('Tracker deadline'), '2027-01-21')
     await user.click(screen.getByText('Plan targets and pace'))
     await user.selectOptions(screen.getByRole('combobox', { name: 'Planning mode' }), 'cumulative-deadline')
 
-    expect(screen.getByLabelText('Goal deadline')).toHaveValue('2027-01-21')
+    expect(screen.getByLabelText('Tracker deadline')).toHaveValue('2027-01-21')
     expect(screen.getByText('Jan 21, 2027')).toBeInTheDocument()
     expect(screen.queryByText(/Cumulative mode needs a deadline/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
@@ -552,7 +557,7 @@ describe('tracker setup flow', () => {
     const affected = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-10', outcome: 'recorded', values: { done: true }, note: 'Keep after deadline edit' })
     renderSetup(`/trackers/${existing.id}/edit`)
     await screen.findByText('Edit goal')
-    const deadlineInput = document.querySelector<HTMLInputElement>('.tracker-deadline-field input')!
+    const deadlineInput = screen.getByLabelText('Tracker deadline') as HTMLInputElement
     expect(deadlineInput).toHaveValue('2026-01-10')
     fireEvent.change(deadlineInput, { target: { value: '2026-01-09' } })
     const user = userEvent.setup()
@@ -596,7 +601,7 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     expect(await screen.findByLabelText('Start date')).toHaveAttribute('type', 'date')
     expect(screen.getByLabelText('Start date')).toHaveAttribute('max', '2026-01-10')
-    const deadline = document.querySelector('.tracker-deadline-field input')
+    const deadline = screen.getByLabelText('Tracker deadline')
     expect(deadline).toHaveAttribute('type', 'date')
     expect(deadline).toHaveAttribute('min', '2026-01-05')
     cleanup()
@@ -604,12 +609,13 @@ describe('tracker setup flow', () => {
   })
 
   it.each([
-    { kind: 'challenge' as const, deadlineLabel: 'Finish by' },
-    { kind: 'project' as const, deadlineLabel: 'Project deadline' },
+    { kind: 'challenge' as const, deadlineLabel: 'Tracker deadline' },
+    { kind: 'project' as const, deadlineLabel: 'Tracker deadline' },
   ])('sets the $kind creation deadline picker minimum to the chosen start date', async ({ kind, deadlineLabel }) => {
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('radio', { name: new RegExp(kind, 'i') }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Schedule duration' }), 'calendar')
     await user.click(await screen.findByText('More options'))
     await user.click(await screen.findByText('Schedule & holidays'))
     const start = screen.getByLabelText('Start date')

@@ -39,6 +39,7 @@ export function HistoryPage() {
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [holidays, setHolidays] = useState<AccountHoliday[]>([])
+  const [challengeHolidays, setChallengeHolidays] = useState<ReadonlySet<string>>(new Set())
   const [missing, setMissing] = useState<MissingCheckIn[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -83,17 +84,19 @@ export function HistoryPage() {
     try {
       const missingStart = shiftCalendarDate(today, -7) as CalendarDate
       const missingEnd = shiftCalendarDate(today, -1) as CalendarDate
-      const [allTrackers, recentEntries, recentHolidays, missingEntries, missingHolidays] = await Promise.all([
+      const [allTrackers, recentEntries, recentHolidays, missingEntries, missingHolidays, allHolidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(startDate, endDate),
         localRepository.listAccountHolidays(startDate, endDate),
         localRepository.listTrackerEntriesBetween(missingStart, missingEnd),
         localRepository.listAccountHolidays(missingStart, missingEnd),
+        localRepository.listAccountHolidays(),
       ])
       if (request !== rangeRequest.current) return
       setTrackers(allTrackers)
       setEntries(recentEntries)
       setHolidays(recentHolidays)
+      setChallengeHolidays(new Set(allHolidays.map((holiday) => holiday.date)))
       setMissing(selectMissingCheckIns({ trackers: allTrackers, entries: missingEntries, holidays: new Set(missingHolidays.map((holiday) => holiday.date)), dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, -7 + index) as CalendarDate), today, timeZone }))
     } catch {
       if (request !== rangeRequest.current) return
@@ -159,7 +162,7 @@ export function HistoryPage() {
           if (!tracker) return null
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={challengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
@@ -179,11 +182,11 @@ function groupMissingByDate(items: MissingCheckIn[]): Array<[CalendarDate, Missi
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; onEdit: () => void }) {
+function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holidays, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; holidays: ReadonlySet<string>; onEdit: () => void }) {
   const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · intentionally saved' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
   const statusClass = status === 'rest-day' || status === 'unscheduled' ? 'rest' : status
-  const challengeDay = getChallengeDayDisplay(tracker, entry.date, timeZone)
-  return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3>{challengeDay?.day && <p className="challenge-day-label">Day {challengeDay.day} of {challengeDay.totalDays}</p>}</div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
+  const challengeDay = getChallengeDayDisplay(tracker, entry.date, timeZone, holidays)
+  return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}</div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
     {tracker.status !== 'archived' && tracker.deletedAt === null
       ? <button className="button button-secondary button-medium" type="button" aria-label={`Edit check-in for ${calendarDateLabel(entry.date, { month: 'long', day: 'numeric' })}`} onClick={onEdit}>Edit check-in</button>
       : <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}

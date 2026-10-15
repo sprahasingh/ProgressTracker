@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { openDatabase } from './database'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
-import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
@@ -221,6 +221,9 @@ export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId
   }
   if (!isSchemaV5WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 5)) {
     throw new Error('This production build cannot restore schema v5 manual allocation trackers until the hosted migration is applied and verified.')
+  }
+  if (!isSchemaV6WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 6)) {
+    throw new Error('This backup contains unified scheduling records that this build cannot restore yet.')
   }
   const database = await openDatabase()
   const result = await database.transaction('rw', [...backupStores.map((name) => database.table(name))], async () => {

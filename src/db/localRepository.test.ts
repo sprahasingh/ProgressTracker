@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { activateWorkspace, db } from './database'
+import { activateWorkspace, db, queueSyncMutation } from './database'
 import { localRepository } from './localRepository'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
 import type { StoredTrackerDefinition } from './models'
@@ -191,6 +191,35 @@ describe('workspace mutation notifications', () => {
     await localRepository.saveTracker(v5)
     await expect(db.trackers.get(v5.id)).resolves.toMatchObject({ schemaVersion: 5, goalPlanning: { manualAllocations: { pages: { '2026-10-09': 30 } } } })
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-v5-account', 'tracker', v5.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 5, goalPlanning: { allocations: {}, manualAllocations: { pages: { '2026-10-09': 30 } } } } })
+  })
+
+  it('round-trips v6 scheduling and resolves its deadline again whenever holidays change', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    await activateWorkspace('scheduling-v6-account')
+    const effective: StoredTrackerDefinition = {
+      ...tracker, id: 'effective-habit', schemaVersion: 6, startDate: '2026-10-12', schedule: { kind: 'weekdays' }, deadline: '2026-10-14',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    }
+    await localRepository.saveTracker(effective)
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ schemaVersion: 6, scheduling: effective.scheduling, deadline: '2026-10-14' })
+    await localRepository.saveAccountHolidays(['2026-10-13'], null)
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-10-15' })
+    await localRepository.removeAccountHoliday('2026-10-13')
+    expect(await localRepository.listTrackers()).toMatchObject([{ id: effective.id, deadline: '2026-10-14', scheduling: effective.scheduling }])
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v6-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 6, scheduling: effective.scheduling } })
+  })
+
+  it('does not queue schema v6 trackers in production while the readiness flag is off', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', '')
+    await activateWorkspace('scheduling-v6-disabled-account')
+    const effective: StoredTrackerDefinition = {
+      ...tracker, id: 'disabled-effective-habit', schemaVersion: 6, startDate: '2026-10-12', deadline: '2026-10-14',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    }
+    await expect(queueSyncMutation(db, 'scheduling-v6-disabled-account', 'tracker', effective)).rejects.toThrow(/Schema v6 scheduling local and cloud writes are disabled/)
+    await expect(db.syncOperations.count()).resolves.toBe(0)
   })
 
   it('blocks local v3 persistence in production when migration readiness is not enabled', async () => {
