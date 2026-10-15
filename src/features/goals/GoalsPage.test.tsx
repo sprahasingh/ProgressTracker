@@ -131,7 +131,7 @@ describe('Goals page allocation preview', () => {
     expect(dates.querySelector('[aria-label*="Holiday"]')).toBeInTheDocument()
   })
 
-  it('uses one shared compact information control for all goal summary cards', async () => {
+  it('offers compact status filters and a focused goal summary', async () => {
     const today = localCalendarDate(new Date(), testTimeZone)
     await localRepository.saveTracker({
       schemaVersion: 4, id: 'goal-info-icons', name: 'Compact info test', description: '', kind: 'goal', status: 'active', categoryId: null,
@@ -140,10 +140,13 @@ describe('Goals page allocation preview', () => {
       createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
     })
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
-    for (const label of ['In progress', 'Overdue', 'Completed', 'All goals']) {
-      expect(await screen.findByRole('button', { name: `More about ${label}` })).toHaveClass('info-button')
-    }
-    expect(goalStyles).toMatch(/\.info-button::before\s*\{[^}]*width:\s*30px[^}]*height:\s*30px/s)
+    const filters = await screen.findByRole('group', { name: 'Filter goals' })
+    expect(within(filters).getByRole('button', { name: 'In progress · 1' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(filters).getByRole('button', { name: 'Completed' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(filters).getByRole('button', { name: 'All goals · 1' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('link', { name: 'Open plan' })).toHaveAttribute('href', '/trackers/goal-info-icons/edit')
+    expect(screen.getByRole('button', { name: /Compact info test/ })).toHaveTextContent('0 / 10 pages')
+    expect(goalStyles).toMatch(/\.goals-filter-option:focus-visible\s*\{[^}]*outline/s)
   })
 
   it('exposes an unsaved preview without changing the stored plan or check-ins', async () => {
@@ -266,8 +269,8 @@ describe('Goals page allocation preview', () => {
     expect(firstToggle).toHaveAttribute('aria-expanded', 'false')
     expect(secondToggle).toHaveAttribute('aria-expanded', 'false')
     expect(firstToggle).toHaveTextContent('2 / 10 chapters')
-    expect(firstToggle).toHaveTextContent('10 / 20 lessons')
-    expect(firstToggle.querySelectorAll('.goal-card-progress')).toHaveLength(2)
+    expect(firstToggle).not.toHaveTextContent('10 / 20 lessons')
+    expect(firstToggle.querySelectorAll('.goal-card-progress')).toHaveLength(1)
     expect(screen.queryByRole('region', { name: 'Chapters allocation preview' })).not.toBeInTheDocument()
 
     await user.click(firstToggle)

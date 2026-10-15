@@ -256,7 +256,7 @@ export function GoalsPage() {
               <span>{latest ? `${latestInPeriod ? latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · ' : 'Latest historical check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>
             </div></LazyDisclosure>
             <div className="tracker-card-actions">
-              <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit settings</Link>
+              <Link className="button button-secondary button-small" to={`/trackers/${encodeURIComponent(tracker.id)}/edit`}>Edit goal</Link>
               <Link className="button button-quiet button-small" to="/history">View history</Link>
               <Button variant="destructive" size="small" onClick={() => void moveGoalToBin(tracker)}>Delete goal</Button>
             </div>

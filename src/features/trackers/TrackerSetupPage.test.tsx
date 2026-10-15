@@ -374,7 +374,7 @@ describe('tracker setup flow', () => {
     expect(saved?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   }, 30_000)
 
-  it('uses the primary goal deadline in advanced cumulative planning copy and persists January 21, 2027', async () => {
+  it('keeps goal planning directly available and persists its January 21, 2027 deadline', async () => {
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
@@ -383,8 +383,7 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByText('Add a target or deadline'))
     await user.type(screen.getByRole('spinbutton', { name: 'Total amount' }), '100')
     await user.type(screen.getByLabelText('Goal deadline'), '2027-01-21')
-    await user.click(screen.getByText('More options'))
-    await user.click(screen.getByText(/Goal planning/, { selector: 'summary' }))
+    await user.click(screen.getByText('Plan targets and pace'))
     await user.selectOptions(screen.getByRole('combobox', { name: 'Planning mode' }), 'cumulative-deadline')
 
     expect(screen.getByLabelText('Goal deadline')).toHaveValue('2027-01-21')
