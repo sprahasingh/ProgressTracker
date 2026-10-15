@@ -60,6 +60,24 @@ describe('cumulative allocation preview', () => {
     expect(preview.days.slice(1).reduce((sum, day) => sum + day.outstanding, 0)).toBe(4)
   })
 
+  it('marks scheduled dates separately from unscheduled history and respects an explicit pre-creation start', () => {
+    const backdated: TrackerDefinition = {
+      ...tracker, schemaVersion: 5, schedule: { kind: 'specific-dates', dates: ['2026-01-05', '2026-01-07'] }, startDate: '2026-01-05', deadline: '2026-01-10',
+      createdAt: '2026-01-08T09:00:00.000Z',
+      goalPlanning: { ...tracker.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-05': 3 } } },
+    }
+    const preview = createCumulativeAllocationPreview({
+      tracker: backdated,
+      entries: [entry('2026-01-04', 100), entry('2026-01-05', 2), entry('2026-01-06', 4), entry('2026-01-07', 3)],
+      metricId: 'pages', totalTarget: 20, startDate: '2026-01-05', asOfDate: '2026-01-08', timeZone: 'UTC',
+    })
+    expect(preview.actualProgress).toBe(9)
+    expect(preview.days.some((day) => day.date === '2026-01-04')).toBe(false)
+    expect(preview.days.find((day) => day.date === '2026-01-05')).toMatchObject({ scheduled: true, historical: true, amount: 3, completed: 2, manual: true })
+    expect(preview.days.find((day) => day.date === '2026-01-06')).toMatchObject({ scheduled: false, historical: true, amount: null, completed: 4 })
+    expect(preview.days.find((day) => day.date === '2026-01-07')).toMatchObject({ scheduled: true, historical: true, amount: null, completed: 3, manual: false })
+  })
+
   it('keeps required Auto pace equal to the remaining Auto plan after Manual reservations', () => {
     const goal: TrackerDefinition = {
       ...tracker, schemaVersion: 5, schedule: { kind: 'every-day' }, startDate: '2026-01-05', deadline: '2026-01-08',

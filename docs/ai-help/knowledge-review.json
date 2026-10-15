@@ -153,21 +153,21 @@
   },
   "daily-vs-cumulative-goal": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/domain/trackers/allocationPreview.ts": "8b145cd53eb4f7454f987402fd50236b8552711a918384bfa5d18ae257b8f498",
+    "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
     "src/domain/trackers/goalPlanning.test.ts": "45c6020fb243a9137429e9063ac8fd29eccd2ff3451009dfcaf5d3dbdd2f940a",
     "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf"
   },
   "cumulative-plan-rebalancing": {
-    "src/domain/trackers/allocationPreview.ts": "8b145cd53eb4f7454f987402fd50236b8552711a918384bfa5d18ae257b8f498",
-    "src/domain/trackers/allocationPreview.test.ts": "f75095b7bf1bc2f0526d028da989e57090965acc77eb4568f96a5d1077bc3393",
-    "src/features/goals/CumulativeAllocationPreview.tsx": "5382022e3aee77dc14e4fc539eeab6f1c397f206a66408c93a74fb93e3ffa472",
-    "src/features/goals/CumulativeAllocationPreview.test.tsx": "4b83ea692adda3a201da2a4b48ad89761a25b3f7db8be2318ade2f83e6650d78",
-    "src/services/supabase/syncEngine.test.ts": "6a53b1e4265e81512bd1de6130d74e6645920e2aaab758b07173549cc5c18f9f",
+    "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
+    "src/domain/trackers/allocationPreview.test.ts": "5116330c2d2ae5300080f18893624eff5a104075eb47f012056fe79f9c90d536",
+    "src/features/goals/CumulativeAllocationPreview.tsx": "6561d4135e1a0635f396f5140ca294c039ad20a8a176b874aae624b8b08602cc",
+    "src/features/goals/CumulativeAllocationPreview.test.tsx": "f6d850f90798ae5f26ff5b4c04b02112bdcedca8bc24e63ea2c2211069dec670",
+    "src/services/supabase/syncEngine.test.ts": "51f85ca60d421276a6c38730daa73988530e17af91a0157282bb69148181542a",
     "supabase/migrations/20261107000100_tracker_manual_goal_allocations_v5.sql": "644b93cabee8028aabe3adbfe3d973abfdc0f970177c83dbcfee8663764a7e66"
   },
   "milestones": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/domain/trackers/allocationPreview.ts": "8b145cd53eb4f7454f987402fd50236b8552711a918384bfa5d18ae257b8f498",
+    "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
     "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf"
   },
   "goal-deadline": {
