@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -30,6 +30,18 @@ describe('schema v4 production write gate', () => {
     expect(isSchemaV4WriteEnabled()).toBe(false)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V4', 'true')
     expect(isSchemaV4WriteEnabled()).toBe(true)
+  })
+})
+
+describe('schema v5 production write gate', () => {
+  it('keeps separate manual allocations disabled until the hosted migration is verified', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', '')
+    expect(isSchemaV5WriteEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'false')
+    expect(isSchemaV5WriteEnabled()).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'true')
+    expect(isSchemaV5WriteEnabled()).toBe(true)
   })
 })
 

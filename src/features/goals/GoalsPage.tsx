@@ -27,9 +27,24 @@ type GoalProgressSummary = { metricId: string; name: string; value: string; targ
 
 export function GoalsPage() {
   const { notify } = useToast()
-  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, isOnline } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
-  const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
+  const [today, setToday] = useState(() => localCalendarDate(new Date(), timeZone))
+  useEffect(() => {
+    const refreshLocalDate = () => {
+      const currentDate = localCalendarDate(new Date(), timeZone)
+      setToday((previous) => previous === currentDate ? previous : currentDate)
+    }
+    refreshLocalDate()
+    const interval = window.setInterval(refreshLocalDate, 30_000)
+    window.addEventListener('focus', refreshLocalDate)
+    document.addEventListener('visibilitychange', refreshLocalDate)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshLocalDate)
+      document.removeEventListener('visibilitychange', refreshLocalDate)
+    }
+  }, [timeZone])
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && authStatus !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === expectedOwner
   const workspaceKey = workspaceReady ? expectedOwner ?? 'guest' : null
@@ -136,7 +151,6 @@ export function GoalsPage() {
           const latestInPeriod = Boolean(latest && isTrackerInActivePeriod(tracker, latest.date, planningTimeZone))
           const latestQualified = latestInPeriod && latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
           const startDate = trackerActiveStartDate(tracker, planningTimeZone)
-          const entriesRevision = goalEntries.reduce((latestRevision, entry) => entry.updatedAt > latestRevision ? entry.updatedAt : latestRevision, '')
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
           const expanded = expandedGoals.has(tracker.id)
           const goalDetailId = `goal-details-${encodeURIComponent(tracker.id)}`
@@ -195,19 +209,16 @@ export function GoalsPage() {
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const format = formatTrackerNumber
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
-                    const expectedPercent = totalTarget === 0 ? 100 : Math.min(100, plan.expectedProgress / totalTarget * 100)
                     return <div className="goal-cumulative-metric" key={metricId}>
                       <div className="goal-plan-metric-heading"><strong>{metric.name}</strong><span>{format(totalTarget)}{unit} total</span></div>
-                      <div className="goal-plan-bars" role="img" aria-label={`${metric.name}: actual ${format(plan.actualProgress)}${unit} of ${format(totalTarget)}${unit}; expected ${format(plan.expectedProgress)}${unit}`}>
-                        <div><span>Actual</span><div className="goal-plan-bar"><i className="actual" style={{ width: `${actualPercent}%` }} /></div></div>
-                        <div><span>Expected by today</span><div className="goal-plan-bar"><i className="expected" style={{ width: `${expectedPercent}%` }} /></div></div>
+                      <div className="goal-plan-bars" role="img" aria-label={`${metric.name}: ${format(plan.actualProgress)}${unit} completed of ${format(totalTarget)}${unit}; expected ${format(plan.expectedProgress)}${unit} by today`}>
+                        <div><span>Progress</span><div className="goal-plan-bar"><i className="actual" style={{ width: `${actualPercent}%` }} /></div></div>
                       </div>
                       <dl className="goal-plan-facts"><div><dt>Completed</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected by today</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${format(plan.requiredDailyPace)}${unit} / scheduled day`}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
-                        key={`${tracker.id}:${metricId}:${planningToday}:${plan.actualProgress}:${tracker.updatedAt}:${entriesRevision}`}
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
-                        v3WritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates}
+                        manualPlanWritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion === 5 ? 5 : tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates} isOnline={isOnline} signedIn={authStatus === 'signed-in'}
                         onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh(); notify({ kind: 'success', title: 'Daily plan saved', description: 'Your saved allocations were updated on this device.', dedupeKey: `plan:${tracker.id}:${metricId}` }) }}
                       />}
                     </div>

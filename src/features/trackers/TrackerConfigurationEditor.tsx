@@ -144,7 +144,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
   }
   const incompatiblePlanValues = (metric: TrackerMetricDefinition) => {
     if (!metric.precision || !planning) return []
-    const amounts = [planning.dailyTargets[metric.id], planning.cumulativeTargets[metric.id], ...Object.values(planning.allocations?.[metric.id] ?? {})]
+    const amounts = [planning.dailyTargets[metric.id], planning.cumulativeTargets[metric.id], ...Object.values(planning.allocations?.[metric.id] ?? {}), ...Object.values(planning.manualAllocations?.[metric.id] ?? {})]
     return [...new Set(amounts.filter((value): value is number => value !== undefined && Math.abs(value / metric.precision!.increment - Math.round(value / metric.precision!.increment)) > 1e-8))]
   }
   function updateMetric(id: string, changes: Partial<TrackerMetricDefinition>) {

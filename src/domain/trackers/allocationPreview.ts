@@ -1,13 +1,15 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence, latestEntriesByDate, trackerActiveStartDate } from './planning'
 
-export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; holiday?: boolean; closed?: boolean }
+export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; completed: number; outstanding: number; manual: boolean; historical: boolean; holiday?: boolean; closed?: boolean }
 export type CumulativeAllocationPreview = {
   metricId: string
   totalTarget: number
   actualProgress: number
   remainingTarget: number
   eligibleDayCount: number
+  unallocatedWork: number
+  overAllocatedWork: number
   days: AllocationPreviewDay[]
 }
 export type AllocationPreviewTotals = {
@@ -26,6 +28,7 @@ export function createCumulativeAllocationPreview(input: {
   startDate: string
   holidays?: ReadonlySet<string>
   timeZone?: string
+  manualAllocations?: Readonly<Record<string, number>>
 }): CumulativeAllocationPreview {
   const progress = calculateCumulativeMetricPlan({
     ...input,
@@ -35,36 +38,93 @@ export function createCumulativeAllocationPreview(input: {
   })
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Allocation previews require a numeric or checklist metric.')
+  const remainingWork = Math.max(0, sumPrecise([input.totalTarget, -progress.actualProgress]))
 
-  const activeStartDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
-  const startDate = activeStartDate > input.asOfDate ? activeStartDate : input.asOfDate
+  const startDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
   const latestEntries = latestEntriesByDate(input.tracker, input.entries)
-  const todayClosed = latestEntries.has(input.asOfDate)
   const days: AllocationPreviewDay[] = []
   if (startDate <= input.tracker.deadline!) {
     for (let time = dateNumber(startDate); time <= dateNumber(input.tracker.deadline!); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
       const holiday = input.holidays?.has(date) ?? false
-      const closed = date === input.asOfDate && todayClosed
-      days.push({ date, eligible: isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday && !closed, amount: null, ...(holiday ? { holiday: true } : {}), ...(closed ? { closed: true } : {}) })
+      const entry = latestEntries.get(date)
+      const completedValue = entry?.outcome === 'recorded' ? entryValue(input.tracker, input.metricId, entry) : 0
+      const completed = Number.isFinite(completedValue) ? completedValue : 0
+      const eligible = input.tracker.status === 'active' && date >= input.asOfDate && isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday
+      days.push({ date, eligible, amount: null, completed, outstanding: 0, manual: false, historical: date < input.asOfDate, ...(holiday ? { holiday: true } : {}), ...(date === input.asOfDate && entry ? { closed: false } : {}) })
     }
   }
 
   const eligible = days.filter((day) => day.eligible)
-  const allocations = distributeTarget(progress.remainingWork, eligible.length, metric.valueType === 'checklist', metric.precision?.increment)
-  let allocationIndex = 0
-  for (const day of days) {
-    if (day.eligible) day.amount = allocations[allocationIndex++] ?? 0
+  const savedPlans = input.tracker.goalPlanning?.allocations?.[input.metricId] ?? {}
+  // Old allocation maps mixed generated dates and user edits. Keep those values
+  // as history and require an explicit choice before treating them as fixed.
+  const configuredManualPlans = input.tracker.goalPlanning?.manualAllocations
+  const manualPlans = input.manualAllocations ?? (configuredManualPlans && Object.hasOwn(configuredManualPlans, input.metricId)
+    ? configuredManualPlans[input.metricId] ?? {}
+    : {})
+  const fixedOutstandingValues: number[] = []
+  const autoDays: AllocationPreviewDay[] = []
+  for (const day of eligible) {
+    const manualAmount = manualPlans[day.date]
+    if (manualAmount !== undefined) {
+      day.manual = true
+      day.amount = manualAmount
+      day.outstanding = Math.max(0, sumPrecise([manualAmount, day.date === input.asOfDate ? -day.completed : 0]))
+      fixedOutstandingValues.push(day.outstanding)
+    } else autoDays.push(day)
   }
+  const fixedOutstanding = sumPrecise(fixedOutstandingValues)
+  const autoWork = Math.max(0, sumPrecise([remainingWork, -fixedOutstanding]))
+  const allocations = distributeTarget(autoWork, autoDays.length, metric.valueType === 'checklist', metric.precision?.increment)
+  let allocationIndex = 0
+  for (const day of autoDays) {
+    day.outstanding = allocations[allocationIndex] ?? 0
+    day.amount = day.outstanding + (day.date === input.asOfDate ? day.completed : 0)
+    allocationIndex += 1
+  }
+
+  // Historical plans remain visible for comparison but no longer reserve work.
+  for (const day of days) {
+    if (day.historical) {
+      const oldPlan = manualPlans[day.date] ?? savedPlans[day.date]
+      if (oldPlan !== undefined) day.amount = oldPlan
+      day.outstanding = Math.max(0, (day.amount ?? 0) - day.completed)
+      day.manual = manualPlans[day.date] !== undefined
+    }
+  }
+  const overAllocatedWork = Math.max(0, sumPrecise([fixedOutstanding, -remainingWork]))
+  const unallocatedWork = autoDays.length === 0 ? Math.max(0, sumPrecise([remainingWork, -fixedOutstanding])) : 0
 
   return {
     metricId: input.metricId,
     totalTarget: input.totalTarget,
     actualProgress: progress.actualProgress,
-    remainingTarget: progress.remainingWork,
+    remainingTarget: remainingWork,
     eligibleDayCount: eligible.length,
+    unallocatedWork,
+    overAllocatedWork,
     days,
   }
+}
+
+function entryValue(tracker: TrackerDefinition, metricId: string, entry: TrackerEntry): number {
+  const metric = tracker.metrics.find((item) => item.id === metricId)
+  const value = entry.values[metricId]
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  if (metric?.valueType === 'checklist' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const validIds = new Set(metric.checklistItems?.map((item) => item.id) ?? [])
+    if (Object.keys(value).some((key) => !validIds.has(key)) || Object.values(value).some((checked) => typeof checked !== 'boolean')) return 0
+    return Object.values(value).filter((checked) => checked === true).length
+  }
+  return 0
+}
+
+function sumPrecise(values: readonly number[]): number {
+  if (values.length === 0) return 0
+  const scale = Math.min(15, Math.max(0, ...values.map(decimalPlaces)))
+  const total = values.reduce((sum, value) => sum + decimalToScaledInteger(value, scale), 0n)
+  return Number(total) / 10 ** scale
 }
 
 /** Distributes the smallest allowed increments from the earliest eligible dates. */

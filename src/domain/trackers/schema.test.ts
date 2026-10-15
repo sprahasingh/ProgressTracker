@@ -118,6 +118,19 @@ describe('generic tracker schemas', () => {
     expect(validateTrackerEntryValues(v4, { pages: 1.4 }, { existingValues: { pages: 1.3 } })).toMatch(/increments of 0.25/)
   })
 
+  it('requires v5 for distinct manually fixed cumulative allocations', () => {
+    const manualPlanning = {
+      mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {},
+      cumulativeTargets: { pages: 100 }, planningTimeZone: 'UTC', allocations: {},
+      manualAllocations: { pages: { '2026-01-05': 30 } },
+    }
+    const v5 = { ...tracker, schemaVersion: 5 as const, kind: 'goal' as const, goalPlanning: manualPlanning }
+    expect(trackerDefinitionSchema.safeParse(v5).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...v5, schemaVersion: 4 }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v5, goalPlanning: { ...manualPlanning, manualAllocations: { unknown: { '2026-01-05': 2 } } } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v5, goalPlanning: { ...manualPlanning, planningTimeZone: undefined } }).success).toBe(false)
+  })
+
   it('rejects planning on v1 and non-goal v2 definitions', () => {
     const planning = { mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} }
     expect(trackerDefinitionSchema.safeParse({ ...tracker, goalPlanning: planning }).success).toBe(false)

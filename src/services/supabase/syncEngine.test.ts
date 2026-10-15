@@ -332,6 +332,23 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get(v4.id)).resolves.toMatchObject({ schemaVersion: 4, metrics: [{ precision: { decimalPlaces: 1, increment: 0.1 } }], goalPlanning: { allocations: { pages: { '2026-10-09': 4.2, '2026-10-10': 3.8 } } } })
   })
 
+  it('uploads and downloads v5 manual allocations with the existing tracker revision protocol', async () => {
+    await activateWorkspace('sync-user')
+    const manual: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 5,
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'UTC', allocations: {}, manualAllocations: { pages: { '2026-10-10': 30 } } },
+    }
+    await localRepository.saveTracker(manual)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(manual, 'sync-user', 1) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 5, definition: { schemaVersion: 5, goalPlanning: { allocations: {}, manualAllocations: { pages: { '2026-10-10': 30 } } } } })
+    await db.trackers.clear()
+    await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(manual)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(manual.id)).resolves.toMatchObject({ schemaVersion: 5, goalPlanning: { manualAllocations: { pages: { '2026-10-10': 30 } } } })
+  })
+
   it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {
     await activateWorkspace('sync-user')
     const v3: StoredTrackerDefinition = {

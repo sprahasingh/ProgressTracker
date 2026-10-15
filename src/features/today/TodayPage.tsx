@@ -271,12 +271,14 @@ export function TodayPage() {
             if (goal.goalPlanning.progressSemantics[metric.id] === 'incremental') {
               const calculation = calculateCumulativeMetricPlan({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, progressSemantics: 'incremental', holidays: holidaySet, timeZone: planningTimeZone })
               remaining = calculation.remainingWork
-              savedAllocation = goal.goalPlanning.allocations?.[metric.id]?.[planningToday]
-              recommendation = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, holidays: holidaySet, timeZone: planningTimeZone }).days.find((day) => day.date === planningToday)?.amount ?? undefined
+              const preview = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, holidays: holidaySet, timeZone: planningTimeZone })
+              const todayPlanDay = preview.days.find((day) => day.date === planningToday)
+              recommendation = todayPlanDay?.amount ?? undefined
+              savedAllocation = todayPlanDay?.manual ? todayPlanDay.amount ?? undefined : undefined
             }
           }
           const unit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''
-          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Updated pace today: {formatTrackerNumber(recommendation)}{unit} · {formatTrackerNumber(remaining ?? 0)}{unit} remaining</span>}{savedAllocation !== undefined && savedAllocation !== recommendation && <small>Saved plan: {formatTrackerNumber(savedAllocation)}{unit} · planner can rebalance it</small>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
+          return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Planned today: {formatTrackerNumber(recommendation)}{unit} · {formatTrackerNumber(remaining ?? 0)}{unit} goal remaining</span>}{savedAllocation !== undefined && <small>Manually planned for today</small>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
         })}</div>
       </section>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}

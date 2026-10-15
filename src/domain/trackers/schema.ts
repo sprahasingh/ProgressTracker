@@ -99,6 +99,7 @@ const goalPlanningSchema = z.object({
   cumulativeTargets: z.record(z.string(), positivePlanningTarget),
   planningTimeZone: z.string().min(1).optional(),
   allocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
+  manualAllocations: z.record(z.string(), z.record(z.iso.date(), planningTarget)).optional(),
 })
 
 function isIanaTimeZone(value: string): boolean {
@@ -126,7 +127,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -152,10 +153,12 @@ export const trackerDefinitionSchema = z.object({
 }).superRefine((tracker, context) => {
   if (tracker.schemaVersion === 1 && tracker.goalPlanning) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Planning configuration requires tracker schema version 2.' })
   if ((tracker.schemaVersion === 2 || tracker.schemaVersion === 3) && (tracker.kind !== 'goal' || !tracker.goalPlanning)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: `Schema version ${tracker.schemaVersion} is reserved for goals with planning configuration.` })
-  if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
+  if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined || tracker.goalPlanning?.manualAllocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
   if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4 || tracker.schemaVersion === 5) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if (tracker.schemaVersion === 5 && (tracker.kind !== 'goal' || tracker.goalPlanning?.mode !== 'cumulative-deadline' || !tracker.goalPlanning.planningTimeZone || !tracker.goalPlanning.allocations || !tracker.goalPlanning.manualAllocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 5 requires a timezone-aware cumulative goal with separate manual allocations.' })
+  if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
@@ -205,25 +208,25 @@ export const trackerDefinitionSchema = z.object({
       if (!metric) context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Progress semantics reference an unknown metric.' })
       else if (metric.valueType === 'boolean') context.addIssue({ code: 'custom', path: ['goalPlanning', 'progressSemantics', metricId], message: 'Boolean metrics do not support numeric progress semantics.' })
     }
-    if (plan.allocations) {
-      for (const [metricId, datedAmounts] of Object.entries(plan.allocations)) {
+    for (const [allocationField, allocationMap] of [['allocations', plan.allocations], ['manualAllocations', plan.manualAllocations]] as const) {
+      if (allocationMap) for (const [metricId, datedAmounts] of Object.entries(allocationMap)) {
         const metric = metrics.get(metricId)
         if (!metric) {
-          context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId], message: 'Allocation references an unknown metric.' })
+          context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId], message: 'Allocation references an unknown metric.' })
           continue
         }
         if (metric.valueType === 'boolean' || plan.progressSemantics[metricId] !== 'incremental' || plan.cumulativeTargets[metricId] === undefined) {
-          context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId], message: 'Allocations require an incremental metric with a cumulative target.' })
+          context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId], message: 'Allocations require an incremental metric with a cumulative target.' })
           continue
         }
         for (const [date, amount] of Object.entries(datedAmounts)) {
-          if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
-          if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
-          if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
+          if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
+          if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
+          if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
           const effectiveStartDate = tracker.startDate && tracker.startDate > trackerCreationDate(tracker, plan.planningTimeZone) ? tracker.startDate : trackerCreationDate(tracker, plan.planningTimeZone)
           const historicalAllocation = date < effectiveStartDate
           const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
-          if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', 'allocations', metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
+          if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
         }
       }
     }

@@ -3172,6 +3172,48 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .mobile-more-trigger[aria-current='page'], .mobile-more.has-active-route .mobile-more-trigger,
 .mobile-more-item[aria-current='page'] { color: var(--accent-strong); }
 
+/* Goal planning and editing remain usable without a wide scrolling table. */
+.allocation-preview { min-width: 0; }
+.allocation-legacy-notice { display: grid; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-muted); font-size: 10px; line-height: 1.45; }
+.allocation-legacy-notice > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.allocation-legacy-notice .button { justify-self: start; white-space: normal; }
+.allocation-save-status { margin: 8px 0; color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.allocation-preview-heading, .allocation-preview-heading > div { min-width: 0; }
+.allocation-preview-table-wrap { overflow-x: hidden; }
+.allocation-preview-table { width: 100%; min-width: 0; table-layout: fixed; }
+.allocation-preview-table th:first-child { width: 34%; }
+.allocation-preview-table th:nth-child(2) { width: 28%; }
+.allocation-preview-table th:nth-child(3) { width: 38%; }
+.allocation-preview-table th, .allocation-preview-table td { min-width: 0; padding: 7px 6px; overflow-wrap: anywhere; }
+.allocation-preview-table tbody th { white-space: normal; }
+.allocation-input-label { min-width: 0; }
+.allocation-input-label input { box-sizing: border-box; width: 100%; min-width: 0; }
+.allocation-planned-cell { display: grid; min-width: 0; gap: 3px; justify-items: start; }
+.allocation-manual-indicator, .allocation-auto-indicator { color: var(--ink-subtle); font-size: 9px; line-height: 1.25; }
+.allocation-manual-indicator { color: var(--accent-strong); }
+.allocation-reset-button { max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: var(--ink-muted); font-size: 9px; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.allocation-reset-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.goal-card-summary-name { min-width: 0; overflow-wrap: anywhere; }
+.goal-card-summary-metric { min-width: 0; }
+.goal-expanded-details .tracker-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.goal-expanded-details .tracker-card-actions > * { width: auto; min-width: 0; }
+.goal-expanded-details .tracker-card-actions > :last-child { justify-self: end; }
+.tracker-form-actions { justify-content: flex-end; }
+.tracker-form-actions > * { width: auto; min-width: 150px; max-width: 230px; }
+@media (max-width: 560px) {
+  .goal-card-summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .goal-expanded-details .tracker-card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .goal-expanded-details .tracker-card-actions > :last-child { grid-column: 1 / -1; justify-self: start; }
+  .tracker-form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tracker-form-actions > * { width: 100%; min-width: 0; max-width: none; min-height: 44px; }
+  .allocation-preview-table th:first-child { width: 36%; }
+  .allocation-preview-table th:nth-child(2) { width: 25%; }
+  .allocation-preview-table th:nth-child(3) { width: 39%; }
+  .allocation-preview-table th, .allocation-preview-table td { padding-inline: 4px; font-size: 9px; }
+  .tracker-setup-form:has(input:focus, textarea:focus, select:focus) .tracker-form-actions { position: static; box-shadow: none; }
+  .tracker-form-actions { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+}
+
 /* Keep all top-bar controls inside the narrowest supported phone viewport. */
 @media (max-width: 380px) {
   .topbar { gap: 2px; padding-right: 8px; padding-left: 8px; }

@@ -169,7 +169,7 @@ describe('Goals page allocation preview', () => {
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
     const tomorrow = shiftCalendarDate(today, 1)
     fireEvent.change(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` }), { target: { value: '0' } })
-    expect(await screen.findByText(/remains unallocated\./)).toBeInTheDocument()
+    expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
 
     await waitFor(async () => {
       await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })
@@ -196,7 +196,7 @@ describe('Goals page allocation preview', () => {
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { questions: 3 }, note: '' })
 
     await waitFor(() => expect(screen.getAllByText('6 problems').length).toBeGreaterThanOrEqual(1))
-    expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 1)}` })).toHaveValue(2)
     expect(screen.getByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
   })
 
@@ -218,20 +218,19 @@ describe('Goals page allocation preview', () => {
     expect(await screen.findByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 6 }, note: '' })
-    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
-    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3)
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(1))
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 2 }, note: 'edited' })
-    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
     expect(await db.trackers.get(tracker.id)).toMatchObject({ goalPlanning: tracker.goalPlanning })
 
     cleanup()
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
-    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
 
     await localRepository.deleteTrackerEntry(tracker.id, today)
-    await waitFor(() => expect(screen.getByText(/plan has rebalanced around your completed work/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
     await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })
     await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, today]).first()).resolves.toMatchObject({ values: { problems: 2 }, note: 'edited', deletedAt: expect.any(String) })
   })

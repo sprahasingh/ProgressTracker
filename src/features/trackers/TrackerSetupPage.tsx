@@ -346,17 +346,18 @@ export function TrackerSetupPage() {
       const replacement = metrics.find((metric) => metric.id === oldMetric.id)
       const hasPlanData = goalPlanning.progressSemantics[oldMetric.id] !== undefined ||
         goalPlanning.dailyTargets[oldMetric.id] !== undefined || goalPlanning.cumulativeTargets[oldMetric.id] !== undefined ||
-        goalPlanning.allocations?.[oldMetric.id] !== undefined
+        goalPlanning.allocations?.[oldMetric.id] !== undefined || goalPlanning.manualAllocations?.[oldMetric.id] !== undefined
       return hasPlanData && (!nextIds.has(oldMetric.id) || replacement?.valueType === 'boolean')
     }).map((metric) => metric.id)
     if (invalidatedIds.length && !window.confirm('Removing or changing this measure to yes/no will also remove its planning semantics and targets. Its saved check-in history remains unchanged. Continue?')) return
     if (invalidatedIds.length) {
-      const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets }, allocations: { ...(goalPlanning.allocations ?? {}) } }
+      const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets }, allocations: { ...(goalPlanning.allocations ?? {}) }, manualAllocations: { ...(goalPlanning.manualAllocations ?? {}) } }
       for (const id of invalidatedIds) {
         delete nextPlanning.progressSemantics[id]
         delete nextPlanning.dailyTargets[id]
         delete nextPlanning.cumulativeTargets[id]
         delete nextPlanning.allocations[id]
+        delete nextPlanning.manualAllocations[id]
       }
       setGoalPlanning(nextPlanning)
     }
@@ -369,7 +370,7 @@ export function TrackerSetupPage() {
     const usesRule = (rule?: TrackerRule): boolean => !rule ? false : rule.kind === 'threshold' || rule.kind === 'comparison'
       ? rule.metricId === metricId
       : rule.operands.some(usesRule)
-    const hasPlan = [goalPlanning.progressSemantics, goalPlanning.dailyTargets, goalPlanning.cumulativeTargets, goalPlanning.allocations].some((map) => Boolean(map?.[metricId]))
+    const hasPlan = [goalPlanning.progressSemantics, goalPlanning.dailyTargets, goalPlanning.cumulativeTargets, goalPlanning.allocations, goalPlanning.manualAllocations].some((map) => Boolean(map?.[metricId]))
     const hasMilestone = configuration.milestones.some((item) => item.metricId === metricId)
     if (usesRule(configuration.rule) || hasPlan || hasMilestone) {
       const dependencies = [usesRule(configuration.rule) && 'success rule', hasPlan && 'goal plan', hasMilestone && 'milestone'].filter(Boolean).join(', ')
@@ -487,7 +488,7 @@ export function TrackerSetupPage() {
       const submittedMetrics = configuration.metrics.map((metric, index) => index === 0 && (metric.valueType === 'quantity' || metric.valueType === 'duration') && (isNewPlannedGoal || existing?.kind === 'goal' && existing.goalPlanning || existing !== undefined)
         ? { ...metric, unit: metric.unit?.trim() }
         : metric)
-      let submittedPlanning = goalPlanning
+      let submittedPlanning = { ...goalPlanning }
       if (isNewPlannedGoal && enteredGoalAmount !== undefined && submittedMetrics[0] && !planningEditorTouched) {
         const metricId = submittedMetrics[0].id
         submittedPlanning = {
@@ -510,8 +511,14 @@ export function TrackerSetupPage() {
       )
       const persistGoalPlanning = kind === 'goal' && planWasConfigured
       const hasPrecisionConfiguration = submittedMetrics.some((metric) => metric.precision !== undefined)
-      const hasV3Planning = Boolean(submittedPlanning.planningTimeZone || submittedPlanning.allocations)
-      const schemaVersion: TrackerDefinition['schemaVersion'] = hasPrecisionConfiguration ? 4
+      if (submittedPlanning.mode !== 'cumulative-deadline' && submittedPlanning.manualAllocations) {
+        submittedPlanning.allocations = { ...(submittedPlanning.allocations ?? {}), ...submittedPlanning.manualAllocations }
+        delete submittedPlanning.manualAllocations
+      }
+      const hasManualAllocations = submittedPlanning.mode === 'cumulative-deadline' && submittedPlanning.manualAllocations !== undefined
+      const hasV3Planning = Boolean(submittedPlanning.planningTimeZone || submittedPlanning.allocations || submittedPlanning.manualAllocations)
+      const schemaVersion: TrackerDefinition['schemaVersion'] = hasManualAllocations ? 5
+        : hasPrecisionConfiguration ? 4
         : hasV3Planning ? 3
           : persistGoalPlanning ? 2
             : existing && existing.schemaVersion < 4 ? existing.schemaVersion : 1

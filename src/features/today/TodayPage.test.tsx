@@ -417,7 +417,7 @@ describe('Today check-ins', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent(/Completed\s*5/)
   })
 
-  it('shows cumulative goal totals separately from today’s saved allocation and updates details after edits and deletion', async () => {
+  it('shows cumulative totals with a recalculated daily plan after check-in edits and deletion', async () => {
     const user = userEvent.setup()
     const current = today()
     const deadline = new Date(Date.parse(`${current}T00:00:00.000Z`) + 2 * 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
@@ -432,19 +432,19 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
 
     const card = await screen.findByRole('heading', { name: 'Daily DSA course' }).then((heading) => heading.closest('.today-checkin-card')!)
-    expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions')
+    expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 4 sessions')
     await user.click(screen.getByRole('button', { name: 'Open Daily DSA course, Pending' }))
     await user.type(screen.getByLabelText('Problems · sessions'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('3 / 5 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('3 / 6 sessions'))
     const detailsButton = screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!
     await user.click(detailsButton)
     await waitFor(() => expect(detailsButton).toHaveAttribute('aria-expanded', 'true'))
     let dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Goal total10 sessions')
     expect(dialog).toHaveTextContent('Recorded toward goal3 sessions')
-    expect(dialog).toHaveTextContent('Saved allocation5 sessions')
-    expect(dialog).toHaveTextContent(/Next scheduled suggestion.*4 sessions/)
+    expect(dialog).toHaveTextContent('Today’s planned amount6 sessions')
+    expect(dialog).toHaveTextContent(/Next scheduled suggestion.*2 sessions/)
     expect(dialog).toHaveTextContent('Minimum2 sessions')
     expect(dialog).toHaveTextContent('Target threshold5 sessions')
     expect(dialog).toHaveTextContent('Stretch8 sessions')
@@ -453,7 +453,7 @@ describe('Today check-ins', () => {
     await user.clear(screen.getByLabelText('Problems · sessions'))
     await user.type(screen.getByLabelText('Problems · sessions'), '4')
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('4 / 5 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('4 / 6 sessions'))
     await user.click(screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!)
     dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Recorded toward goal4 sessions')
@@ -470,7 +470,7 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Clear check-in' }))
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear check-in' }))
     await waitFor(() => expect(deleteEntry).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 5 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('0 / 4 sessions'))
   })
 
   it('keeps a daily recurring target distinct from per-check-in thresholds', async () => {
