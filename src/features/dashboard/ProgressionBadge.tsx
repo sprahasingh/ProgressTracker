@@ -5,7 +5,7 @@ import { achievementDefinition, badgeTierLabel } from './achievementCatalog'
 const badgeIcons: Record<string, AppIconName> = {
   'first-step': 'check', momentum: 'habit', 'first-flame': 'spark', 'steady-flame': 'spark', unstoppable: 'trackers', century: 'calendar',
   'perfect-day': 'today', 'perfect-week': 'calendar', 'milestone-maker': 'goal', 'goal-crusher': 'goal', 'consistency-star': 'insights', dedicated: 'check',
-  'perfect-month': 'calendar', 'the-comeback': 'reset',
+  'perfect-month': 'calendar', 'perfect-year': 'calendar', 'the-comeback': 'reset',
 }
 
 export function ProgressionBadge({ achievementId, tier = 1, locked = false, size = 'normal' }: {

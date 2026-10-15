@@ -85,7 +85,11 @@ export function calculateProgressionLevel(confirmedXp: number): ProgressionLevel
     else upper = middle
   }
   const currentLevelXp = xpRequiredForLevel(level)
-  const nextLevelXp = xpRequiredForLevel(level + 1)
+  const nextThreshold = 50 * level * (level + 1)
+  // At the last safe integer XP, the mathematical next threshold is outside
+  // JavaScript's exact integer range. Keep the supported progression bounded
+  // by the largest exact XP value rather than failing an otherwise valid read.
+  const nextLevelXp = Number.isSafeInteger(nextThreshold) ? nextThreshold : Number.MAX_SAFE_INTEGER
   return { level, currentLevelXp, nextLevelXp, progressXp: confirmedXp - currentLevelXp, requiredXp: nextLevelXp - currentLevelXp }
 }
 
@@ -123,6 +127,7 @@ export type AchievementFacts = {
   consistencyScore: number | null
   completedConsistencyDays: number
   perfectMonths?: number
+  perfectYears?: number
   comebacks?: number
 }
 
@@ -140,6 +145,7 @@ export const PROGRESSION_ACHIEVEMENTS = [
   { id: 'consistency-star', name: 'Consistency Star', field: 'consistencyScore', target: 80, minimumDays: 30 },
   { id: 'dedicated', name: 'Dedicated', field: 'qualifyingCheckIns', target: 100 },
   { id: 'perfect-month', name: 'Perfect Month', field: 'perfectMonths', target: 1 },
+  { id: 'perfect-year', name: 'Perfect Year', field: 'perfectYears', target: 1 },
   { id: 'the-comeback', name: 'The Comeback', field: 'comebacks', target: 1 },
 ] as const
 

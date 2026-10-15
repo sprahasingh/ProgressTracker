@@ -34,6 +34,59 @@ export type ProgressionOpportunityState = 'qualified' | 'failed' | 'pending' | '
 export type TrackerProgressionDay = { trackerId: string; date: string; state: ProgressionOpportunityState; required: boolean }
 export type AccountDayQualification = 'perfect' | 'failed' | 'pending' | 'neutral' | 'future' | 'unsupported'
 
+/** Daily Perfect Day qualification mirrors the server's configured success rule, not streak thresholds. */
+export function evaluateAllTrackersPerfectDay(input: {
+  trackers: readonly TrackerDefinition[]
+  entries: readonly TrackerEntry[]
+  date: string
+  today: string
+  holidays?: ReadonlySet<string>
+  timeZone?: string
+}): { date: string; state: AccountDayQualification; eligibleTrackerIds: string[]; failedTrackerIds: string[]; pendingTrackerIds: string[] } {
+  parseDate(input.date)
+  parseDate(input.today)
+  const eligible = input.trackers.filter((tracker) => {
+    if (tracker.deletedAt !== null || !['active', 'archived', 'completed'].includes(tracker.status)) return false
+    if (tracker.status === 'archived' && tracker.archivedAt && input.date > tracker.archivedAt.slice(0, 10)) return false
+    if (!isTrackerInActivePeriod(tracker, input.date, input.timeZone)) return false
+    return tracker.strictMode === true || (!input.holidays?.has(input.date) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
+  })
+  const reliableFrom = input.trackers.filter((tracker) => tracker.deletedAt === null && ['active', 'archived', 'completed'].includes(tracker.status))
+    .map((tracker) => {
+      const created = trackerCreationDate(tracker, input.timeZone)
+      const updated = tracker.updatedAt.slice(0, 10)
+      return updated > created ? updated : created
+    }).sort().at(-1)
+  if (reliableFrom && input.date < reliableFrom) return { date: input.date, state: 'unsupported', eligibleTrackerIds: [], failedTrackerIds: [], pendingTrackerIds: [] }
+  if (input.date > input.today) return { date: input.date, state: 'future', eligibleTrackerIds: [], failedTrackerIds: [], pendingTrackerIds: [] }
+  const failed: string[] = []
+  const pending: string[] = []
+  const positiveTarget = eligible.some((tracker) => {
+    const metrics = activeTrackerMetrics(tracker.metrics)
+    const dayEntry = input.entries.find((candidate) => candidate.trackerId === tracker.id && candidate.date === input.date && candidate.deletedAt === null)
+    return metrics.some((metric) => {
+      if (metric.valueType === 'boolean' || Object.values(metric.thresholds ?? {}).some((value) => typeof value === 'number' && value > 0)) return true
+      if (metric.thresholds || dayEntry?.outcome !== 'recorded') return false
+      const value = dayEntry.values[metric.id]
+      return typeof value === 'number' ? value > 0
+        : Array.isArray(value) ? value.some((item) => item === true)
+          : typeof value === 'object' && value !== null ? Object.values(value).some((item) => item === true) : false
+    })
+  })
+  for (const tracker of eligible) {
+    const entry = input.entries.find((candidate) => candidate.trackerId === tracker.id && candidate.date === input.date && candidate.deletedAt === null)
+    if (!entry || entry.outcome !== 'recorded' || !evaluateTrackerEntry(tracker, entry).qualified) {
+      if (input.date === input.today && (!entry || entry.outcome === 'recorded')) pending.push(tracker.id)
+      else failed.push(tracker.id)
+    }
+  }
+  const state: AccountDayQualification = !eligible.length || !positiveTarget ? 'neutral'
+    : failed.length ? 'failed'
+      : pending.length ? 'pending'
+        : 'perfect'
+  return { date: input.date, state, eligibleTrackerIds: eligible.map((tracker) => tracker.id), failedTrackerIds: failed, pendingTrackerIds: pending }
+}
+
 /** The single client-side decision point for whether a tracker/date advances progression. */
 export function evaluateTrackerProgressionDay(input: {
   tracker: TrackerDefinition
@@ -139,14 +192,13 @@ export function calculateAllTrackersStreak(input: {
 
 export type PerfectPeriodResult = { state: 'qualified' | 'failed' | 'insufficient' | 'incomplete' | 'unsupported'; requiredDates: number; qualifyingDates: number }
 
-/** Evaluates a fully elapsed Monday-based week or calendar month from required opportunities. */
+/** Evaluates a fully elapsed calendar period: every local date must be a Perfect Day. */
 export function evaluatePerfectPeriod(input: {
   trackers: readonly TrackerDefinition[]
   entries: readonly TrackerEntry[]
   startDate: string
   endDate: string
   today: string
-  minimumRequiredDates: number
   holidays?: ReadonlySet<string>
   timeZone?: string
 }): PerfectPeriodResult {
@@ -154,21 +206,19 @@ export function evaluatePerfectPeriod(input: {
   const end = parseDate(input.endDate)
   const today = parseDate(input.today)
   if (end >= today) return { state: 'incomplete', requiredDates: 0, qualifyingDates: 0 }
-  let requiredDates = 0
+  const requiredDates = (end - start) / DAY_MS + 1
   let qualifyingDates = 0
   let failed = false
   for (let time = start; time <= end; time += DAY_MS) {
-    const result = evaluateAllTrackersDay({ ...input, date: dateText(time) })
+    const result = evaluateAllTrackersPerfectDay({ ...input, date: dateText(time) })
     if (result.state === 'unsupported') return { state: 'unsupported', requiredDates, qualifyingDates }
-    if (result.state === 'failed') failed = true
     if (result.state === 'pending' || result.state === 'future') return { state: 'incomplete', requiredDates, qualifyingDates }
     if (result.state === 'perfect') {
-      requiredDates += 1
       qualifyingDates += 1
-    }
+    } else failed = true
   }
   if (failed) return { state: 'failed', requiredDates, qualifyingDates }
-  return requiredDates >= input.minimumRequiredDates
+  return qualifyingDates === requiredDates
     ? { state: 'qualified', requiredDates, qualifyingDates }
     : { state: 'insufficient', requiredDates, qualifyingDates }
 }

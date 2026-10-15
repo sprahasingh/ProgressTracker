@@ -149,7 +149,35 @@ describe('Progression achievements interface', () => {
     expect(screen.getByText('+10 XP pending sync')).toBeInTheDocument()
     expect(screen.getByText('LEVEL 2')).toBeInTheDocument()
     expect(screen.getByText('XP reconstructed from past activity')).toBeInTheDocument()
-    expect(screen.getByText('25 of 200 XP to level 3')).toBeInTheDocument()
+    expect(screen.getByText('25 of 200 XP this level · 175 XP to level 3')).toBeInTheDocument()
+  })
+
+  it('explains XP rewards, reversals, pending confirmation, and exact level thresholds', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'XP and level information' }))
+    const dialog = await screen.findByRole('dialog', { name: 'How XP and levels work' })
+    expect(dialog).toHaveTextContent('Qualifying check-in: 10 XP')
+    expect(dialog).toHaveTextContent('Perfect Day: 20 XP')
+    expect(dialog).toHaveTextContent('Goal milestone: 25 XP')
+    expect(dialog).toHaveTextContent('Completed goal: 100 XP')
+    expect(dialog).toHaveTextContent('50 × (L − 1) × L')
+    expect(dialog).toHaveTextContent('Reversals reduce net XP and can lower your level')
+    expect(dialog).toHaveTextContent('Offline XP stays pending until the server confirms it')
+    expect(dialog).toHaveTextContent('Level 2 · 175 XP to the next level')
+    expect(dialog).toHaveTextContent('Level 20')
+    expect(dialog).toHaveTextContent('19,000 XP')
+  })
+
+  it('opens per-badge information with exact requirement and a reliable percentage meter', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'More about Dedicated' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Dedicated badge information' })
+    expect(dialog).toHaveTextContent('Reach 100 qualifying saved check-ins.')
+    expect(dialog).toHaveTextContent('Current progress: 23 / 100 check-ins.')
+    expect(dialog).toHaveTextContent('23%')
+    expect(dialog.querySelector('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '23')
   })
 
   it('keeps provisional XP clearly pending while the device is offline', async () => {
