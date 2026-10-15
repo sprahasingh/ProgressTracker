@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isTrackerScheduledOccurrence, trackerCreationDate } from './planning'
+import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
 
 const id = z.string().min(1)
 const calendarDate = z.iso.date()
@@ -223,7 +223,7 @@ export const trackerDefinitionSchema = z.object({
           if (!Number.isFinite(amount) || amount < 0 || amount > Number.MAX_SAFE_INTEGER) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocation must be a finite nonnegative amount.' })
           if (metric.precision && !isAllowedIncrement(amount, metric.precision.increment)) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: `Allocation must use increments of ${metric.precision.increment}.` })
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
-          const effectiveStartDate = tracker.startDate && tracker.startDate > trackerCreationDate(tracker, plan.planningTimeZone) ? tracker.startDate : trackerCreationDate(tracker, plan.planningTimeZone)
+          const effectiveStartDate = trackerActiveStartDate(tracker, plan.planningTimeZone)
           const historicalAllocation = date < effectiveStartDate
           const scheduled = historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
           if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })

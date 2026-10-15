@@ -5,7 +5,7 @@ import { IconButton } from '../../components/ui/IconButton'
 import { AppIcon } from '../../components/ui/AppIcon'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, getTargetProgress } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, getTargetProgress, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { activeTrackerMetrics } from '../../domain/trackers/types'
@@ -89,8 +89,7 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       const incremental = planning.progressSemantics[metric.id] === 'incremental'
       if (totalTarget === undefined || !incremental || !tracker.deadline) return common
       const planningTimeZone = timeZone
-      const createdDate = localCalendarDate(new Date(tracker.createdAt), planningTimeZone)
-      const startDate = tracker.startDate && tracker.startDate > createdDate ? tracker.startDate : createdDate
+      const startDate = trackerActiveStartDate(tracker, planningTimeZone)
       const planningToday = planningTimeZone === timeZone ? today : localCalendarDate(new Date(), planningTimeZone)
       const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: planningToday, holidays, timeZone: planningTimeZone }
       const plan = calculateCumulativeMetricPlan({ ...planInput, progressSemantics: 'incremental' })

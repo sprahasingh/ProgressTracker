@@ -18,7 +18,7 @@ const upcomingDate = new Date(Date.parse(`${today}T00:00:00.000Z`) + 86_400_000)
 const previousDateLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${previousDate}T00:00:00.000Z`))
 const tracker = {
   schemaVersion: 1, id: 'calendar-habit', name: 'Morning walk', description: '', kind: 'habit', status: 'active', categoryId: null,
-  tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+  tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: previousDate, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
   qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true }, customFields: [], milestones: [],
   createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
 } as unknown as StoredTrackerDefinition
@@ -79,7 +79,7 @@ describe('Calendar page', () => {
     expect(guideButton).toHaveAttribute('aria-expanded', 'false')
     expect(legend).not.toBeVisible()
     expect(screen.getByRole('link', { name: 'Mark holiday' })).toHaveAttribute('href', `/holidays?date=${today}`)
-    expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', `/history?date=${today}`)
+    expect(screen.getByRole('link', { name: 'Edit check-in' })).toHaveAttribute('href', '/')
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
     expect(screen.getByRole('button', { name: new RegExp(calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })) })).toHaveClass('completed')
@@ -89,9 +89,8 @@ describe('Calendar page', () => {
     await user.keyboard('{Enter}')
     expect(previousDayButton).toHaveFocus()
     expect(previousDayButton).toHaveAttribute('aria-pressed', 'true')
-    // A date before this tracker was created is outside its period, not a rest day or miss.
-    await screen.findAllByText('Outside period')
-    expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Outside period')
+    // A backdated start remains eligible even when it predates creation.
+    expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Add check-in')
   })
 
   it('filters date status counts and tracker details to the selected tracker', async () => {
@@ -149,7 +148,7 @@ describe('Calendar page', () => {
 
     expect(await screen.findAllByText('Pending')).toHaveLength(1)
     expect(container.querySelector('.calendar-cell-status.pending')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open check-in' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Add check-in' })).toHaveAttribute('href', '/')
   })
 
   it('labels future opportunities Upcoming and dates outside the active period Outside period', async () => {

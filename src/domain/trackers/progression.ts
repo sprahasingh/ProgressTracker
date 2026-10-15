@@ -294,8 +294,7 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
     byDate.set(entry.date, entry)
   }
 
-  const createdDate = trackerCreationDate(tracker, timeZone)
-  const anchor = tracker.startDate && tracker.startDate > createdDate ? tracker.startDate : createdDate
+  const anchor = trackerActiveStartDate(tracker, timeZone)
   const start = parseDate(anchor)
   const occurrences: Array<{ date: string; state: ProgressionOpportunityState }> = []
   for (let time = start; time <= end; time += DAY_MS) {

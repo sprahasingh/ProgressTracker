@@ -2237,9 +2237,10 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .info-button:focus-visible { outline: 3px solid var(--info-icon); outline-offset: 3px; }
 .info-dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .info-popover { z-index: 1600; display: flex; width: min(320px, calc(100vw - 24px)); max-height: min(70vh, 520px); max-height: min(70dvh, 520px); min-height: 0; flex-direction: column; overflow: hidden; padding: 10px 16px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
-.info-popover[data-presentation='sheet'] { width: min(320px, calc(100vw - 24px)); border-radius: 18px; padding: 10px 16px 16px; }
+.info-popover[data-presentation='sheet'] { width: min(320px, calc(100vw - 24px)); border-radius: 18px; padding: 10px 16px max(16px, env(safe-area-inset-bottom, 0px)); }
 .info-popover-heading { display: flex; flex: 0 0 auto; justify-content: flex-end; }
-.info-popover-content { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 6px 6px; }
+.info-popover-content { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding: 0 6px 6px; }
+.info-popover-content:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: 6px; }
 .info-dialog-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 20px; line-height: 1; cursor: pointer; }
 .info-dialog-summary { margin: 0 38px 18px 0; padding: 13px 15px; border-left: 4px solid var(--joy-teal); border-radius: 0 12px 12px 0; background: var(--joy-teal-soft); color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.55; }
 
@@ -3171,6 +3172,15 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .nav-link[aria-current='page'], .mobile-nav-link[aria-current='page'],
 .mobile-more-trigger[aria-current='page'], .mobile-more.has-active-route .mobile-more-trigger,
 .mobile-more-item[aria-current='page'] { color: var(--accent-strong); }
+
+/* Keep historical date entry controls compact and usable on narrow screens. */
+.history-add-checkin { display: grid; min-width: min(100%, 230px); grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
+.history-add-checkin .history-filter { min-width: 0; }
+.history-add-checkin small { grid-column: 1 / -1; color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+@media (max-width: 560px) {
+  .history-add-checkin { width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
+  .history-add-checkin .button { min-height: 42px; white-space: normal; }
+}
 
 /* Goal planning and editing remain usable without a wide scrolling table. */
 .allocation-preview { min-width: 0; }

@@ -15,11 +15,10 @@ function entry(date: string, value: number, updatedAt = `${date}T12:00:00.000Z`,
 }
 
 describe('daily recurring planning', () => {
-  it('starts at the later of tracker creation and configured start', () => {
+  it('honors explicit backdated start dates while defaulting an unset start to creation', () => {
     const createdToday = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', startDate: '2026-10-01' }
     const daily = calculateDailyRecurringMetricPlan({ tracker: createdToday, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-04', entries: [] })
-    expect(daily.days.map((day) => day.date)).toEqual(['2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'])
-    expect(daily.days.some((day) => day.state === 'missed' && day.date < createdToday.createdAt.slice(0, 10))).toBe(false)
+    expect(daily.days.map((day) => day.date)).toEqual(['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'])
     const withoutConfiguredStart = { ...createdToday, startDate: undefined }
     expect(calculateDailyRecurringMetricPlan({ tracker: withoutConfiguredStart, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-04', entries: [] }).days[0]?.date).toBe('2026-10-02')
     const futureStart = calculateDailyRecurringMetricPlan({ tracker: createdToday, metricId: 'pages', target: 5, startDate: '2026-10-05', asOfDate: '2026-10-04', entries: [] })
@@ -69,19 +68,19 @@ describe('daily recurring planning', () => {
 })
 
 describe('cumulative deadline planning', () => {
-  it('excludes pre-creation scheduled days and progress from goal projections', () => {
+  it('includes valid pre-creation progress within a configured backdated goal window', () => {
     const createdToday = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', startDate: '2026-10-01' }
     const plan = calculateCumulativeMetricPlan({
       tracker: createdToday, metricId: 'pages', totalTarget: 100, startDate: '2026-10-01', asOfDate: '2026-10-06', progressSemantics: 'incremental',
       entries: [entry('2026-10-01', 90), entry('2026-10-02', 5), entry('2026-10-06', 0)],
     })
-    expect(plan).toMatchObject({ actualProgress: 5, scheduledDaysTotal: 6, scheduledDaysRemaining: 3, remainingWork: 95 })
+    expect(plan).toMatchObject({ actualProgress: 95, scheduledDaysTotal: 7, scheduledDaysRemaining: 3, remainingWork: 5 })
   })
 
   it('handles a deadline equal to the first eligible date and an exhausted plan', () => {
     const createdOnDeadline = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', deadline: '2026-10-02', startDate: '2026-10-01' }
     const plan = calculateCumulativeMetricPlan({ tracker: createdOnDeadline, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-03', progressSemantics: 'incremental' })
-    expect(plan).toMatchObject({ scheduledDaysTotal: 1, scheduledDaysRemaining: 0, status: 'overdue', requiredDailyPace: null })
+    expect(plan).toMatchObject({ scheduledDaysTotal: 2, scheduledDaysRemaining: 0, status: 'overdue', requiredDailyPace: null })
   })
 
   it('recalculates from a later start while retaining pre-start entries as saved history', () => {

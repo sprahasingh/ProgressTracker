@@ -22,7 +22,7 @@ import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker } from '../../domain/trackers/lifecycle'
 import { activeTrackerMetrics, type TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
-import { calculateCumulativeMetricPlan } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -110,8 +110,7 @@ export function TodayPage() {
         ? await localRepository.listAccountHolidays(shiftCalendarDate(today, -6), latestGoalDeadline)
         : holidays
       const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
-        const created = localCalendarDate(new Date(tracker.createdAt), timeZone)
-        const start = (tracker.startDate && tracker.startDate > created ? tracker.startDate : created) as CalendarDate
+        const start = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return start < earliest ? start : earliest
       }, today)
       const historicalGoalEntries = goals.length ? await localRepository.listTrackerEntriesBetween(earliestGoalDate, today) : []
@@ -263,8 +262,7 @@ export function TodayPage() {
           if (metric && goal.goalPlanning) {
             const entriesForGoal = goalEntries.filter((entry) => entry.trackerId === goal.id)
             const planningTimeZone = timeZone
-            const createdDate = localCalendarDate(new Date(goal.createdAt), planningTimeZone)
-            const startDate = goal.startDate && goal.startDate > createdDate ? goal.startDate : createdDate
+            const startDate = trackerActiveStartDate(goal, planningTimeZone)
             const planningToday = localCalendarDate(new Date(), planningTimeZone)
             const total = goal.goalPlanning.cumulativeTargets[metric.id]!
             const holidaySet = new Set(holidayDates)

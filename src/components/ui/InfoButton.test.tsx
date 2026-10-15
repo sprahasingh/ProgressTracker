@@ -51,6 +51,16 @@ describe('InfoButton', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it('locks background scrolling for anchored dialogs as well as mobile sheets', () => {
+    render(<InfoButton title="Status guide" summary="Summary." description={'Long details. '.repeat(80)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about Status guide' }))
+    const dialog = screen.getByRole('dialog', { name: 'Status guide' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.body.style.overflow).not.toBe('hidden')
+  })
+
   it('anchors the popover beside its icon and moves it above when there is no room below', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('info-button')) return new DOMRect(380, 750, 20, 20)
@@ -86,6 +96,8 @@ describe('InfoButton', () => {
     expect(popover).toHaveStyle({ left: '12px' })
     expect(Number.parseFloat(popover.style.top)).toBeGreaterThanOrEqual(12)
     expect(Number.parseFloat(popover.style.top)).toBeLessThan(760)
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(popover.querySelector('.info-popover-content')).toHaveAttribute('tabindex', '0')
     nav.remove()
   })
 
@@ -150,7 +162,7 @@ describe('InfoButton', () => {
     const popover = screen.getByRole('dialog', { name: 'Privacy' })
     const left = Number.parseFloat(popover.style.left)
     expect(popover).toHaveAttribute('data-presentation', 'anchored')
-    expect(popover).not.toHaveAttribute('aria-modal', 'true')
+    expect(popover).toHaveAttribute('aria-modal', 'true')
     expect(left).toBeGreaterThanOrEqual(12)
     expect(left + Math.min(320, width - 24)).toBeLessThanOrEqual(width - 12)
     expect(Number.parseFloat(popover.style.top)).toBeLessThan(570)

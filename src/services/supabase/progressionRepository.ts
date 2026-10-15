@@ -2,7 +2,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { openDatabase } from '../../db/database'
 import { getSupabaseClient } from './client'
 import { localCalendarDate } from '../../features/shared/localDates'
-import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from '../../domain/trackers/planning'
+import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { calculateProgressionLevel, selectProvisionalRewards, summarizeProgression, type ProvisionalReward } from '../../domain/trackers/progressionModel'
 import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
@@ -244,8 +244,8 @@ export function calculateConsistencySummary(input: {
     return changed > latest ? changed : latest
   }, '0000-01-01')
   const trackerStart = eligibleTrackers.reduce((earliest, tracker) => {
-    const created = tracker.startDate && tracker.startDate > tracker.createdAt.slice(0, 10) ? tracker.startDate : tracker.createdAt.slice(0, 10)
-    return created < earliest ? created : earliest
+    const start = trackerActiveStartDate(tracker, input.timeZone)
+    return start < earliest ? start : earliest
   }, '9999-12-31')
   const start = latestDefinitionDate > trackerStart ? latestDefinitionDate : trackerStart
   const lastCompletedDate = dateText(dateValue(input.today) - 86_400_000)

@@ -109,10 +109,9 @@ export function trackerCreationDate(tracker: Pick<TrackerDefinition, 'createdAt'
   }
 }
 
-/** First eligible date follows both the configured start and workspace-local creation date. */
+/** The configured start is authoritative when present; older dates can be backfilled. */
 export function trackerActiveStartDate(tracker: Pick<TrackerDefinition, 'startDate' | 'createdAt' | 'goalPlanning'>, timeZone?: string): string {
-  const created = trackerCreationDate(tracker, timeZone)
-  return tracker.startDate && tracker.startDate > created ? tracker.startDate : created
+  return tracker.startDate ?? trackerCreationDate(tracker, timeZone)
 }
 
 /** Calculates a per-scheduled-day target without changing check-in threshold semantics. */
@@ -282,7 +281,7 @@ export function isScheduledDate(tracker: TrackerDefinition, date: string, timeZo
   return isTrackerScheduledOccurrence(tracker, date, timeZone)
 }
 
-/** Checks the inclusive tracker date window, anchored no earlier than creation. */
+/** Checks the inclusive configured tracker date window. */
 export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, timeZone?: string): boolean {
   parseDate(date)
   const first = trackerActiveStartDate(tracker, timeZone)

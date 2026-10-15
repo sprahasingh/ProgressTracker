@@ -195,10 +195,12 @@ describe('shared progression day evaluator', () => {
     expect(calculateAllTrackersStreak({ trackers: [], entries: [], asOfDate: '2026-01-07' })).toMatchObject({ current: 0, longest: 0, state: 'neutral' })
   })
 
-  it('ignores a tracker before its creation date and does not let its later failure erase earlier history', () => {
+  it('uses configured backdated starts for verified historical streak entries', () => {
     const first = tracker({ createdAt: '2026-01-01T00:00:00.000Z', startDate: '2026-01-01' })
-    const later = tracker({ id: 'later', name: 'Later', createdAt: '2026-01-03T00:00:00.000Z', startDate: '2026-01-03' })
-    const result = calculateAllTrackersStreak({ trackers: [first, later], entries: [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-03'), { ...entry('2026-01-03'), id: 'later-jan3', trackerId: later.id }], asOfDate: '2026-01-03' })
+    const later = tracker({ id: 'later', name: 'Later', createdAt: '2026-01-03T00:00:00.000Z', startDate: '2026-01-01' })
+    const laterEntries = ['2026-01-01', '2026-01-02', '2026-01-03'].map((date) => ({ ...entry(date), id: `later-${date}`, trackerId: later.id }))
+    expect(calculateStreak(later, laterEntries, '2026-01-03')).toMatchObject({ current: 3, longest: 3, qualifyingCount: 3 })
+    const result = calculateAllTrackersStreak({ trackers: [first, later], entries: [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-03'), ...laterEntries], asOfDate: '2026-01-03' })
     expect(result).toMatchObject({ current: 1, longest: 1, lastPerfectDate: '2026-01-03', state: 'perfect' })
   })
 

@@ -28,7 +28,7 @@ A skipped day is an explicitly saved check-in marked as skipped. An unchecked pa
 - src/features/history/HistoryPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-Yes. Open History, select the saved date and tracker entry, then edit its values. The latest saved revision for that date is used in current calculations.
+Yes. In Calendar, select the date and choose Edit check-in; in History, open the saved entry. Both open the shared editor for that date, where you can update its values and note or clear it with confirmation. Eligible missing dates can also be added from Calendar or History. The latest saved revision for a tracker and date is used in current calculations.
 
 ### ID: clear-checkin
 **Category:** check-ins
