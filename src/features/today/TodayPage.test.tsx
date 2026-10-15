@@ -436,15 +436,16 @@ describe('Today check-ins', () => {
     await user.click(screen.getByRole('button', { name: 'Open Daily DSA course, Pending' }))
     await user.type(screen.getByLabelText('Problems · sessions'), '3')
     await user.click(screen.getByRole('button', { name: 'Save check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('3 / 6 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('3 sessions recorded'))
     const detailsButton = screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!
     await user.click(detailsButton)
     await waitFor(() => expect(detailsButton).toHaveAttribute('aria-expanded', 'true'))
     let dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Goal total10 sessions')
     expect(dialog).toHaveTextContent('Recorded toward goal3 sessions')
-    expect(dialog).toHaveTextContent('Today’s planned amount6 sessions')
-    expect(dialog).toHaveTextContent(/Next scheduled suggestion.*2 sessions/)
+    expect(dialog).toHaveTextContent('Goal remaining7 sessions')
+    expect(dialog).not.toHaveTextContent('Today’s planned amount')
+    expect(dialog).toHaveTextContent(/Next scheduled suggestion.*4 sessions/)
     expect(dialog).toHaveTextContent('Minimum2 sessions')
     expect(dialog).toHaveTextContent('Target threshold5 sessions')
     expect(dialog).toHaveTextContent('Stretch8 sessions')
@@ -453,7 +454,7 @@ describe('Today check-ins', () => {
     await user.clear(screen.getByLabelText('Problems · sessions'))
     await user.type(screen.getByLabelText('Problems · sessions'), '4')
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
-    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('4 / 6 sessions'))
+    await waitFor(() => expect(card.querySelector('.today-compact-metric')).toHaveTextContent('4 sessions recorded'))
     await user.click(screen.getAllByRole('button', { name: 'Information about Daily DSA course daily requirements' }).at(-1)!)
     dialog = screen.getAllByRole('dialog').at(-1)!
     expect(dialog).toHaveTextContent('Recorded toward goal4 sessions')

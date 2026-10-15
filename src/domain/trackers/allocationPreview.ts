@@ -8,6 +8,7 @@ export type CumulativeAllocationPreview = {
   actualProgress: number
   remainingTarget: number
   eligibleDayCount: number
+  automaticDayCount: number
   unallocatedWork: number
   overAllocatedWork: number
   days: AllocationPreviewDay[]
@@ -30,8 +31,15 @@ export function createCumulativeAllocationPreview(input: {
   timeZone?: string
   manualAllocations?: Readonly<Record<string, number>>
 }): CumulativeAllocationPreview {
+  const configuredManualPlans = input.tracker.goalPlanning?.manualAllocations
+  const manualPlans = input.manualAllocations ?? (configuredManualPlans && Object.hasOwn(configuredManualPlans, input.metricId)
+    ? configuredManualPlans[input.metricId] ?? {}
+    : {})
+  const savedPlans = input.tracker.goalPlanning?.allocations?.[input.metricId] ?? {}
   const progress = calculateCumulativeMetricPlan({
     ...input,
+    allocations: savedPlans,
+    manualAllocations: manualPlans,
     progressSemantics: input.tracker.goalPlanning?.progressSemantics[input.metricId] ?? 'snapshot',
     holidays: input.holidays,
     timeZone: input.timeZone,
@@ -42,6 +50,7 @@ export function createCumulativeAllocationPreview(input: {
 
   const startDate = [input.startDate, trackerActiveStartDate(input.tracker, input.timeZone)].sort().at(-1)!
   const latestEntries = latestEntriesByDate(input.tracker, input.entries)
+  const todayClosed = latestEntries.has(input.asOfDate)
   const days: AllocationPreviewDay[] = []
   if (startDate <= input.tracker.deadline!) {
     for (let time = dateNumber(startDate); time <= dateNumber(input.tracker.deadline!); time += DAY_MS) {
@@ -50,19 +59,15 @@ export function createCumulativeAllocationPreview(input: {
       const entry = latestEntries.get(date)
       const completedValue = entry?.outcome === 'recorded' ? entryValue(input.tracker, input.metricId, entry) : 0
       const completed = Number.isFinite(completedValue) ? completedValue : 0
-      const eligible = input.tracker.status === 'active' && date >= input.asOfDate && isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday
-      days.push({ date, eligible, amount: null, completed, outstanding: 0, manual: false, historical: date < input.asOfDate, ...(holiday ? { holiday: true } : {}), ...(date === input.asOfDate && entry ? { closed: false } : {}) })
+      const isOpenToday = date === input.asOfDate && !todayClosed
+      const eligible = input.tracker.status === 'active' && (date > input.asOfDate || isOpenToday) && isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday
+      days.push({ date, eligible, amount: null, completed, outstanding: 0, manual: false, historical: date < input.asOfDate || date === input.asOfDate && todayClosed, ...(holiday ? { holiday: true } : {}), ...(date === input.asOfDate && todayClosed ? { closed: true } : {}) })
     }
   }
 
   const eligible = days.filter((day) => day.eligible)
-  const savedPlans = input.tracker.goalPlanning?.allocations?.[input.metricId] ?? {}
   // Old allocation maps mixed generated dates and user edits. Keep those values
   // as history and require an explicit choice before treating them as fixed.
-  const configuredManualPlans = input.tracker.goalPlanning?.manualAllocations
-  const manualPlans = input.manualAllocations ?? (configuredManualPlans && Object.hasOwn(configuredManualPlans, input.metricId)
-    ? configuredManualPlans[input.metricId] ?? {}
-    : {})
   const fixedOutstandingValues: number[] = []
   const autoDays: AllocationPreviewDay[] = []
   for (const day of eligible) {
@@ -102,6 +107,7 @@ export function createCumulativeAllocationPreview(input: {
     actualProgress: progress.actualProgress,
     remainingTarget: remainingWork,
     eligibleDayCount: eligible.length,
+    automaticDayCount: autoDays.length,
     unallocatedWork,
     overAllocatedWork,
     days,

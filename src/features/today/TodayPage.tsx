@@ -267,12 +267,12 @@ export function TodayPage() {
             const total = goal.goalPlanning.cumulativeTargets[metric.id]!
             const holidaySet = new Set(holidayDates)
             if (goal.goalPlanning.progressSemantics[metric.id] === 'incremental') {
-              const calculation = calculateCumulativeMetricPlan({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, progressSemantics: 'incremental', holidays: holidaySet, timeZone: planningTimeZone })
+              const calculation = calculateCumulativeMetricPlan({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, progressSemantics: 'incremental', holidays: holidaySet, timeZone: planningTimeZone, allocations: goal.goalPlanning.allocations?.[metric.id], manualAllocations: goal.goalPlanning.manualAllocations?.[metric.id] })
               remaining = calculation.remainingWork
               const preview = createCumulativeAllocationPreview({ tracker: goal, entries: entriesForGoal, metricId: metric.id, totalTarget: total, startDate, asOfDate: planningToday, holidays: holidaySet, timeZone: planningTimeZone })
               const todayPlanDay = preview.days.find((day) => day.date === planningToday)
-              recommendation = todayPlanDay?.amount ?? undefined
-              savedAllocation = todayPlanDay?.manual ? todayPlanDay.amount ?? undefined : undefined
+              recommendation = todayPlanDay?.eligible ? todayPlanDay.amount ?? undefined : undefined
+              savedAllocation = todayPlanDay?.eligible && todayPlanDay.manual ? todayPlanDay.amount ?? undefined : undefined
             }
           }
           const unit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''

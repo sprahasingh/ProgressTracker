@@ -67,7 +67,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const holidayConflicts = preview.days.filter((day) => day.holiday && (storedManual[day.date] ?? 0) > 0)
   const pageDays = preview.days.slice(pageStart, pageStart + 14)
   const pageEnd = Math.min(preview.days.length, pageStart + pageDays.length)
-  const futureManualDates = Object.keys(manualValues).filter((date) => date >= asOfDate)
+  const futureManualDates = Object.keys(manualValues).filter((date) => date > asOfDate || date === asOfDate && eligibleDays.some((day) => day.date === date))
 
   function changeAllocation(date: string, raw: string) {
     const value = raw === '' ? 0 : Number(raw)
@@ -109,9 +109,9 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
 
   function resetFutureManualOverrides() {
     if (futureManualDates.length === 0) return
-    const confirmed = window.confirm(`Reset ${futureManualDates.length} future Manual allocation${futureManualDates.length === 1 ? '' : 's'} to Auto? Completed progress and historical plan data will be preserved.`)
+    const confirmed = window.confirm(`Remove all future manual allocations for ${metric?.name ?? 'this metric'}? Your completed progress and past plans will stay unchanged.`)
     if (!confirmed) return
-    setManualValues((current) => Object.fromEntries(Object.entries(current).filter(([date]) => date < asOfDate)))
+    setManualValues((current) => Object.fromEntries(Object.entries(current).filter(([date]) => date < asOfDate || date === asOfDate && !eligibleDays.some((day) => day.date === date))))
     setLegacyPlanChoice('automatic')
     setDirty(true)
     setResettingPlan(true)
@@ -168,8 +168,9 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     {holidayConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{holidayConflicts.length} holiday date{holidayConflicts.length === 1 ? '' : 's'} have manual allocations. They are preserved and excluded from this preview until released.</p><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues((current) => { const next = { ...current }; holidayConflicts.forEach((day) => delete next[day.date]); return next }); setResolveHolidayConflicts(true); setDirty(true); setSavedLocally(false) }}>Release holiday allocations</button></div>}
     <div className="allocation-planning-controls" aria-label="Planning controls">
       <span><strong>{eligibleDays.length}</strong> scheduled days left</span>
+      <span><strong>{preview.automaticDayCount}</strong> Auto days</span>
       <span><strong>{futureManualDates.length}</strong> Manual override{futureManualDates.length === 1 ? '' : 's'}</span>
-      {futureManualDates.length > 0 && <button className="allocation-reset-plan" type="button" onClick={resetFutureManualOverrides} disabled={saving}>Reset plan</button>}
+      {futureManualDates.length > 0 && <button className="allocation-reset-plan" type="button" onClick={resetFutureManualOverrides} disabled={saving}>Reset future overrides</button>}
     </div>
     {preview.eligibleDayCount === 0 && preview.remainingTarget > 0 && <p className="allocation-preview-warning" role="status">The goal is behind schedule: {format(preview.remainingTarget)} remains and no eligible scheduled days remain before the deadline.</p>}
     <details className="allocation-schedule-disclosure"><summary>Daily schedule <span>{preview.days.length} dates</span></summary>
@@ -188,9 +189,9 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     </table></div>}
     </details>
     {eligibleDays.length > 0 && <p className="allocation-rounding-note">{metric.precision ? `Amounts follow the configured ${metric.precision.increment} increment.` : 'The split uses the metric’s available decimal precision.'} Extra whole units go to earlier scheduled dates. Completed check-ins stay unchanged, and checklist allocations use whole items.</p>}
-    {preview.overAllocatedWork > 0 && <p className="allocation-preview-warning" role="status">Manual future allocations exceed remaining work by {format(preview.overAllocatedWork)}. Release or edit manual dates to rebalance.</p>}
+    {preview.overAllocatedWork > 0 && <p className="allocation-preview-warning" role="status">Manual allocations exceed remaining work by {format(preview.overAllocatedWork)}. Edit the Manual dates below to adjust the plan.</p>}
     {preview.overAllocatedWork === 0 && totals.overAllocation > 0 && <p className="allocation-preview-warning" role="status">The configured increment rounds the automatic plan {format(totals.overAllocation)} above the remaining target.</p>}
-    {preview.unallocatedWork > 0 && <p className="allocation-preview-warning" role="status">{format(preview.unallocatedWork)} remains unallocated because no eligible automatic dates are available.</p>}
+    {preview.unallocatedWork > 0 && <p className="allocation-preview-warning" role="status">{format(preview.unallocatedWork)} remains unallocated because no Auto dates are available. Edit a Manual date above or adjust the schedule or deadline.</p>}
   </section>
 }
 

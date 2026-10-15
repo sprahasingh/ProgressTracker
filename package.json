@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:e2e:achievements": "playwright test --config playwright.config.ts",
     "test:e2e:xp-popup": "playwright test --config playwright.xp-popup.config.ts",
+    "test:e2e:goals-local": "playwright test --config playwright.goals-local.config.ts",
     "test:progression:integration": "bash scripts/test-progression-live.sh",
     "test:lifecycle-stress": "VITE_TRACKER_LIFECYCLE_STRESS=true vitest run src/db/trackerLifecycleStateMachine.test.ts",
     "test:watch": "vitest",

@@ -88,9 +88,10 @@ describe('cumulative allocation preview UI', () => {
       createdAt: '2026-01-06T09:00:00.000Z', updatedAt: '2026-01-06T09:00:00.000Z', deletedAt: null,
     }]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-06" timeZone="UTC" onSave={vi.fn()} manualPlanWritesEnabled />)
 
-    expect(screen.getByRole('spinbutton', { name: 'Planned allocation for 2026-01-06' })).toHaveValue(8)
+    expect(screen.queryByRole('button', { name: 'Edit plan for 2026-01-06' })).not.toBeInTheDocument()
+    expect(screen.getByText('3 pages')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit plan for 2026-01-07' }))
-    expect(screen.getByRole('spinbutton', { name: 'Planned allocation for 2026-01-07' })).toHaveValue(4)
+    expect(screen.getByRole('spinbutton', { name: 'Planned allocation for 2026-01-07' })).toHaveValue(8)
     expect(savedGoal.goalPlanning?.allocations?.pages).toEqual({ '2026-01-06': 3, '2026-01-07': 3 })
   })
 
@@ -142,8 +143,8 @@ describe('cumulative allocation preview UI', () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<CumulativeAllocationPreview tracker={savedGoal} entries={[entry]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-06" timeZone="UTC" onSave={onSave} manualPlanWritesEnabled />)
     expect(screen.getByLabelText('Planning controls')).toHaveTextContent('2 Manual overrides')
-    fireEvent.click(screen.getByRole('button', { name: 'Reset plan' }))
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Completed progress and historical plan data will be preserved.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset future overrides' }))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Your completed progress and past plans will stay unchanged.'))
     expect(screen.getByRole('button', { name: 'Save manual changes' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save manual changes' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -152,7 +153,7 @@ describe('cumulative allocation preview UI', () => {
     expect(await screen.findByText(/Future Manual allocations reset to Auto/)).toBeInTheDocument()
   })
 
-  it('keeps future overrides unchanged when Reset plan confirmation is cancelled', () => {
+  it('keeps future overrides unchanged when Reset future overrides confirmation is cancelled', () => {
     const savedGoal: TrackerDefinition = {
       ...tracker,
       schemaVersion: 5,
@@ -161,7 +162,7 @@ describe('cumulative allocation preview UI', () => {
     vi.stubGlobal('confirm', vi.fn(() => false))
     const onSave = vi.fn()
     render(<CumulativeAllocationPreview tracker={savedGoal} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="UTC" onSave={onSave} manualPlanWritesEnabled />)
-    fireEvent.click(screen.getByRole('button', { name: 'Reset plan' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset future overrides' }))
     expect(screen.getByLabelText('Planning controls')).toHaveTextContent('1 Manual override')
     expect(screen.queryByRole('button', { name: 'Save manual changes' })).not.toBeInTheDocument()
     expect(onSave).not.toHaveBeenCalled()
@@ -175,7 +176,7 @@ describe('cumulative allocation preview UI', () => {
     }
     vi.stubGlobal('confirm', vi.fn(() => true))
     render(<CumulativeAllocationPreview tracker={savedGoal} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="UTC" onSave={vi.fn().mockRejectedValue(new Error('storage unavailable'))} manualPlanWritesEnabled />)
-    fireEvent.click(screen.getByRole('button', { name: 'Reset plan' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset future overrides' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save manual changes' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('storage unavailable')
     expect(screen.queryByText(/Future Manual allocations reset to Auto/)).not.toBeInTheDocument()
