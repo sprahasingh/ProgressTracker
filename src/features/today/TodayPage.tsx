@@ -25,7 +25,7 @@ import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { calculateCumulativeMetricPlan, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate, useWorkspaceCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
 import { ClearCheckInAction } from '../shared/ClearCheckInAction'
@@ -35,6 +35,7 @@ import { mondayFirstWeekday } from '../../db/calendarDate'
 import { getWeekRhythmState } from './weekRhythm'
 import { scheduleCheckinFeedbackExpiry } from './checkinFeedbackTimer'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 
 function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncStatus: string): string {
   if (authStatus !== 'signed-in') return authStatus === 'signed-out'
@@ -65,7 +66,7 @@ export function TodayPage() {
   const ownerRef = useRef(expectedOwner)
   ownerRef.current = expectedOwner
   const { timeZone } = useWorkspaceTimeZone()
-  const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
+  const today = useWorkspaceCalendarDate(timeZone)
   const [allTrackers, setAllTrackers] = useState<StoredTrackerDefinition[]>([])
   const [hasDeletedTrackerRecords, setHasDeletedTrackerRecords] = useState(false)
   const [upcomingGoals, setUpcomingGoals] = useState<StoredTrackerDefinition[]>([])
@@ -351,6 +352,7 @@ function CheckinCard({ tracker, entry, today, timeZone, entries, holidays, statu
       <button className="today-activity-open" type="button" onClick={onOpen} ref={onTrigger} aria-label={`Open ${tracker.name}, ${statusInfo.label}${historical ? `, ${calendarDateLabel(today)}` : ''}`}>
         <span className="today-card-heading"><span className="tracker-kind-chip">{tracker.kind}{tracker.strictMode ? ' · Strict' : ''}</span><span className="today-card-title" role="heading" aria-level={2}>{tracker.name}</span><span className={`today-state ${status}`} role="status" aria-label={`Tracker: ${statusInfo.label}`}><ActivityStatusIcon status={status} /> Tracker · {statusInfo.label}</span></span>
         {tracker.description && <span className="today-card-description">{tracker.description}</span>}
+        {getChallengeDayDisplay(tracker, today, timeZone) && <span className="challenge-day-label" aria-label={`Challenge ${getChallengeDayDisplay(tracker, today, timeZone)!.label}`}>{getChallengeDayDisplay(tracker, today, timeZone)!.label}</span>}
         <span className="today-compact-metrics">
           {summaryMetrics.map((metric) => <span className="today-compact-metric" key={metric.id}><span>{metric.name}</span>{metric.expectedLabel && <small className="today-compact-expectation">{historical ? metric.expectedLabel.replace('Today’s', `${calendarDateLabel(today)} ·`) : metric.expectedLabel === 'Today’s suggested allocation' ? 'Suggested today' : metric.expectedLabel === 'Today’s saved allocation' ? 'Saved allocation today' : metric.expectedLabel}</small>}<strong>{metric.isBoolean ? metric.booleanValue === 'true' ? 'Complete' : metric.booleanValue === 'false' ? 'Not complete' : 'Unrecorded' : metric.expected !== undefined ? `${formatTrackerNumber(Number(metric.completed))} / ${formatTrackerNumber(metric.expected)}${metric.unit}` : metric.completed ? `${formatTrackerNumber(Number(metric.completed))}${metric.unit} recorded` : 'No progress recorded'}</strong>{metric.remaining !== undefined && <small>{formatTrackerNumber(metric.remaining)}{metric.unit} remaining</small>}</span>)}
           {details.length > 2 && <small className="today-compact-more">+{details.length - 2} more measures</small>}
@@ -488,10 +490,11 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
     if (didSave) setSkipConfirmationOpen(false)
   }
   async function clear(): Promise<boolean> { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose(); return cleared }
+  const challengeDay = getChallengeDayDisplay(tracker, today, timeZone)
 
   return createPortal(<div ref={backdropRef} className="modal-backdrop today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
-      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2><p>{calendarDateLabel(today)}{isBinaryCompletion ? '' : ` · ${ACTIVITY_STATUS_PRESENTATION[status].label}${holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}`}</p></div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
+      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}<p>{calendarDateLabel(today)}{isBinaryCompletion ? '' : ` · ${ACTIVITY_STATUS_PRESENTATION[status].label}${holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}`}</p>{challengeDay && <p>Starts {calendarDateLabel(trackerActiveStartDate(tracker, timeZone))} · Finish by {calendarDateLabel(tracker.deadline!)}{challengeDay.phase === 'active' ? ` · ${challengeDay.daysRemaining} days remaining` : ''}</p>}</div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
       <div className="today-detail-content">
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         {!isBinaryCompletion && <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={entries} holidays={holidays} />}
