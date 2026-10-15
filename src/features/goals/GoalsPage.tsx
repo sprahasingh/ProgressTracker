@@ -13,7 +13,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, metricObservationForMilestone, trackerActiveStartDate, trackerCreationDate, type GoalPlanDayState } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, metricObservationForMilestone, trackerActiveStartDate, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
@@ -84,8 +84,7 @@ export function GoalsPage() {
         // Fetch from an earlier configured start when present so older saved
         // observations remain available to milestone summaries. Domain plans
         // separately clamp opportunities and progress to the active start.
-        const created = trackerCreationDate(tracker, timeZone)
-        const start = (tracker.startDate && tracker.startDate < created ? tracker.startDate : created) as CalendarDate
+        const start = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         const trackerToday = localCalendarDate(new Date(), timeZone) as CalendarDate
         if (start < earliest) earliest = start
         if (trackerToday > latest) latest = trackerToday

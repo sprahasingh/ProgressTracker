@@ -50,7 +50,7 @@ describe('IdentitySharingSettings', () => {
     await user.keyboard('{Enter}')
     const dialog = screen.getByRole('dialog', { name: 'How identity sharing works' })
     expect(dialog).toHaveClass('is-compact')
-    expect(dialog).not.toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
     await user.click(document.body)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })

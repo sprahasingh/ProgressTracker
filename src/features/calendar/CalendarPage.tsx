@@ -9,7 +9,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
-import { evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate, trackerCreationDate } from '../../domain/trackers/planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
@@ -71,7 +71,7 @@ export function CalendarPage() {
     try {
       const trackers = await localRepository.listTrackers(true)
       const earliest = trackers.reduce<CalendarDate>((minimum, tracker) => {
-        const first = trackerCreationDate(tracker, timeZone)
+        const first = trackerActiveStartDate(tracker, timeZone)
         return first < minimum ? first as CalendarDate : minimum
       }, start)
       const [entries, holidays] = await Promise.all([
@@ -188,7 +188,9 @@ export function CalendarPage() {
         {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status }) => <li key={tracker.id}>
           <span className={`calendar-status-mark ${status}`} aria-label={ACTIVITY_STATUS_PRESENTATION[status].label}><ActivityStatusIcon status={status} /></span>
           <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{entry?.outcome === 'skipped' ? ' · intentionally saved' : entry ? ` · ${formatEntry(tracker, entry)}` : ''}{status === 'historical' ? ` · ${selectedDate < trackerActiveStartDate(tracker, timeZone) ? 'before the active start' : 'after the active deadline'}` : ''}</span>{entry?.note && <small>{entry.note}</small>}</div>
-          {entry ? <Link className="button button-quiet button-small" to={`/history?date=${selectedDate}`}>View history</Link> : tracker.status === 'active' && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate, timeZone) ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{status === 'rest-day' || selectedHoliday ? 'Voluntary check-in' : 'Open check-in'}</Link> : <Link className="button button-quiet button-small" to="/">Open Today</Link>}
+          {tracker.status === 'active' && tracker.deletedAt === null && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate, timeZone)
+            ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{entry ? 'Edit check-in' : status === 'rest-day' || selectedHoliday ? 'Add voluntary check-in' : 'Add check-in'}</Link>
+            : <span className="calendar-entry-unavailable">{tracker.status !== 'active' ? 'Archived trackers are read-only.' : selectedDate > today ? 'Future dates cannot be checked in yet.' : selectedDate < trackerActiveStartDate(tracker, timeZone) ? `Before tracker start (${calendarDateLabel(trackerActiveStartDate(tracker, timeZone))}).` : 'This date is outside the tracker period.'}</span>}
         </li>)}</ul>}
       </Surface>
     </div>}

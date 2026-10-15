@@ -86,7 +86,7 @@ The schedule defines the regular days when a tracker has a check-in opportunity.
 - src/domain/trackers/planning.test.ts
 - src/features/trackers/TrackerSetupPage.tsx
 **Answer:**
-The tracker’s active period is bounded by its start date and, when set, its deadline. Dates outside that period are not active tracking opportunities. A deadline therefore stops schedule-based calculations from counting later dates.
+The tracker’s active period begins on its configured start date, or its creation date in the workspace time zone when no start date is set, and ends at its deadline when one is set. A configured start date can be before tracker creation, allowing eligible past activity to be recorded. Dates outside the active period are not tracking opportunities; a deadline stops schedule-based calculations from counting later dates.
 
 ### ID: retire-measure
 **Category:** trackers
@@ -132,7 +132,7 @@ Open Trackers, choose the tracker’s edit action, update its supported settings
 - src/domain/trackers/planning.ts
 - src/domain/trackers/activePeriod.test.ts
 **Answer:**
-No. The effective active period starts on the later of the configured start date and the tracker’s creation date in the workspace time zone. Earlier dates are outside the tracker’s active period.
+Yes, when you set a start date before creating the tracker. Eligible dates from that configured start through today can be recorded and edited; missing dates stay empty until you add a check-in. Without an explicit start date, the active period begins on the tracker’s creation date in the workspace time zone. Schedule, deadline, and archived status still apply.
 
 ### ID: archived-checkin-history
 **Category:** trackers

@@ -22,11 +22,10 @@ describe('target progress feedback', () => {
     expect(getTargetProgress(3, 5, 'decrease')).toEqual({ state: 'exceeded', amount: 2 })
   })
 
-  it('clamps generic goal work plans to the active creation boundary', () => {
+  it('honors an explicit backdated start for historical goal work', () => {
     const createdTracker = { ...base(), startDate: '2026-01-01', createdAt: '2026-01-03T09:00:00.000Z' }
     const result = createWorkPlan({ tracker: createdTracker, metricId: 'pages', mode: 'cumulative-deadline', startDate: '2026-01-01', deadline: '2026-01-05', asOfDate: '2026-01-04', totalWork: 10, completedWork: 0 })
-    expect(result.days.map((day) => day.date)).toEqual(['2026-01-03', '2026-01-04', '2026-01-05'])
-    expect(result.days.some((day) => day.state === 'missed' && day.date < '2026-01-03')).toBe(false)
+    expect(result.days.map((day) => day.date)).toEqual(['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05'])
   })
 })
 
@@ -49,11 +48,11 @@ describe('milestone observations and active dates', () => {
     expect(metricObservationForMilestone(numericMetric, -1)).toBeUndefined()
   })
 
-  it('uses workspace-local creation dates around midnight and daylight-saving transitions', () => {
+  it('uses explicit tracker starts and workspace-local creation dates around timezone boundaries', () => {
     const tracker = { createdAt: '2026-10-01T18:30:00.000Z', startDate: '2026-09-30' }
-    expect(trackerActiveStartDate(tracker, 'Asia/Kolkata')).toBe('2026-10-02')
-    expect(trackerActiveStartDate(tracker, 'America/Los_Angeles')).toBe('2026-10-01')
-    expect(trackerActiveStartDate(tracker, 'UTC')).toBe('2026-10-01')
+    expect(trackerActiveStartDate(tracker, 'Asia/Kolkata')).toBe('2026-09-30')
+    expect(trackerActiveStartDate(tracker, 'America/Los_Angeles')).toBe('2026-09-30')
+    expect(trackerActiveStartDate(tracker, 'UTC')).toBe('2026-09-30')
     expect(trackerActiveStartDate({ createdAt: '2026-10-01T18:30:00.000Z', startDate: '2026-10-05' }, 'Asia/Kolkata')).toBe('2026-10-05')
     expect(trackerActiveStartDate({ createdAt: '2026-03-08T09:30:00.000Z' }, 'America/Los_Angeles')).toBe('2026-03-08')
     expect(trackerActiveStartDate({ createdAt: '2026-03-08T10:30:00.000Z' }, 'America/Los_Angeles')).toBe('2026-03-08')

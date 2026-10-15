@@ -14,7 +14,7 @@
 - src/domain/trackers/missingCheckIns.ts
 - src/features/history/HistoryPage.test.tsx
 **Answer:**
-History shows saved check-ins and their recorded values for past dates, along with workspace holidays in the selected date range. It also offers a missing check-in review for unresolved opportunities in the previous seven completed days. Dates that were not tracking opportunities are not shown as missing, and today is not treated as overdue.
+History shows saved check-ins and their recorded values for past dates, along with workspace holidays in the selected date range. You can open an entry to edit it or choose a tracker and date to add a missing check-in; both use the shared check-in editor. It also offers a missing check-in review for unresolved opportunities in the previous seven completed days. Dates that were not tracking opportunities are not shown as missing, and today is not treated as overdue.
 
 ### ID: history-clear-note
 **Category:** history

@@ -40,7 +40,7 @@ Completed means a saved recorded check-in met the configured completion rule, bu
 - src/features/calendar/CalendarPage.tsx
 - src/features/calendar/CalendarPage.test.tsx
 **Answer:**
-Open Calendar, navigate to the month, and select the date. The selected-day panel shows statuses and saved values by tracker; use its History link to review an entry or its check-in action when available.
+Open Calendar, navigate to the month, and select the date. The selected-day panel shows statuses and saved values by tracker. For an eligible date, choose Add check-in or Edit check-in to open the shared editor with that date selected; ineligible dates explain why editing is unavailable.
 
 ### ID: calendar-rest-day
 **Category:** calendar

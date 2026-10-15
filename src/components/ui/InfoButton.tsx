@@ -27,7 +27,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
   const [presentation, setPresentation] = useState<'anchored' | 'sheet'>('anchored')
   const [position, setPosition] = useState({ top: -1000, left: -1000 })
 
-  useModalLayer(open && presentation === 'sheet' && !compact, popoverRef, () => {
+  useModalLayer(open, popoverRef, () => {
     restoreTriggerFocus.current = true
     setOpen(false)
   }, { manageHistoryEntry: false })
@@ -53,7 +53,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
       const viewHeight = viewport?.height ?? window.innerHeight
       const viewWidth = viewport?.width ?? window.innerWidth
       popover.style.maxHeight = 'none'
-      popover.style.maxWidth = `${Math.max(180, viewWidth - 24)}px`
+      popover.style.maxWidth = `${Math.max(0, viewWidth - 24)}px`
       const panel = popover.getBoundingClientRect()
       if (anchor.width === 0 && anchor.height === 0) {
         setPosition({ top: -1000, left: -1000 })
@@ -72,21 +72,26 @@ export function InfoButton({ title, summary, description, label = `More about ${
       const useSheet = !compact && mobile && !fitsBelow && !fitsAbove
       setPresentation(useSheet ? 'sheet' : 'anchored')
       if (useSheet) {
-        const maxHeight = Math.max(120, viewBottom - viewTop - margin)
+        const maxHeight = Math.max(0, viewBottom - viewTop - margin * 2)
         popover.style.maxHeight = `${maxHeight}px`
-        setPosition({ top: Math.max(viewTop + margin, viewBottom - Math.min(naturalHeight, maxHeight)), left: viewLeft + 12 })
+        const bottom = viewBottom - margin
+        setPosition({ top: Math.max(viewTop + margin, bottom - Math.min(naturalHeight, maxHeight)), left: viewLeft + 12 })
         return
       }
       if (compact && !fitsBelow && !fitsAbove) {
         const maxHeight = Math.max(0, Math.min(420, viewBottom - viewTop - margin * 2))
         popover.style.maxHeight = `${maxHeight}px`
-        const top = Math.max(viewTop + margin, Math.min(anchor.bottom + gap, viewBottom - maxHeight))
+        const top = Math.max(viewTop + margin, Math.min(anchor.bottom + gap, viewBottom - margin - maxHeight))
         setPosition({ top, left: Math.min(Math.max(viewLeft + margin, anchor.left), viewLeft + viewWidth - panel.width - margin) })
         return
       }
-      popover.style.maxHeight = `${Math.max(120, Math.min(520, viewHeight - 24))}px`
       const below = fitsBelow || (!fitsAbove && belowSpace >= aboveSpace)
-      const top = below ? anchor.bottom + gap : Math.max(viewTop + margin, anchor.top - Math.min(naturalHeight, 520) - gap)
+      const availableOnSide = below ? belowSpace : aboveSpace
+      const maxHeight = Math.min(520, Math.max(0, fitsBelow || fitsAbove ? viewHeight - margin * 2 : availableOnSide))
+      popover.style.maxHeight = `${maxHeight}px`
+      const top = below
+        ? Math.min(anchor.bottom + gap, viewBottom - margin - maxHeight)
+        : Math.max(viewTop + margin, anchor.top - Math.min(naturalHeight, maxHeight) - gap)
       const centeredLeft = anchor.left + anchor.width / 2 - panel.width / 2
       const left = Math.min(Math.max(viewLeft + margin, centeredLeft), Math.max(viewLeft + margin, viewLeft + viewWidth - panel.width - margin))
       setPosition({ top, left })
@@ -162,13 +167,13 @@ export function InfoButton({ title, summary, description, label = `More about ${
       id={`info-popover-${id}`}
       className={`info-popover${compact ? ' is-compact' : ''}`}
       role="dialog"
-      aria-modal={presentation === 'sheet' ? 'true' : undefined}
+      aria-modal="true"
       aria-labelledby={`info-title-${id}`}
       data-presentation={presentation}
       style={{ position: 'fixed', top: position.top, left: position.left }}
     >
       <div className="info-popover-heading"><IconButton ref={closeRef} className="info-dialog-close" label="Close explanation" onClick={() => { restoreTriggerFocus.current = true; setOpen(false) }}><AppIcon name="close" /></IconButton></div>
-      <div className="info-popover-content">
+      <div className="info-popover-content" tabIndex={0} aria-label={`${title} details`}>
         {!content && summary && <p className="info-dialog-summary">{summary}</p>}
         <h2 id={`info-title-${id}`}>{title}</h2>
         {content ?? <p className="info-dialog-description">{description}</p>}

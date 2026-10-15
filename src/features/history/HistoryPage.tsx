@@ -6,21 +6,16 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { SectionTabs, insightsSectionTabs } from '../../components/ui/SectionTabs'
 import { ActivityStatusIcon } from '../../components/ui/ActivityStatusIcon'
 import { Surface } from '../../components/ui/Surface'
-import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isTrackerInActivePeriod } from '../../domain/trackers/planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { assertDateRange } from '../../db/calendarDate'
-import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import type { TrackerValue } from '../../domain/trackers/types'
-import { TrackerEntryFields } from '../shared/TrackerEntryFields'
-import { ClearCheckInAction } from '../shared/ClearCheckInAction'
 import { selectMissingCheckIns, type MissingCheckIn } from '../../domain/trackers/missingCheckIns'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
@@ -38,6 +33,7 @@ export function HistoryPage() {
   const [range, setRange] = useState<HistoryRange>(initialDate ? 'custom' : '30')
   const [customStart, setCustomStart] = useState<string>(() => initialDate ?? shiftCalendarDate(today, -29))
   const [customEnd, setCustomEnd] = useState<string>(() => initialDate ?? today)
+  const [addDate, setAddDate] = useState<string>(() => initialDate ?? today)
   const [trackerFilter, setTrackerFilter] = useState('all')
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
@@ -123,6 +119,15 @@ export function HistoryPage() {
     const tracker = trackerMap.get(entry.trackerId)
     return tracker && !isTrackerInActivePeriod(tracker, entry.date, timeZone)
   }).length
+  const addTracker = trackerMap.get(trackerFilter)
+  const parsedAddDate = Date.parse(`${addDate}T00:00:00.000Z`)
+  const addDateValid = /^\d{4}-\d{2}-\d{2}$/.test(addDate) && Number.isFinite(parsedAddDate) && new Date(parsedAddDate).toISOString().slice(0, 10) === addDate && addDate <= today
+  const addIssue = !addTracker ? 'Choose a tracker to add a check-in.'
+    : !addDateValid ? 'Choose a valid date that is today or earlier in this workspace time zone.'
+      : addTracker.status !== 'active' || addTracker.deletedAt !== null ? 'Archived or deleted trackers cannot receive check-ins.'
+        : addDate < trackerActiveStartDate(addTracker, timeZone) ? `Choose the tracker start date or later (${calendarDateLabel(trackerActiveStartDate(addTracker, timeZone))}).`
+          : addTracker.deadline && addDate > addTracker.deadline ? `Choose a date on or before the tracker deadline (${calendarDateLabel(addTracker.deadline)}).`
+            : ''
 
   return (
     <section className="tracker-page history-page" aria-labelledby="history-title">
@@ -141,6 +146,7 @@ export function HistoryPage() {
           <label className="history-filter"><span>Through</span><input className="auth-input" type="date" max={today} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
         </>}
         <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
+        <div className="history-add-checkin"><label className="history-filter"><span>Add or edit a date</span><input className="auth-input" type="date" max={today} value={addDate} onChange={(event) => setAddDate(event.target.value)} /></label><button type="button" className="button button-secondary button-small" disabled={Boolean(addIssue)} title={addIssue || 'Open the shared check-in editor'} onClick={() => addTracker && navigate('/', { state: { openActivity: { trackerId: addTracker.id, date: addDate } } })}>Add / edit check-in</button>{addIssue && <small role="status">{addIssue}</small>}</div>
         {!loading && <p className="history-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} check-ins · {qualifiedCount} met the current success rule{historicalCount ? ` · ${historicalCount} outside the current tracker period` : ''}</p>}
       </div>
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}
@@ -152,7 +158,7 @@ export function HistoryPage() {
           if (!tracker) return null
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holiday={holidays.some((holiday) => holiday.date === entry.date)} onSaved={refresh} />
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
@@ -172,79 +178,14 @@ function groupMissingByDate(items: MissingCheckIn[]): Array<[CalendarDate, Missi
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holiday, onSaved }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; holiday: boolean; onSaved: () => Promise<void> }) {
-  const { notify } = useToast()
-  const [editing, setEditing] = useState(false)
-  const [values, setValues] = useState<Record<string, TrackerValue>>(entry.values)
-  const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
-  const [note, setNote] = useState(entry.note)
-  const [entryOutcome, setEntryOutcome] = useState<StoredTrackerEntry['outcome']>(entry.outcome)
-  const [saving, setSaving] = useState(false)
-  const [issue, setIssue] = useState('')
-  const [clearing, setClearing] = useState(false)
-  const setValue = (key: string, value: TrackerValue | undefined) => setValues((current) => {
-    const next = { ...current }
-    if (value === undefined) delete next[key]
-    else next[key] = value
-    return next
-  })
-  function setInputValidity(key: string, valid: boolean) {
-    setInvalidInputs((current) => {
-      const next = new Set(current)
-      if (valid) next.delete(key); else next.add(key)
-      return next
-    })
-  }
-  async function saveChanges() {
-    if (entryOutcome === 'recorded' && invalidInputs.size > 0) {
-      setIssue('Finish or correct the highlighted number fields before saving.')
-      return
-    }
-    // Historical values may predate a newly selected precision; allow edits without rewriting their meaning.
-    const validationIssue = entryOutcome === 'recorded' ? validateTrackerEntryValues(tracker, values, { enforcePrecision: false }) : undefined
-    if (validationIssue) {
-      setIssue(validationIssue.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.'))
-      return
-    }
-    setIssue('')
-    setSaving(true)
-    try {
-      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: entry.date, outcome: entryOutcome, values: entryOutcome === 'skipped' ? {} : values, note })
-      await onSaved()
-      setEditing(false)
-      notify({ kind: 'success', title: 'Check-in updated', description: 'Your progress has been saved on this device.', dedupeKey: `checkin:${tracker.id}:${entry.date}` })
-    } catch {
-      notify({ kind: 'error', title: 'Couldn’t update check-in', description: 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${entry.date}` })
-    } finally {
-      setSaving(false)
-    }
-  }
-  async function clearEntry(): Promise<boolean> {
-    setClearing(true)
-    try {
-      await localRepository.deleteTrackerEntry(tracker.id, entry.date as CalendarDate)
-      await onSaved()
-      setEditing(false)
-      notify({ kind: 'success', title: 'Check-in cleared', description: 'The saved entry was removed from active history on this device.', dedupeKey: `checkin:${tracker.id}:${entry.date}` })
-      return true
-    } catch {
-      notify({ kind: 'error', title: 'Couldn’t clear check-in', description: 'Your saved entry is unchanged. Please try again.', duration: 0, dedupeKey: `checkin:${tracker.id}:${entry.date}` })
-      return false
-    } finally { setClearing(false) }
-  }
+function HistoryEntry({ tracker, entry, qualifies, status, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; onEdit: () => void }) {
   const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · intentionally saved' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
   const statusClass = status === 'rest-day' || status === 'unscheduled' ? 'rest' : status
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
-    {!editing && <button className="button button-secondary button-medium" disabled={tracker.status === 'archived'} onClick={() => { setValues(entry.values); setNote(entry.note); setEntryOutcome(entry.outcome); setInvalidInputs(new Set()); setEditing(true) }}>Edit check-in</button>}
-    {tracker.status === 'archived' && !editing && <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
-    {editing && <div className="history-edit-form">
-      <label className="form-field"><span>Outcome</span><select className="auth-input" value={entryOutcome} onChange={(event) => setEntryOutcome(event.target.value as StoredTrackerEntry['outcome'])}><option value="recorded">Progress recorded</option><option value="skipped">Skipped · intentionally saved (breaks streak)</option></select></label>
-      {entryOutcome === 'recorded' && <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={entry.date} today={entry.date} timeZone={timeZone} onInputValidityChange={setInputValidity} />}
-      <label className="form-field form-field-wide"><span>Note <em>· optional</em></span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      {issue && <p className="today-validation" role="alert">{issue}</p>}
-      <div className="today-actions"><button className="button button-primary button-medium" disabled={saving || clearing} onClick={() => void saveChanges()}>{saving ? 'Saving…' : 'Save changes'}</button><button className="button button-quiet button-medium" disabled={saving || clearing} onClick={() => { setEditing(false); setIssue('') }}>Cancel</button><span className="history-clear-action"><ClearCheckInAction onClear={clearEntry} saving={saving || clearing} holiday={holiday} /></span></div>
-    </div>}
-    {!editing && <>
+    {tracker.status !== 'archived' && tracker.deletedAt === null
+      ? <button className="button button-secondary button-medium" type="button" aria-label={`Edit check-in for ${calendarDateLabel(entry.date, { month: 'long', day: 'numeric' })}`} onClick={onEdit}>Edit check-in</button>
+      : <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
+    <>
     {entry.outcome === 'recorded' && <dl className="history-values">{tracker.metrics.map((metric) => {
       const value = entry.values[metric.id]
       if (value === undefined || value === null) return null
@@ -255,7 +196,7 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holiday, on
       return <div key={field.id}><dt>{field.name}</dt><dd>{Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>
     })}</dl>}
     {entry.note && <p className="history-entry-note">{entry.note}</p>}
-    </>}
+    </>
   </Surface>
 }
 

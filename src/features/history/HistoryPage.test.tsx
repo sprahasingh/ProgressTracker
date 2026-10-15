@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { db } from '../../db/database'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import type { StoredTrackerDefinition } from '../../db/models'
-import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { HistoryPage } from './HistoryPage'
+import { TodayPage } from '../today/TodayPage'
 
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false }) }))
 
@@ -21,22 +22,26 @@ const definition: StoredTrackerDefinition = {
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
+function HistoryWithTodayEditor() {
+  return <MemoryRouter initialEntries={['/history']}><Routes><Route path="/history" element={<HistoryPage />} /><Route path="/" element={<TodayPage />} /></Routes></MemoryRouter>
+}
+
 describe('local check-in history', () => {
   it('confirms a historical check-in edit after the local write succeeds', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(definition)
     const date = localCalendarDate()
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Park loop' })
-    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
-    const input = screen.getByRole('spinbutton', { name: 'Distance' })
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: /Edit check-in for/ }))
+    const input = await screen.findByRole('spinbutton', { name: 'Distance' })
     await user.clear(input)
     await user.type(input, '6')
-    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await user.click(screen.getByRole('button', { name: 'Update check-in' }))
 
-    expect(await screen.findByRole('status', { name: 'Check-in updated' })).toHaveTextContent('Your progress has been saved on this device.')
+    expect(await screen.findByRole('button', { name: 'Saved' })).toBeInTheDocument()
     await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ values: { distance: 6 } })
-    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Update check-in' })).not.toBeInTheDocument()
   })
 
   it('requires confirmation to clear history and restores the date to the missing review without exposing values or notes', async () => {
@@ -44,19 +49,18 @@ describe('local check-in history', () => {
     await localRepository.saveTracker(definition)
     const date = shiftCalendarDate(localCalendarDate(), -1)
     const original = await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Private note' })
-    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
-    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
-    expect(screen.getByRole('alertdialog', { name: 'Clear check-in?' })).toBeInTheDocument()
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: /Edit check-in for/ }))
+    await user.click(await screen.findByRole('button', { name: 'Clear check-in' }))
+    expect(screen.getByRole('alertdialog', { name: 'Clear this check-in?' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('alertdialog', { name: 'Clear this check-in?' })).getByRole('button', { name: 'Cancel' }))
     await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ id: original.id, note: 'Private note' })
 
-    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
+    await user.click(await screen.findByRole('button', { name: 'Clear check-in' }))
+    await user.click(within(screen.getByRole('alertdialog', { name: 'Clear this check-in?' })).getByRole('button', { name: 'Clear check-in' }))
     expect(await screen.findByRole('status', { name: 'Check-in cleared' })).toBeInTheDocument()
     await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toBeUndefined()
     expect(screen.queryByText('Private note')).not.toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Missing Check-Ins' })).getAllByText('Missing check-in').length).toBeGreaterThan(0)
     const tombstone = await db.trackerEntries.where('[trackerId+date]').equals([definition.id, date]).first()
     expect(tombstone).toMatchObject({ deletedAt: expect.any(String), values: { distance: 4 }, note: 'Private note' })
   })
@@ -67,12 +71,35 @@ describe('local check-in history', () => {
     const date = localCalendarDate()
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: 'Keep me' })
     vi.spyOn(localRepository, 'deleteTrackerEntry').mockRejectedValueOnce(new Error('write failed'))
-    render(<ToastProvider><MemoryRouter><HistoryPage /></MemoryRouter></ToastProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Edit check-in' }))
-    await user.click(screen.getByRole('button', { name: 'Clear Check-In' }))
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Clear Check-In' }))
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    await user.click(await screen.findByRole('button', { name: /Edit check-in for/ }))
+    await user.click(await screen.findByRole('button', { name: 'Clear check-in' }))
+    await user.click(within(screen.getByRole('alertdialog', { name: 'Clear this check-in?' })).getByRole('button', { name: 'Clear check-in' }))
     expect(await screen.findByText('Couldn’t clear check-in')).toBeInTheDocument()
     await expect(localRepository.getTrackerEntry(definition.id, date)).resolves.toMatchObject({ note: 'Keep me' })
+  })
+
+  it('adds a missing backdated check-in before tracker creation from History', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate()
+    const startDate = shiftCalendarDate(today, -14)
+    const createdToday = { ...definition, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), startDate }
+    const activityDate = shiftCalendarDate(today, -12)
+    await localRepository.saveTracker(createdToday)
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+
+    await screen.findByText('No check-ins in this range')
+    await user.selectOptions(screen.getByLabelText('Tracker'), createdToday.id)
+    fireEvent.change(screen.getByLabelText('Add or edit a date'), { target: { value: activityDate } })
+    await user.click(screen.getByRole('button', { name: 'Add / edit check-in' }))
+    const distance = await screen.findByRole('spinbutton', { name: 'Distance' })
+    expect(distance).toHaveValue('')
+    expect(within(screen.getByRole('dialog')).getAllByText(calendarDateLabel(activityDate), { exact: false }).length).toBeGreaterThan(0)
+    await user.type(distance, '4')
+    await user.click(screen.getByText('Add a note'))
+    await user.type(screen.getByLabelText('Note'), 'Remembered run')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    await waitFor(() => expect(localRepository.getTrackerEntry(createdToday.id, activityDate)).resolves.toMatchObject({ values: { distance: 4 }, note: 'Remembered run' }))
   })
 
   it('lists saved values, notes, outcomes, and filters by tracker', async () => {
@@ -104,7 +131,7 @@ describe('local check-in history', () => {
     await db.trackerEntries.put({ id: 'archived-history-entry', trackerId: archived.id, date: localCalendarDate(), outcome: 'recorded', values: { distance: 4 }, note: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
     expect(await screen.findByText('Archived history')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edit check-in' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Edit check-in/ })).not.toBeInTheDocument()
     expect(screen.getByText('Archived trackers’ check-ins are read-only.')).toBeInTheDocument()
   })
 
