@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
@@ -7,6 +7,7 @@ import type { ProgressionOverview } from '../../services/supabase/progressionRep
 import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
 import { achievementDefinition } from './achievementCatalog'
+import { publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
 
 const mocks = vi.hoisted(() => ({
   getProgressionOverview: vi.fn(),
@@ -30,7 +31,7 @@ vi.mock('../../db/localRepository', () => ({ localRepository: {
   listTrackerEntriesBetween: mocks.listTrackerEntriesBetween,
   listAccountHolidays: mocks.listAccountHolidays,
 } }))
-vi.mock('../../db/useWorkspaceDataChanges', () => ({ useWorkspaceDataChanges: vi.fn() }))
+vi.mock('../../db/useWorkspaceDataChanges', async (importOriginal) => await importOriginal())
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({
   status: 'signed-in', user: { id: 'account-1' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', sessionTransitionPending: false, isOnline: mocks.auth.isOnline, syncStatus: mocks.auth.syncStatus,
 }) }))
@@ -346,7 +347,7 @@ describe('Progression achievements interface', () => {
     const lockedBadge = screen.getByRole('button', { name: /Dedicated, locked/ })
     expect(lockedBadge).not.toHaveTextContent('Save 100 qualifying check-ins')
     expect(lockedBadge).not.toHaveTextContent('23 / 100 check-ins')
-    expect(lockedBadge.querySelector('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '23')
+    expect(lockedBadge).toHaveTextContent('23%')
     await user.click(lockedBadge)
     expect(await screen.findByRole('dialog', { name: 'Dedicated' })).toHaveTextContent('23 / 100 check-ins')
   })
@@ -365,11 +366,57 @@ describe('Progression achievements interface', () => {
     expect(firstFlame.querySelector('.badge-threshold-value')).toHaveTextContent('7')
     const repeatableBadge = screen.getByRole('button', { name: /Dedicated, earned/ })
     expect(repeatableBadge.querySelector('.badge-threshold-value')).toHaveTextContent('100')
-    expect(repeatableBadge).toHaveTextContent('Unlocked')
-    expect(repeatableBadge).toHaveTextContent('Earned 2 times')
+    expect(repeatableBadge).toHaveTextContent('Unlocked (2)')
     expect(repeatableBadge).not.toHaveTextContent('×2 earned')
     expect(screen.getByRole('button', { name: '2 distinct badge types unlocked. Show all badges' })).toHaveTextContent('2 unlocked')
     expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+  })
+
+  it('keeps badge cards on fixed rows and distinguishes unavailable percentages from valid zero progress', async () => {
+    const perfectWeek = { ...overview.achievements[1]!, achievementId: 'perfect-week', progress: 0, target: 7, qualificationDetails: { status: 'unavailable' } }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [...overview.achievements, perfectWeek] })
+    renderPage()
+    const earned = await screen.findByRole('button', { name: /First Step, earned, unlocked \(1\), 100% progress/ })
+    const dedicated = screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })
+    const week = screen.getByRole('button', { name: /Perfect Week, locked, progress unavailable/ })
+    expect(earned).toHaveTextContent('Unlocked (1)')
+    expect(dedicated).toHaveTextContent('23%')
+    expect(week).toHaveTextContent('—')
+    expect(week).not.toHaveTextContent('0%')
+    expect(appStyles).toContain('height: 166px; min-width: 0; grid-template-rows: 64px 2.6em 1.2em 1.2em')
+  })
+
+  it('labels last confirmed Wins while sync is pending or has failed', async () => {
+    mocks.auth.syncStatus = 'offline'
+    mocks.auth.isOnline = false
+    renderPage()
+    expect(await screen.findByText('Changes saved on this device are waiting to sync. Wins below show the latest server-confirmed state.')).toBeInTheDocument()
+    cleanup()
+    mocks.auth.isOnline = true
+    mocks.auth.syncStatus = 'error'
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wins below show the last server-confirmed state')
+  })
+
+  it('refreshes confirmed achievement cards after the account sync completes', async () => {
+    const updated = { ...overview.achievements[1]!, progress: 46 }
+    mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, updated] })
+    renderPage()
+    const card = await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })
+    expect(card).toHaveTextContent('23%')
+
+    await act(async () => { publishWorkspaceSyncCompleted('account-1') })
+    expect(await screen.findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toHaveTextContent('46%')
+    expect(mocks.getProgressionOverview).toHaveBeenCalledTimes(2)
+  })
+
+  it('explains when a failed progression refresh leaves the last confirmed cards visible', async () => {
+    mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockRejectedValueOnce(new Error('temporary network error'))
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    await act(async () => { publishWorkspaceSyncCompleted('account-1') })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cards below show the last server-confirmed state')
+    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
   })
 
   it('opens a modal containing only active unlocked badges from the whole card button', async () => {
@@ -422,8 +469,8 @@ describe('Progression achievements interface', () => {
     renderPage()
 
     const card = await screen.findByRole('button', { name: /Perfect Week, earned/ })
-    expect(card).toHaveTextContent('Earned 2 times')
-    expect(card).not.toHaveTextContent('Earned 3 times')
+    expect(card).toHaveTextContent('Unlocked (2)')
+    expect(card).not.toHaveTextContent('Unlocked (3)')
     await user.click(card)
     const dialog = await screen.findByRole('dialog', { name: 'Perfect Week' })
     expect(dialog).toHaveTextContent('Earned 2 times')
