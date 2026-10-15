@@ -125,6 +125,16 @@ describe('cumulative deadline planning', () => {
     expect(plan.paceStatus).toBe('behind')
   })
 
+  it('calculates required Auto pace after fixed future Manual allocations', () => {
+    const fiveDayGoal = { ...tracker, schedule: { kind: 'every-day' as const }, deadline: '2026-10-09' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: fiveDayGoal, entries: [], metricId: 'pages', totalTarget: 10,
+      startDate: '2026-10-05', asOfDate: '2026-10-06', progressSemantics: 'incremental',
+      manualAllocations: { '2026-10-06': 4 },
+    })
+    expect(plan).toMatchObject({ remainingWork: 10, expectedProgress: 6, scheduledDaysRemaining: 4, automaticDaysRemaining: 3, requiredDailyPace: 2 })
+  })
+
   it('rejects cumulative sums of snapshot metrics', () => {
     expect(() => calculateCumulativeMetricPlan({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-02', progressSemantics: 'snapshot' })).toThrow(/incremental/)
   })

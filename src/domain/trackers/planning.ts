@@ -54,6 +54,7 @@ export type CumulativeMetricPlan = {
   remainingWork: number
   requiredDailyPace: number | null
   scheduledDaysRemaining: number
+  automaticDaysRemaining: number
   scheduledDaysTotal: number
   status: 'not-started' | 'active' | 'completed' | 'overdue' | 'no-scheduled-days'
   paceStatus: 'not-started' | 'ahead' | 'on-track' | 'behind' | 'overdue' | 'no-scheduled-days'
@@ -172,6 +173,8 @@ export function calculateCumulativeMetricPlan(input: {
   progressSemantics: 'incremental' | 'snapshot'
   holidays?: ReadonlySet<string>
   timeZone?: string
+  allocations?: Readonly<Record<string, number>>
+  manualAllocations?: Readonly<Record<string, number>>
 }): CumulativeMetricPlan {
   const metric = input.tracker.metrics.find((item) => item.id === input.metricId)
   if (!metric || metric.valueType === 'boolean') throw new RangeError('Cumulative planning requires a numeric or checklist metric.')
@@ -197,7 +200,6 @@ export function calculateCumulativeMetricPlan(input: {
   }
   const actualProgress = sumDecimalValues(progressValues)
   const scheduledDaysTotal = scheduledDates.length
-  const elapsedScheduledDays = scheduledDates.filter((date) => parseDate(date) <= asOf).length
   // Today stays available until its tracker entry is submitted. Once a recorded
   // or skipped entry exists, pace and allocation suggestions use future dates only.
   const todayClosed = latest.has(input.asOfDate)
@@ -205,7 +207,14 @@ export function calculateCumulativeMetricPlan(input: {
     parseDate(date) > asOf || (parseDate(date) === asOf && !todayClosed),
   ).length
   const remainingWork = Math.max(0, input.totalTarget - actualProgress)
-  const expectedProgress = scheduledDaysTotal === 0 ? 0 : input.totalTarget * elapsedScheduledDays / scheduledDaysTotal
+  const futureScheduledDates = scheduledDates.filter((date) => parseDate(date) > asOf || (parseDate(date) === asOf && !todayClosed))
+  const fixedManualWork = sumDecimalValues(futureScheduledDates.map((date) => input.manualAllocations?.[date] ?? 0))
+  const automaticDaysRemaining = futureScheduledDates.filter((date) => input.manualAllocations?.[date] === undefined).length
+  const remainingAutomaticWork = Math.max(0, remainingWork - fixedManualWork)
+  const baselineDailyPlan = scheduledDaysTotal === 0 ? 0 : input.totalTarget / scheduledDaysTotal
+  const expectedProgress = sumDecimalValues(scheduledDates
+    .filter((date) => parseDate(date) <= asOf)
+    .map((date) => input.manualAllocations?.[date] ?? input.allocations?.[date] ?? baselineDailyPlan))
   let status: CumulativeMetricPlan['status']
   if (asOf < start) status = 'not-started'
   else if (remainingWork === 0) status = 'completed'
@@ -219,8 +228,8 @@ export function calculateCumulativeMetricPlan(input: {
           : actualProgress >= expectedProgress ? actualProgress > expectedProgress ? 'ahead' : 'on-track' : 'behind'
   return {
     metricId: metric.id, totalTarget: input.totalTarget, actualProgress, expectedProgress, remainingWork,
-    requiredDailyPace: remainingWork === 0 ? 0 : scheduledDaysRemaining > 0 ? remainingWork / scheduledDaysRemaining : null,
-    scheduledDaysRemaining, scheduledDaysTotal, status, paceStatus,
+    requiredDailyPace: remainingAutomaticWork === 0 ? 0 : automaticDaysRemaining > 0 ? remainingAutomaticWork / automaticDaysRemaining : null,
+    scheduledDaysRemaining, automaticDaysRemaining, scheduledDaysTotal, status, paceStatus,
   }
 }
 

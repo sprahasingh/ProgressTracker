@@ -35,8 +35,12 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const [resolveHolidayConflicts, setResolveHolidayConflicts] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedLocally, setSavedLocally] = useState(false)
+  const [savedMessage, setSavedMessage] = useState('')
   const [error, setError] = useState('')
   const [pageStart, setPageStart] = useState(0)
+  const [jumpDate, setJumpDate] = useState('')
+  const [editingDate, setEditingDate] = useState<string | null>(null)
+  const [resettingPlan, setResettingPlan] = useState(false)
   const preview = useMemo(() => createCumulativeAllocationPreview({
     tracker, entries, metricId, totalTarget: tracker.goalPlanning?.cumulativeTargets[metricId] ?? 0, startDate, asOfDate, holidays, timeZone,
     manualAllocations: manualValues,
@@ -63,6 +67,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
   const holidayConflicts = preview.days.filter((day) => day.holiday && (storedManual[day.date] ?? 0) > 0)
   const pageDays = preview.days.slice(pageStart, pageStart + 14)
   const pageEnd = Math.min(preview.days.length, pageStart + pageDays.length)
+  const futureManualDates = Object.keys(manualValues).filter((date) => date >= asOfDate)
 
   function changeAllocation(date: string, raw: string) {
     const value = raw === '' ? 0 : Number(raw)
@@ -71,13 +76,16 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     if (metric?.precision && Math.abs(value / metric.precision.increment - Math.round(value / metric.precision.increment)) > Math.max(1, value / metric.precision.increment) * Number.EPSILON * 8) return
     setManualValues((current) => ({ ...current, [date]: value }))
     setDirty(true)
+    setResettingPlan(false)
     setSavedLocally(false)
+    setSavedMessage('')
     setError('')
   }
 
   function discardChanges() {
     setManualValues(initial)
     setDirty(false)
+    setResettingPlan(false)
     setResolveHolidayConflicts(false)
     setLegacyPlanChoice(!hasExplicitManualMap && legacyDatesNeedingReview.length > 0 ? 'unreviewed' : 'automatic')
     setSavedLocally(false)
@@ -96,6 +104,20 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     setLegacyPlanChoice('automatic')
     setSavedLocally(false)
     setDirty(true)
+    setResettingPlan(false)
+  }
+
+  function resetFutureManualOverrides() {
+    if (futureManualDates.length === 0) return
+    const confirmed = window.confirm(`Reset ${futureManualDates.length} future Manual allocation${futureManualDates.length === 1 ? '' : 's'} to Auto? Completed progress and historical plan data will be preserved.`)
+    if (!confirmed) return
+    setManualValues((current) => Object.fromEntries(Object.entries(current).filter(([date]) => date < asOfDate)))
+    setLegacyPlanChoice('automatic')
+    setDirty(true)
+    setResettingPlan(true)
+    setSavedLocally(false)
+    setSavedMessage('')
+    setError('')
   }
 
   async function savePlan() {
@@ -122,6 +144,10 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       setDirty(false)
       setResolveHolidayConflicts(false)
       setSavedLocally(true)
+      setSavedMessage(resettingPlan
+        ? `Future Manual allocations reset to Auto. ${signedIn ? isOnline ? 'Account sync runs automatically.' : 'Sync is pending until you reconnect.' : 'Saved on this device.'}`
+        : signedIn ? isOnline ? 'Plan saved. Account sync runs automatically.' : 'Plan saved on this device. Sync is pending until you reconnect.' : 'Plan saved on this device.')
+      setResettingPlan(false)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The plan could not be saved. Your previous plan is unchanged.')
     } finally {
@@ -134,21 +160,20 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       <div><span className="tracker-kind-chip">{dirty ? 'UNSAVED CHANGES' : tracker.schemaVersion >= 3 && saved ? 'SAVED PLAN' : 'PREVIEW'}</span><h4>{metric.name} · {preview.days.length} calendar days</h4></div>
       {dirty && <div className="allocation-plan-actions"><button className="button button-primary button-small" type="button" onClick={() => void savePlan()} disabled={saving || !manualPlanWritesEnabled || (legacyDatesNeedingReview.length > 0 && legacyPlanChoice === 'unreviewed')}>{saving ? 'Saving…' : 'Save manual changes'}</button><button className="button button-secondary button-small" type="button" onClick={discardChanges} disabled={saving}>Discard Changes</button></div>}
     </header>
-    <p className="allocation-preview-note">{dirty ? 'Manual changes are not saved yet.' : 'Planned amounts rebalance from remaining work and scheduled days. Completed values always come from saved check-ins.'}</p>
+    <p className="allocation-preview-note">{dirty ? 'Manual changes are not saved yet.' : 'Auto amounts recalculate from remaining work and scheduled days.'}</p>
     {!manualPlanWritesEnabled && <p className="allocation-preview-warning" role="status">Saving manual plans is disabled in this production build until the schema v5 migration is applied and verified.</p>}
     {error && <p className="allocation-preview-warning" role="alert">{error}</p>}
-    {savedLocally && <p className="allocation-save-status" role="status">{signedIn ? isOnline ? 'Saved on this device. Account sync runs automatically.' : 'Saved on this device. Sync is pending until you reconnect.' : 'Saved on this device.'}</p>}
+    {savedLocally && <p className="allocation-save-status" role="status">{savedMessage}</p>}
     {!hasExplicitManualMap && legacyDatesNeedingReview.length > 0 && <div className="allocation-legacy-notice" role="status"><span>This older saved plan does not identify which dates you edited and which were auto-filled. Choose how to handle its future dates before saving your changes.</span><div><button className="button button-secondary button-small" type="button" onClick={preservePreviousPlan}>Keep previous future values as manual</button><button className="button button-quiet button-small" type="button" onClick={useAutomaticPlan}>Use the recalculated plan</button></div></div>}
     {holidayConflicts.length > 0 && <div className="allocation-preview-warning" role="status"><p>{holidayConflicts.length} holiday date{holidayConflicts.length === 1 ? '' : 's'} have manual allocations. They are preserved and excluded from this preview until released.</p><button className="button button-secondary button-small" type="button" onClick={() => { setManualValues((current) => { const next = { ...current }; holidayConflicts.forEach((day) => delete next[day.date]); return next }); setResolveHolidayConflicts(true); setDirty(true); setSavedLocally(false) }}>Release holiday allocations</button></div>}
-    <div className="allocation-preview-summary" role="group" aria-label={`${metric.name} preview totals`}>
-      <span><small>Completed</small><strong>{format(preview.actualProgress)}</strong></span>
-      <span><small>Remaining target</small><strong>{format(preview.remainingTarget)}</strong></span>
-      <span><small>Planned</small><strong>{format(totals.plannedTotal)}</strong></span>
-      <span><small>{preview.overAllocatedWork ? 'Over-allocation' : preview.unallocatedWork || totals.shortfall ? 'Unallocated' : totals.overAllocation ? 'Over-allocation' : 'Balance'}</small><strong>{format(preview.overAllocatedWork || preview.unallocatedWork || totals.shortfall || totals.overAllocation)}</strong></span>
+    <div className="allocation-planning-controls" aria-label="Planning controls">
+      <span><strong>{eligibleDays.length}</strong> scheduled days left</span>
+      <span><strong>{futureManualDates.length}</strong> Manual override{futureManualDates.length === 1 ? '' : 's'}</span>
+      {futureManualDates.length > 0 && <button className="allocation-reset-plan" type="button" onClick={resetFutureManualOverrides} disabled={saving}>Reset plan</button>}
     </div>
     {preview.eligibleDayCount === 0 && preview.remainingTarget > 0 && <p className="allocation-preview-warning" role="status">The goal is behind schedule: {format(preview.remainingTarget)} remains and no eligible scheduled days remain before the deadline.</p>}
     <details className="allocation-schedule-disclosure"><summary>Daily schedule <span>{preview.days.length} dates</span></summary>
-    {preview.days.length > 14 && <nav className="allocation-page-controls" aria-label={`${metric.name} schedule pages`}><button className="button button-secondary button-small" type="button" disabled={pageStart === 0} onClick={() => setPageStart((current) => Math.max(0, current - 14))}>Previous dates</button><span>Dates {pageStart + 1}–{pageEnd} of {preview.days.length}</span><button className="button button-secondary button-small" type="button" disabled={pageEnd >= preview.days.length} onClick={() => setPageStart((current) => Math.min(preview.days.length - 14, current + 14))}>Next dates</button></nav>}
+    {preview.days.length > 14 && <nav className="allocation-page-controls" aria-label={`${metric.name} schedule pages`}><label>Jump to date <input aria-label="Jump to date" type="date" min={preview.days[0]?.date} max={preview.days.at(-1)?.date} value={jumpDate} onChange={(event) => { const date = event.target.value; setJumpDate(date); const index = preview.days.findIndex((day) => day.date >= date); if (index >= 0) setPageStart(Math.floor(index / 14) * 14) }} /></label><button className="button button-secondary button-small" type="button" disabled={pageStart === 0} onClick={() => setPageStart((current) => Math.max(0, current - 14))}>Previous dates</button><span>Dates {pageStart + 1}–{pageEnd} of {preview.days.length}</span><button className="button button-secondary button-small" type="button" disabled={pageEnd >= preview.days.length} onClick={() => setPageStart((current) => Math.min(preview.days.length - 14, current + 14))}>Next dates</button></nav>}
     {preview.days.length > 0 && <div className="allocation-preview-table-wrap"><table className="allocation-preview-table">
       <thead><tr><th scope="col">Date</th><th scope="col">Completed</th><th scope="col">Planned</th></tr></thead>
       <tbody>{pageDays.map((day) => {
@@ -156,8 +181,8 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
           const actual = entry?.outcome === 'skipped' ? 'Skipped · intentionally saved' : entry ? actualMetricValue(metric.valueType, metricId, entry.values) : null
         return <tr key={day.date} className={day.holiday ? 'allocation-holiday' : day.eligible ? '' : 'allocation-rest-day'}>
           <th scope="row">{calendarDateLabel(day.date, { weekday: 'short', month: 'short', day: 'numeric' })}{day.historical && <span className="allocation-rest-label">History</span>}{!day.eligible && !day.historical && <span className="allocation-rest-label">{day.holiday ? 'Holiday' : 'Rest day'}</span>}</th>
-          <td>{actual === null ? '—' : actual === 'Skipped · intentionally saved' ? actual : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
-          <td>{day.amount !== null ? <div className="allocation-planned-cell">{day.eligible ? <><label className={`allocation-input-label${dirty ? ' allocation-unsaved' : ''}`}><span className="sr-only">Planned allocation for {day.date}</span><input className="auth-input" aria-label={`Planned allocation for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount} onChange={(event) => changeAllocation(day.date, event.target.value)} /></label>{day.manual ? <><span className="allocation-manual-indicator">Manual</span><button className="allocation-reset-button" type="button" onClick={() => { setManualValues((current) => { const next = { ...current }; delete next[day.date]; return next }); setDirty(true); setSavedLocally(false) }}>Reset to auto</button></> : <span className="allocation-auto-indicator">Auto</span>}</> : <span aria-label={`Planned allocation for ${day.date}`}>{format(day.amount)}{day.manual && <small className="allocation-manual-indicator">Manual · history</small>}</span>}</div> : <span className="allocation-rest-value">{day.closed ? 'Logged' : 'Not scheduled'}</span>}</td>
+          <td data-label="Completed">{actual === null ? '—' : actual === 'Skipped · intentionally saved' ? actual : actual === 'invalid' ? 'No numeric value' : format(actual)}</td>
+          <td data-label="Planned">{day.amount !== null ? <div className="allocation-planned-cell">{day.eligible ? <><span>{format(manualValues[day.date] ?? day.amount)}</span><span className={day.manual ? 'allocation-manual-indicator' : 'allocation-auto-indicator'}>{day.manual ? 'Manual' : 'Auto'}</span>{editingDate === day.date && <label className="allocation-input-label"><span className="sr-only">Planned allocation for {day.date}</span><input autoFocus className="auth-input" aria-label={`Planned allocation for ${day.date}`} type="number" min="0" max={Number.MAX_SAFE_INTEGER} step={metric.valueType === 'checklist' ? 1 : metric.precision?.increment ?? 'any'} value={manualValues[day.date] ?? day.amount} onChange={(event) => changeAllocation(day.date, event.target.value)} /></label>}{day.manual && <button className="allocation-reset-button" type="button" aria-label={`Reset ${day.date} to Auto`} onClick={() => { setManualValues((current) => { const next = { ...current }; delete next[day.date]; return next }); setDirty(true); setResettingPlan(false); setSavedLocally(false); setSavedMessage('') }}>Reset to Auto</button>}<button className="allocation-edit-button" type="button" aria-label={`${editingDate === day.date ? 'Finish editing' : 'Edit plan for'} ${day.date}`} onClick={() => setEditingDate((current) => current === day.date ? null : day.date)}>{editingDate === day.date ? 'Done' : 'Edit'}</button></> : <span aria-label={`Planned allocation for ${day.date}`}>{format(day.amount)}{day.manual && <small className="allocation-manual-indicator">Manual · history</small>}</span>}</div> : <span className="allocation-rest-value">{day.closed ? 'Logged' : 'Not scheduled'}</span>}</td>
         </tr>
       })}</tbody>
     </table></div>}

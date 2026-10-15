@@ -58,6 +58,20 @@ describe('cumulative allocation preview', () => {
     expect(preview.days.filter((day) => day.eligible).reduce((sum, day) => sum + day.outstanding, 0)).toBe(88)
   })
 
+  it('keeps generated dates Auto while rebalancing around one explicit override', () => {
+    const fiveDayGoal: TrackerDefinition = {
+      ...tracker, schemaVersion: 5, schedule: { kind: 'every-day' }, startDate: '2026-01-05', deadline: '2026-01-09',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', precision: { decimalPlaces: 1, increment: 0.1 } }],
+      goalPlanning: { ...tracker.goalPlanning!, planningTimeZone: 'UTC', cumulativeTargets: { pages: 10 }, allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-05': 4 } } },
+    }
+    const manual = createCumulativeAllocationPreview({ tracker: fiveDayGoal, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05', manualAllocations: fiveDayGoal.goalPlanning?.manualAllocations?.pages })
+    expect(manual.days.map((day) => [day.date, day.amount, day.manual])).toEqual([
+      ['2026-01-05', 4, true], ['2026-01-06', 1.5, false], ['2026-01-07', 1.5, false], ['2026-01-08', 1.5, false], ['2026-01-09', 1.5, false],
+    ])
+    const reset = createCumulativeAllocationPreview({ tracker: fiveDayGoal, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05', manualAllocations: {} })
+    expect(reset.days.map((day) => [day.amount, day.manual])).toEqual([[2, false], [2, false], [2, false], [2, false], [2, false]])
+  })
+
   it.each([
     { actual: 5, expectedRemaining: 95 },
     { actual: 15, expectedRemaining: 85 },
