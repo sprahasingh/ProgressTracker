@@ -1,8 +1,24 @@
+import { useEffect, useState } from 'react'
 import { assertCalendarDate, calendarDateInTimeZone } from '../../db/calendarDate'
 import type { CalendarDate } from '../../db/models'
 
 export function localCalendarDate(date = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'): CalendarDate {
   return calendarDateInTimeZone(date, timeZone)
+}
+
+/** Keeps date driven screens current when an open tab crosses midnight in the workspace zone. */
+export function useWorkspaceCalendarDate(timeZone: string): CalendarDate {
+  const [today, setToday] = useState(() => localCalendarDate(new Date(), timeZone))
+  useEffect(() => {
+    const update = () => setToday((current) => {
+      const next = localCalendarDate(new Date(), timeZone)
+      return current === next ? current : next
+    })
+    update()
+    const timer = window.setInterval(update, 30_000)
+    return () => window.clearInterval(timer)
+  }, [timeZone])
+  return today
 }
 
 export function shiftCalendarDate(value: CalendarDate, days: number): CalendarDate {

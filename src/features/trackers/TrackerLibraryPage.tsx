@@ -12,9 +12,10 @@ import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { isScheduledDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, useWorkspaceCalendarDate } from '../shared/localDates'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
+import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
@@ -22,7 +23,7 @@ export function TrackerLibraryPage() {
   const { notify } = useToast()
   const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
-  const today = localCalendarDate(new Date(), timeZone)
+  const today = useWorkspaceCalendarDate(timeZone)
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && authStatus !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === expectedOwner
   const workspaceKey = workspaceReady ? expectedOwner ?? 'guest' : null
@@ -143,6 +144,7 @@ export function TrackerLibraryPage() {
               <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span><span className="tracker-card-policy">{tracker.strictMode ? <>Strict Mode <InfoButton title="Strict Mode" summary="This tracker requires qualifying progress every calendar day." description="Holidays, weekends, and unscheduled rest days count as streak opportunities. A qualifying voluntary check-in can preserve the streak without changing this tracker’s schedule or the holiday." /></> : 'Standard Mode'}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
               {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
+              {getChallengeDayDisplay(tracker, today, timeZone) && <p className="challenge-day-label" aria-label={`Challenge ${getChallengeDayDisplay(tracker, today, timeZone)!.label}`}>{getChallengeDayDisplay(tracker, today, timeZone)!.label}</p>}
               <TrackerCardTargets tracker={tracker} />
               <div className="tracker-card-meta">
                 <span>{tracker.schedule.kind === 'every-day' ? 'Every day' : tracker.schedule.kind === 'weekdays' ? 'Weekdays' : tracker.schedule.kind === 'times-per-week' ? `${tracker.schedule.count} times a week` : 'Flexible schedule'}</span>

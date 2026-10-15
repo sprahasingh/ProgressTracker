@@ -17,6 +17,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { assertDateRange } from '../../db/calendarDate'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { selectMissingCheckIns, type MissingCheckIn } from '../../domain/trackers/missingCheckIns'
+import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
@@ -158,7 +159,7 @@ export function HistoryPage() {
           if (!tracker) return null
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
@@ -178,10 +179,11 @@ function groupMissingByDate(items: MissingCheckIn[]): Array<[CalendarDate, Missi
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, status, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; onEdit: () => void }) {
+function HistoryEntry({ tracker, entry, qualifies, status, timeZone, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; onEdit: () => void }) {
   const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · intentionally saved' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
   const statusClass = status === 'rest-day' || status === 'unscheduled' ? 'rest' : status
-  return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3></div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
+  const challengeDay = getChallengeDayDisplay(tracker, entry.date, timeZone)
+  return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3>{challengeDay?.day && <p className="challenge-day-label">Day {challengeDay.day} of {challengeDay.totalDays}</p>}</div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
     {tracker.status !== 'archived' && tracker.deletedAt === null
       ? <button className="button button-secondary button-medium" type="button" aria-label={`Edit check-in for ${calendarDateLabel(entry.date, { month: 'long', day: 'numeric' })}`} onClick={onEdit}>Edit check-in</button>
       : <p className="history-entry-note">Archived trackers’ check-ins are read-only.</p>}
