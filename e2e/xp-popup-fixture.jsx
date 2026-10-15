@@ -3,10 +3,19 @@ import { createRoot } from 'react-dom/client'
 import '../src/styles.css'
 import { InfoButton } from '../src/components/ui/InfoButton'
 import { XpInformation } from '../src/features/dashboard/ProgressionAchievementsPage'
+import { CumulativeAllocationPreview } from '../src/features/goals/CumulativeAllocationPreview'
 
 const overview = {
   confirmedXp: 30,
   officialLevel: { level: 1, currentLevelXp: 0, nextLevelXp: 100, progressXp: 30, requiredXp: 100 },
+}
+
+const goal = {
+  schemaVersion: 4, id: 'mobile-plan-fixture', name: 'Plan fixture', description: '', kind: 'goal', status: 'active', categoryId: null,
+  tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: '2026-01-05', deadline: '2026-02-19',
+  metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 } }],
+  customFields: [], milestones: [], goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 40 }, planningTimeZone: 'UTC', allocations: { pages: {} } },
+  createdAt: '2026-01-05T00:00:00.000Z', updatedAt: '2026-01-05T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
 function Fixture() {
@@ -19,6 +28,7 @@ function Fixture() {
           <button type="button" className="progression-level-card"><strong className="progression-xp-total">30 <small>XP</small></strong><span className="progression-level-track"><span style={{ width: '30%' }} /></span><span className="progression-level-caption">70 XP to Level 2</span></button>
         </section>
       </section>
+      <CumulativeAllocationPreview tracker={goal} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="UTC" onSave={async () => {}} manualPlanWritesEnabled />
       <div style={{ marginTop: '250px' }}>
         <InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={overview} />} />
       </div>

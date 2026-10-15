@@ -18,13 +18,13 @@ A cumulative plan sets one total to reach by the tracker deadline, such as “co
 
 Cumulative planning can sum only measures explicitly configured as **Incremental**, where each entry adds new progress. A **Snapshot** is already a total, so adding snapshots across dates would count the same work repeatedly. A measure with an existing cumulative target cannot be changed to Snapshot until that target is resolved. Legacy Checklist entries contribute the count checked on each eligible entry and the cumulative total may span repeated scheduled days.
 
-Rest days and holidays do not add scheduled pace opportunities. Recorded incremental progress on a rest date still represents real progress and can count toward the total. Today remains available for the plan until today’s entry is submitted; after a recorded or skipped entry, pace and allocation calculations use remaining eligible dates.
+Rest days and holidays do not add scheduled pace opportunities. Recorded incremental progress on a rest date still represents real progress and can count toward the total. Today remains available for the plan until today’s entry is submitted; after a recorded or skipped entry, pace and allocation calculations use remaining eligible dates. Expected progress uses saved planned amounts for elapsed dates where they are available and an even scheduled-date split as the fallback. When future dates have explicit Manual allocations, required Auto pace subtracts those fixed amounts from the remaining work and divides the balance across the remaining Auto dates.
 
 If there are no scheduled dates in the plan window, the plan reports that state instead of inventing a daily pace. A deadline before the effective start date is invalid. The effective start respects both the chosen start and the tracker’s creation date in the workspace time zone.
 
 ## Allocation planning
 
-The allocation view can preview how a cumulative total could be spread across remaining scheduled dates. The calculated pace is a suggestion for planning; it is not itself a check-in, a saved entry, or a change to the goal total. Review the preview and the saved target separately. The total is measured in the selected measure’s unit.
+The allocation view can preview how a cumulative total could be spread across remaining scheduled dates. Auto amounts recalculate from saved progress, the target, and eligible dates. Only dates the user explicitly edits are saved as Manual overrides; recalculation does not promote other dates. Individual overrides can be reset to Auto, or all future Manual allocations can be reset after confirmation. Resets update the saved plan without changing check-ins or historical planned values. If Manual allocations exceed the remaining work, the plan reports the over-allocation instead of generating negative Auto amounts. The calculated pace is a suggestion for planning; it is not itself a check-in, a saved entry, or a change to the goal total. Review the preview and the saved target separately. The total is measured in the selected measure’s unit.
 
 ## Milestones
 

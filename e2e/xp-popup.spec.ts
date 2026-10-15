@@ -135,3 +135,31 @@ test('XP information popup scrolls by touch and exposes its last threshold at mo
     expect(await page.evaluate(() => window.scrollY)).toBe(afterPageScroll)
   }
 })
+
+test('daily plan editor stays compact, touch friendly, and free of horizontal overflow on mobile', async ({ page }) => {
+  await page.goto('e2e/xp-popup-fixture.html')
+  for (const width of [320, 360, 390, 430]) {
+    await page.setViewportSize({ width, height: 760 })
+    const preview = page.getByRole('region', { name: 'Pages allocation preview' })
+    await expect(preview).toBeVisible()
+    const measurements = await preview.evaluate((element) => ({
+      viewportWidth: document.documentElement.clientWidth,
+      pageWidth: document.documentElement.scrollWidth,
+      previewWidth: element.clientWidth,
+      minTableWidth: getComputedStyle(element.querySelector('.allocation-preview-table')).minWidth,
+    }))
+    expect(measurements.pageWidth, `page overflows horizontally at ${width}px: ${JSON.stringify(measurements)}`).toBeLessThanOrEqual(width)
+    await preview.getByText(/Daily schedule/).click()
+    const firstRow = preview.locator('tbody tr').first()
+    expect(await firstRow.evaluate((row) => getComputedStyle(row).display)).toBe('grid')
+    expect(await firstRow.getByText('Auto').count()).toBe(1)
+    await expect(firstRow.getByRole('button', { name: /Reset .* to Auto/ })).toHaveCount(0)
+    await firstRow.getByRole('button', { name: 'Edit plan for 2026-01-05' }).click()
+    await expect(firstRow.getByRole('spinbutton', { name: 'Planned allocation for 2026-01-05' })).toBeVisible()
+    expect(await preview.locator('.allocation-preview-table-wrap').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const jump = preview.getByRole('textbox', { name: 'Jump to date' })
+    await jump.fill('2026-02-01')
+    await expect(preview.getByRole('row', { name: /Sun, Feb 1/ })).toBeAttached()
+    await page.reload()
+  }
+})

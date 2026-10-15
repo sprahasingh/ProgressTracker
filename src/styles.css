@@ -3215,6 +3215,14 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .allocation-manual-indicator { color: var(--accent-strong); }
 .allocation-reset-button { max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: var(--ink-muted); font-size: 9px; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .allocation-reset-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.allocation-planning-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0; color: var(--ink-muted); font-size: 11px; }
+.allocation-planning-controls strong { color: var(--ink); }
+.allocation-reset-plan, .allocation-edit-button { min-height: 34px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.allocation-reset-plan { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); color: var(--accent-strong); font-weight: 650; }
+.allocation-reset-plan:disabled { opacity: .55; cursor: not-allowed; }
+.allocation-edit-button { min-height: 28px; padding: 3px 7px; font-size: 10px; }
+.allocation-page-controls label { display: inline-flex; align-items: center; gap: 5px; }
+.allocation-page-controls input[type='date'] { width: 136px; min-height: 34px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; }
 .goal-card-summary-name { min-width: 0; overflow-wrap: anywhere; }
 .goal-card-summary-metric { min-width: 0; }
 .goal-expanded-details .tracker-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
@@ -3232,6 +3240,20 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .allocation-preview-table th:nth-child(2) { width: 25%; }
   .allocation-preview-table th:nth-child(3) { width: 39%; }
   .allocation-preview-table th, .allocation-preview-table td { padding-inline: 4px; font-size: 9px; }
+  .allocation-page-controls { flex-wrap: wrap; justify-content: space-between; gap: 7px; }
+  .allocation-page-controls label { width: 100%; justify-content: space-between; }
+  .allocation-page-controls input[type='date'] { flex: 0 1 155px; }
+  .allocation-preview-table, .allocation-preview-table tbody { display: block; width: 100%; }
+  .allocation-preview-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .allocation-preview-table tbody { display: grid; gap: 7px; }
+  .allocation-preview-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+  .allocation-preview-table tbody th:first-child { grid-column: 1 / -1; padding: 0 0 5px; border-bottom: 1px solid var(--line); font-size: 10px; }
+  .allocation-preview-table tbody td { display: grid; min-width: 0; align-content: start; gap: 3px; padding: 2px 0; border: 0; font-size: 10px; }
+  .allocation-preview-table tbody td::before { content: attr(data-label); color: var(--ink-subtle); font-size: 9px; }
+  .allocation-preview-table tbody td:last-child { grid-column: 1 / -1; }
+  .allocation-planned-cell { grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+  .allocation-planned-cell > span:first-child { font-variant-numeric: tabular-nums; }
+  .allocation-reset-button { font-size: 10px; }
   .tracker-setup-form:has(input:focus, textarea:focus, select:focus) .tracker-form-actions { position: static; box-shadow: none; }
   .tracker-form-actions { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
 }

@@ -204,7 +204,7 @@ export function GoalsPage() {
                   : <div className="goal-cumulative-plans">{Object.entries(tracker.goalPlanning.cumulativeTargets).map(([metricId, totalTarget]) => {
                     const metric = tracker.metrics.find((item) => item.id === metricId)
                     if (!metric || tracker.goalPlanning?.progressSemantics[metricId] !== 'incremental') return null
-                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates, timeZone: planningTimeZone })
+                    const plan = calculateCumulativeMetricPlan({ tracker, entries: goalEntries, metricId, totalTarget, asOfDate: planningToday, startDate, progressSemantics: 'incremental', holidays: holidayDates, timeZone: planningTimeZone, allocations: tracker.goalPlanning.allocations?.[metricId], manualAllocations: tracker.goalPlanning.manualAllocations?.[metricId] })
                     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                     const format = formatTrackerNumber
                     const actualPercent = totalTarget === 0 ? 100 : Math.min(100, plan.actualProgress / totalTarget * 100)
@@ -213,7 +213,7 @@ export function GoalsPage() {
                       <div className="goal-plan-bars" role="img" aria-label={`${metric.name}: ${format(plan.actualProgress)}${unit} completed of ${format(totalTarget)}${unit}; expected ${format(plan.expectedProgress)}${unit} by today`}>
                         <div><span>Progress</span><div className="goal-plan-bar"><i className="actual" style={{ width: `${actualPercent}%` }} /></div></div>
                       </div>
-                      <dl className="goal-plan-facts"><div><dt>Completed</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected by today</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No scheduled days remain' : `${format(plan.requiredDailyPace)}${unit} / scheduled day`}</dd></div></dl>
+                      <dl className="goal-plan-facts"><div><dt>Completed</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected by today</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No automatic days remain' : `${format(plan.requiredDailyPace)}${unit} / automatic day`}</dd></div></dl>
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}

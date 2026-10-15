@@ -168,6 +168,7 @@ describe('Goals page allocation preview', () => {
     expect(await screen.findByRole('region', { name: 'Pages allocation preview' })).toBeInTheDocument()
     expect(screen.getAllByText('8 pages').length).toBeGreaterThanOrEqual(1)
     const tomorrow = shiftCalendarDate(today, 1)
+    await user.click(screen.getByRole('button', { name: `Edit plan for ${tomorrow}` }))
     fireEvent.change(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` }), { target: { value: '0' } })
     expect(screen.getByText('UNSAVED CHANGES')).toBeInTheDocument()
 
@@ -196,6 +197,7 @@ describe('Goals page allocation preview', () => {
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { questions: 3 }, note: '' })
 
     await waitFor(() => expect(screen.getAllByText('6 problems').length).toBeGreaterThanOrEqual(1))
+    await user.click(screen.getByRole('button', { name: `Edit plan for ${shiftCalendarDate(today, 1)}` }))
     expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 1)}` })).toHaveValue(2)
     expect(screen.getByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
   })
@@ -216,6 +218,7 @@ describe('Goals page allocation preview', () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
     expect(await screen.findByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: `Edit plan for ${tomorrow}` }))
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 6 }, note: '' })
     await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(1))
@@ -227,6 +230,7 @@ describe('Goals page allocation preview', () => {
     cleanup()
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
+    await user.click(screen.getByRole('button', { name: `Edit plan for ${tomorrow}` }))
     await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
 
     await localRepository.deleteTrackerEntry(tracker.id, today)
@@ -304,9 +308,10 @@ describe('Goals page allocation preview', () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, tracker.name)
     expect(await screen.findByText(`Dates 1–14 of 46`)).toBeInTheDocument()
-    expect(screen.getAllByRole('spinbutton')).toHaveLength(14)
+    expect(screen.getAllByRole('button', { name: /^Edit plan for/ })).toHaveLength(14)
     await user.click(screen.getByRole('button', { name: 'Next dates' }))
     expect(screen.getByText('Dates 15–28 of 46')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: `Edit plan for ${shiftCalendarDate(today, 14)}` }))
     expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 14)}` })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous dates' })).toBeEnabled()
   })
