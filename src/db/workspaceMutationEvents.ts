@@ -1,9 +1,11 @@
 type WorkspaceMutationListener = (ownerUserId: string | null) => void
-export type WorkspaceDataChangeKind = 'data' | 'sync-complete'
+export type WorkspaceDataChangeKind = 'data' | 'progression-confirmed' | 'sync-complete'
 type WorkspaceDataListener = (ownerUserId: string | null, kind: WorkspaceDataChangeKind) => void
+type WorkspaceSyncPreparationListener = (ownerUserId: string | null) => void
 
 const listeners = new Set<WorkspaceMutationListener>()
 const dataListeners = new Set<WorkspaceDataListener>()
+const syncPreparationListeners = new Set<WorkspaceSyncPreparationListener>()
 const workspaceChannel = typeof window !== 'undefined' && typeof window.BroadcastChannel === 'function'
   ? new window.BroadcastChannel('progress-tracker-workspace-data')
   : null
@@ -28,6 +30,12 @@ export function subscribeToWorkspaceDataChanges(listener: WorkspaceDataListener)
   return () => dataListeners.delete(listener)
 }
 
+/** Let account-scoped caches invalidate before sync completion reaches consumers. */
+export function subscribeToWorkspaceSyncPreparation(listener: WorkspaceSyncPreparationListener): () => void {
+  syncPreparationListeners.add(listener)
+  return () => syncPreparationListeners.delete(listener)
+}
+
 /** Notify views after a remote sync changes their local workspace snapshot. */
 export function publishWorkspaceDataChange(ownerUserId: string | null): void {
   notifyDataListeners(ownerUserId, 'data')
@@ -36,8 +44,16 @@ export function publishWorkspaceDataChange(ownerUserId: string | null): void {
 
 /** Signal server confirmation without making local-only workspace views reload unchanged records. */
 export function publishWorkspaceSyncCompleted(ownerUserId: string | null): void {
+  for (const listener of syncPreparationListeners) listener(ownerUserId)
   notifyDataListeners(ownerUserId, 'sync-complete')
   workspaceChannel?.postMessage({ ownerUserId, kind: 'sync-complete' })
+}
+
+/** Signal that an uploaded check-in and its server progression triggers committed. */
+export function publishWorkspaceProgressionConfirmed(ownerUserId: string | null): void {
+  for (const listener of syncPreparationListeners) listener(ownerUserId)
+  notifyDataListeners(ownerUserId, 'progression-confirmed')
+  workspaceChannel?.postMessage({ ownerUserId, kind: 'progression-confirmed' })
 }
 
 /** Notify views and sync listeners after a local IndexedDB transaction commits. */

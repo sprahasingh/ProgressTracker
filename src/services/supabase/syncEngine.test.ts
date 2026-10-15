@@ -87,7 +87,7 @@ describe('account-scoped sync engine', () => {
     try {
       const { client } = fakeClient({ trackerRows: [serverTracker(remote)], trackerEntryRows: [remoteEntry] })
       await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 2 })
-      expect(events).toEqual([{ ownerId: 'sync-user', kind: 'data' }])
+      expect(events).toEqual([{ ownerId: 'sync-user', kind: 'data' }, { ownerId: 'sync-user', kind: 'sync-complete' }])
       await expect(db.trackerEntries.get(remoteEntry.id)).resolves.toMatchObject({ trackerId: remote.id, values: { pages: 6 } })
     } finally {
       unsubscribe()
@@ -107,6 +107,24 @@ describe('account-scoped sync engine', () => {
     } finally {
       unsubscribe()
     }
+  })
+
+  it('signals progression after the entry RPC commits and before pulling unrelated workspace tables', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('progression-refresh-before-pulls')
+    await localRepository.saveTracker(definition)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: '' })
+    const events: Array<{ ownerId: string | null; kind: string }> = []
+    const { client, rpc, requestOrder } = fakeClient()
+    const unsubscribe = subscribeToWorkspaceDataChanges((ownerId, kind) => { events.push({ ownerId, kind }); requestOrder.push(kind) })
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => ({
+      data: { status: 'applied', record: { ...(args.p_record as Record<string, unknown>), user_id: 'sync-user', server_revision: 1 } }, error: null,
+    }))
+    try {
+      await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+      expect(events[0]).toEqual({ ownerId: 'sync-user', kind: 'progression-confirmed' })
+      expect(requestOrder.indexOf('progression-confirmed')).toBeLessThan(requestOrder.indexOf('from:trackers'))
+    } finally { unsubscribe() }
   })
 
   it('uploads and downloads account-wide holiday rows through the revisioned owner-scoped RPC', async () => {

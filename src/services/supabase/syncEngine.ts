@@ -3,7 +3,8 @@ import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { publishPermanentDeletionNotification } from '../permanentDeletionNotifications'
-import { publishWorkspaceDataChange, publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
+import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
+import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -318,15 +319,21 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
       const payload = toServerPayload(operation)
-      const { data, error } = operation.entity === 'account_holiday'
-        ? await client.rpc('apply_account_holiday_sync_operation', {
+      const uploadMeasure = measureDevPerformance(`sync.${operation.entity}-write`)
+      if (operation.entity === 'tracker_entry') countDevPerformance('sync.tracker-entry-write-request')
+      let rpcResponse: Awaited<ReturnType<typeof client.rpc>>
+      try {
+        rpcResponse = operation.entity === 'account_holiday'
+          ? await client.rpc('apply_account_holiday_sync_operation', {
           p_expected_user_id: userId, p_operation_id: operation.id,
           p_expected_revision: operation.expectedRevision, p_record: payload,
         })
-        : await client.rpc('apply_tracker_sync_operation', {
+          : await client.rpc('apply_tracker_sync_operation', {
           p_expected_user_id: userId, p_operation_id: operation.id, p_entity: operation.entity,
           p_expected_revision: operation.expectedRevision, p_record: payload,
         })
+      } finally { uploadMeasure() }
+      const { data, error } = rpcResponse
       if (error?.code === '23505' && operation.entity === 'tracker_entry') {
         const payload = operation.payload as StoredTrackerEntry
         await assertCurrentSession(client, userId)
@@ -527,7 +534,7 @@ async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(
   return { downloaded, conflicts, changed }
 }
 
-async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
+async function runSynchronizationCore(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
   const client = (injectedClient ?? getSupabaseClient()) as SyncClient | null
   if (!client) throw new Error('Supabase is not configured; local changes remain saved on this device.')
   const database = await openDatabase()
@@ -544,6 +551,10 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const trackers = await uploadQueue(database, client, userId, 'tracker')
   const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId)
   const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
+  // The entry write RPC commits progression triggers in the same transaction.
+  // Refresh Wins as soon as that acknowledgment arrives instead of waiting for
+  // unrelated holiday work and full-table pulls later in this sync pass.
+  if (entries.uploaded > 0) publishWorkspaceProgressionConfirmed(userId)
   const holidays = await uploadQueue(database, client, userId, 'account_holiday')
   const holidayDeletions = holidays.failed || holidays.conflicts
     ? { deleted: 0, conflicts: 0, failed: 0 }
@@ -557,8 +568,16 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   // Progression views need server confirmation even when an upload did not
   // change the local workspace records. Other mounted local views do not.
   if (changed > 0) publishWorkspaceDataChange(userId)
-  else publishWorkspaceSyncCompleted(userId)
+  // The sync RPC and its database triggers commit before this point. Signal even
+  // after downloaded changes so confirmed progression consumers refresh once.
+  if (entries.uploaded === 0 || changed > 0) publishWorkspaceSyncCompleted(userId)
   return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed + holidayDeletions.failed }
+}
+
+async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
+  const measure = measureDevPerformance('sync.workspace')
+  try { return await runSynchronizationCore(userId, injectedClient) }
+  finally { measure() }
 }
 
 /**

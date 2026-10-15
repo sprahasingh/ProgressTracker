@@ -21,8 +21,12 @@ test('Wins navigation, badge collection, history, details, and hash-route refres
 
     const routeBeforeScroll = new URL(page.url()).hash
     await page.getByRole('button', { name: 'Show all badges' }).click()
-    await expect(page.getByRole('heading', { name: 'Achievement badges' })).toBeInViewport()
+    const allBadgesDialog = page.getByRole('dialog', { name: 'All badges' })
+    await expect(allBadgesDialog).toBeVisible()
+    await expect(allBadgesDialog.getByRole('heading', { name: 'All badges' })).toBeVisible()
     expect(new URL(page.url()).hash).toBe(routeBeforeScroll)
+    await allBadgesDialog.getByRole('button', { name: 'Close details' }).click()
+    await expect(allBadgesDialog).toHaveCount(0)
 
     await page.getByRole('button', { name: /Open score history/ }).first().click()
     await expect(page.getByRole('dialog', { name: 'Score history' })).toBeVisible()

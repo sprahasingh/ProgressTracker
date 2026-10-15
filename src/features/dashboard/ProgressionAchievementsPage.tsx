@@ -14,13 +14,14 @@ import { PROGRESSION_REWARDS } from '../../domain/trackers/progressionModel'
 import { calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker, isArchivedTracker } from '../../domain/trackers/lifecycle'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { activeAchievementOccurrences, getProgressionHistory, getProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
+import { activeAchievementOccurrences, getProgressionHistory, getProgressionOverview, invalidateProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { achievementDefinition } from './achievementCatalog'
 import { ProgressionBadge } from './ProgressionBadge'
 import { ProgressionDetailDialog } from './ProgressionDetailDialog'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 
 type PageData = {
   overview: ProgressionOverview
@@ -55,6 +56,12 @@ function progressionFailureMessage(error: unknown): { summary: string; detail: s
 }
 
 const historyPageSize = 30
+const winsPageCache = new Map<string, PageData>()
+
+export function clearProgressionPageCache(ownerUserId?: string): void {
+  if (ownerUserId) winsPageCache.delete(ownerUserId)
+  else winsPageCache.clear()
+}
 const historyRanges: Array<{ value: HistoryRange; label: string }> = [
   { value: '7', label: '7 days' }, { value: '30', label: '30 days' }, { value: '90', label: '90 days' }, { value: 'all', label: 'All time' },
 ]
@@ -181,6 +188,7 @@ function milestoneEvents(events: readonly ProgressionEvent[]) {
 }
 
 function getLocalActivity(data: PageData, trackers: readonly StoredTrackerDefinition[], today: string, timeZone: string): LocalActivity[] {
+  const entryByTrackerDate = new Map(data.entries.map((entry) => [`${entry.trackerId}:${entry.date}`, entry]))
   return Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today as CalendarDate, index - 7)).map((date) => {
     const activity: LocalActivity = { date, completed: 0, skipped: 0, missed: 0, exempt: 0 }
     for (const tracker of trackers) {
@@ -188,7 +196,7 @@ function getLocalActivity(data: PageData, trackers: readonly StoredTrackerDefini
       const inPeriod = isTrackerInActivePeriod(tracker, date, timeZone)
       const isEligible = inPeriod && (tracker.strictMode === true || (!data.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
       if (!isEligible) { activity.exempt += 1; continue }
-      const entry = data.entries.find((item) => item.trackerId === tracker.id && item.date === date)
+      const entry = entryByTrackerDate.get(`${tracker.id}:${date}`)
       if (entry?.outcome === 'recorded') activity.completed += 1
       else if (entry?.outcome === 'skipped') activity.skipped += 1
       else activity.missed += 1
@@ -203,8 +211,13 @@ export function ProgressionAchievementsPage() {
   const owner = status === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = Boolean(owner) && !sessionTransitionPending && workspaceStatus === 'ready' && workspaceUserId === owner
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
-  const [pageData, setPageData] = useState<PageData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [pageData, setPageData] = useState<PageData | null>(() => owner ? winsPageCache.get(owner) ?? null : null)
+  const initialLoadMeasure = useRef<(() => void) | null>(null)
+  if (!initialLoadMeasure.current) initialLoadMeasure.current = measureDevPerformance('wins.initial-data-to-render')
+  const pageDataRef = useRef(pageData)
+  pageDataRef.current = pageData
+  const [loading, setLoading] = useState(() => Boolean(owner && !winsPageCache.has(owner)))
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyRange, setHistoryRange] = useState<HistoryRange>('7')
@@ -217,11 +230,26 @@ export function ProgressionAchievementsPage() {
   const [allBadgesOpen, setAllBadgesOpen] = useState(false)
   const refreshGeneration = useRef(0)
   const historyGeneration = useRef(0)
+  const previousOwner = useRef(owner)
 
   useEffect(() => {
+    if (!pageData || !initialLoadMeasure.current) return
+    initialLoadMeasure.current()
+    initialLoadMeasure.current = null
+  }, [pageData])
+
+  useEffect(() => {
+    if (previousOwner.current && previousOwner.current !== owner) {
+      winsPageCache.delete(previousOwner.current)
+      invalidateProgressionOverview(previousOwner.current)
+    }
+    previousOwner.current = owner
     historyGeneration.current += 1
-    setPageData(null)
-    setLoading(Boolean(owner))
+    const cached = owner ? winsPageCache.get(owner) ?? null : null
+    pageDataRef.current = cached
+    setPageData(cached)
+    setLoading(Boolean(owner && !cached))
+    setRefreshing(false)
     setHistoryOpen(false)
     setHistoryPage({ rows: [], hasMore: false })
     setHistoryError('')
@@ -229,10 +257,14 @@ export function ProgressionAchievementsPage() {
     setSelectedBadge(null)
   }, [owner])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (forceServerRefresh = false) => {
     if (!owner || !workspaceReady) return
+    const measure = measureDevPerformance('wins.page-refresh-to-render-data')
+    countDevPerformance(forceServerRefresh ? 'wins.page-server-refresh' : 'wins.page-local-refresh')
     const generation = ++refreshGeneration.current
-    setLoading(true)
+    const hasVisibleData = pageDataRef.current !== null
+    setLoading(!hasVisibleData)
+    setRefreshing(hasVisibleData)
     setError('')
     try {
       const trackers = (await localRepository.listTrackers(true)).filter((tracker) => tracker.deletedAt === null && ['active', 'archived'].includes(tracker.status))
@@ -241,34 +273,51 @@ export function ProgressionAchievementsPage() {
         return start < value ? start : value
       }, today as CalendarDate)
       const [overview, entries, holidays] = await Promise.all([
-        getProgressionOverview(owner),
+        getProgressionOverview(owner, { forceRefresh: forceServerRefresh }),
         trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
         localRepository.listAccountHolidays(earliest, today),
       ])
-      if (refreshGeneration.current === generation) setPageData({ overview, trackers, entries, holidays: new Set(holidays.map((holiday) => holiday.date)) })
+      if (refreshGeneration.current === generation) {
+        const next = { overview, trackers, entries, holidays: new Set(holidays.map((holiday) => holiday.date)) }
+        pageDataRef.current = next
+        winsPageCache.set(owner, next)
+        setPageData(next)
+      }
     } catch (cause) {
       if (refreshGeneration.current === generation) setError(progressionFailureMessage(cause).detail)
     } finally {
-      if (refreshGeneration.current === generation) setLoading(false)
+      if (refreshGeneration.current === generation) { setLoading(false); setRefreshing(false) }
+      measure()
     }
   }, [owner, today, timeZone, workspaceReady])
 
   useEffect(() => {
-    if (workspaceReady) void refresh()
+    if (workspaceReady) void refresh(true)
     else { setLoading(false); setPageData(null) }
     return () => { refreshGeneration.current += 1 }
   }, [refresh, workspaceReady])
-  useWorkspaceDataChanges(owner, workspaceReady, refresh, true)
+  const refreshLocalSnapshot = useCallback(() => { void refresh(false) }, [refresh])
+  const refreshConfirmedSnapshot = useCallback(() => { void refresh(true) }, [refresh])
+  useWorkspaceDataChanges(owner, workspaceReady, refreshLocalSnapshot, true, refreshConfirmedSnapshot)
 
+  const entriesByTracker = useMemo(() => {
+    const grouped = new Map<string, StoredTrackerEntry[]>()
+    for (const entry of pageData?.entries ?? []) {
+      const group = grouped.get(entry.trackerId)
+      if (group) group.push(entry)
+      else grouped.set(entry.trackerId, [entry])
+    }
+    return grouped
+  }, [pageData?.entries])
   const streaks = useMemo(() => pageData?.trackers.map((tracker) => ({
     tracker,
-    streak: calculateStreak(tracker, pageData.entries.filter((entry) => entry.trackerId === tracker.id), today, pageData.holidays, timeZone),
-  })) ?? [], [pageData, today, timeZone])
+    streak: calculateStreak(tracker, entriesByTracker.get(tracker.id) ?? [], today, pageData.holidays, timeZone),
+  })) ?? [], [pageData, entriesByTracker, today, timeZone])
   const activeTrackers = useMemo(() => pageData?.trackers.filter(isActiveTracker) ?? [], [pageData])
   const archivedTrackers = useMemo(() => pageData?.trackers.filter(isArchivedTracker) ?? [], [pageData])
   const hasQualifiedOpenDay = Boolean(pageData && activeTrackers.some((tracker) => {
     if (!isTrackerInActivePeriod(tracker, today, timeZone) || tracker.strictMode !== true && (pageData.holidays.has(today) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
-    const entry = pageData.entries.find((item) => item.trackerId === tracker.id && item.date === today)
+    const entry = entriesByTracker.get(tracker.id)?.find((item) => item.date === today)
     return Boolean(entry && qualifiesForStreak(tracker, entry))
   }))
   const pendingOpenDay = Boolean(pageData?.overview.provisionalRewards.some((reward) => reward.effectiveDate === today))
@@ -351,7 +400,8 @@ export function ProgressionAchievementsPage() {
   return <section className="tracker-page progression-page" aria-labelledby="achievements-title">
     <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" description="Your confirmed rewards, steady progress, and milestones." />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
-    {error && <div role="alert" className="form-alert progression-error"><div><span>{pageData ? `Could not refresh progression data. Cards below show the last server-confirmed state. ${progressionFailureMessage(error).summary}` : progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh()}>Try again</Button></div>}
+    {error && <div role="alert" className="form-alert progression-error"><div><span>{pageData ? `Could not refresh progression data. Cards below show the last server-confirmed state. ${progressionFailureMessage(error).summary}` : progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh(true)}>Try again</Button></div>}
+    {refreshing && <p role="status" className="progression-refresh-indicator">Refreshing confirmed Wins…</p>}
     {pageData && (syncStatus === 'waiting' || syncStatus === 'syncing' || syncStatus === 'offline' || syncStatus === 'error' || !isOnline) && <p className="progression-sync-note" role={syncStatus === 'error' ? 'alert' : 'status'}>
       {syncStatus === 'error'
         ? 'Sync needs attention. Wins below show the last server-confirmed state; recent changes may not be included.'

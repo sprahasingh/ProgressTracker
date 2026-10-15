@@ -6,6 +6,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import type { ProgressionOverview } from '../../services/supabase/progressionRepository'
 import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
+import { clearProgressionPageCache } from './ProgressionAchievementsPage'
 import { achievementDefinition } from './achievementCatalog'
 import { publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
 
@@ -75,6 +76,7 @@ let injectedStylesheet: HTMLStyleElement | null = null
 function renderPage() { return render(<MemoryRouter><AchievementsPage /></MemoryRouter>) }
 
 beforeEach(() => {
+  clearProgressionPageCache()
   injectedStylesheet = document.createElement('style')
   injectedStylesheet.textContent = appStyles
   document.head.append(injectedStylesheet)
@@ -431,6 +433,35 @@ describe('Progression achievements interface', () => {
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
     expect(await screen.findByRole('alert')).toHaveTextContent('Cards below show the last server-confirmed state')
     expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+  })
+
+  it('keeps cached Wins visible while a server-confirmed refresh is still pending', async () => {
+    let resolveRefresh!: (value: ProgressionOverview) => void
+    mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve }))
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+
+    await act(async () => { publishWorkspaceSyncCompleted('account-1') })
+    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Refreshing confirmed Wins')
+    expect(screen.queryByText('Loading your confirmed progress')).not.toBeInTheDocument()
+
+    resolveRefresh({ ...overview, achievements: [overview.achievements[0]!, { ...overview.achievements[1]!, progress: 46 }] })
+    expect(await screen.findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toBeInTheDocument()
+  })
+
+  it('renders a previously loaded Wins snapshot immediately on revisit', async () => {
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    cleanup()
+
+    let resolveRefresh!: (value: ProgressionOverview) => void
+    mocks.getProgressionOverview.mockReset().mockReturnValue(new Promise((resolve) => { resolveRefresh = resolve }))
+    renderPage()
+    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    expect(screen.queryByText('Loading your confirmed progress')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Refreshing confirmed Wins')
+    resolveRefresh(overview)
   })
 
   it('opens a modal containing only active unlocked badges from the whole card button', async () => {

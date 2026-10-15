@@ -5,9 +5,15 @@ import { localCalendarDate } from '../../features/shared/localDates'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { calculateProgressionLevel, selectProvisionalRewards, summarizeProgression, type ProvisionalReward } from '../../domain/trackers/progressionModel'
-import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
+import { subscribeToWorkspaceDataChanges, subscribeToWorkspaceSyncPreparation } from '../../db/workspaceMutationEvents'
+import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 
 const pageSize = 500
+
+type ConfirmedOverview = Pick<ProgressionOverview, 'legacyXpStatus' | 'confirmedXp' | 'officialLevel' | 'scoreHistory' | 'streakHistory' | 'achievements'>
+const confirmedOverviewCache = new Map<string, ConfirmedOverview>()
+const overviewRequests = new Map<string, { version: number; promise: Promise<ConfirmedOverview> }>()
+const overviewVersions = new Map<string, number>()
 
 export type ProgressionEvent = {
   id: string
@@ -87,10 +93,23 @@ export type ConsistencySummary = { score: number | null; eligibleDays: number; d
 export type PerfectDayState = { date: string; eligibleTrackers: number; completedTrackers: number; confirmed: boolean; provisional: boolean }
 export type WeeklyProgressDay = { date: string; completed: number; eligible: number; adherence: number | null; isOpen: boolean }
 
-/** Refresh progression reads after local edits, successful sync, or a sibling device tab update. */
+/** Confirmations are authoritative only after the server sync transaction commits. */
 export function subscribeToProgressionChanges(userId: string, listener: () => void): () => void {
-  return subscribeToWorkspaceDataChanges((ownerId) => { if (ownerId === userId) listener() })
+  return subscribeToWorkspaceDataChanges((ownerId, kind) => {
+    if (ownerId === userId && (kind === 'progression-confirmed' || kind === 'sync-complete')) {
+      listener()
+    }
+  })
 }
+
+export function invalidateProgressionOverview(userId: string): void {
+  confirmedOverviewCache.delete(userId)
+  overviewVersions.set(userId, (overviewVersions.get(userId) ?? 0) + 1)
+}
+
+subscribeToWorkspaceSyncPreparation((userId) => {
+  if (userId) invalidateProgressionOverview(userId)
+})
 
 export type LegacyXpStatus = 'reconstructed' | 'legacy_fallback' | 'unavailable' | 'pending' | 'new_account'
 
@@ -161,6 +180,7 @@ async function getRetainedRewardContexts(
   for (let offset = 0; offset < eventIds.length; offset += 200) {
     const ids = eventIds.slice(offset, offset + 200)
     if (!ids.length) continue
+    countDevPerformance('supabase.retained-context-request')
     const { data, error } = await client.from('progression_retained_reward_context')
       .select('event_id,tracker_display_name,deleted_tracker,reward_reason_code,xp_delta')
       .eq('user_id', userId).eq('context_kind', contextKind).in('event_id', ids)
@@ -171,6 +191,7 @@ async function getRetainedRewardContexts(
 }
 
 async function assertAccount(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<void> {
+  countDevPerformance('supabase.auth-user-request')
   const { data, error } = await client.auth.getUser()
   if (error || data.user?.id !== userId) throw new Error('Progression data is available only for the signed-in account.')
 }
@@ -178,6 +199,7 @@ async function assertAccount(client: NonNullable<ReturnType<typeof getSupabaseCl
 async function queryAllEvents(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<ProgressionEvent[]> {
   const rows: RawEvent[] = []
   for (let offset = 0; ; offset += pageSize) {
+    countDevPerformance('supabase.progression-event-page-request')
     const { data, error } = await client.from('progression_events')
       .select('id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
       .eq('user_id', userId).order('recorded_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + pageSize - 1)
@@ -392,8 +414,12 @@ export async function getAchievementProgress(userId: string): Promise<Achievemen
 }
 
 async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<AchievementState[]> {
+  countDevPerformance('supabase.achievement-refresh-rpc')
   const { error: refreshError } = await client.rpc('refresh_my_progression_qualification_progress')
   if (refreshError) throw progressionReadError('refresh_my_progression_qualification_progress', refreshError)
+  countDevPerformance('supabase.achievement-progress-request')
+  countDevPerformance('supabase.achievement-history-request')
+  countDevPerformance('supabase.retained-achievement-request')
   const [progress, history, retained] = await Promise.all([
     client.from('progression_achievement_progress').select('achievement_id,progress,target,current_tier,repeatable,qualification_details').eq('user_id', userId),
     client.from('progression_achievement_events').select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,source_reference,reverses_event_id').eq('user_id', userId).order('recorded_at'),
@@ -482,6 +508,7 @@ export async function getWeeklyProgressSummary(userId: string, today?: string): 
 }
 
 async function getLegacyXpStatus(client: NonNullable<ReturnType<typeof getSupabaseClient>>): Promise<LegacyXpStatus> {
+  countDevPerformance('supabase.legacy-xp-status-rpc')
   const { data, error } = await client.rpc('get_progression_legacy_xp_status')
   if (error) throw progressionReadError('get_progression_legacy_xp_status (historical XP status)', error)
   if (!['reconstructed', 'legacy_fallback', 'unavailable', 'pending', 'new_account'].includes(data)) {
@@ -490,24 +517,67 @@ async function getLegacyXpStatus(client: NonNullable<ReturnType<typeof getSupaba
   return data as LegacyXpStatus
 }
 
-export async function getProgressionOverview(userId: string): Promise<ProgressionOverview> {
-  const client = getSupabaseClient()
-  if (!client) throw new Error('Supabase is not configured.')
-  await assertAccount(client, userId)
-  const [events, local, achievements, legacyXpStatus] = await Promise.all([
-    queryAllEvents(client, userId), getLocalSnapshot(userId), readEarnedAndLockedBadges(client, userId), getLegacyXpStatus(client),
-  ])
-  const provisionalRewards = localProvisional(local, localCalendarDate(new Date(), local.timeZone), events)
-  const summary = summarizeProgression({ events, provisionalRewards })
-  return {
-    legacyXpStatus,
-    confirmedXp: summary.lifetimeXp,
-    officialLevel: summary.level,
-    provisionalXp: summary.provisionalXp,
-    provisionalRewards,
-    scoreHistory: events,
-    streakHistory: events.filter((event) => event.reasonCode === 'STREAK_MILESTONE'),
-    consistency: calculateConsistencySummary({ ...local, today: localCalendarDate(new Date(), local.timeZone) }),
-    achievements,
+async function fetchConfirmedOverview(userId: string): Promise<ConfirmedOverview> {
+  const measure = measureDevPerformance('wins.confirmed-overview-fetch')
+  countDevPerformance('wins.overview-refresh')
+  try {
+    const client = getSupabaseClient()
+    if (!client) throw new Error('Supabase is not configured.')
+    await assertAccount(client, userId)
+    const [events, achievements, legacyXpStatus] = await Promise.all([
+      queryAllEvents(client, userId), readEarnedAndLockedBadges(client, userId), getLegacyXpStatus(client),
+    ])
+    const summary = summarizeProgression({ events, provisionalRewards: [] })
+    return {
+      legacyXpStatus,
+      confirmedXp: summary.lifetimeXp,
+      officialLevel: summary.level,
+      scoreHistory: events,
+      streakHistory: events.filter((event) => event.reasonCode === 'STREAK_MILESTONE'),
+      achievements,
+    }
+  } finally { measure() }
+}
+
+function deduplicatedConfirmedOverview(userId: string): Promise<ConfirmedOverview> {
+  const active = overviewRequests.get(userId)
+  if (active) {
+    if (active.version === (overviewVersions.get(userId) ?? 0)) {
+      countDevPerformance('wins.overview-deduplicated')
+      return active.promise
+    }
+    return active.promise.then(() => deduplicatedConfirmedOverview(userId), () => deduplicatedConfirmedOverview(userId))
   }
+  const version = overviewVersions.get(userId) ?? 0
+  const request = fetchConfirmedOverview(userId).then((overview) => {
+    if ((overviewVersions.get(userId) ?? 0) === version) confirmedOverviewCache.set(userId, overview)
+    return overview
+  }).finally(() => {
+    if (overviewRequests.get(userId)?.promise === request) overviewRequests.delete(userId)
+  })
+  overviewRequests.set(userId, { version, promise: request })
+  return request
+}
+
+/**
+ * Uses an account-scoped confirmed snapshot when available, while always recomputing
+ * provisional rewards and consistency from the current local-first workspace.
+ */
+export async function getProgressionOverview(userId: string, options: { forceRefresh?: boolean } = {}): Promise<ProgressionOverview> {
+  let confirmed = confirmedOverviewCache.get(userId)
+  if (confirmed && !options.forceRefresh) countDevPerformance('wins.overview-cache-hit')
+  else confirmed = await deduplicatedConfirmedOverview(userId)
+
+  const measure = measureDevPerformance('wins.local-progression-compose')
+  try {
+    const local = await getLocalSnapshot(userId)
+    const provisionalRewards = localProvisional(local, localCalendarDate(new Date(), local.timeZone), confirmed.scoreHistory)
+    const summary = summarizeProgression({ events: confirmed.scoreHistory, provisionalRewards })
+    return {
+      ...confirmed,
+      provisionalXp: summary.provisionalXp,
+      provisionalRewards,
+      consistency: calculateConsistencySummary({ ...local, today: localCalendarDate(new Date(), local.timeZone) }),
+    }
+  } finally { measure() }
 }

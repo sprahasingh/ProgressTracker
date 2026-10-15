@@ -815,6 +815,7 @@ a { color: inherit; text-decoration: none; }
 .progression-error-details { margin-top: 8px; color: var(--ink-muted); font-size: 12px; }
 .progression-error-details summary { cursor: pointer; }
 .progression-error-details code { display: block; max-width: 100%; margin-top: 6px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.progression-refresh-indicator { margin: 6px 0; color: var(--ink-subtle); font-size: 12px; }
 .insights-progression-link { margin: 10px 0 0; color: var(--ink-muted); font-size: 12px; }
 .insights-progression-link a { color: var(--accent-strong); font-weight: 650; text-decoration: underline; text-underline-offset: 2px; }
 .progression-overview, .progression-section { margin-top: 26px; }
