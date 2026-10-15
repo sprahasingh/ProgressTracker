@@ -351,7 +351,14 @@ export function ProgressionAchievementsPage() {
   return <section className="tracker-page progression-page" aria-labelledby="achievements-title">
     <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" description="Your confirmed rewards, steady progress, and milestones." />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
-    {error && <div role="alert" className="form-alert progression-error"><div><span>{progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh()}>Try again</Button></div>}
+    {error && <div role="alert" className="form-alert progression-error"><div><span>{pageData ? `Could not refresh progression data. Cards below show the last server-confirmed state. ${progressionFailureMessage(error).summary}` : progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh()}>Try again</Button></div>}
+    {pageData && (syncStatus === 'waiting' || syncStatus === 'syncing' || syncStatus === 'offline' || syncStatus === 'error' || !isOnline) && <p className="progression-sync-note" role={syncStatus === 'error' ? 'alert' : 'status'}>
+      {syncStatus === 'error'
+        ? 'Sync needs attention. Wins below show the last server-confirmed state; recent changes may not be included.'
+        : syncStatus === 'syncing'
+          ? 'Checking for account changes. Wins below show the latest server-confirmed state.'
+          : 'Changes saved on this device are waiting to sync. Wins below show the latest server-confirmed state.'}
+    </p>}
     {!workspaceReady && !error ? <p role="status" className="tracker-loading">Opening your account workspace…</p> : pageData && <>
       <section className="progression-overview" aria-labelledby="progression-overview-title">
         <div className="progression-section-heading"><div><span className="eyebrow">OVERVIEW</span><h2 id="progression-overview-title">Progress at a glance</h2></div><span className="progression-authority"><AppIcon name="privacy" /> Server-confirmed rewards</span></div>
@@ -512,17 +519,27 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
   const occurrences = activeAchievementOccurrences(badge.history)
   const earnedCount = badge.validAwardCount ?? occurrences.length
   const tier = badge.earned && repeatable ? Math.max(1, earnedCount) : badge.earned ? 1 : Math.max(1, badge.currentTier + 1)
-  const periodProgress = ['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId) && badge.qualificationDetails?.status === 'in_progress'
-  const showMeter = !badge.earned && (periodProgress || !['perfect-day', 'perfect-week', 'perfect-month', 'perfect-year', 'the-comeback', 'milestone-maker', 'goal-crusher', 'consistency-star'].includes(badge.achievementId))
-  const meterValue = periodProgress ? badge.qualificationDetails?.progress ?? 0 : badge.progress
-  const meterTarget = periodProgress ? badge.qualificationDetails?.target ?? 1 : badge.target
-  const meterPercent = meterTarget > 0 ? Math.min(100, Math.floor(meterValue / meterTarget * 100)) : 0
+  const details = badge.qualificationDetails
+  const periodBadge = ['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId)
+  const unavailable = details?.status === 'unavailable' || details?.status === 'waiting'
+    || periodBadge && details?.status !== 'in_progress'
+  let meterValue = details?.progress ?? badge.progress
+  let meterTarget = details?.target ?? badge.target
+  if (badge.achievementId === 'consistency-star' && Number.isFinite(details?.eligible_days) && Number.isFinite(details?.eligible_days_target) && details!.eligible_days_target! > 0) {
+    const eligiblePercent = details!.eligible_days! / details!.eligible_days_target! * 100
+    const adherencePercent = Number.isFinite(details?.adherence_percent) && Number.isFinite(details?.adherence_target_percent) && details!.adherence_target_percent! > 0
+      ? details!.adherence_percent! / details!.adherence_target_percent! * 100
+      : 0
+    meterValue = Math.min(eligiblePercent, adherencePercent)
+    meterTarget = 100
+  }
+  const percentageAvailable = badge.earned || !unavailable && Number.isFinite(meterValue) && Number.isFinite(meterTarget) && meterTarget > 0
+  const meterPercent = badge.earned ? 100 : percentageAvailable ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100))) : null
   return <div className="progression-badge-card-shell">
-  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? 'earned' : 'locked'}. View badge details`}>
+  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned, unlocked (${earnedCount})` : 'locked'}, ${meterPercent === null ? 'progress unavailable' : `${meterPercent}% progress`}. View badge details`}>
     <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} />
-    <strong>{definition.name}</strong><span>{badge.earned ? 'Unlocked' : 'Locked'}</span>
-    {badge.earned && repeatable && <small>Earned {earnedCount === 1 ? 'once' : `${earnedCount} times`}</small>}
-    {!badge.earned && showMeter && <span className="progression-badge-meter"><span className="progression-level-track" role="progressbar" aria-label={`${definition.name} progress`} aria-valuenow={meterValue} aria-valuemin={0} aria-valuemax={meterTarget}><span style={{ width: `${meterPercent}%` }} /></span><small>{meterPercent}%</small></span>}
+    <strong>{definition.name}</strong><span>{badge.earned ? `Unlocked (${earnedCount})` : 'Locked'}</span>
+    <span className={`progression-badge-percent${meterPercent === null ? ' is-unavailable' : ''}`} aria-label={meterPercent === null ? 'Progress unavailable' : `${meterPercent}% progress`}>{meterPercent === null ? '—' : `${meterPercent}%`}</span>
   </button>
   <InfoButton title={`${definition.name} badge information`} label={`More about ${definition.name}`} compact content={<BadgeInformation badge={badge} />} />
   </div>
