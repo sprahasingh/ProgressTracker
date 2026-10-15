@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateCumulativeMetricPlan, isTrackerScheduledOccurrence, latestEntriesByDate, trackerActiveStartDate } from './planning'
 
-export type AllocationPreviewDay = { date: string; eligible: boolean; amount: number | null; completed: number; outstanding: number; manual: boolean; historical: boolean; holiday?: boolean; closed?: boolean }
+export type AllocationPreviewDay = { date: string; scheduled: boolean; eligible: boolean; amount: number | null; completed: number; outstanding: number; manual: boolean; historical: boolean; holiday?: boolean; closed?: boolean }
 export type CumulativeAllocationPreview = {
   metricId: string
   totalTarget: number
@@ -59,9 +59,10 @@ export function createCumulativeAllocationPreview(input: {
       const entry = latestEntries.get(date)
       const completedValue = entry?.outcome === 'recorded' ? entryValue(input.tracker, input.metricId, entry) : 0
       const completed = Number.isFinite(completedValue) ? completedValue : 0
+      const scheduled = isTrackerScheduledOccurrence(input.tracker, date, input.timeZone)
       const isOpenToday = date === input.asOfDate && !todayClosed
-      const eligible = input.tracker.status === 'active' && (date > input.asOfDate || isOpenToday) && isTrackerScheduledOccurrence(input.tracker, date, input.timeZone) && !holiday
-      days.push({ date, eligible, amount: null, completed, outstanding: 0, manual: false, historical: date < input.asOfDate || date === input.asOfDate && todayClosed, ...(holiday ? { holiday: true } : {}), ...(date === input.asOfDate && todayClosed ? { closed: true } : {}) })
+      const eligible = input.tracker.status === 'active' && (date > input.asOfDate || isOpenToday) && scheduled && !holiday
+      days.push({ date, scheduled, eligible, amount: null, completed, outstanding: 0, manual: false, historical: date < input.asOfDate || date === input.asOfDate && todayClosed, ...(holiday ? { holiday: true } : {}), ...(date === input.asOfDate && todayClosed ? { closed: true } : {}) })
     }
   }
 

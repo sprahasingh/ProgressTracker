@@ -3245,15 +3245,17 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .allocation-page-controls input[type='date'] { flex: 0 1 155px; }
   .allocation-preview-table, .allocation-preview-table tbody { display: block; width: 100%; }
   .allocation-preview-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-  .allocation-preview-table tbody { display: grid; gap: 7px; }
-  .allocation-preview-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
-  .allocation-preview-table tbody th:first-child { grid-column: 1 / -1; padding: 0 0 5px; border-bottom: 1px solid var(--line); font-size: 10px; }
-  .allocation-preview-table tbody td { display: grid; min-width: 0; align-content: start; gap: 3px; padding: 2px 0; border: 0; font-size: 10px; }
+  .allocation-preview-table tbody { display: grid; gap: 5px; }
+  .allocation-preview-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+  .allocation-preview-table tbody th:first-child { grid-column: 1 / -1; padding: 0 0 4px; border-bottom: 1px solid var(--line); font-size: 10px; }
+  .allocation-preview-table tbody td { display: grid; min-width: 0; align-content: start; gap: 2px; padding: 1px 0; border: 0; font-size: 10px; line-height: 1.3; }
   .allocation-preview-table tbody td::before { content: attr(data-label); color: var(--ink-subtle); font-size: 9px; }
-  .allocation-preview-table tbody td:last-child { grid-column: 1 / -1; }
-  .allocation-planned-cell { grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
-  .allocation-planned-cell > span:first-child { font-variant-numeric: tabular-nums; }
-  .allocation-reset-button { font-size: 10px; }
+  .allocation-planned-cell { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 5px; }
+  .allocation-planned-cell > span:first-child { min-width: 0; font-variant-numeric: tabular-nums; }
+  .allocation-planned-cell > .allocation-auto-indicator, .allocation-planned-cell > .allocation-manual-indicator { text-align: right; }
+  .allocation-input-label { grid-column: 1 / -1; }
+  .allocation-reset-button { min-height: 40px; padding-block: 7px; font-size: 10px; }
+  .allocation-edit-button { grid-column: 2; min-height: 40px; }
   .tracker-setup-form:has(input:focus, textarea:focus, select:focus) .tracker-form-actions { position: static; box-shadow: none; }
   .tracker-form-actions { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
 }

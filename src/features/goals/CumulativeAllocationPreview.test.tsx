@@ -49,6 +49,34 @@ describe('cumulative allocation preview UI', () => {
     expect(screen.queryByText('UNSAVED CHANGES')).not.toBeInTheDocument()
   })
 
+  it('persists only edited dates, including an explicit zero, and leaves another metric untouched', async () => {
+    const savedGoal: TrackerDefinition = {
+      ...tracker, schemaVersion: 5,
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' },
+        { id: 'hours', name: 'Hours', valueType: 'quantity', unit: 'hours' },
+      ],
+      goalPlanning: {
+        ...tracker.goalPlanning!, planningTimeZone: 'UTC',
+        progressSemantics: { pages: 'incremental', hours: 'incremental' },
+        cumulativeTargets: { pages: 10, hours: 20 }, allocations: { pages: {}, hours: {} },
+        manualAllocations: { pages: {}, hours: { '2026-01-06': 7 } },
+      },
+    }
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<CumulativeAllocationPreview tracker={savedGoal} entries={[]} metricId="pages" startDate="2026-01-05" asOfDate="2026-01-05" timeZone="UTC" onSave={onSave} manualPlanWritesEnabled />)
+    fireEvent.click(screen.getByText(/Daily schedule/))
+    for (const [date, value] of [['2026-01-05', '5'], ['2026-01-07', '0']] as const) {
+      fireEvent.click(screen.getByRole('button', { name: `Edit plan for ${date}` }))
+      fireEvent.change(screen.getByRole('spinbutton', { name: `Planned allocation for ${date}` }), { target: { value } })
+    }
+    expect(screen.getByRole('button', { name: 'Reset 2026-01-07 to Auto' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save manual changes' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0]?.[0].goalPlanning?.manualAllocations).toEqual({ pages: { '2026-01-05': 5, '2026-01-07': 0 }, hours: { '2026-01-06': 7 } })
+    expect(onSave.mock.calls[0]?.[0].goalPlanning?.allocations).toEqual({ pages: {}, hours: {} })
+  })
+
   it('warns about ambiguous legacy allocations and keeps historical planned values', async () => {
     const savedGoal: TrackerDefinition = {
       ...tracker,
@@ -68,6 +96,33 @@ describe('cumulative allocation preview UI', () => {
     expect(screen.getByText('1.5 pages')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
     expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('labels historical actual, Manual history, scheduled dates without a saved plan, and unscheduled entries accurately', () => {
+    const backdatedGoal: TrackerDefinition = {
+      ...tracker,
+      schemaVersion: 5,
+      createdAt: '2026-01-08T09:00:00.000Z',
+      schedule: { kind: 'specific-dates', dates: ['2026-01-05', '2026-01-07'] },
+      startDate: '2026-01-05',
+      deadline: '2026-01-10',
+      goalPlanning: { ...tracker.goalPlanning!, planningTimeZone: 'UTC', allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-05': 3 } } },
+    }
+    const makeEntry = (date: string, pages: number) => ({
+      id: `historical-${date}`, trackerId: backdatedGoal.id, date, outcome: 'recorded' as const, values: { pages }, note: '',
+      createdAt: `${date}T09:00:00.000Z`, updatedAt: `${date}T09:00:00.000Z`, deletedAt: null,
+    })
+    render(<CumulativeAllocationPreview
+      tracker={backdatedGoal}
+      entries={[makeEntry('2026-01-04', 100), makeEntry('2026-01-05', 2), makeEntry('2026-01-06', 4), makeEntry('2026-01-07', 3)]}
+      metricId="pages" startDate="2026-01-05" asOfDate="2026-01-08" timeZone="UTC" onSave={vi.fn()} manualPlanWritesEnabled
+    />)
+    fireEvent.click(screen.getByText(/Daily schedule/))
+    expect(screen.getByText('Manual · history')).toBeInTheDocument()
+    expect(screen.getAllByText('Not scheduled').length).toBeGreaterThan(0)
+    expect(screen.getByText('No saved plan')).toBeInTheDocument()
+    expect(screen.queryByText('Logged')).not.toBeInTheDocument()
+    expect(screen.queryByText('100 pages')).not.toBeInTheDocument()
   })
 
   it('recalculates generated amounts after check-in edits without rewriting tracker data', () => {
