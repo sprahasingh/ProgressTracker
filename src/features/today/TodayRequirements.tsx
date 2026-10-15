@@ -94,15 +94,16 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       const planningToday = planningTimeZone === timeZone ? today : localCalendarDate(new Date(), planningTimeZone)
       const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: planningToday, holidays, timeZone: planningTimeZone }
       const plan = calculateCumulativeMetricPlan({ ...planInput, progressSemantics: 'incremental' })
-      const savedAllocation = planning.allocations?.[metric.id]?.[planningToday]
       const preview = createCumulativeAllocationPreview(planInput)
-      const todaySuggestion = preview.days.find((day) => day.date === planningToday && day.eligible)?.amount ?? undefined
+      const todayPlanDay = preview.days.find((day) => day.date === planningToday && day.eligible)
+      const savedAllocation = todayPlanDay?.manual ? todayPlanDay.amount ?? undefined : undefined
+      const todaySuggestion = todayPlanDay?.amount ?? undefined
       const nextSuggestionDay = preview.days.find((day) => day.date > planningToday && day.eligible)
       const suggestion = todaySuggestion
       const expected = savedAllocation ?? suggestion
       return {
         ...common,
-        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s suggested allocation' : 'Today’s saved allocation', remaining: Math.max(0, getTargetProgress(Number(completed), expected).amount) }),
+        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s planned amount' : 'Today’s manual plan', remaining: Math.max(0, expected - Number(completed)) }),
         ...(savedAllocation === undefined ? {} : { savedAllocation }),
         ...(suggestion === undefined ? {} : { suggestion }),
         ...(nextSuggestionDay?.amount === null || nextSuggestionDay?.amount === undefined ? {} : { nextSuggestion: nextSuggestionDay.amount, nextSuggestionDate: nextSuggestionDay.date }),
@@ -184,7 +185,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
           {metric.totalTarget !== undefined && <><div><dt>Goal total</dt><dd>{amount(metric.totalTarget, metric.unit)}</dd></div><div><dt>Recorded toward goal</dt><dd>{amount(metric.goalProgress ?? 0, metric.unit)}</dd></div><div><dt>Goal remaining</dt><dd>{amount(metric.goalRemaining ?? 0, metric.unit)}</dd></div>{metric.savedAllocation !== undefined && <div><dt>Saved allocation</dt><dd>{amount(metric.savedAllocation, metric.unit)}</dd></div>}{metric.suggestion !== undefined && <div><dt>{requirementLabel("Today’s adaptive suggestion")}</dt><dd>{amount(metric.suggestion, metric.unit)}</dd></div>}{metric.nextSuggestion !== undefined && <div><dt>Next scheduled suggestion{metric.nextSuggestionDate ? ` · ${calendarDateLabel(metric.nextSuggestionDate)}` : ''}</dt><dd>{amount(metric.nextSuggestion, metric.unit)}</dd></div>}{metric.planningStatus === 'overdue' && <div><dt>Schedule</dt><dd>Past deadline</dd></div>}{metric.planningStatus === 'no-scheduled-days' && <div><dt>Schedule</dt><dd>No eligible days remain</dd></div>}{metric.planningStatus === 'completed' && <div><dt>Schedule</dt><dd>Goal complete</dd></div>}</>}
           {metric.expectedLabel === 'Today’s target' && metric.expected !== undefined && <div><dt>Daily plan target</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
         </dl></article>)}
-          {isCumulative && <div className="today-requirements-note">Adaptive suggestions use recorded progress and remaining scheduled days, excluding rest days, holidays, and already recorded days. A saved allocation remains explicit and is not replaced automatically.</div>}
+          {isCumulative && <div className="today-requirements-note">Automatic dates rebalance from saved check-ins and scheduled days. Manual dates stay fixed through their active date; past planned amounts remain in history.</div>}
           {!isCumulative && metrics.some((metric) => metric.expectedLabel === 'Today’s target') && <div className="today-requirements-note">Daily recurring targets apply on scheduled days; they are separate from per-check-in thresholds.</div>}
         </section>}</div>
       </section>

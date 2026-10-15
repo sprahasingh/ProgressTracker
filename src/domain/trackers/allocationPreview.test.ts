@@ -17,7 +17,7 @@ function entry(date: string, value: number, overrides: Partial<TrackerEntry> = {
 describe('cumulative allocation preview', () => {
   it('distributes the remaining amount to scheduled dates and rounds with an exact remainder', () => {
     const preview = createCumulativeAllocationPreview({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
-    expect(preview.days).toEqual([
+    expect(preview.days.map(({ date, eligible, amount }) => ({ date, eligible, amount }))).toEqual([
       { date: '2026-01-05', eligible: true, amount: 3.34 },
       { date: '2026-01-06', eligible: true, amount: 3.33 },
       { date: '2026-01-07', eligible: true, amount: 3.33 },
@@ -40,9 +40,64 @@ describe('cumulative allocation preview', () => {
     expect(before.days.map((day) => day.amount)).toEqual([4, 3, 3])
     const afterSix = createCumulativeAllocationPreview({ tracker: wholeGoal, entries: [entry('2026-01-05', 6)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
     expect(afterSix.actualProgress).toBe(6)
-    expect(afterSix.days).toMatchObject([{ closed: true, eligible: false }, { eligible: true, amount: 2 }, { eligible: true, amount: 2 }])
+    expect(afterSix.days.map((day) => day.amount)).toEqual([8, 1, 1])
     const afterTwo = createCumulativeAllocationPreview({ tracker: wholeGoal, entries: [entry('2026-01-05', 2)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
-    expect(afterTwo.days.map((day) => day.amount)).toEqual([null, 4, 4])
+    expect(afterTwo.days.map((day) => day.amount)).toEqual([5, 3, 2])
+  })
+
+  it('reserves a future manual target and distributes only the remaining actual work', () => {
+    const goal: TrackerDefinition = {
+      ...tracker, schemaVersion: 4, schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: '2026-01-08',
+      createdAt: '2026-01-01T00:00:00.000Z', metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', precision: { decimalPlaces: 0, increment: 1 } }],
+      goalPlanning: { ...tracker.goalPlanning!, cumulativeTargets: { pages: 100 }, allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-06': 30 } } },
+    }
+    const preview = createCumulativeAllocationPreview({ tracker: goal, entries: [entry('2026-01-05', 12)], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-05' })
+    expect(preview.remainingTarget).toBe(88)
+    expect(preview.days.find((day) => day.date === '2026-01-06')).toMatchObject({ amount: 30, manual: true, outstanding: 30 })
+    expect(preview.days.filter((day) => day.date === '2026-01-05' || day.date === '2026-01-07' || day.date === '2026-01-08').map((day) => day.outstanding)).toEqual([20, 19, 19])
+    expect(preview.days.filter((day) => day.eligible).reduce((sum, day) => sum + day.outstanding, 0)).toBe(88)
+  })
+
+  it.each([
+    { actual: 5, expectedRemaining: 95 },
+    { actual: 15, expectedRemaining: 85 },
+    { actual: 0, expectedRemaining: 100 },
+    { actual: 10, expectedRemaining: 90 },
+  ])('keeps a passed manual plan for history but redistributes from actual work ($actual completed)', ({ actual, expectedRemaining }) => {
+    const goal: TrackerDefinition = {
+      ...tracker, schemaVersion: 4, schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: '2026-01-08',
+      createdAt: '2026-01-01T00:00:00.000Z', metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', precision: { decimalPlaces: 0, increment: 1 } }],
+      goalPlanning: { ...tracker.goalPlanning!, cumulativeTargets: { pages: 100 }, allocations: { pages: { '2026-01-05': 10 } }, manualAllocations: { pages: { '2026-01-05': 10 } } },
+    }
+    const preview = createCumulativeAllocationPreview({ tracker: goal, entries: [entry('2026-01-05', actual)], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-06' })
+    expect(preview.remainingTarget).toBe(expectedRemaining)
+    expect(preview.days.find((day) => day.date === '2026-01-05')).toMatchObject({ amount: 10, completed: actual, historical: true })
+    expect(preview.days.filter((day) => day.eligible).reduce((sum, day) => sum + day.outstanding, 0)).toBe(expectedRemaining)
+    expect(preview.overAllocatedWork).toBe(0)
+  })
+
+  it('keeps an in-progress day manual target intact while reserving only its outstanding portion', () => {
+    const goal: TrackerDefinition = {
+      ...tracker, schemaVersion: 4, schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: '2026-01-08',
+      createdAt: '2026-01-01T00:00:00.000Z', metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' }],
+      goalPlanning: { ...tracker.goalPlanning!, cumulativeTargets: { pages: 100 }, allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-05': 10 } } },
+    }
+    const preview = createCumulativeAllocationPreview({ tracker: goal, entries: [entry('2026-01-05', 5)], metricId: 'pages', totalTarget: 100, startDate: '2026-01-01', asOfDate: '2026-01-05' })
+    expect(preview.days.find((day) => day.date === '2026-01-05')).toMatchObject({ amount: 10, completed: 5, outstanding: 5, manual: true })
+    expect(preview.days.filter((day) => day.eligible).reduce((sum, day) => sum + day.outstanding, 0)).toBe(95)
+  })
+
+  it('reports manual over-allocation and work with no eligible automatic days without negative values', () => {
+    const goal: TrackerDefinition = {
+      ...tracker, schemaVersion: 4, schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: '2026-01-06',
+      createdAt: '2026-01-01T00:00:00.000Z', goalPlanning: { ...tracker.goalPlanning!, cumulativeTargets: { pages: 10 }, allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-06': 12 } } },
+    }
+    const over = createCumulativeAllocationPreview({ tracker: goal, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-01', asOfDate: '2026-01-05' })
+    expect(over.overAllocatedWork).toBe(2)
+    expect(over.days.filter((day) => day.eligible).every((day) => (day.amount ?? 0) >= 0)).toBe(true)
+    const noDays = createCumulativeAllocationPreview({ tracker: { ...goal, deadline: '2026-01-04' }, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-01', asOfDate: '2026-01-05' })
+    expect(noDays.eligibleDayCount).toBe(0)
+    expect(noDays.unallocatedWork).toBe(10)
   })
 
   it('front-loads hundredths, then recalculates decimal future days after progress', () => {
@@ -54,7 +109,7 @@ describe('cumulative allocation preview', () => {
     expect(before.days.map((day) => day.amount)).toEqual([0.34, 0.33, 0.33])
     const afterProgress = createCumulativeAllocationPreview({ tracker: decimalGoal, entries: [entry('2026-01-05', 0.5)], metricId: 'pages', totalTarget: 1, startDate: '2026-01-05', asOfDate: '2026-01-05' })
     expect(afterProgress.actualProgress).toBe(0.5)
-    expect(afterProgress.days.map((day) => day.amount)).toEqual([null, 0.25, 0.25])
+    expect(afterProgress.days.map((day) => day.amount)).toEqual([0.67, 0.17, 0.16])
   })
 
   it('uses tenth-unit precision and excludes holidays while keeping milestone and deadline dates intact', () => {
@@ -101,7 +156,7 @@ describe('cumulative allocation preview', () => {
       tracker: preciseGoal, entries: [entry('2026-01-06', 0.03)], metricId: 'pages', totalTarget: 10,
       startDate: '2026-01-06', asOfDate: '2026-01-06',
     })
-    const suggestions = preview.days.filter((day) => day.eligible).map((day) => day.amount ?? 0)
+    const suggestions = preview.days.filter((day) => day.eligible).map((day) => day.outstanding)
     expect(suggestions.length).toBeGreaterThan(0)
     expect(suggestions.every((amount) => Math.abs(amount / increment - Math.round(amount / increment)) < 1e-8)).toBe(true)
     expect(preview.actualProgress).toBe(0.03)
@@ -155,7 +210,7 @@ describe('cumulative allocation preview', () => {
     expect(preview.remainingTarget).toBe(6)
     expect(preview.days.find((day) => day.date === '2026-01-03')).toMatchObject({ eligible: false, amount: null })
     expect(preview.days.find((day) => day.date === '2026-01-04')).toMatchObject({ eligible: false, amount: null })
-    expect(preview.days.filter((day) => day.eligible)).toHaveLength(6)
+    expect(preview.days.filter((day) => day.eligible)).toHaveLength(7)
   })
 
   it('reports manual shortfall and over-allocation without altering the target', () => {
@@ -168,18 +223,18 @@ describe('cumulative allocation preview', () => {
     expect(distributeTarget(10, 3, true)).toEqual([4, 3, 3])
     expect(() => distributeTarget(2.5, 2, true)).toThrow(/whole item/)
     const expired = createCumulativeAllocationPreview({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-08' })
-    expect(expired).toMatchObject({ eligibleDayCount: 0, remainingTarget: 10, days: [] })
+    expect(expired).toMatchObject({ eligibleDayCount: 0, remainingTarget: 10, unallocatedWork: 10 })
   })
 
   it('handles a completed target and invalid manual values safely', () => {
     const completed = createCumulativeAllocationPreview({ tracker, entries: [entry('2026-01-05', 12)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
     expect(completed).toMatchObject({ actualProgress: 12, remainingTarget: 0 })
-    expect(completed.days.map((day) => day.amount)).toEqual([null, 0, 0])
+    expect(completed.days.map((day) => day.amount)).toEqual([12, 0, 0])
     const exceeded = createCumulativeAllocationPreview({ tracker, entries: [entry('2026-01-05', 12)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
     expect(exceeded.remainingTarget).toBe(0)
     expect(exceeded.days.slice(1).map((day) => day.amount)).toEqual([0, 0])
     const behind = createCumulativeAllocationPreview({ tracker: { ...tracker, deadline: '2026-01-05' }, entries: [entry('2026-01-05', 2)], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05' })
-    expect(behind).toMatchObject({ remainingTarget: 8, eligibleDayCount: 0 })
+    expect(behind).toMatchObject({ remainingTarget: 8, eligibleDayCount: 1 })
     expect(() => distributeTarget(-1, 2)).toThrow(/finite nonnegative/)
     expect(() => summarizeAllocations(10, [Number.POSITIVE_INFINITY])).toThrow(/finite and nonnegative/)
   })

@@ -99,10 +99,12 @@ export type GoalPlanningConfiguration = {
   planningTimeZone?: string
   /** Confirmed cumulative per-metric allocations, keyed by metric ID then calendar date. */
   allocations?: Record<string, Record<string, number>>
+  /** Only dates explicitly customized by the user. Generated plans are never persisted here. */
+  manualAllocations?: Record<string, Record<string, number>>
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3 | 4
+  schemaVersion: 1 | 2 | 3 | 4 | 5
   id: string
   name: string
   description: string

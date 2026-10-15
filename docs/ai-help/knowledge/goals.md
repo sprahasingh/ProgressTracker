@@ -16,6 +16,25 @@
 **Answer:**
 A daily plan sets a target for each planned day. A cumulative plan sets a total amount to reach across its date range, with progress allocated across the plan. Which model applies depends on the saved goal plan.
 
+### ID: cumulative-plan-rebalancing
+**Category:** goals
+**Question:** How does my cumulative goal rebalance its daily plan?
+**Aliases:**
+- Why did my planned amount change after a check-in?
+- Does yesterday’s planned work carry into today?
+- How do manual daily allocations work?
+**Keywords:** cumulative goal, planned, completed, manual allocation, rebalance, deadline
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/allocationPreview.ts
+- src/domain/trackers/allocationPreview.test.ts
+- src/features/goals/CumulativeAllocationPreview.tsx
+- src/features/goals/CumulativeAllocationPreview.test.tsx
+- src/services/supabase/syncEngine.test.ts
+- supabase/migrations/20261107000100_tracker_manual_goal_allocations_v5.sql
+**Answer:**
+The plan calculates remaining work from the goal target minus active saved incremental check-ins. It keeps completed work separate from planned work. A manual allocation stays fixed while its date is current or upcoming; for today, only the part not already completed counts against remaining work. After a date passes, its planned amount stays in the schedule history, but only the check-in value affects future allocations. Remaining work is split deterministically across eligible scheduled automatic dates through the deadline. If fixed manual dates exceed the remaining goal, their values stay unchanged and the schedule reports the over-allocation. If no automatic dates remain, it reports the unallocated work. Older saved schedules may not distinguish generated values from manual edits; the schedule asks whether to keep those future values fixed or use the recalculated plan.
+
 ### ID: milestones
 **Category:** goals
 **Question:** How are milestones calculated?

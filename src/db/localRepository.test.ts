@@ -182,6 +182,17 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-v3-account', 'tracker', v3.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 3, goalPlanning: v3.goalPlanning } })
   })
 
+  it('persists only manual v5 dates alongside a conflict-safe tracker sync payload', async () => {
+    await activateWorkspace('planning-v5-account')
+    const v5: StoredTrackerDefinition = {
+      ...plannedGoal, schemaVersion: 5,
+      goalPlanning: { ...plannedGoal.goalPlanning!, planningTimeZone: 'Asia/Kolkata', allocations: {}, manualAllocations: { pages: { '2026-10-09': 30 } } },
+    }
+    await localRepository.saveTracker(v5)
+    await expect(db.trackers.get(v5.id)).resolves.toMatchObject({ schemaVersion: 5, goalPlanning: { manualAllocations: { pages: { '2026-10-09': 30 } } } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['planning-v5-account', 'tracker', v5.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 5, goalPlanning: { allocations: {}, manualAllocations: { pages: { '2026-10-09': 30 } } } } })
+  })
+
   it('blocks local v3 persistence in production when migration readiness is not enabled', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', '')

@@ -23,7 +23,7 @@ import type {
   LocalMotivationMessage,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -458,6 +458,9 @@ export async function queueSyncMutation(
   }
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
     throw new Error('Schema v4 precision writes are disabled until the hosted migration is applied and verified.')
+  }
+  if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
+    throw new Error('Schema v5 local and cloud writes are disabled until the hosted migration is applied and verified.')
   }
   if (!ownerUserId) return
   const entityId = payload.id

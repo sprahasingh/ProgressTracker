@@ -38,7 +38,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
           setValue(metric.id, { ...current, [item.id]: event.target.checked })
         }} /> <span>{item.label}</span></label>)}</fieldset>
         const configuredTarget = tracker.goalPlanning?.mode === 'cumulative-deadline'
-          ? (date ? tracker.goalPlanning.allocations?.[metric.id]?.[date] : undefined) ?? metric.thresholds?.target
+          ? (date ? tracker.goalPlanning.manualAllocations?.[metric.id]?.[date] : undefined) ?? metric.thresholds?.target
           : tracker.goalPlanning?.mode === 'daily-recurring'
             ? tracker.goalPlanning.dailyTargets[metric.id] ?? metric.thresholds?.target
             : metric.thresholds?.target
