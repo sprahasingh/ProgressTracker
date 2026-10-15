@@ -147,15 +147,15 @@
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
-    "src/features/trackers/TrackerSetupPage.tsx": "9ad81efc8fd7bbaf5337fa6cbb87c8ff03fd3a976ffce0b752ea492b4fc0b73b",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "d1b8603adf5e2df0b54f13c460177f8e7c941d7abb3981865a7f9b0eeb2dfea6",
+    "src/features/trackers/TrackerSetupPage.tsx": "7abe7876269d530390fde2047c046bcd1d2b276164cb45ffc934db570ca45e49",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "ab906a6e51ad5fb568534491f83547fa0db386122b9eee449dc1ea32d17c952d",
     "src/features/trackers/trackerSetupSchema.ts": "705478baf4276d235ead28841335ab1be2158c7c98cf2cdb1df1d6d9566c4b5d"
   },
   "daily-vs-cumulative-goal": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
     "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
     "src/domain/trackers/goalPlanning.test.ts": "45c6020fb243a9137429e9063ac8fd29eccd2ff3451009dfcaf5d3dbdd2f940a",
-    "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf"
+    "src/features/goals/GoalsPage.tsx": "21db648dea15c5b59953ed56bd945c7ac5205012c6755acf2369e76609f35d77"
   },
   "cumulative-plan-rebalancing": {
     "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
@@ -168,15 +168,15 @@
   "milestones": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
     "src/domain/trackers/allocationPreview.ts": "56672967e2ff3858ff3a1d2b5ccb49eb8a6ef3f01b789681941f5c1c644526e6",
-    "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf"
+    "src/features/goals/GoalsPage.tsx": "21db648dea15c5b59953ed56bd945c7ac5205012c6755acf2369e76609f35d77"
   },
   "goal-deadline": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/features/trackers/GoalPlanningEditor.tsx": "0c492310808c6650ed1aed6bea604ef31c2df10987dd43689b899fe27d40c211",
+    "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed",
     "src/domain/trackers/goalPlanning.test.ts": "45c6020fb243a9137429e9063ac8fd29eccd2ff3451009dfcaf5d3dbdd2f940a"
   },
   "complete-goal": {
-    "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf",
+    "src/features/goals/GoalsPage.tsx": "21db648dea15c5b59953ed56bd945c7ac5205012c6755acf2369e76609f35d77",
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
     "src/domain/trackers/goalPlanning.test.ts": "45c6020fb243a9137429e9063ac8fd29eccd2ff3451009dfcaf5d3dbdd2f940a"
   },
@@ -186,7 +186,7 @@
   },
   "goal-cumulative-snapshot": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/features/trackers/GoalPlanningEditor.tsx": "0c492310808c6650ed1aed6bea604ef31c2df10987dd43689b899fe27d40c211",
+    "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed",
     "src/domain/trackers/goalPlanning.test.ts": "45c6020fb243a9137429e9063ac8fd29eccd2ff3451009dfcaf5d3dbdd2f940a"
   },
   "goal-clearing-entry": {
@@ -195,14 +195,14 @@
     "src/features/history/HistoryPage.tsx": "4258e6c5bbe4694d1cf9bfdea1a29c6c1fab2aeecc95fac000426580f47d22b8"
   },
   "goal-target-change": {
-    "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf",
-    "src/features/trackers/GoalPlanningEditor.tsx": "0c492310808c6650ed1aed6bea604ef31c2df10987dd43689b899fe27d40c211",
+    "src/features/goals/GoalsPage.tsx": "21db648dea15c5b59953ed56bd945c7ac5205012c6755acf2369e76609f35d77",
+    "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed",
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8"
   },
   "goal-metric-unit": {
-    "src/features/goals/GoalsPage.tsx": "3538774a3247894c3de83ba0fd304b413d02f1cb6ee45f18bf68319d6828a1cf",
+    "src/features/goals/GoalsPage.tsx": "21db648dea15c5b59953ed56bd945c7ac5205012c6755acf2369e76609f35d77",
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/features/trackers/GoalPlanningEditor.tsx": "0c492310808c6650ed1aed6bea604ef31c2df10987dd43689b899fe27d40c211"
+    "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed"
   },
   "history-includes": {
     "src/features/history/HistoryPage.tsx": "4258e6c5bbe4694d1cf9bfdea1a29c6c1fab2aeecc95fac000426580f47d22b8",
@@ -481,13 +481,13 @@
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ad81efc8fd7bbaf5337fa6cbb87c8ff03fd3a976ffce0b752ea492b4fc0b73b"
+    "src/features/trackers/TrackerSetupPage.tsx": "7abe7876269d530390fde2047c046bcd1d2b276164cb45ffc934db570ca45e49"
   },
   "start-date-deadline": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",
     "src/domain/trackers/activePeriod.test.ts": "40b4e24d42e0650c6900bc4ed1e411b35c6dd88e4595427b4748ae31aa6f5916",
     "src/domain/trackers/planning.test.ts": "5c2360d79c6d786fa657840cac7a4d8252a887f6ee89282ada12e1710447a1fc",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ad81efc8fd7bbaf5337fa6cbb87c8ff03fd3a976ffce0b752ea492b4fc0b73b"
+    "src/features/trackers/TrackerSetupPage.tsx": "7abe7876269d530390fde2047c046bcd1d2b276164cb45ffc934db570ca45e49"
   },
   "retire-measure": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "9eb07c065236691cd473dc861affb876aef8687677017d23da45e2fd2e688104",
@@ -498,8 +498,8 @@
   "tracker-editing": {
     "src/features/trackers/TrackerLibraryPage.tsx": "1740b0b08e04210ab381aaf9792174ded08f6f09ab3c061dcb411ece3710d9a1",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "9eb07c065236691cd473dc861affb876aef8687677017d23da45e2fd2e688104",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ad81efc8fd7bbaf5337fa6cbb87c8ff03fd3a976ffce0b752ea492b4fc0b73b",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "d1b8603adf5e2df0b54f13c460177f8e7c941d7abb3981865a7f9b0eeb2dfea6"
+    "src/features/trackers/TrackerSetupPage.tsx": "7abe7876269d530390fde2047c046bcd1d2b276164cb45ffc934db570ca45e49",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "ab906a6e51ad5fb568534491f83547fa0db386122b9eee449dc1ea32d17c952d"
   },
   "tracker-created-active-date": {
     "src/domain/trackers/planning.ts": "9705e3f09ad6b57cbc063288849ed609d7c1d899895e9e20a8f068339ce6fed8",

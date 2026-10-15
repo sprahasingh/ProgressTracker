@@ -23,7 +23,7 @@ The visible navigation groups some routes: Calendar includes History, and Insigh
 2. Choose Habit or Goal. Open **Challenge or project?** for those tracker kinds.
 3. Enter a name, then choose the measure type and configure its values. New measures use Yes/No or Quantity.
 4. Set the schedule, active dates, and any strict-mode behavior that fits the tracker.
-5. Expand advanced settings to configure success rules, custom check-in fields, milestones, or goal planning when needed.
+5. For goals, use **Plan targets and pace** to set a daily target or a total and deadline. Open **More options** for success rules, extra measures, custom check-in fields, or milestones.
 6. Save. The tracker is saved locally on this device; signed-in accounts synchronize it when online.
 
 The setup page remains a single form. A validation error identifies the relevant field or section; correct it and submit again. If leaving a modified form, keep editing or explicitly discard the changes.
