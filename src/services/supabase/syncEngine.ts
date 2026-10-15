@@ -7,7 +7,7 @@ import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publi
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
 import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
@@ -313,6 +313,11 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
         await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }

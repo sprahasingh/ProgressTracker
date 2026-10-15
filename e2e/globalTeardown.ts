@@ -2,12 +2,18 @@ import { execFileSync } from 'node:child_process'
 import { readFile, rm } from 'node:fs/promises'
 
 const container = process.env.PROGRESSION_TEST_DB_CONTAINER ?? 'supabase_db_progression-live-api-isolated-20261014'
-const fixturePath = '/private/tmp/progression-playwright-auth.json'
+const fixturePath = process.env.PROGRESSION_TEST_FIXTURE_PATH ?? '/private/tmp/progression-playwright-auth.json'
 const email = 'browser-achievement-e2e@progress-tracker.invalid'
 
 export default async function globalTeardown() {
   try {
-    const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as { userId?: string; email?: string }
+    let fixture: { userId?: string; email?: string }
+    try {
+      fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as { userId?: string; email?: string }
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
+      throw error
+    }
     if (fixture.email === email && fixture.userId && /^[0-9a-f-]{36}$/i.test(fixture.userId)) {
       const deleteAccount = `DELETE FROM auth.users WHERE id='${fixture.userId}' AND email='${email}';`
       let lastError: unknown

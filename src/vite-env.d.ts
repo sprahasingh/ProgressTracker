@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_TRACKER_SCHEMA_V3?: string
   /** Enable schema v4 numeric precision writes after the hosted migration is verified. */
   readonly VITE_ENABLE_TRACKER_SCHEMA_V4?: string
+  /** Enable schema v6 unified scheduling writes after the hosted migration is verified. */
+  readonly VITE_ENABLE_TRACKER_SCHEMA_V6?: string
   readonly VITE_ENABLE_PERMANENT_DELETION?: string
   readonly VITE_ENABLE_AUTOMATIC_BIN_CLEANUP?: string
   readonly VITE_ENABLE_HOLIDAY_PERMANENT_DELETION?: string

@@ -20,6 +20,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
+import { effectiveDayNumber, nextEligibleDate, schedulingMode } from '../../domain/trackers/scheduling'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
 type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
@@ -157,6 +158,8 @@ export function GoalsPage() {
           const goalDetailId = `goal-details-${encodeURIComponent(tracker.id)}`
           const summaryMetrics = (goalSummaries.get(tracker.id) ?? []).slice(0, 1)
           const daysRemaining = tracker.deadline ? Math.ceil((Date.parse(`${tracker.deadline}T00:00:00.000Z`) - Date.parse(`${planningToday}T00:00:00.000Z`)) / 86_400_000) : undefined
+          const effectiveDay = tracker.scheduling?.mode === 'effective' ? effectiveDayNumber({ tracker, date: planningToday, holidays: holidayDates, timeZone: tracker.scheduling.planningTimeZone ?? planningTimeZone }) : null
+          const nextEffectiveDate = tracker.scheduling?.mode === 'effective' && effectiveDay === null ? nextEligibleDate({ tracker, afterDate: planningToday, holidays: holidayDates, timeZone: tracker.scheduling.planningTimeZone ?? planningTimeZone }) : null
           return <Surface className={`goal-card status-card status-${goalStatusColor}`} key={tracker.id}>
             <button className="goal-card-trigger" type="button" aria-expanded={expanded} aria-controls={goalDetailId} onClick={() => {
               setVisitedGoals((current) => new Set(current).add(tracker.id))
@@ -165,6 +168,7 @@ export function GoalsPage() {
               })
             }}>
               <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
+              {schedulingMode(tracker) === 'effective' && tracker.scheduling && <span className="goal-card-schedule-day">{effectiveDay !== null ? `Effective Day ${effectiveDay} of ${tracker.scheduling.effectiveDays}` : nextEffectiveDate ? `Paused · next eligible day ${calendarDateLabel(nextEffectiveDate)}` : `Effective day target · ${tracker.scheduling.effectiveDays}`}</span>}
               <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
               <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}{metricSummary.expected !== undefined && <small>Expected by today {formatTrackerNumber(metricSummary.expected)}{metricSummary.unit}{metricSummary.requiredPace === null ? ' · No Auto days remain' : metricSummary.requiredPace !== undefined ? ` · ${formatTrackerNumber(metricSummary.requiredPace)}${metricSummary.unit}/Auto day` : ''}{metricSummary.paceLabel ? ` · ${metricSummary.paceLabel}` : ''}</small>}</>}</span>)}</span>
               <span className="goal-card-expand-hint">{expanded ? 'Close details' : 'View progress details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
@@ -220,7 +224,7 @@ export function GoalsPage() {
                       <p className={`goal-plan-status ${plan.paceStatus}`}>{plan.remainingWork === 0 && tracker.status === 'active' ? 'Target reached · goal still active' : cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
-                        manualPlanWritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion === 5 ? 5 : tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates} isOnline={isOnline} signedIn={authStatus === 'signed-in'}
+                        manualPlanWritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion >= 6 ? 6 : tracker.schemaVersion === 5 ? 5 : tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates} isOnline={isOnline} signedIn={authStatus === 'signed-in'}
                         onSave={async (updated) => { await localRepository.saveTracker(updated); await refresh(); notify({ kind: 'success', title: 'Daily plan saved', description: 'Your saved allocations were updated on this device.', dedupeKey: `plan:${tracker.id}:${metricId}` }) }}
                       />}
                     </div>

@@ -10,7 +10,7 @@ const isolationMocks = vi.hoisted(() => ({
   authListener: undefined as undefined | ((event: string, session: { user: { id: string; email: string } } | null) => void),
   activeOwner: null as string | null,
   activateWorkspace: vi.fn(), decideGuestData: vi.fn(), getGuestDecision: vi.fn(), getGuestWorkspaceSummary: vi.fn(),
-  getAppSettings: vi.fn(), listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
+  getAppSettings: vi.fn(), listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), listAccountHolidays: vi.fn().mockResolvedValue([]), synchronizeWorkspace: vi.fn(), signOut: vi.fn(),
 }))
 
 vi.mock('../db/database', () => ({
@@ -24,6 +24,7 @@ vi.mock('../db/localRepository', () => ({
     getAppSettings: isolationMocks.getAppSettings,
     listTrackers: isolationMocks.listTrackers,
     listTrackerEntriesBetween: isolationMocks.listTrackerEntriesBetween,
+    listAccountHolidays: isolationMocks.listAccountHolidays,
     archiveTracker: vi.fn(),
   },
 }))

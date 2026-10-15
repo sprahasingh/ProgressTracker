@@ -8,7 +8,7 @@ const workdir = process.env.PROGRESSION_TEST_SUPABASE_WORKDIR ?? '/private/tmp/p
 const container = process.env.PROGRESSION_TEST_DB_CONTAINER ?? 'supabase_db_progression-live-api-isolated-20261014'
 const expectedApiUrl = process.env.PROGRESSION_TEST_API_URL ?? 'http://127.0.0.1:61421'
 const email = 'browser-achievement-e2e@progress-tracker.invalid'
-const fixturePath = '/private/tmp/progression-playwright-auth.json'
+const fixturePath = process.env.PROGRESSION_TEST_FIXTURE_PATH ?? '/private/tmp/progression-playwright-auth.json'
 
 function sql(query: string): string {
   return execFileSync('docker', ['exec', container, 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres', '-c', query], { encoding: 'utf8', timeout: 90_000 }).trim()

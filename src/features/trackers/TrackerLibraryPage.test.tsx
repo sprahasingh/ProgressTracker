@@ -6,7 +6,7 @@ import { TrackerLibraryPage } from './TrackerLibraryPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import type { StoredTrackerDefinition } from '../../db/models'
 
-const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
+const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), listAccountHolidays: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
 vi.mock('../../db/localRepository', () => ({ localRepository: libraryMocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'signed-in', user: { id: 'account-a' }, workspaceStatus: 'ready', workspaceUserId: 'account-a', syncStatus: 'syncing', isOnline: true }) }))
 

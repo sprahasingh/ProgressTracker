@@ -31,6 +31,26 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, strictMode: 'strict' }).success).toBe(false)
   })
 
+  it('validates explicit v6 calendar, effective, and ongoing scheduling modes', () => {
+    const calendar = { ...tracker, schemaVersion: 6 as const, scheduling: { mode: 'calendar' as const } }
+    const effective = { ...tracker, schemaVersion: 6 as const, scheduling: { mode: 'effective' as const, effectiveDays: 30, planningTimeZone: 'America/New_York' } }
+    const ongoing = { ...tracker, schemaVersion: 6 as const, deadline: undefined, scheduling: { mode: 'ongoing' as const } }
+    expect(trackerDefinitionSchema.safeParse(calendar).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(effective).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(ongoing).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...effective, scheduling: { ...effective.scheduling, effectiveDays: 0 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...ongoing, deadline: '2026-12-31' }).success).toBe(false)
+  })
+
+  it('retains future Manual overrides outside a revised v6 goal window for explicit review', () => {
+    const effectiveGoal = {
+      ...tracker, schemaVersion: 6 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const }, deadline: '2026-01-07',
+      scheduling: { mode: 'effective' as const, effectiveDays: 3, planningTimeZone: 'UTC' },
+      goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 20 }, planningTimeZone: 'UTC', allocations: { pages: {} }, manualAllocations: { pages: { '2026-01-12': 5 } } },
+    }
+    expect(trackerDefinitionSchema.safeParse(effectiveGoal).success).toBe(true)
+  })
+
   it('accepts retired metrics for history while enforcing unique names and nonnegative targets', () => {
     const retired = { ...tracker, metrics: [{ ...tracker.metrics[0]!, retiredAt: '2026-10-10T00:00:00.000Z' }, tracker.metrics[1]!] }
     expect(trackerDefinitionSchema.parse(retired).metrics[0]).toMatchObject({ name: 'Pages', unit: 'pages', retiredAt: expect.any(String) })

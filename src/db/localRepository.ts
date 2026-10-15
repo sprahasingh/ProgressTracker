@@ -4,10 +4,11 @@ import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Catego
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { measureDevPerformance } from '../utils/devPerformance'
-import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
+import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
 import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
 
@@ -23,6 +24,19 @@ async function assertTrackerVerificationComplete(database: Awaited<ReturnType<ty
   if (ownerUserId && isPermanentDeletionEnabled() && await database.trackerVerification.get(trackerId)) {
     throw new Error('This tracker is waiting for server confirmation and cannot be changed yet.')
   }
+}
+
+async function resolveTrackersScheduling(database: Awaited<ReturnType<typeof openDatabase>>, trackers: StoredTrackerDefinition[]): Promise<StoredTrackerDefinition[]> {
+  if (!trackers.some((tracker) => schedulingMode(tracker) === 'effective')) return trackers
+  const [holidays, settings] = await Promise.all([database.accountHolidays.toArray(), database.settings.get('general')])
+  const activeHolidays = new Set(holidays.filter((holiday) => holiday.deletedAt === null).map((holiday) => holiday.date))
+  const defaultTimeZone = normalizeSettings(settings).timezone
+  return trackers.map((tracker) => {
+    if (schedulingMode(tracker) !== 'effective') return tracker
+    const timeZone = tracker.scheduling?.planningTimeZone ?? defaultTimeZone
+    const deadline = deriveSchedulingDeadline({ tracker, holidays: activeHolidays, timeZone })
+    return { ...tracker, deadline }
+  })
 }
 
 function publishNotificationChange() {
@@ -331,7 +345,7 @@ export const localRepository = {
       database.trackers.toArray(), database.trackerVerification.toArray(), database.permanentDeletionLedger.toArray(),
     ])
     const blockedIds = new Set([...ledger.map((row) => row.trackerId), ...(isPermanentDeletionEnabled() ? verification.map((row) => row.trackerId) : [])])
-    const trackers = allTrackers.filter((tracker) => tracker.deletedAt === null && !blockedIds.has(tracker.id))
+    const trackers = await resolveTrackersScheduling(database, allTrackers.filter((tracker) => tracker.deletedAt === null && !blockedIds.has(tracker.id)))
     return trackers
       .filter((tracker) => includeArchived || tracker.status !== 'archived')
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name))
@@ -345,7 +359,8 @@ export const localRepository = {
       database.trackerVerification.get(id),
       workspace?.userId ? database.permanentDeletionLedger.get(permanentDeletionKey(workspace.userId, id)) : Promise.resolve(undefined),
     ])
-    return tracker?.deletedAt === null && !(isPermanentDeletionEnabled() && verified) && !deleted ? tracker : undefined
+    if (tracker?.deletedAt !== null || !tracker || isPermanentDeletionEnabled() && verified || deleted) return undefined
+    return (await resolveTrackersScheduling(database, [tracker]))[0]
   },
 
   async listDeletedTrackers(): Promise<StoredTrackerDefinition[]> {
@@ -399,6 +414,7 @@ export const localRepository = {
   },
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
+    if (draft.schemaVersion === 6 && !isSchemaV6WriteEnabled()) throw new Error('Unified scheduling needs schema v6. Apply and verify migration 20261108000100_tracker_scheduling_v6.sql in Supabase, then enable VITE_ENABLE_TRACKER_SCHEMA_V6 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 3 && !isSchemaV3WriteEnabled()) throw new Error('Schema v3 plan writes are disabled until the hosted migration is applied and verified.')
     if (draft.schemaVersion === 4 && !isSchemaV4WriteEnabled()) throw new Error('Precision settings need schema v4. Apply and verify migration 20261012000100_tracker_numeric_precision_v4.sql in Supabase, then enable VITE_ENABLE_TRACKER_SCHEMA_V4 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 5 && !isSchemaV5WriteEnabled()) throw new Error('Separate manual goal allocations need schema v5. Apply and verify migration 20261107000100_tracker_manual_goal_allocations_v5.sql in Supabase, then enable VITE_ENABLE_TRACKER_SCHEMA_V5 for the production build. No tracker changes were saved.')

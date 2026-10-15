@@ -371,6 +371,28 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get(manual.id)).resolves.toMatchObject({ schemaVersion: 5, goalPlanning: { allocations: { pages: { '2026-10-11': 12, '2026-10-12': 13 } }, manualAllocations: { pages: { '2026-10-10': 30, '2026-10-13': 35 } } } })
   })
 
+  it('uploads and downloads schema v6 scheduling without falling back to v5 serialization', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    await activateWorkspace('sync-user')
+    const v6: StoredTrackerDefinition = {
+      ...tracker('scheduling-v6-sync'), schemaVersion: 6, startDate: '2026-10-09', deadline: '2026-10-11',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    }
+    await localRepository.saveTracker(v6)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(v6, 'sync-user', 1) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({
+      schema_version: 6,
+      definition: { schemaVersion: 6, scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' } },
+    })
+    await db.trackers.clear()
+    await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v6)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(v6.id)).resolves.toMatchObject({ schemaVersion: 6, scheduling: v6.scheduling })
+  })
+
   it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {
     await activateWorkspace('sync-user')
     const v3: StoredTrackerDefinition = {

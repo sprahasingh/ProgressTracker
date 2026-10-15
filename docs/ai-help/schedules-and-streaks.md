@@ -8,6 +8,12 @@ The tracker setup form offers common schedules such as every day, weekdays, and 
 
 The effective start date is the later of the configured start and the tracker’s creation date interpreted in the workspace time zone. A deadline bounds the active period. An occurrence outside that interval is not a scheduled opportunity.
 
+## Scheduling duration
+
+Trackers can use **Calendar Days**, **Effective Days**, or **Ongoing** scheduling. Calendar Days uses the chosen deadline and includes both the start and deadline dates; holidays and rest days do not move it. Effective Days uses a positive target count and projects the deadline onto the target-th eligible date, excluding workspace holidays and dates excluded by the tracker’s schedule. A missed eligible date still consumes a day; check-in success and streak length do not change the count. Ongoing has no fixed deadline. Existing trackers keep their established deadline behavior.
+
+For Effective Days, a challenge pauses on a holiday or scheduled rest day and resumes at its next eligible day. For Calendar Days, challenge numbering advances with each calendar date. These duration counts are separate from completed check-ins and streaks. A cumulative Goal’s work target remains its quantity target; Effective Days only sets the planning window. Auto allocations use eligible dates in that window, while saved Manual allocations remain explicit.
+
 ## Standard Mode and Strict Mode
 
 In **Standard Mode**, only scheduled dates that are not holidays count as expected opportunities. Unscheduled rest days and holidays do not break a streak or lower consistency. In **Strict Mode**, each active calendar day is treated as an opportunity, including rest days and past holidays; a qualifying entry is required to preserve the streak.
@@ -36,4 +42,4 @@ Holidays are date-only workspace records. In Standard Mode they remove that date
 - **Today appears pending:** that is expected until today’s check-in is submitted. Past unfilled scheduled dates can become missed.
 - **A schedule edit changed the consistency percentage:** the denominator is the set of opportunities under the current schedule and mode; saved check-ins remain intact.
 
-Source references: `src/domain/trackers/planning.ts`, `src/domain/trackers/progression.ts`, `src/domain/trackers/activityStatus.ts`, `src/domain/trackers/activityStatus.test.ts`, `src/domain/trackers/progression.test.ts`, `src/features/today/TodayPage.tsx`, `src/features/today/TodayPage.test.tsx`, `src/domain/holidays.ts`, `src/features/holidays/HolidaysPage.tsx`.
+Source references: `src/domain/trackers/planning.ts`, `src/domain/trackers/scheduling.ts`, `src/domain/trackers/challengeDay.ts`, `src/domain/trackers/progression.ts`, `src/domain/trackers/activityStatus.ts`, `src/domain/trackers/activityStatus.test.ts`, `src/domain/trackers/progression.test.ts`, `src/features/today/TodayPage.tsx`, `src/features/today/TodayPage.test.tsx`, `src/domain/holidays.ts`, `src/features/holidays/HolidaysPage.tsx`.
