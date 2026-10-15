@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AchievementHistoryEvent } from '../../services/supabase/progressionRepository'
 
-const mocks = vi.hoisted(() => ({ getBadges: vi.fn(), getXp: vi.fn(), subscribe: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getBadges: vi.fn(), getXp: vi.fn(), getOverview: vi.fn(), subscribe: vi.fn() }))
 let notifyProgressionChange: (() => void) | undefined
 vi.mock('../../services/supabase/progressionRepository', () => ({
   getEarnedAndLockedBadges: mocks.getBadges,
   getAchievementAwardXp: mocks.getXp,
+  getProgressionOverview: mocks.getOverview,
   subscribeToProgressionChanges: (_userId: string, listener: () => void) => { notifyProgressionChange = listener; mocks.subscribe(listener); return () => {} },
 }))
 vi.mock('../../components/ui/useModalLayer', () => ({ useModalLayer: vi.fn() }))
@@ -21,7 +22,70 @@ const newEvent = { ...oldEvent, id: 'new', achievementId: 'momentum', recordedAt
 
 describe('BadgeCelebrationMonitor', () => {
   afterEach(cleanup)
-  beforeEach(() => { localStorage.clear(); mocks.getBadges.mockReset(); mocks.getXp.mockReset().mockResolvedValue(new Map()); mocks.subscribe.mockReset() })
+  beforeEach(() => { localStorage.clear(); mocks.getBadges.mockReset().mockResolvedValue([]); mocks.getXp.mockReset().mockResolvedValue(new Map()); mocks.getOverview.mockReset().mockResolvedValue({ confirmedXp: 0, scoreHistory: [] }); mocks.subscribe.mockReset() })
+
+  it('baselines historical XP, combines level jumps, ignores pending XP, and does not repeat a dismissed celebration', async () => {
+    let confirmedXp = 0
+    let history: Array<{ id: string; recordedAt: string }> = []
+    mocks.getOverview.mockImplementation(async () => ({ confirmedXp, provisionalXp: 5000, scoreHistory: history }))
+    render(<BadgeCelebrationMonitor userId="level-user" />)
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:level-state:level-user')).toContain('"xp":0'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    confirmedXp = 650
+    history = [{ id: 'confirmed-awards', recordedAt: '2026-04-02T10:00:00.000Z' }]
+    notifyProgressionChange?.()
+    const dialog = await screen.findByRole('dialog', { name: 'Level 4' })
+    expect(dialog).toHaveTextContent('advanced from level 1 to level 4')
+    expect(dialog).toHaveTextContent('650 confirmed XP')
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    notifyProgressionChange?.()
+    await waitFor(() => expect(mocks.getOverview).toHaveBeenCalledTimes(3))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('updates the level after a confirmed reversal without celebrating and resumes an unacknowledged level-up after remount', async () => {
+    let confirmedXp = 90
+    let history: Array<{ id: string; recordedAt: string }> = [{ id: 'old-reward', recordedAt: '2026-04-01T10:00:00.000Z' }]
+    mocks.getOverview.mockImplementation(async () => ({ confirmedXp, scoreHistory: history }))
+    const view = render(<BadgeCelebrationMonitor userId="reversal-user" />)
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:level-state:reversal-user')).toContain('"xp":90'))
+    confirmedXp = 110
+    history = [...history, { id: 'new-reward', recordedAt: '2026-04-02T10:00:00.000Z' }]
+    notifyProgressionChange?.()
+    expect(await screen.findByRole('dialog', { name: 'Level 2' })).toBeInTheDocument()
+    view.unmount()
+
+    render(<BadgeCelebrationMonitor userId="reversal-user" />)
+    expect(await screen.findByRole('dialog', { name: 'Level 2' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    confirmedXp = 80
+    history = [...history, { id: 'reversal', recordedAt: '2026-04-03T10:00:00.000Z' }]
+    notifyProgressionChange?.()
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:level-state:reversal-user')).toContain('"xp":80'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('discards an older confirmed XP response that arrives after a newer ledger snapshot', async () => {
+    let releaseOlder!: (value: { confirmedXp: number; scoreHistory: Array<{ id: string; recordedAt: string }> }) => void
+    mocks.getOverview
+      .mockResolvedValueOnce({ confirmedXp: 0, scoreHistory: [] })
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseOlder = resolve }))
+      .mockResolvedValueOnce({ confirmedXp: 300, scoreHistory: [{ id: 'newest', recordedAt: '2026-04-03T10:00:00.000Z' }] })
+    render(<BadgeCelebrationMonitor userId="ordered-user" />)
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:level-state:ordered-user')).toContain('"xp":0'))
+
+    notifyProgressionChange?.()
+    await waitFor(() => expect(releaseOlder).toBeTypeOf('function'))
+    notifyProgressionChange?.()
+    expect(await screen.findByRole('dialog', { name: 'Level 3' })).toBeInTheDocument()
+    releaseOlder({ confirmedXp: 200, scoreHistory: [{ id: 'older', recordedAt: '2026-04-02T10:00:00.000Z' }] })
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:level-state:ordered-user')).toContain('"xp":300'))
+    expect(screen.getByRole('dialog', { name: 'Level 3' })).toHaveTextContent('advanced from level 1 to level 3')
+  })
 
   it('selects grand first unlocks, repeat celebrations, and only the specified repeat milestones', () => {
     expect(badgeCelebrationLevel(false, 1)).toBe('first')

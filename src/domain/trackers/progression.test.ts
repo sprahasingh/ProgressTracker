@@ -202,34 +202,54 @@ describe('shared progression day evaluator', () => {
     expect(result).toMatchObject({ current: 1, longest: 1, lastPerfectDate: '2026-01-03', state: 'perfect' })
   })
 
-  it('qualifies a completed week with three required dates and neutral Standard Mode holidays', () => {
-    const dateList = ['2026-01-05', '2026-01-06', '2026-01-07']
+  it('requires all seven dates of a completed Monday-based week to be Perfect Days', () => {
+    const dateList = Array.from({ length: 7 }, (_, index) => `2026-01-${String(index + 5).padStart(2, '0')}`)
     expect(evaluatePerfectPeriod({
-      trackers: [tracker({ schedule: { kind: 'weekdays' } })], entries: dateList.map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11',
-      today: '2026-01-12', minimumRequiredDates: 3, holidays: new Set(['2026-01-08', '2026-01-09']),
-    })).toMatchObject({ state: 'qualified', requiredDates: 3, qualifyingDates: 3 })
+      trackers: [tracker()], entries: dateList.map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12',
+    })).toMatchObject({ state: 'qualified', requiredDates: 7, qualifyingDates: 7 })
     expect(evaluatePerfectPeriod({
-      trackers: [tracker({ schedule: { kind: 'specific-dates', dates: dateList.slice(0, 2) } })], entries: dateList.slice(0, 2).map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11',
-      today: '2026-01-12', minimumRequiredDates: 3,
-    }).state).toBe('insufficient')
+      trackers: [tracker()], entries: dateList.slice(0, 6).map((date) => entry(date)), startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12',
+    }).state).toBe('failed')
   })
 
-  it('requires Strict Mode holiday opportunities and at least twelve required dates in a month', () => {
-    const dates = Array.from({ length: 14 }, (_, index) => `2026-01-${String(index + 1).padStart(2, '0')}`)
-    const holidays = new Set(['2026-01-06', '2026-01-07'])
-    expect(evaluatePerfectPeriod({
-      trackers: [tracker({ schedule: { kind: 'specific-dates', dates } })], entries: dates.map((date) => entry(date)), startDate: '2026-01-01', endDate: '2026-01-31',
-      today: '2026-02-01', minimumRequiredDates: 12, holidays,
-    }).state).toBe('qualified')
-    expect(evaluatePerfectPeriod({
-      trackers: [tracker({ strictMode: true })], entries: Array.from({ length: 31 }, (_, index) => entry(`2026-01-${String(index + 1).padStart(2, '0')}`)).filter((item) => item.date !== '2026-01-06'), startDate: '2026-01-01', endDate: '2026-01-31',
-      today: '2026-02-01', minimumRequiredDates: 12, holidays,
-    }).state).toBe('failed')
-    const elevenDates = dates.slice(0, 11)
-    expect(evaluatePerfectPeriod({
-      trackers: [tracker({ schedule: { kind: 'specific-dates', dates: elevenDates } })], entries: elevenDates.map((date) => entry(date)), startDate: '2026-01-01', endDate: '2026-01-31',
-      today: '2026-02-01', minimumRequiredDates: 12,
-    }).state).toBe('insufficient')
+  it('uses actual month lengths including February and leap years', () => {
+    const cases = [
+      { start: '2026-02-01', days: 28 }, { start: '2024-02-01', days: 29 },
+      { start: '2026-04-01', days: 30 }, { start: '2026-01-01', days: 31 },
+    ]
+    for (const { start, days } of cases) {
+      const from = Date.parse(`${start}T00:00:00.000Z`)
+      const dates = Array.from({ length: days }, (_, index) => new Date(from + index * 86_400_000).toISOString().slice(0, 10))
+      const end = dates.at(-1)!
+      const today = new Date(from + days * 86_400_000).toISOString().slice(0, 10)
+      const periodTracker = tracker({ startDate: start, createdAt: `${start}T00:00:00.000Z`, updatedAt: `${start}T00:00:00.000Z` })
+      expect(evaluatePerfectPeriod({ trackers: [periodTracker], entries: dates.map((date) => entry(date)), startDate: start, endDate: end, today })).toMatchObject({ state: 'qualified', requiredDates: days, qualifyingDates: days })
+    }
+  })
+
+  it('requires every date of a 365 or 366 day year and rejects neutral, missed, and holiday dates', () => {
+    for (const { start, days } of [{ start: '2025-01-01', days: 365 }, { start: '2024-01-01', days: 366 }]) {
+      const from = Date.parse(`${start}T00:00:00.000Z`)
+      const dates = Array.from({ length: days }, (_, index) => new Date(from + index * 86_400_000).toISOString().slice(0, 10))
+      const end = dates.at(-1)!
+      const today = new Date(from + days * 86_400_000).toISOString().slice(0, 10)
+      const periodTracker = tracker({ startDate: start, createdAt: `${start}T00:00:00.000Z`, updatedAt: `${start}T00:00:00.000Z` })
+      expect(evaluatePerfectPeriod({ trackers: [periodTracker], entries: dates.map((date) => entry(date)), startDate: start, endDate: end, today })).toMatchObject({ state: 'qualified', requiredDates: days, qualifyingDates: days })
+      expect(evaluatePerfectPeriod({ trackers: [periodTracker], entries: dates.slice(1).map((date) => entry(date)), startDate: start, endDate: end, today })).toMatchObject({ state: 'failed', qualifyingDates: days - 1 })
+    }
+    const weekEntries = Array.from({ length: 7 }, (_, index) => entry(`2026-01-${String(index + 5).padStart(2, '0')}`))
+    expect(evaluatePerfectPeriod({ trackers: [tracker()], entries: weekEntries, startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12', holidays: new Set(['2026-01-08']) }).state).toBe('failed')
+    expect(evaluatePerfectPeriod({ trackers: [tracker({ schedule: { kind: 'specific-dates', dates: ['2026-01-05'] } })], entries: [entry('2026-01-05')], startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12' }).state).toBe('failed')
+  })
+
+  it('uses configured success thresholds rather than stricter streak rules, and returns incomplete or unsupported honestly', () => {
+    const trackerWithTargetStreak = tracker({ metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', thresholds: { direction: 'increase', minimum: 2, target: 5, streakQualification: 'target' } }] })
+    const dates = Array.from({ length: 7 }, (_, index) => `2026-01-${String(index + 5).padStart(2, '0')}`)
+    const entries = dates.map((date) => entry(date, { pages: 2 }))
+    expect(evaluatePerfectPeriod({ trackers: [trackerWithTargetStreak], entries, startDate: dates[0]!, endDate: dates[6]!, today: '2026-01-12' }).state).toBe('qualified')
+    expect(evaluatePerfectPeriod({ trackers: [tracker()], entries, startDate: dates[0]!, endDate: dates[6]!, today: '2026-01-11' }).state).toBe('incomplete')
+    const revised = tracker({ updatedAt: '2026-01-08T00:00:00.000Z' })
+    expect(evaluatePerfectPeriod({ trackers: [revised], entries, startDate: dates[0]!, endDate: dates[6]!, today: '2026-01-12' }).state).toBe('unsupported')
   })
 })
 

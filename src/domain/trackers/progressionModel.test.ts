@@ -19,7 +19,7 @@ describe('progression policy and summaries', () => {
     expect(PROGRESSION_ACHIEVEMENTS.map(({ id }) => id)).toEqual([
       'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century',
       'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'consistency-star',
-      'dedicated', 'perfect-month', 'the-comeback',
+      'dedicated', 'perfect-month', 'perfect-year', 'the-comeback',
     ])
     expect(PROGRESSION_ACHIEVEMENTS.some((achievement) => 'repeatable' in achievement || 'awardCadence' in achievement)).toBe(false)
   })
@@ -59,6 +59,14 @@ describe('progression policy and summaries', () => {
     expect(() => calculateProgressionLevel(-1)).toThrow(RangeError)
   })
 
+  it('keeps the quadratic thresholds stable through level 20 and recalculates on net XP reversals', () => {
+    const thresholds = Array.from({ length: 20 }, (_, index) => 50 * index * (index + 1))
+    expect(thresholds).toEqual([0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5500, 6600, 7800, 9100, 10500, 12000, 13600, 15300, 17100, 19000])
+    thresholds.forEach((xp, index) => expect(calculateProgressionLevel(xp).level).toBe(index + 1))
+    expect(calculateProgressionLevel(100 - 10)).toMatchObject({ level: 1, progressXp: 90 })
+    expect(calculateProgressionLevel(Number.MAX_SAFE_INTEGER).nextLevelXp).toBe(Number.MAX_SAFE_INTEGER)
+  })
+
   it('keeps provisional XP separate from authoritative lifetime XP and reports period reversals', () => {
     const summary = summarizeProgression({
       events: [
@@ -80,9 +88,9 @@ describe('progression policy and summaries', () => {
   })
 
   it('only marks achievements eligible when their authoritative facts meet their criteria', () => {
-    const facts = { qualifyingCheckIns: 100, longestStreak: 100, perfectDays: 1, perfectWeeks: 1, goalMilestones: 1, completedGoals: 1, consistencyScore: null, completedConsistencyDays: 0, perfectMonths: 2, comebacks: 3 }
+    const facts = { qualifyingCheckIns: 100, longestStreak: 100, perfectDays: 1, perfectWeeks: 1, goalMilestones: 1, completedGoals: 1, consistencyScore: null, completedConsistencyDays: 0, perfectMonths: 2, perfectYears: 1, comebacks: 3 }
     expect(getAchievementEligibility(facts).filter((item) => item.eligible).map((item) => item.id)).toEqual([
-      'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century', 'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'dedicated', 'perfect-month', 'the-comeback',
+      'first-step', 'momentum', 'first-flame', 'steady-flame', 'unstoppable', 'century', 'perfect-day', 'perfect-week', 'milestone-maker', 'goal-crusher', 'dedicated', 'perfect-month', 'perfect-year', 'the-comeback',
     ])
   })
 })

@@ -37,7 +37,7 @@ export type AchievementProgress = {
 }
 
 export type AchievementQualificationDetails = {
-  status?: 'in_progress' | 'qualified' | 'ineligible' | 'unavailable' | 'waiting' | 'recovery_possible' | 'episode_confirmed'
+  status?: 'in_progress' | 'qualified' | 'ineligible' | 'failed' | 'unavailable' | 'waiting' | 'recovery_possible' | 'episode_confirmed'
   label?: string
   message?: string
   progress?: number
@@ -46,6 +46,9 @@ export type AchievementQualificationDetails = {
   eligible_days_target?: number
   adherence_percent?: number | null
   adherence_target_percent?: number
+  period_start?: string
+  period_end?: string
+  percentage?: number
 }
 
 export type AchievementHistoryEvent = {
@@ -57,6 +60,7 @@ export type AchievementHistoryEvent = {
   recordedAt: string
   sourceEventId: string | null
   sourceDate: string | null
+  sourceReference?: Record<string, unknown> | null
   reversesEventId: string | null
   retainedAfterTrackerDeletion: boolean
   trackerDisplayName: string | null
@@ -278,6 +282,7 @@ export function makeAchievementStates(
       id: row.id, achievementId: row.achievement_id, tier: row.tier, generation: row.generation,
       eventType: row.event_type, recordedAt: row.recorded_at, sourceEventId: row.source_event_id,
       sourceDate: row.source_date, reversesEventId: row.reverses_event_id,
+      sourceReference: row.source_reference ?? null,
       retainedAfterTrackerDeletion: retainedIds.has(row.id),
       trackerDisplayName: retainedContexts.get(row.id)?.tracker_display_name ?? null,
       rewardReasonCode: retainedContexts.get(row.id)?.reward_reason_code ?? null,
@@ -391,7 +396,7 @@ async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof g
   if (refreshError) throw progressionReadError('refresh_my_progression_qualification_progress', refreshError)
   const [progress, history, retained] = await Promise.all([
     client.from('progression_achievement_progress').select('achievement_id,progress,target,current_tier,repeatable,qualification_details').eq('user_id', userId),
-    client.from('progression_achievement_events').select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,reverses_event_id').eq('user_id', userId).order('recorded_at'),
+    client.from('progression_achievement_events').select('id,achievement_id,tier,generation,event_type,recorded_at,source_event_id,source_date,source_reference,reverses_event_id').eq('user_id', userId).order('recorded_at'),
     client.from('progression_retained_achievement_unlocks').select('achievement_event_id').eq('user_id', userId),
   ])
   if (progress.error) throw progressionReadError('progression_achievement_progress', progress.error)
