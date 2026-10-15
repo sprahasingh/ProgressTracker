@@ -41,11 +41,13 @@ describe('AI Help Assistant', () => {
     const user = userEvent.setup()
     renderAssistant('/analytics')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    await screen.findByRole('region', { name: 'Ask ProgressTracker' })
+    await waitFor(() => expect(screen.getAllByRole('button').some((button) => button.closest('.ai-help-suggestions'))).toBe(true))
     const question = screen.getAllByRole('button').find((button) => button.closest('.ai-help-suggestions'))!
     const text = question.textContent!.trim()
     const answer = verifiedQuestionCatalog.find((entry) => entry.question === text)!.answer
     await user.click(question)
-    expect(await screen.findByText(answer)).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.ai-help-message.assistant .ai-help-formatted')?.textContent).toBe(answer))
     expect(mocks.invoke).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '👍 Helpful' })).toBeInTheDocument()

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 const databaseContainer = process.env.SUPABASE_DB_CONTAINER!
@@ -26,7 +27,7 @@ function runDatabase(sql: string): string {
 async function dismissCurrentCelebration(page: Page) {
   const dialog = page.getByRole('dialog', { name: /First Step|Perfect Day/i })
   await expect(dialog).toBeVisible()
-  const nextBadge = dialog.getByRole('button', { name: 'Next Badge' })
+  const nextBadge = dialog.getByRole('button', { name: 'Next' })
   if (await nextBadge.count()) await nextBadge.click()
   else await dialog.getByRole('button', { name: 'Finish' }).click()
 }
@@ -99,8 +100,9 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const browserErrors: string[] = []
   const authRequests: Array<{ path: string; status?: number; elapsedMs: number; failure?: string }> = []
   const authStarted = new Map<string, number>()
-  const syncCalls: Array<{ path: string; status?: number; elapsedMs: number; failed?: boolean }> = []
+  const syncCalls: Array<{ path: string; method: string; entity?: string; status?: number; elapsedMs: number; startOffsetMs?: number; failed?: boolean }> = []
   const syncStarted = new Map<string, number>()
+  let syncWindowStartedAt = 0
   let measureSync = false
   page.on('pageerror', (error) => browserErrors.push(error.message))
   page.on('request', (request) => {
@@ -114,13 +116,15 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     const started = syncStarted.get(request.url())
     if (started === undefined) return
     const response = await request.response()
-    syncCalls.push({ path: new URL(request.url()).pathname, status: response?.status(), elapsedMs: Math.round(performance.now() - started) })
+    const body = request.postDataJSON() as { p_entity?: string } | null
+    syncCalls.push({ path: new URL(request.url()).pathname, method: request.method(), entity: body?.p_entity, status: response?.status(), elapsedMs: Math.round(performance.now() - started), startOffsetMs: Math.round(started - syncWindowStartedAt) })
     syncStarted.delete(request.url())
   })
   page.on('requestfailed', (request) => {
     const started = syncStarted.get(request.url())
     if (started === undefined) return
-    syncCalls.push({ path: new URL(request.url()).pathname, elapsedMs: Math.round(performance.now() - started), failed: true })
+    const body = request.postDataJSON() as { p_entity?: string } | null
+    syncCalls.push({ path: new URL(request.url()).pathname, method: request.method(), entity: body?.p_entity, elapsedMs: Math.round(performance.now() - started), startOffsetMs: Math.round(started - syncWindowStartedAt), failed: true })
     syncStarted.delete(request.url())
   })
   page.on('requestfinished', async (request) => {
@@ -170,6 +174,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   // Confirm the client keeps this local while offline and that only the server
   // confirmation causes AppShell's progression monitor to show the first award.
   await context.setOffline(true)
+  await page.evaluate(() => performance.clearMeasures())
   await page.getByRole('button', { name: 'Done', exact: true }).click()
   const localCheckInStartedAt = performance.now()
   await checkinAction.click()
@@ -179,6 +184,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await page.getByRole('button', { name: 'Close check-in details' }).click()
   measureSync = true
   const serverSyncStartedAt = performance.now()
+  syncWindowStartedAt = serverSyncStartedAt
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expectWorkspaceSynced(page, userId)
@@ -187,8 +193,13 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const progressionStartedAt = performance.now()
   await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000, message: 'Server progression reconciliation should confirm the Perfect Day occurrence' }).toMatchObject({ userId, count: 1, pending: 0 })
   const progressionReconciliationMs = Math.round(performance.now() - progressionStartedAt)
+  const devPerformance = await page.evaluate(() => ({
+    measures: performance.getEntriesByType('measure').filter((entry) => entry.name.startsWith('progress-tracker:')).map(({ name, duration }) => ({ name, durationMs: Math.round(duration) })),
+    marks: performance.getEntriesByType('mark').filter((entry) => entry.name.startsWith('progress-tracker:')).map((entry) => entry.name),
+  }))
   await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
-  console.log(`SYNC_PERF ${JSON.stringify({ localCheckInMs, serverSyncMs, progressionReconciliationMs, syncRequestCount: syncCalls.length, syncRequests: syncCalls, pendingAtMeasurementEnd: syncStarted.size })}`)
+  const progressionRequests = syncCalls.filter(({ path }) => /progression_|get_progression|refresh_my_progression|tracker_entries|apply_tracker_sync_operation/.test(path))
+  console.log(`SYNC_PERF ${JSON.stringify({ localCheckInMs, serverSyncMs, progressionReconciliationMs, progressionRequestCount: progressionRequests.length, syncRequestCount: syncCalls.length, syncRequests: syncCalls, devPerformance, pendingAtMeasurementEnd: syncStarted.size })}`)
   try {
     await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
   } catch (error) {
@@ -205,7 +216,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect(firstDialog.getByText(/qualifying date/)).toBeVisible()
   await expect(firstDialog.getByText(/XP confirmed/)).toContainText('+10 XP confirmed')
   await expect(firstDialog.getByRole('button', { name: 'About this celebration' })).toBeVisible()
-  await expect(firstDialog.getByRole('button', { name: 'Next Badge' })).toBeVisible()
+  await expect(firstDialog.getByRole('button', { name: 'Next' })).toBeVisible()
   await expect(firstDialog.locator('.badge-celebration-title-row')).toContainText('First Step')
   await expect(firstDialog.locator('.badge-celebration-title-row').getByRole('button', { name: 'About this celebration' })).toBeVisible()
   await expect(firstDialog.locator('header').getByRole('button', { name: 'Close celebration' })).toBeVisible()
@@ -304,7 +315,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
       await expect(firstDialog.locator('.badge-celebration-content > p').first()).toBeInViewport()
       await firstDialog.locator('.badge-celebration-occurrence').scrollIntoViewIfNeeded()
       await expect(firstDialog.locator('.badge-celebration-occurrence')).toBeInViewport()
-      const continueButton = firstDialog.getByRole('button', { name: /Next Badge|Finish/ })
+      const continueButton = firstDialog.getByRole('button', { name: /Next|Finish/ })
       await continueButton.scrollIntoViewIfNeeded()
       await expect(continueButton).toBeInViewport()
       await firstDialog.locator('.badge-celebration-content').evaluate((element) => { element.scrollTop = 0 })
@@ -360,12 +371,12 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
 
   await page.goto('/#/achievements')
   await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /30 confirmed XP\. Open score history/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /30 confirmed XP at level \d+\. Open score history/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /First Step, earned/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Perfect Day, earned/ })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('button', { name: /30 confirmed XP\. Open score history/ })).toBeVisible()
-  await page.getByRole('button', { name: /30 confirmed XP\. Open score history/ }).click()
+  await expect(page.getByRole('button', { name: /30 confirmed XP at level \d+\. Open score history/ })).toBeVisible()
+  await page.getByRole('button', { name: /30 confirmed XP at level \d+\. Open score history/ }).click()
   const persistedHistory = page.getByRole('dialog', { name: 'Score history' })
   await expect(persistedHistory.locator('.progression-event-row').filter({ hasText: 'Qualifying check-in' }).filter({ hasText: '+10 XP' })).toHaveCount(1)
   await expect(persistedHistory.locator('.progression-event-row').filter({ hasText: 'Perfect Day' }).filter({ hasText: '+20 XP' })).toHaveCount(1)
@@ -412,7 +423,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect.poll(() => confirmedAwardState(page, 'first-step'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
   await expect.poll(() => confirmedAwardState(page, 'perfect-day'), { timeout: 30_000 }).toMatchObject({ userId, count: 1, pending: 0 })
   await expect(page.getByRole('dialog', { name: /First Step/i })).toBeVisible({ timeout: 20_000 })
-  await page.getByRole('dialog', { name: /First Step/i }).getByRole('button', { name: 'Next Badge' }).click()
+  await page.getByRole('dialog', { name: /First Step/i }).getByRole('button', { name: 'Next' }).click()
   await expect(page.getByRole('dialog', { name: /Perfect Day/i })).toBeVisible()
   await page.getByRole('dialog', { name: /Perfect Day/i }).getByRole('button', { name: 'Finish' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -444,16 +455,24 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   if (accountCount !== '1') throw new Error(`The isolated database contains ${accountCount} Auth users; will not backdate its global repeatable-award cutover.`)
   runDatabase(`UPDATE public.progression_account_state SET initialized_at='${repeatStartDate}T00:00:00.000Z'::timestamptz WHERE user_id='${userId}'; UPDATE public.progression_achievement_accounts SET initialized_at='${repeatStartDate}T00:00:00.000Z'::timestamptz WHERE user_id='${userId}'; UPDATE public.progression_achievement_repeatable_cutover SET recorded_at='${repeatStartDate}T00:00:00.000Z'::timestamptz; UPDATE public.trackers SET created_at='${repeatStartDate}T00:00:00.000Z'::timestamptz, updated_at='${repeatStartDate}T00:00:00.000Z'::timestamptz, definition=jsonb_set(definition, '{startDate}', to_jsonb('${repeatStartDate}'::text)) WHERE user_id='${userId}';`)
   await page.getByRole('link', { name: 'Insights', exact: true }).first().click()
+  const cachedWinsNavigationStartedAt = performance.now()
   await page.getByRole('link', { name: 'Wins', exact: true }).click()
   await waitForWinsData(page)
+  const cachedWinsNavigationMs = Math.round(performance.now() - cachedWinsNavigationStartedAt)
   const winCount = page.getByRole('button', { name: /Perfect Day, earned/i })
-  await expect(winCount).toContainText('Earned once')
+  await winCount.click()
+  const perfectDayDetails = page.getByRole('dialog', { name: /Perfect Day/i })
+  await expect(perfectDayDetails.getByText('Earned once')).toBeVisible()
+  await page.getByRole('button', { name: 'Close details' }).click()
   const consistencyCard = page.getByRole('button', { name: /Consistency Star, locked/i })
-  const consistencySummary = (await consistencyCard.innerText()).replace(/\s+/g, ' ')
+  await consistencyCard.click()
+  const consistencyDetails = page.getByRole('dialog', { name: /Consistency Star/i })
+  const consistencySummary = (await consistencyDetails.innerText()).replace(/\s+/g, ' ')
   const eligibleDays = consistencySummary.match(/Eligible days: (\d+) \/ 30/)
   expect(eligibleDays, `Expected authoritative eligible-day coverage in: ${consistencySummary}`).not.toBeNull()
   expect(Number(eligibleDays?.[1])).toBeLessThan(30)
   expect(consistencySummary).toMatch(/Adherence: (?:\d+(?:\.\d+)?%|Unavailable) \(target: 80%\)/)
+  await page.getByRole('button', { name: 'Close details' }).click()
   await expect(consistencyCard.locator('.progression-level-track')).toHaveCount(0)
   // Focus a stable navigation control before background sync updates the badge
   // card's accessible name and count. It remains a valid restoration target.
@@ -484,14 +503,15 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expectWorkspaceSynced(page, userId)
-  await expect(winCount).toContainText('Earned 5 times', { timeout: 60_000 })
+  await expect(winCount).toContainText('Unlocked (5)', { timeout: 60_000 })
   const repeatedAwardState = await confirmedAwardState(page, 'perfect-day')
   expect(repeatedAwardState).toMatchObject({ userId, count: 5, pending: 0 })
   const slowSyncMs = Math.round(performance.now() - slowSyncStartedAt)
   measureSync = false
   await page.unrouteAll({ behavior: 'wait' })
-  console.log(`SYNC_PERF_SLOW ${JSON.stringify({ injectedRestDelayMs: 150, pendingCheckIns: repeats.inserted, serverSyncMs: slowSyncMs, requestCount: syncCalls.length, requests: syncCalls, pendingAtMeasurementEnd: syncStarted.size })}`)
-  await expect(winCount).toContainText('Earned 5 times')
+  await expect(winCount).toContainText('Unlocked (5)')
+  const winsRenderAfterSyncMs = Math.round(performance.now() - slowSyncStartedAt)
+  console.log(`SYNC_PERF_SLOW ${JSON.stringify({ injectedRestDelayMs: 150, pendingCheckIns: repeats.inserted, serverSyncMs: slowSyncMs, winsRenderAfterSyncMs, cachedWinsNavigationMs, requestCount: syncCalls.length, requests: syncCalls, pendingAtMeasurementEnd: syncStarted.size })}`)
 
   // The five-day fixture earns Momentum as well as four distinct Perfect Day
   // occurrences. Derive the expected queue directly from persisted history,
@@ -523,6 +543,13 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   const presentedAwards: Array<{ achievementId: string; tier: number }> = []
   for (let occurrence = 0; occurrence < expectedQueue.length; occurrence += 1) {
     const expected = expectedQueue[occurrence]!
+    const levelUp = page.locator('.level-up-celebration')
+    if (await levelUp.count()) {
+      await expect(levelUp.getByRole('heading', { name: /^Level \d+$/ })).toBeVisible()
+      const continueLevelQueue = levelUp.getByRole('button', { name: 'Continue' })
+      if (await continueLevelQueue.count()) await continueLevelQueue.click()
+      else await levelUp.getByRole('button', { name: 'Done' }).click()
+    }
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.locator('h2')).toHaveText(expected.name!)
@@ -536,7 +563,7 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
     if (expected.achievementId === 'perfect-day') occurrenceLabels.push(label)
     presentedAwards.push({ achievementId: expected.achievementId, tier: expected.tier })
     if (occurrence === 0) await page.keyboard.press('Escape')
-    else await dialog.getByRole('button', { name: /Next Badge|Finish/ }).click()
+    else await dialog.getByRole('button', { name: /Next|Finish/ }).click()
   }
   expect(presentedAwards).toEqual(expectedQueue.map(({ achievementId, tier }) => ({ achievementId, tier })))
   expect(occurrenceLabels).toHaveLength(4)
@@ -546,15 +573,25 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
 
   // Navigate to Wins and confirm server history-backed count and timestamps;
   // browser navigation/refresh must not replay already presented events.
-  await expect(page.getByRole('button', { name: /Perfect Day, earned/i })).toContainText('Earned 5 times')
+  await expect(page.getByRole('button', { name: /Perfect Day, earned/i })).toContainText('Unlocked (5)')
+  await page.getByRole('button', { name: /Perfect Day, earned/i }).click()
+  const repeatedDetails = page.getByRole('dialog', { name: /Perfect Day/i })
+  await expect(repeatedDetails.getByText('Earned 5 times')).toBeVisible()
+  await expect(repeatedDetails.getByText(/Most recent/)).toBeVisible()
+  await page.getByRole('button', { name: 'Close details' }).click()
+  const coldWinsReloadStartedAt = performance.now()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Achievements.' })).toBeVisible()
-  await page.getByRole('link', { name: 'Wins', exact: true }).click()
   await waitForWinsData(page)
+  const coldWinsReloadMs = Math.round(performance.now() - coldWinsReloadStartedAt)
+  console.log(`WINS_NAV_PERF ${JSON.stringify({ cachedNavigationMs: cachedWinsNavigationMs, coldReloadToWinsMs: coldWinsReloadMs })}`)
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /Perfect Day, earned/i })).toContainText('Earned 5 times')
-  const pageAwards = await page.getByRole('button', { name: /Perfect Day, earned/i }).innerText()
-  expect(pageAwards).toContain('Most recent')
+  await expect(page.getByRole('button', { name: /Perfect Day, earned/i })).toContainText('Unlocked (5)')
+  await page.getByRole('button', { name: /Perfect Day, earned/i }).click()
+  const reloadedDetails = page.getByRole('dialog', { name: /Perfect Day/i })
+  await expect(reloadedDetails.getByText('Earned 5 times')).toBeVisible()
+  await expect(reloadedDetails.getByText(/Most recent/)).toBeVisible()
+  await page.getByRole('button', { name: 'Close details' }).click()
 
   const refreshState = await page.evaluate(async () => {
     const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
@@ -594,5 +631,49 @@ test('AppShell check-in, server awards, Wins history, and responsive sequential 
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe(originalBodyOverflow)
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
+  // Keep the first account's confirmed overview hot in the module cache, then
+  // change identities in the same browser and verify the second account sees
+  // only its own empty progression.
+  const secondEmail = 'browser-progression-switch@progress-tracker.invalid'
+  const secondPassword = randomBytes(24).toString('base64url')
+  const secondUserId = runDatabase(`WITH created AS (INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, confirmation_token, recovery_token, email_change, email_change_token_new, email_change_token_current, phone_change_token, reauthentication_token, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, is_sso_user, is_anonymous) VALUES ('${randomUUID()}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${secondEmail}', extensions.crypt('${secondPassword}', extensions.gen_salt('bf')), now(), '', '', '', '', '', '', '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), false, false) RETURNING id, email) INSERT INTO auth.identities (id, user_id, identity_data, provider, provider_id, created_at, updated_at) SELECT gen_random_uuid(), id, jsonb_build_object('sub', id::text, 'email', email), 'email', email, now(), now() FROM created RETURNING user_id;`)
+  try {
+    const firstAccountOverview = await page.evaluate(async (id) => (await (await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')).getProgressionOverview(id)).confirmedXp, userId)
+    expect(firstAccountOverview).toBeGreaterThan(0)
+    await page.evaluate(async () => (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!.auth.signOut())
+    await page.goto('/#/auth')
+    await page.getByRole('button', { name: 'Use password' }).click()
+    await page.getByLabel('Email address').last().fill(secondEmail)
+    await page.getByLabel('Password').fill(secondPassword)
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+    await page.getByRole('link', { name: 'Insights', exact: true }).first().click()
+    await page.getByRole('link', { name: 'Wins', exact: true }).click()
+    await waitForWinsDataForNewAccount(page)
+    const switchedOverview = await page.evaluate(async () => {
+      const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
+      const { data: { session } } = await client.auth.getSession()
+      if (!session?.user) throw new Error('Second account session is missing.')
+      const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+      const overview = await repository.getProgressionOverview(session.user.id)
+      const badges = await repository.getEarnedAndLockedBadges(session.user.id)
+      return { userId: session.user.id, confirmedXp: overview.confirmedXp, activePerfectDays: badges.find((badge) => badge.achievementId === 'perfect-day')?.validAwardCount ?? 0 }
+    })
+    expect(switchedOverview).toEqual({ userId: secondUserId, confirmedXp: 0, activePerfectDays: 0 })
+  } finally {
+    runDatabase(`DELETE FROM auth.users WHERE id='${secondUserId}' AND email='${secondEmail}';`)
+  }
+
   expect(browserErrors).toEqual([])
 })
+
+async function waitForWinsDataForNewAccount(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Achievements.' })).toBeVisible()
+  await expect.poll(async () => page.evaluate(async () => {
+    const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
+    const { data: { session } } = await client.auth.getSession()
+    if (!session?.user) return false
+    const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
+    return (await repository.getProgressionOverview(session.user.id)).confirmedXp === 0
+  })).toBe(true)
+}

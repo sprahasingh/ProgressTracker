@@ -3,6 +3,7 @@ import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
+import { measureDevPerformance } from '../utils/devPerformance'
 import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
@@ -471,6 +472,7 @@ export const localRepository = {
   },
 
   async saveTrackerEntry(draft: Omit<StoredTrackerEntry, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>): Promise<StoredTrackerEntry> {
+    const measure = measureDevPerformance('check-in.local-persist-and-notify')
     assertCalendarDate(draft.date)
     const checked = trackerEntrySchema.safeParse({ ...draft, id: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
@@ -502,6 +504,7 @@ export const localRepository = {
       return entry
     })
     publishWorkspaceMutation(ownerUserId)
+    measure()
     return saved
   },
 

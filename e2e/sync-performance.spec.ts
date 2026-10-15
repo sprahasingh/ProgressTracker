@@ -39,6 +39,11 @@ test('local-first and batched synchronization stay responsive offline and on a s
   await page.getByRole('link', { name: 'Trackers', exact: true }).first().click()
   await page.getByRole('link', { name: /Create tracker/ }).first().click()
   await page.getByLabel('What habit do you want to build?').fill('Sync performance fixture')
+  const trackerStartDate = await page.evaluate(async () => {
+    const dates = await import('/ProgressTracker/src/features/shared/localDates.ts')
+    return dates.shiftCalendarDate(dates.localCalendarDate(new Date(), 'UTC'), -3)
+  })
+  await page.getByLabel('Start date').fill(trackerStartDate)
   await page.getByRole('button', { name: 'Create tracker' }).click()
   await expect(page.getByRole('heading', { name: 'Sync performance fixture' })).toBeVisible()
   const trackerId = await page.evaluate(async () => (await (await import('/ProgressTracker/src/db/localRepository.ts')).localRepository.listTrackers()).find((item) => item.name === 'Sync performance fixture')!.id)

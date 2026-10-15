@@ -9,6 +9,7 @@ import { getAchievementAwardXp, getEarnedAndLockedBadges, getProgressionOverview
 import { InfoButton } from '../../components/ui/InfoButton'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calculateProgressionLevel } from '../../domain/trackers/progressionModel'
+import { measureDevPerformance } from '../../utils/devPerformance'
 
 type Celebration = AchievementHistoryEvent & { repeatable: boolean }
 type LevelCelebration = { kind: 'level'; id: string; fromLevel: number; toLevel: number; confirmedXp: number }
@@ -33,19 +34,29 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
   const initialReadStartedAt = useRef(0)
   const refreshSequence = useRef(0)
   const refresh = useCallback(async () => {
+    const measure = measureDevPerformance('wins.celebration-eligibility-refresh')
     const requestId = ++refreshSequence.current
     try {
       let badges: Awaited<ReturnType<typeof getEarnedAndLockedBadges>> | undefined
       let overview: Awaited<ReturnType<typeof getProgressionOverview>> | undefined
       let readError: unknown
-      for (let attempt = 0; attempt < 3 && !badges; attempt += 1) {
-        try { badges = await getEarnedAndLockedBadges(userId) }
-        catch (error) {
-          readError = error
-          if (attempt < 2) await retryDelay(attempt)
+      try {
+        // The overview already contains server-confirmed badge history. Share this
+        // read instead of repeating the qualification refresh and history queries.
+        overview = await getProgressionOverview(userId, { forceRefresh: true })
+        if (Array.isArray(overview.achievements)) badges = overview.achievements
+        else throw new Error('Progression overview did not include achievement history.')
+      } catch (error) {
+        readError = error
+        // Preserve badge celebrations if unrelated XP or score-history reads fail.
+        for (let attempt = 0; attempt < 3 && !badges; attempt += 1) {
+          try { badges = await getEarnedAndLockedBadges(userId) }
+          catch (badgeError) {
+            readError = badgeError
+            if (attempt < 2) await retryDelay(attempt)
+          }
         }
       }
-      try { overview = await getProgressionOverview(userId) } catch { /* Badge awards can still be presented if the score read is unavailable. */ }
       if (!badges) throw readError
       if (requestId !== refreshSequence.current) return
       let levelItems: LevelCelebration[] = []
@@ -117,7 +128,8 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
             : item))
         }).catch(() => { /* XP is optional; show confirmed badge events without it. */ })
       }
-    } catch { /* Network or sync failures are retried on the next workspace change. */ }
+    } catch { /* Network or sync failures are retried on the next server confirmation. */ }
+    finally { measure() }
   }, [userId])
 
   useEffect(() => {

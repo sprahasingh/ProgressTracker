@@ -110,7 +110,7 @@ const suite = describe.skipIf(!enabled)('live Wins and badge celebration flow', 
     expect(within(firstDialog).getByText(/qualifying date/)).toHaveTextContent(today)
     expect(within(firstDialog).getByText(/XP confirmed/)).toHaveTextContent('+10 XP confirmed')
     expect(within(firstDialog).getByRole('button', { name: 'About this celebration' })).toBeInTheDocument()
-    fireEvent.click(within(firstDialog).getByRole('button', { name: 'Next Badge' }))
+    fireEvent.click(within(firstDialog).getByRole('button', { name: 'Next' }))
     const secondDialog = await screen.findByRole('dialog', { name: /Perfect Day/i })
     expect(within(secondDialog).getByText(/first unlock/i)).toBeInTheDocument()
     fireEvent.click(within(secondDialog).getByRole('button', { name: 'Finish' }))
@@ -187,7 +187,7 @@ const suite = describe.skipIf(!enabled)('live Wins and badge celebration flow', 
       const label = dialog.querySelector('.badge-celebration-occurrence')?.textContent ?? ''
       repeatLabels.push(`${title}:${label}`)
       const dialogText = dialog.textContent
-      fireEvent.click(within(dialog).getByRole('button', { name: /^(Next Badge|Finish)$/ }))
+      fireEvent.click(within(dialog).getByRole('button', { name: /^(Next|Finish)$/ }))
       await waitFor(() => {
         const currentDialog = screen.queryByRole('dialog')
         expect(!currentDialog || currentDialog.textContent !== dialogText).toBe(true)

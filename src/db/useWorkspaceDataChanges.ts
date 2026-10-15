@@ -2,11 +2,14 @@ import { useEffect } from 'react'
 import { subscribeToWorkspaceDataChanges } from './workspaceMutationEvents'
 
 /** Refresh a mounted workspace view after local writes or downloaded sync data. */
-export function useWorkspaceDataChanges(ownerUserId: string | null | undefined, ready: boolean, refresh: () => void | Promise<void>, refreshOnSyncCompletion = false): void {
+export function useWorkspaceDataChanges(ownerUserId: string | null | undefined, ready: boolean, refresh: () => void | Promise<void>, refreshOnSyncCompletion = false, refreshAfterSync?: () => void | Promise<void>): void {
   useEffect(() => {
     if (!ready) return
     return subscribeToWorkspaceDataChanges((changedOwner, kind) => {
-      if ((kind !== 'sync-complete' || refreshOnSyncCompletion) && (ownerUserId === undefined || changedOwner === ownerUserId)) void refresh()
+      if ((ownerUserId === undefined || changedOwner === ownerUserId) && kind === 'data') void refresh()
+      else if (ownerUserId === undefined || changedOwner === ownerUserId) {
+        if (refreshOnSyncCompletion) void (refreshAfterSync ?? refresh)()
+      }
     })
-  }, [ownerUserId, ready, refresh, refreshOnSyncCompletion])
+  }, [ownerUserId, ready, refresh, refreshAfterSync, refreshOnSyncCompletion])
 }
