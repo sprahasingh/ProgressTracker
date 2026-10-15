@@ -163,7 +163,7 @@ begin
   if not exists(select 1 from pg_catalog.pg_timezone_names where name=v_timezone) then
     v_timezone:='UTC'; v_today:=(clock_timestamp() at time zone 'UTC')::date;
   end if;
-  v_month_end:=(p_month_start+interval '1 month-1 day')::date;
+  v_month_end:=(p_month_start+interval '1 month'-interval '1 day')::date;
   if v_month_end >= v_today then return false; end if;
   if p_month_start < v_policy_start then
     select exists(select 1 from public.progression_achievement_events e
@@ -202,7 +202,7 @@ begin
   if not exists(select 1 from pg_catalog.pg_timezone_names where name=v_timezone) then
     v_timezone:='UTC'; v_today:=(clock_timestamp() at time zone 'UTC')::date;
   end if;
-  v_year_end:=(p_year_start+interval '1 year-1 day')::date;
+  v_year_end:=(p_year_start+interval '1 year'-interval '1 day')::date;
   if v_year_end>=v_today then return false; end if;
   v_day:=p_year_start;
   while v_day<=v_year_end loop
@@ -226,7 +226,7 @@ begin
     into v_timezone,v_today from public.progression_achievement_accounts a left join public.app_settings s on s.user_id=a.user_id where a.user_id=p_user_id;
   if not found then return false; end if;
   if not exists(select 1 from pg_catalog.pg_timezone_names where name=v_timezone) then v_timezone:='UTC'; v_today:=(clock_timestamp() at time zone 'UTC')::date; end if;
-  v_year_end:=(p_year_start+interval '1 year-1 day')::date;
+  v_year_end:=(p_year_start+interval '1 year'-interval '1 day')::date;
   if v_year_end>=v_today then return false; end if;
   v_day:=p_year_start;
   while v_day<=v_year_end loop
@@ -309,7 +309,7 @@ begin
       select p_user_id,v_event.id,t.id,'perfect-year:'||extract(year from v_year_start)::integer::text
       from public.trackers t
       where t.user_id=p_user_id and t.status in ('active','archived') and t.deleted_at is null
-        and exists(select 1 from generate_series(v_year_start::timestamp,(v_year_start+interval '1 year-1 day')::timestamp,interval '1 day') d(day)
+        and exists(select 1 from generate_series(v_year_start::timestamp,(v_year_start+interval '1 year'-interval '1 day')::timestamp,interval '1 day') d(day)
           where public.progression_date_is_eligible(p_user_id,t,d.day::date))
       on conflict do nothing;
     end if;
@@ -381,8 +381,8 @@ begin
   end if;
   for v_period in select * from (values
     ('perfect-week'::text,date_trunc('week',v_today::timestamp)::date,(date_trunc('week',v_today::timestamp)::date+6),7),
-    ('perfect-month'::text,date_trunc('month',v_today::timestamp)::date,(date_trunc('month',v_today::timestamp)+interval '1 month-1 day')::date,extract(day from (date_trunc('month',v_today::timestamp)+interval '1 month-1 day'))::integer),
-    ('perfect-year'::text,date_trunc('year',v_today::timestamp)::date,(date_trunc('year',v_today::timestamp)+interval '1 year-1 day')::date,(date_trunc('year',v_today::timestamp)+interval '1 year-1 day')::date-date_trunc('year',v_today::timestamp)::date+1)
+    ('perfect-month'::text,date_trunc('month',v_today::timestamp)::date,(date_trunc('month',v_today::timestamp)+interval '1 month'-interval '1 day')::date,extract(day from (date_trunc('month',v_today::timestamp)+interval '1 month'-interval '1 day'))::integer),
+    ('perfect-year'::text,date_trunc('year',v_today::timestamp)::date,(date_trunc('year',v_today::timestamp)+interval '1 year'-interval '1 day')::date,(date_trunc('year',v_today::timestamp)+interval '1 year'-interval '1 day')::date-date_trunc('year',v_today::timestamp)::date+1)
   ) p(achievement_id,period_start,period_end,target)
   loop
     v_count:=0; v_status:='in_progress'; v_message:='Confirmed Perfect Days so far.';

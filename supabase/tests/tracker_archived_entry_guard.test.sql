@@ -4,8 +4,8 @@ select plan(6);
 insert into auth.users (id, email) values
   ('00000000-0000-4000-8000-000000003101', 'archive-guard@example.test');
 insert into public.trackers (id, user_id, kind, status, name, definition) values
-  ('00000000-0000-4000-8000-000000003201', '00000000-0000-4000-8000-000000003101', 'habit', 'active', 'Active', '{"schemaVersion":1,"metrics":[]}'),
-  ('00000000-0000-4000-8000-000000003202', '00000000-0000-4000-8000-000000003101', 'habit', 'archived', 'Archived', '{"schemaVersion":1,"metrics":[]}');
+  ('00000000-0000-4000-8000-000000003201', '00000000-0000-4000-8000-000000003101', 'habit', 'active', 'Active', '{"schemaVersion":1,"startDate":"2026-10-10","metrics":[]}'),
+  ('00000000-0000-4000-8000-000000003202', '00000000-0000-4000-8000-000000003101', 'habit', 'archived', 'Archived', '{"schemaVersion":1,"startDate":"2026-10-10","metrics":[]}');
 
 select lives_ok($$insert into public.tracker_entries (id,user_id,tracker_id,entry_date,outcome,entry_values)
   values ('00000000-0000-4000-8000-000000003301','00000000-0000-4000-8000-000000003101','00000000-0000-4000-8000-000000003201','2026-10-10','recorded','{}')$$,

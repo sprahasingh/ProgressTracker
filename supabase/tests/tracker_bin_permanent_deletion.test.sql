@@ -65,6 +65,9 @@ insert into public.trackers (id, user_id, kind, status, name, definition, delete
    '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000667","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null),
   ('00000000-0000-4000-8000-000000000668', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Active item',
    '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000668","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null);
+-- These rows model pre-existing retained history from before the database
+-- date-window guard; new RPC writes below are still subject to that guard.
+alter table public.tracker_entries disable trigger user;
 insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values, note, deleted_at) values
   ('00000000-0000-4000-8000-000000000761', '00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000661', '2026-10-09', 'recorded', '{"pages":4}', 'retained until purge', null),
   ('00000000-0000-4000-8000-000000000762', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000662', '2026-10-09', 'recorded', '{"minutes":20}', 'expired content', null),
@@ -75,6 +78,8 @@ insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome
 -- binned tracker are intentionally rejected by the lifecycle guard.
 insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values, note, deleted_at) values
   ('00000000-0000-4000-8000-000000000768', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000668', '2026-10-11', 'recorded', '{"minutes":10}', 'protected history', null);
+set constraints all immediate;
+alter table public.tracker_entries enable trigger user;
 update public.trackers
 set deleted_at = case id
       when '00000000-0000-4000-8000-000000000661' then now() - interval '1 day'
@@ -198,7 +203,7 @@ select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-00000000
 select is(public.purge_expired_tracker_bin(), 0, 'repeated scheduled cleanup is idempotent');
 insert into public.trackers (id, user_id, kind, status, name, definition, deleted_at) values
   ('00000000-0000-4000-8000-000000000669', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Rollback test item',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000669","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null);
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000669","kind":"habit","status":"active","startDate":"2026-10-10","metrics":[],"schedule":{"kind":"every-day"}}', null);
 insert into public.tracker_entries (id, user_id, tracker_id, entry_date, outcome, entry_values, note, deleted_at) values
   ('00000000-0000-4000-8000-000000000769', '00000000-0000-4000-8000-000000000062', '00000000-0000-4000-8000-000000000669', '2026-10-10', 'recorded', '{"minutes":5}', 'rollback history', null);
 update public.trackers set deleted_at=now()-interval '31 days',

@@ -6,6 +6,10 @@ alter table public.tracker_entries disable trigger user;
 insert into auth.users (id, email) values
   ('00000000-0000-4000-8000-000000000091', 'progression-cutover-existing@example.test'),
   ('00000000-0000-4000-8000-000000000092', 'progression-cutover-new@example.test');
+insert into public.app_settings (id,user_id,timezone,timezone_configured) values
+ ('general','00000000-0000-4000-8000-000000000091','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000092','UTC',true)
+on conflict (user_id) do update set timezone='UTC',timezone_configured=true;
 
 select is((select count(*) from public.progression_account_state where user_id='00000000-0000-4000-8000-000000000091'),1::bigint,'an account receives one initialization state');
 select is((select count(*) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000092' and reason_code = 'LEGACY_XP_OPENING_BALANCE'), 0::bigint, 'a new account does not receive an invented zero opening event');

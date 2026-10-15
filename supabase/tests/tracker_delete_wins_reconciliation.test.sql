@@ -6,6 +6,12 @@ insert into auth.users(id,email) values
  ('00000000-0000-4000-8000-000000000702','delete-wins-revoke@example.test'),
  ('00000000-0000-4000-8000-000000000703','delete-wins-legacy@example.test'),
  ('00000000-0000-4000-8000-000000000704','delete-wins-rollback@example.test');
+insert into public.app_settings(id,user_id,timezone,timezone_configured) values
+ ('general','00000000-0000-4000-8000-000000000701','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000702','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000703','UTC',true),
+ ('general','00000000-0000-4000-8000-000000000704','UTC',true)
+on conflict (user_id) do update set timezone='UTC',timezone_configured=true;
 
 -- Two independently completed trackers earn check-in XP, First Step, and a
 -- shared Perfect Day. Deleting one must reverse only its own check-in XP.
@@ -121,7 +127,8 @@ select ok(not exists (
           and source_event.metadata->>'award_generation'='1'
           and source_event.metadata->>'rule' in (
             'Every eligible tracker was completed for this date',
-            'Every required tracker qualified on this date')
+            'Every required tracker qualified on this date',
+            'Every eligible tracker met its configured success rule on this local date')
           and source.tracker_id is null and source.goal_id is null and source.source_id is null
           and source.display_name='Deleted tracker'
           and source_event.metadata::text not like '%00000000-0000-4000-8000-000000000772%'

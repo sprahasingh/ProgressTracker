@@ -2,6 +2,9 @@ begin;
 select plan(24);
 
 insert into auth.users (id, email) values ('00000000-0000-4000-8000-000000000081','progression-scorer@example.test');
+insert into public.app_settings (id,user_id,timezone,timezone_configured)
+values ('general','00000000-0000-4000-8000-000000000081','UTC',true)
+on conflict (user_id) do update set timezone='UTC',timezone_configured=true;
 update public.progression_account_state set initialized_at=(current_date - 6)::timestamptz where user_id='00000000-0000-4000-8000-000000000081';
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000081';
