@@ -130,6 +130,7 @@ export function TrackerSetupPage() {
   const [archivedStatusAfterSave, setArchivedStatusAfterSave] = useState<'archived' | 'active'>('archived')
   const [metricsWithHistory, setMetricsWithHistory] = useState<string[]>([])
   const [values, setValues] = useState<FormValues>(() => defaultValues(undefined, timeZone))
+  const [scheduleTouched, setScheduleTouched] = useState(false)
   const [holidayDates, setHolidayDates] = useState<string[]>([])
   const [schedulingTouched, setSchedulingTouched] = useState(false)
   const [configuration, setConfiguration] = useState<Configuration>(() => {
@@ -271,6 +272,7 @@ export function TrackerSetupPage() {
   }, [trackerId])
 
   function update(field: keyof FormValues, value: FormValues[keyof FormValues]) {
+    if (field === 'schedule') setScheduleTouched(true)
     setValues((current) => ({ ...current, [field]: value }))
     if (field === 'deadline' && value === '' && goalPlanning.mode === 'cumulative-deadline' && values.schedulingMode !== 'effective') {
       setFieldErrors((current) => ({ ...current, deadline: 'Cumulative planning requires a projected deadline. Choose Calendar Days or Effective Days scheduling.' }))
@@ -335,7 +337,9 @@ export function TrackerSetupPage() {
     setValues((current) => ({
       ...current,
       kind,
-      schedule: kind === 'project' ? 'none' : kind === 'challenge' ? 'weekdays' : 'every-day',
+      // New tracker types all begin with Daily. Once the user chooses a
+      // recurrence, changing the kind must preserve that explicit choice.
+      schedule: scheduleTouched ? current.schedule : 'every-day',
       deadline: current.deadline,
     }))
     setConfiguration((current) => {

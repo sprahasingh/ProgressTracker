@@ -202,6 +202,38 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toMatchObject([{ kind: 'habit', name: 'Read every day', schedule: { kind: 'every-day' }, metrics: [{ valueType: 'boolean' }] }])
   })
 
+  it('keeps Daily as the default when selecting each new tracker type', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Activity schedule & holidays'))
+    const schedule = screen.getByRole('combobox', { name: 'Activity schedule' })
+    expect(schedule).toHaveValue('every-day')
+
+    await user.click(screen.getByRole('radio', { name: /Habit/ }))
+    expect(schedule).toHaveValue('every-day')
+    await user.click(screen.getByText('Challenge or project?'))
+    await user.click(screen.getByRole('radio', { name: /Challenge/ }))
+    expect(schedule).toHaveValue('every-day')
+    await user.click(screen.getByRole('radio', { name: /Project/ }))
+    expect(schedule).toHaveValue('every-day')
+  })
+
+  it('preserves a recurrence explicitly chosen before changing tracker type', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Activity schedule & holidays'))
+    const schedule = screen.getByRole('combobox', { name: 'Activity schedule' })
+    await user.selectOptions(schedule, 'weekdays')
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    expect(schedule).toHaveValue('weekdays')
+    await user.click(screen.getByText('Challenge or project?'))
+    await user.click(screen.getByRole('radio', { name: /Project/ }))
+    expect(schedule).toHaveValue('weekdays')
+  })
+
   it('defaults Strict Mode off and persists it on newly created trackers when enabled', async () => {
     const user = userEvent.setup()
     renderSetup()
