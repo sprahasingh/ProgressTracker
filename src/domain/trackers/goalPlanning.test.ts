@@ -46,6 +46,26 @@ describe('daily recurring planning', () => {
     expect(plan.consistencyPercent).toBe(50)
   })
 
+  it('applies Saturday-only, Sunday-only, and No Recurrence to daily Goal expectations', () => {
+    const saturdayOnly = calculateDailyRecurringMetricPlan({
+      tracker: { ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [6] }, startDate: '2026-11-02', deadline: '2026-11-08' },
+      metricId: 'pages', target: 5, startDate: '2026-11-02', asOfDate: '2026-11-02', entries: [],
+    })
+    expect(saturdayOnly.days.filter((day) => day.state === 'future').map((day) => day.date)).toEqual(['2026-11-07'])
+    expect(saturdayOnly.days.find((day) => day.date === '2026-11-08')?.state).toBe('rest')
+    const sundayOnly = calculateDailyRecurringMetricPlan({
+      tracker: { ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [0] }, startDate: '2026-11-02', deadline: '2026-11-08' },
+      metricId: 'pages', target: 5, startDate: '2026-11-02', asOfDate: '2026-11-02', entries: [],
+    })
+    expect(sundayOnly.days.filter((day) => day.state === 'future').map((day) => day.date)).toEqual(['2026-11-08'])
+    const flexible = calculateDailyRecurringMetricPlan({
+      tracker: { ...tracker, schedule: { kind: 'none' }, startDate: '2026-11-02', deadline: '2026-11-08' },
+      metricId: 'pages', target: 5, startDate: '2026-11-02', asOfDate: '2026-11-08', entries: [],
+    })
+    expect(flexible.days.every((day) => day.state === 'rest')).toBe(true)
+    expect(flexible.elapsedOpportunities).toBe(0)
+  })
+
   it('uses the latest edited entry for a date and excludes a later tombstone', () => {
     const plan = calculateDailyRecurringMetricPlan({
       tracker, metricId: 'pages', target: 5, startDate: '2026-10-01', asOfDate: '2026-10-07',

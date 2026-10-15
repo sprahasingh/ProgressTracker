@@ -177,6 +177,9 @@ describe('generic tracker schemas', () => {
 
   it('rejects malformed schedules and rules that reference unknown metrics', () => {
     expect(trackerDefinitionSchema.safeParse({ ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [0, 7] } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [] } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] } }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schedule: { kind: 'times-per-week', count: 2, preferredWeekdays: [0, 6] } }).success).toBe(true)
     expect(trackerDefinitionSchema.safeParse({ ...tracker, qualificationRule: { kind: 'threshold', metricId: 'missing', level: 'minimum' } }).success).toBe(false)
   })
 

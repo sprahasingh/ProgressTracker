@@ -1,4 +1,4 @@
-import type { TrackerDefinition, TrackerScheduling, TrackerSchedulingMode } from './types'
+import type { TrackerDefinition, TrackerSchedule, TrackerScheduling, TrackerSchedulingMode } from './types'
 import { isEffectiveCalendarDate, trackerActiveStartDate } from './planning'
 
 const DAY_MS = 86_400_000
@@ -17,6 +17,27 @@ export function trackerScheduling(tracker: Pick<TrackerDefinition, 'scheduling' 
 
 export function schedulingMode(tracker: Pick<TrackerDefinition, 'scheduling' | 'deadline'>): TrackerSchedulingMode {
   return trackerScheduling(tracker).mode
+}
+
+/** Stable weekday labels for recurrence summaries; schedule math keeps JS Sunday=0 values. */
+export function trackerScheduleLabel(schedule: TrackerSchedule): string {
+  switch (schedule.kind) {
+    case 'none': return 'No Recurrence'
+    case 'every-day': return 'Daily'
+    case 'weekdays': return 'Weekdays'
+    case 'selected-weekdays': {
+      if (schedule.weekdays.length === 2 && schedule.weekdays.includes(0) && schedule.weekdays.includes(6)) return 'Weekends'
+      const names: Array<[number, string]> = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']]
+      return `Custom Days · ${names.filter(([day]) => schedule.weekdays.includes(day)).map(([, name]) => name).join(', ')}`
+    }
+    case 'times-per-week':
+      if (schedule.count === 2 && schedule.preferredWeekdays?.length === 2 && schedule.preferredWeekdays.includes(0) && schedule.preferredWeekdays.includes(6)) return 'Weekends'
+      return `${schedule.count} times a week`
+    case 'times-per-month': return `${schedule.count} times a month`
+    case 'every-n-days': return `Every ${schedule.interval} days`
+    case 'specific-dates': return `${schedule.dates.length} selected dates`
+    case 'once': return 'Once'
+  }
 }
 
 export function isEffectiveDateEligible(

@@ -53,6 +53,17 @@ describe('cumulative allocation preview', () => {
     }).scheduledDaysTotal).toBe(22)
   })
 
+  it('limits Goal Auto allocations and pace to selected Saturday or Sunday dates', () => {
+    for (const [weekday, expectedDate] of [[6, '2026-11-07'], [0, '2026-11-08']] as const) {
+      const customGoal: TrackerDefinition = {
+        ...tracker, schedule: { kind: 'selected-weekdays', weekdays: [weekday] }, startDate: '2026-11-02', deadline: '2026-11-08',
+      }
+      const preview = createCumulativeAllocationPreview({ tracker: customGoal, entries: [], metricId: 'pages', totalTarget: 6, startDate: '2026-11-02', asOfDate: '2026-11-02' })
+      expect(preview.days.filter((day) => day.eligible).map((day) => [day.date, day.amount])).toEqual([[expectedDate, 6]])
+      expect(calculateCumulativeMetricPlan({ tracker: customGoal, entries: [], metricId: 'pages', totalTarget: 6, startDate: '2026-11-02', asOfDate: '2026-11-02', progressSemantics: 'incremental' })).toMatchObject({ scheduledDaysTotal: 1, automaticDaysRemaining: 1, requiredDailyPace: 6 })
+    }
+  })
+
   it('front-loads integer remainders and leaves later dates at zero', () => {
     expect(distributeTarget(10, 3, false, 1)).toEqual([4, 3, 3])
     expect(distributeTarget(3, 5, false, 1)).toEqual([1, 1, 1, 0, 0])
