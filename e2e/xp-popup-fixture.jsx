@@ -13,6 +13,12 @@ function Fixture() {
   return <>
     <main style={{ minHeight: '1800px', padding: '36px 20px' }}>
       <p>Background page content</p>
+      <section className="progression-overview-grid" aria-label="Experience card layout fixture">
+        <section className="progression-level-card-shell">
+          <div className="progression-xp-header"><strong>Your Experience</strong><div><span className="progression-level-pill">LEVEL 1</span><button className="info-button" aria-label="Card info fixture">i</button></div></div>
+          <button type="button" className="progression-level-card"><strong className="progression-xp-total">30 <small>XP</small></strong><span className="progression-level-track"><span style={{ width: '30%' }} /></span><span className="progression-level-caption">70 XP to Level 2</span></button>
+        </section>
+      </section>
       <div style={{ marginTop: '250px' }}>
         <InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={overview} />} />
       </div>
