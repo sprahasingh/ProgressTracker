@@ -14,6 +14,11 @@ vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({
 
 const today = new Date().toISOString().slice(0, 10)
 const previousDate = new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)
+const lastSaturday = (() => {
+  const date = new Date(`${today}T00:00:00.000Z`)
+  const offset = (date.getUTCDay() + 1) % 7
+  return new Date(date.getTime() - (offset || 7) * 86_400_000).toISOString().slice(0, 10)
+})()
 const upcomingDate = new Date(Date.parse(`${today}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
 const previousDateLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${previousDate}T00:00:00.000Z`))
 const tracker = {
@@ -30,6 +35,21 @@ const entry = {
 afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks() })
 
 describe('Calendar page', () => {
+  it('shows Effective Challenge numbering on an unscheduled weekend without calling it missed', async () => {
+    const challenge = {
+      ...tracker, id: 'calendar-challenge', name: 'Weekend Challenge', kind: 'challenge', schemaVersion: 6,
+      schedule: { kind: 'weekdays' }, startDate: new Date(Date.parse(`${lastSaturday}T00:00:00.000Z`) - 6 * 86_400_000).toISOString().slice(0, 10),
+      deadline: new Date(Date.parse(`${lastSaturday}T00:00:00.000Z`) + 30 * 86_400_000).toISOString().slice(0, 10),
+      scheduling: { mode: 'effective', effectiveDays: 30, planningTimeZone: 'UTC' },
+    } as unknown as StoredTrackerDefinition
+    mocks.listTrackers.mockResolvedValue([challenge])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${lastSaturday}`]}><CalendarPage /></MemoryRouter>)
+    expect(await screen.findByText(/Rest day · Day 7 of 30/)).toBeInTheDocument()
+    expect(screen.queryByText(/Missed · Day 7 of 30/)).not.toBeInTheDocument()
+  })
+
   it('keeps the status guide collapsed until requested and opens selected date details', async () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([entry])

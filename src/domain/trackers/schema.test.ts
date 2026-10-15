@@ -37,6 +37,7 @@ describe('generic tracker schemas', () => {
     const ongoing = { ...tracker, schemaVersion: 6 as const, deadline: undefined, scheduling: { mode: 'ongoing' as const } }
     expect(trackerDefinitionSchema.safeParse(calendar).success).toBe(true)
     expect(trackerDefinitionSchema.safeParse(effective).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...effective, schedule: { kind: 'none' } }).success).toBe(true)
     expect(trackerDefinitionSchema.safeParse(ongoing).success).toBe(true)
     expect(trackerDefinitionSchema.safeParse({ ...effective, scheduling: { ...effective.scheduling, effectiveDays: 0 } }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...ongoing, deadline: '2026-12-31' }).success).toBe(false)

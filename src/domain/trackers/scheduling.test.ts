@@ -14,14 +14,16 @@ describe('unified scheduling calculations', () => {
     expect(trackerScheduling({}).mode).toBe('ongoing')
   })
 
-  it('counts eligible dates, not check-ins, excluding holidays and scheduled rest days', () => {
+  it('counts every calendar date regardless of recurrence, excluding only marked holidays', () => {
     const weekdays = tracker({ kind: 'weekdays' })
     const holidays = new Set(['2026-10-15', '2026-10-19'])
-    expect(nthEffectiveDate({ tracker: weekdays, startDate: '2026-10-15', effectiveDays: 3, holidays, timeZone: 'America/New_York' })).toBe('2026-10-21')
-    expect(effectiveDayNumber({ tracker: weekdays, date: '2026-10-20', holidays })).toBe(2)
+    expect(nthEffectiveDate({ tracker: weekdays, startDate: '2026-10-15', effectiveDays: 3, holidays, timeZone: 'America/New_York' })).toBe('2026-10-18')
+    expect(effectiveDayNumber({ tracker: weekdays, date: '2026-10-20', holidays })).toBe(4)
     expect(effectiveDayNumber({ tracker: weekdays, date: '2026-10-16', holidays })).toBe(1)
-    expect(effectiveDaysRemaining({ tracker: weekdays, date: '2026-10-19', targetEffectiveDays: 3, holidays })).toBe(2)
+    expect(effectiveDaysRemaining({ tracker: weekdays, date: '2026-10-19', targetEffectiveDays: 3, holidays })).toBe(0)
     expect(isEffectiveDateEligible(weekdays, '2026-10-15', holidays)).toBe(false)
+    expect(isEffectiveDateEligible(weekdays, '2026-10-17', holidays)).toBe(true)
+    expect(isEffectiveDateEligible(weekdays, '2026-10-18', holidays)).toBe(true)
   })
 
   it('counts missed dates while a skipped or missing check-in has no scheduling effect', () => {
@@ -30,10 +32,24 @@ describe('unified scheduling calculations', () => {
     expect(effectiveDayNumber({ tracker: daily, date: '2026-10-16', holidays: new Set() })).toBe(2)
   })
 
-  it('honors leap day and fails safely when a schedule has no eligible dates', () => {
+  it('honors leap day and counts dates even when recurrence is none', () => {
     const once = tracker({ kind: 'once', date: '2028-02-29' })
-    expect(nthEffectiveDate({ tracker: once, startDate: '2028-02-28', effectiveDays: 1 })).toBe('2028-02-29')
-    expect(() => nthEffectiveDate({ tracker: tracker({ kind: 'none' }), startDate: '2026-10-15', effectiveDays: 1, maxSearchDays: 3 })).toThrow(/Could not find/)
+    expect(nthEffectiveDate({ tracker: once, startDate: '2028-02-28', effectiveDays: 1 })).toBe('2028-02-28')
+    expect(nthEffectiveDate({ tracker: tracker({ kind: 'none' }), startDate: '2026-10-15', effectiveDays: 1 })).toBe('2026-10-15')
+  })
+
+  it('uses November calendar dates and recalculates in both directions when holidays change', () => {
+    const daily = tracker({ kind: 'every-day' })
+    const holidays = new Set(['2026-11-08', '2026-11-15'])
+    const november = { ...daily, startDate: '2026-11-01' }
+    expect(nthEffectiveDate({ tracker: daily, startDate: '2026-11-01', effectiveDays: 30 })).toBe('2026-11-30')
+    expect(nthEffectiveDate({ tracker: daily, startDate: '2026-11-01', effectiveDays: 30, holidays })).toBe('2026-12-02')
+    expect(nthEffectiveDate({ tracker: daily, startDate: '2026-11-01', effectiveDays: 30, holidays: new Set() })).toBe('2026-11-30')
+    expect(effectiveDayNumber({ tracker: november, date: '2026-11-07' })).toBe(7)
+    expect(effectiveDayNumber({ tracker: november, date: '2026-11-08', holidays })).toBeNull()
+    expect(effectiveDayNumber({ tracker: november, date: '2026-11-09', holidays })).toBe(8)
+    // November 11 is a public holiday in some places; it counts unless the user marks it.
+    expect(effectiveDayNumber({ tracker: november, date: '2026-11-11' })).toBe(11)
   })
 
   it('derives inclusive duration deadlines and moves only effective deadlines for holidays', () => {
