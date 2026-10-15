@@ -10,13 +10,15 @@ test('Wins navigation, badge collection, history, details, and hash-route refres
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 50_000 })
 
-  for (const width of [390, 1440]) {
-    await page.setViewportSize({ width, height: width < 500 ? 844 : 900 })
+  for (const width of [320, 360, 390, 430, 1440]) {
+    const height = width < 500 ? 760 : 900
+    await page.setViewportSize({ width, height })
     await page.goto('/#/achievements')
     await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Achievement badges' })).toBeAttached()
+
     const routeBeforeScroll = new URL(page.url()).hash
     await page.getByRole('button', { name: 'Show all badges' }).click()
     await expect(page.getByRole('heading', { name: 'Achievement badges' })).toBeInViewport()

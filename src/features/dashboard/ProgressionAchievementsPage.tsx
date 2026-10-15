@@ -356,22 +356,20 @@ export function ProgressionAchievementsPage() {
       <section className="progression-overview" aria-labelledby="progression-overview-title">
         <div className="progression-section-heading"><div><span className="eyebrow">OVERVIEW</span><h2 id="progression-overview-title">Progress at a glance</h2></div><span className="progression-authority"><AppIcon name="privacy" /> Server-confirmed rewards</span></div>
         <div className="progression-overview-grid">
-          <div className="progression-level-card-shell">
+          <section className="progression-level-card-shell" aria-label="Your experience">
           <div className="progression-xp-header"><strong>Your Experience</strong><div><span className="progression-level-pill">LEVEL {pageData.overview.officialLevel.level}</span><InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={pageData.overview} />} /></div></div>
           <button type="button" className="progression-level-card" onClick={openHistory} aria-label={`${pageData.overview.confirmedXp} confirmed XP at level ${pageData.overview.officialLevel.level}. Open score history`}>
-            <span className="progression-card-label">CONFIRMED XP</span>
             <strong className="progression-xp-total">{pageData.overview.confirmedXp.toLocaleString()} <small>XP</small></strong>
             {pageData.overview.legacyXpStatus === 'reconstructed' && <span className="progression-history-estimate">XP reconstructed from past activity</span>}
             {(pageData.overview.legacyXpStatus === 'unavailable' || pageData.overview.legacyXpStatus === 'legacy_fallback') && <span className="progression-history-unavailable">Historical XP unavailable</span>}
             {pageData.overview.legacyXpStatus === 'pending' && <span className="progression-history-unavailable">Historical XP is being prepared</span>}
             <span className="progression-level-track" role="progressbar" aria-label="Progress to next level" aria-valuenow={pageData.overview.officialLevel.progressXp} aria-valuemin={0} aria-valuemax={pageData.overview.officialLevel.requiredXp}><span style={{ width: `${Math.min(100, pageData.overview.officialLevel.progressXp / pageData.overview.officialLevel.requiredXp * 100)}%` }} /></span>
-            <span className="progression-level-caption">{pageData.overview.officialLevel.progressXp.toLocaleString()} of {pageData.overview.officialLevel.requiredXp.toLocaleString()} XP this level · {(pageData.overview.officialLevel.nextLevelXp - pageData.overview.confirmedXp).toLocaleString()} XP to level {pageData.overview.officialLevel.level + 1}</span>
-            <span className="progression-milestone-row">Next milestone: Level {([5, 10, 20, 30, 50, 100].find((milestone) => milestone > pageData.overview.officialLevel.level) ?? pageData.overview.officialLevel.level + 1)}</span>
+            <span className="progression-level-caption">{(pageData.overview.officialLevel.nextLevelXp - pageData.overview.confirmedXp).toLocaleString()} XP to Level {pageData.overview.officialLevel.level + 1}</span>
             {pageData.overview.provisionalXp > 0 && <span className="progression-pending-line"><AppIcon name="status-pending" /> +{pageData.overview.provisionalXp.toLocaleString()} XP pending sync</span>}
             {syncStatus === 'error' && <span className="progression-pending-note">Sync needs attention. Pending rewards are not included above.</span>}
             {(pageData.overview.provisionalXp > 0 && (!isOnline || syncStatus === 'offline' || syncStatus === 'waiting')) && <span className="progression-pending-note">Saved on this device; confirmation will follow when synchronization completes.</span>}
           </button>
-          </div>
+          </section>
           <button type="button" className="progression-summary-card" onClick={() => setDetail('consistency')} aria-label={`Consistency score ${pageData.overview.consistency.score ?? 'not available'}, view consistency details`}>
             <span className="progression-card-label">CONSISTENCY</span><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}`}<small>{pageData.overview.consistency.score === null ? '' : ' / 100'}</small></strong>
             <span>{consistencyContext}</span>

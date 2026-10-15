@@ -825,13 +825,14 @@ a { color: inherit; text-decoration: none; }
 .progression-authority svg { width: 15px; height: 15px; color: var(--positive); }
 .progression-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .progression-level-card, .progression-summary-card { display: flex; min-width: 0; min-height: 154px; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); color: var(--ink); cursor: pointer; text-align: left; }
-.progression-level-card-shell { position: relative; grid-column: 1 / -1; min-width: 0; }
-.progression-xp-header { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 15px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-bottom: 0; border-radius: var(--radius-card) var(--radius-card) 0 0; background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface)); color: var(--ink); }
+.progression-level-card-shell { position: relative; grid-column: 1 / -1; min-width: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); }
+.progression-xp-header { display: flex; min-height: 50px; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 12px 0 16px; color: var(--ink); }
 .progression-xp-header > strong { font-family: var(--font-display); font-size: 16px; font-weight: 550; }
 .progression-xp-header > div { display: flex; align-items: center; gap: 6px; }
 .progression-xp-header .info-button { width: 44px; height: 44px; }
-.progression-level-card { width: 100%; min-height: 0; border-radius: 0 0 var(--radius-card) var(--radius-card); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: linear-gradient(130deg, var(--surface), color-mix(in srgb, var(--accent-soft) 62%, var(--surface))); }
+.progression-level-card { width: 100%; min-height: 0; gap: 12px; padding: 4px 16px 16px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .progression-level-card:hover, .progression-summary-card:hover, .progression-detail-card:hover, .progression-badge-card:hover { border-color: color-mix(in srgb, var(--accent) 62%, var(--line)); transform: translateY(-1px); }
+.progression-level-card:hover { transform: none; }
 .progression-level-card:focus-visible, .progression-summary-card:focus-visible, .progression-detail-card:focus-visible, .progression-badge-card:focus-visible, .progression-text-button:focus-visible, .progression-range-filter button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .progression-level-top { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }
 .progression-card-label { color: var(--ink-subtle); font-size: 9px; font-weight: 750; letter-spacing: 1.15px; }
@@ -2244,10 +2245,10 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 .info-button:focus-visible { outline-color: var(--info-icon); }
 .info-button:focus-visible { outline: 3px solid var(--info-icon); outline-offset: 3px; }
 .info-dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.info-popover { z-index: 1600; display: flex; width: min(320px, calc(100vw - 24px)); max-height: min(70vh, 520px); max-height: min(70dvh, 520px); min-height: 0; flex-direction: column; overflow: hidden; padding: 10px 16px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
+.info-popover { z-index: 1600; display: flex; width: min(320px, calc(100vw - 24px)); max-height: min(var(--modal-max-height, 70dvh), 520px); min-height: 0; flex-direction: column; overflow: hidden; padding: 10px 16px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 55px rgb(20 34 30 / .2); }
 .info-popover[data-presentation='sheet'] { width: min(320px, calc(100vw - 24px)); border-radius: 18px; padding: 10px 16px max(16px, env(safe-area-inset-bottom, 0px)); }
 .info-popover-heading { display: flex; flex: 0 0 auto; justify-content: flex-end; }
-.info-popover-content { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding: 0 6px 6px; }
+.info-popover-content { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; touch-action: auto; padding: 0 6px 6px; }
 .info-popover-content:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: 6px; }
 .info-dialog-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 20px; line-height: 1; cursor: pointer; }
 .info-dialog-summary { margin: 0 38px 18px 0; padding: 13px 15px; border-left: 4px solid var(--joy-teal); border-radius: 0 12px 12px 0; background: var(--joy-teal-soft); color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.55; }
