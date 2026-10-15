@@ -98,7 +98,15 @@ export function InfoButton({ title, summary, description, label = `More about ${
     }
     place()
     window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
+    const onScroll = (event: Event) => {
+      const target = event.target
+      // The dialog's own scrollport emits a captured window scroll event too.
+      // Re-running `place` there resets its constrained flex sizing and snaps
+      // scrollTop back to zero during a touch gesture.
+      if (target instanceof Node && popoverRef.current?.contains(target)) return
+      place()
+    }
+    window.addEventListener('scroll', onScroll, true)
     window.visualViewport?.addEventListener('resize', place)
     window.visualViewport?.addEventListener('scroll', place)
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
@@ -106,7 +114,7 @@ export function InfoButton({ title, summary, description, label = `More about ${
     if (popoverRef.current) observer?.observe(popoverRef.current)
     return () => {
       window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.visualViewport?.removeEventListener('resize', place)
       window.visualViewport?.removeEventListener('scroll', place)
       observer?.disconnect()
