@@ -103,7 +103,7 @@ const goalPlanningSchema = z.object({
 })
 const trackerSchedulingSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('calendar') }),
-  z.object({ mode: z.literal('effective'), effectiveDays: z.number().int().positive().max(100_000), planningTimeZone: z.string().min(1).optional() }),
+  z.object({ mode: z.literal('effective'), effectiveDays: z.number().int().positive().max(100_000), effectiveDayCounting: z.enum(['planned-activity-days', 'all-non-holiday-days']).optional(), planningTimeZone: z.string().min(1).optional() }),
   z.object({ mode: z.literal('ongoing') }),
 ])
 
@@ -132,7 +132,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -162,14 +162,16 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined || tracker.goalPlanning?.manualAllocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
   if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4 || tracker.schemaVersion === 5 || tracker.schemaVersion === 6) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
-  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
+  if ((tracker.schemaVersion === 3 || tracker.schemaVersion === 4 || tracker.schemaVersion === 5 || tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ((tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
   if (tracker.schemaVersion === 5 && (tracker.kind !== 'goal' || tracker.goalPlanning?.mode !== 'cumulative-deadline' || !tracker.goalPlanning.planningTimeZone || !tracker.goalPlanning.allocations || !tracker.goalPlanning.manualAllocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 5 requires a timezone-aware cumulative goal with separate manual allocations.' })
-  if (tracker.schemaVersion === 6 && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema version 6 requires an explicit scheduling mode.' })
+  if ((tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema v6 and v7 require an explicit scheduling mode.' })
   if (tracker.schemaVersion < 6 && tracker.scheduling !== undefined) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Explicit scheduling modes require tracker schema version 6.' })
-  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
-  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
-  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
+  if ((tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
+  if ((tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
+  if ((tracker.schemaVersion === 6 || tracker.schemaVersion === 7) && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
+  if (tracker.schemaVersion === 7 && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 Effective Days requires an explicit counting method.' })
+  if (tracker.scheduling && tracker.scheduling.mode !== 'effective' && 'effectiveDayCounting' in tracker.scheduling && tracker.scheduling.effectiveDayCounting !== undefined) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Effective day counting applies only to Effective Days scheduling.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))

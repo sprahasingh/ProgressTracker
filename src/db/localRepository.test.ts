@@ -212,6 +212,24 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v6-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 6, scheduling: effective.scheduling } })
   })
 
+  it('round-trips v7 counting settings locally and recalculates planned-day deadlines on holiday changes', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    await activateWorkspace('scheduling-v7-account')
+    const effective: StoredTrackerDefinition = {
+      ...tracker, id: 'planned-effective-habit', schemaVersion: 7, startDate: '2026-11-01', schedule: { kind: 'weekdays' }, deadline: '2026-12-11',
+      scheduling: { mode: 'effective', effectiveDays: 30, effectiveDayCounting: 'planned-activity-days', planningTimeZone: 'UTC' },
+    }
+    await localRepository.saveTracker(effective)
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ schemaVersion: 7, scheduling: effective.scheduling, deadline: '2026-12-11' })
+    await localRepository.saveAccountHolidays(['2026-11-02'], null)
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-12-14', scheduling: { effectiveDayCounting: 'planned-activity-days' } })
+    await localRepository.removeAccountHoliday('2026-11-02')
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-12-11' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v7-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 7, scheduling: effective.scheduling } })
+  })
+
   it('does not queue schema v6 trackers in production while the readiness flag is off', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', '')

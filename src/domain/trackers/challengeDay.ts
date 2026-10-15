@@ -1,5 +1,5 @@
 import type { TrackerDefinition } from './types'
-import { trackerActiveStartDate } from './planning'
+import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
 import { deriveSchedulingDeadline, effectiveDayNumber, effectiveDaysElapsed, nextEligibleDate, schedulingMode } from './scheduling'
 
 const DAY_MS = 86_400_000
@@ -14,6 +14,7 @@ export type ChallengeDayDisplay = {
   label: string
   deadline: string
   nextEligibleDate?: string
+  restDay?: boolean
 }
 
 /** The challenge clock is calendar based or eligibility based according to the shared scheduling mode. */
@@ -44,9 +45,11 @@ export function getChallengeDayDisplay(
     if (day === null) {
       const next = nextEligibleDate({ tracker, afterDate: date, holidays, timeZone })
       const elapsed = effectiveDaysElapsed({ tracker, date, holidays, timeZone })
-      return { phase: 'paused', day: null, totalDays, daysRemaining: Math.max(0, totalDays - elapsed), label: next ? `Paused · next is Day ${effectiveDayNumber({ tracker, date: next, holidays, timeZone })}` : 'Paused · no eligible days remain', deadline, ...(next ? { nextEligibleDate: next } : {}) }
+      const holiday = holidays.has(date)
+      return { phase: 'paused', day: null, totalDays, daysRemaining: Math.max(0, totalDays - elapsed), label: holiday ? (next ? `Holiday · next is Day ${effectiveDayNumber({ tracker, date: next, holidays, timeZone })}` : 'Holiday · no eligible days remain') : (next ? `Rest day · next is Day ${effectiveDayNumber({ tracker, date: next, holidays, timeZone })}` : 'Rest day · no eligible days remain'), deadline, ...(next ? { nextEligibleDate: next } : {}) }
     }
-    return { phase: 'active', day, totalDays, daysRemaining: totalDays - day, label: `Day ${day} of ${totalDays}`, deadline }
+    const restDay = tracker.scheduling?.effectiveDayCounting !== 'planned-activity-days' && !isTrackerScheduledOccurrence({ ...tracker, deadline: undefined }, date, timeZone)
+    return { phase: 'active', day, totalDays, daysRemaining: totalDays - day, label: restDay ? `Day ${day} of ${totalDays} · Rest day` : `Day ${day} of ${totalDays}`, deadline, ...(restDay ? { restDay: true } : {}) }
   }
   const day = Math.min(totalDays, dayDifference(start, date) + 1)
   return { phase: 'active', day, totalDays, daysRemaining: totalDays - day, label: `Day ${day} of ${totalDays}`, deadline }

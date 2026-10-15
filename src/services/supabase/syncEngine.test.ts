@@ -394,6 +394,22 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get(v6.id)).resolves.toMatchObject({ schemaVersion: 6, schedule: v6.schedule, scheduling: v6.scheduling })
   })
 
+  it('round-trips schema v7 counting semantics without v5 serialization fallback', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    await activateWorkspace('sync-user')
+    const v7: StoredTrackerDefinition = { ...tracker('scheduling-v7-sync'), schemaVersion: 7, startDate: '2026-11-01', deadline: '2026-12-11', schedule: { kind: 'weekdays' }, scheduling: { mode: 'effective', effectiveDays: 30, effectiveDayCounting: 'planned-activity-days', planningTimeZone: 'UTC' } }
+    await localRepository.saveTracker(v7)
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverTracker(v7, 'sync-user', 1) } })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ schema_version: 7, definition: { schemaVersion: 7, scheduling: { effectiveDayCounting: 'planned-activity-days' } } })
+    await db.trackers.clear(); await db.syncRecords.clear()
+    const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v7)] })
+    await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
+    await expect(db.trackers.get(v7.id)).resolves.toMatchObject({ schemaVersion: 7, scheduling: v7.scheduling })
+  })
+
   it('preserves every non-empty Custom Days combination through IndexedDB edits and schema v6 sync', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'true')

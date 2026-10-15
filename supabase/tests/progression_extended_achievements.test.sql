@@ -1,4 +1,6 @@
 begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
 select plan(47);
 set local timezone = 'UTC';
 
@@ -186,7 +188,11 @@ select is((select count(*) from public.tracker_entries where tracker_id='0000000
 select ok(public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2024-01-01'), 'Perfect Year qualifies with all 366 dates in a leap year');
 select is((select count(*) from public.tracker_entries where tracker_id='00000000-0000-4000-8000-000000004251' and entry_date between '2025-01-01' and '2025-12-31'),365::bigint,'common-year fixture contains all 365 calendar dates');
 select ok(public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2025-01-01'), 'Perfect Year qualifies with all 365 dates in a common year');
+-- This assertion only exercises Perfect Year eligibility. Avoid firing unrelated
+-- progression reconciliations for the 731-row fixture when removing one date.
+alter table public.tracker_entries disable trigger user;
 delete from public.tracker_entries where tracker_id='00000000-0000-4000-8000-000000004251' and entry_date='2024-02-29';
+alter table public.tracker_entries enable trigger user;
 select ok(not public.progression_perfect_year_qualifies('00000000-0000-4000-8000-000000000425','2024-01-01'), 'missing leap day disqualifies Perfect Year');
 alter table public.tracker_entries disable trigger user;
 insert into public.tracker_entries(id,user_id,tracker_id,entry_date,outcome,entry_values,created_at,updated_at)

@@ -44,9 +44,15 @@ describe('getChallengeDayDisplay', () => {
     }
     const holidays = new Set(['2026-10-16'])
     expect(getChallengeDayDisplay(tracker, '2026-10-16', 'UTC', holidays)).toMatchObject({
-      phase: 'paused', day: null, totalDays: 3, label: 'Paused · next is Day 2', nextEligibleDate: '2026-10-17',
+      phase: 'paused', day: null, totalDays: 3, label: 'Holiday · next is Day 2', nextEligibleDate: '2026-10-17',
     })
-    expect(getChallengeDayDisplay(tracker, '2026-10-17', 'UTC', holidays)?.label).toBe('Day 2 of 3')
-    expect(getChallengeDayDisplay(tracker, '2026-10-18', 'UTC', holidays)?.label).toBe('Day 3 of 3')
+    expect(getChallengeDayDisplay(tracker, '2026-10-17', 'UTC', holidays)?.label).toBe('Day 2 of 3 · Rest day')
+    expect(getChallengeDayDisplay(tracker, '2026-10-18', 'UTC', holidays)?.label).toBe('Day 3 of 3 · Rest day')
+  })
+
+  it('advances Include rest days numbering on unscheduled dates and pauses only on holidays', () => {
+    const tracker = { ...challenge('2026-10-15', '2026-10-20'), schemaVersion: 7 as const, schedule: { kind: 'weekdays' as const }, scheduling: { mode: 'effective' as const, effectiveDays: 3, effectiveDayCounting: 'all-non-holiday-days' as const } }
+    expect(getChallengeDayDisplay(tracker, '2026-10-17')?.label).toBe('Day 3 of 3 · Rest day')
+    expect(getChallengeDayDisplay(tracker, '2026-10-16', 'UTC', new Set(['2026-10-16']))?.label).toContain('Holiday')
   })
 })

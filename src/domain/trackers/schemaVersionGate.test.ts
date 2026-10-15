@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isTrackerSchemaWriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isTrackerSchemaWriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -54,6 +54,18 @@ describe('schema v6 production write gate', () => {
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
     expect(isSchemaV6WriteEnabled()).toBe(true)
     expect(isTrackerSchemaWriteEnabled(6)).toBe(true)
+  })
+})
+
+describe('schema v7 Effective Days counting gate', () => {
+  it('keeps new counting-method writes disabled in production until explicitly enabled', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', '')
+    expect(isSchemaV7WriteEnabled()).toBe(false)
+    expect(isTrackerSchemaWriteEnabled(7)).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    expect(isSchemaV7WriteEnabled()).toBe(true)
+    expect(isTrackerSchemaWriteEnabled(7)).toBe(true)
   })
 })
 

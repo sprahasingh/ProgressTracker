@@ -10,6 +10,7 @@ export const trackerSetupSchema = z.object({
   deadline: z.union([z.literal(''), z.iso.date()]),
   schedulingMode: z.enum(['calendar', 'effective', 'ongoing']).default('ongoing'),
   effectiveDays: z.string().default(''),
+  effectiveDayCounting: z.enum(['planned-activity-days', 'all-non-holiday-days']).default('planned-activity-days'),
   strictMode: z.boolean().default(false),
 }).superRefine((value, context) => {
   if (value.startDate && value.deadline && value.deadline < value.startDate) {

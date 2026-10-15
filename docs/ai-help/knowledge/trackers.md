@@ -70,7 +70,7 @@ Archiving a tracker removes it from Today and current activity while keeping its
 - src/domain/trackers/planning.ts
 - src/features/trackers/TrackerSetupPage.tsx
 **Answer:**
-New trackers start with Daily recurrence. You can choose Weekdays, Weekends, any non-empty Custom Days combination (including Saturday only or Sunday only), or No Recurrence. In Standard Mode, No Recurrence creates no mandatory or missed check-in days, but you can still record flexible progress from the tracker library or Calendar. The selected recurrence controls Standard Mode expected dates, consistency, and Goal Auto planning; Strict Mode remains an independent streak policy that treats every active date as a streak opportunity. Recurrence never changes Calendar Days or Effective Days duration.
+New trackers start with Daily recurrence. You can choose Weekdays, Weekends, any non-empty Custom Days combination (including Saturday only or Sunday only), or No Recurrence. In Standard Mode, No Recurrence creates no mandatory or missed check-in days, but you can still record flexible progress from the tracker library or Calendar. The selected recurrence controls Standard Mode expected dates, consistency, and Goal Auto planning; Strict Mode remains an independent streak policy that treats every active date as a streak opportunity. Calendar Days stays fixed. Effective Days can count recurrence-matching activity dates or all non-holiday dates; existing records without a method retain the latter behavior.
 
 ### ID: start-date-deadline
 **Category:** trackers
@@ -101,7 +101,7 @@ The tracker’s active period begins on its configured start date, or its creati
 - src/features/trackers/TrackerSetupPage.tsx
 - src/domain/trackers/challengeDay.ts
 **Answer:**
-Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of days and projects the deadline to the last date that is not explicitly marked as a holiday in ProgressTracker's calendar. Weekends, public holidays, festivals, and recurrence schedules do not change that count; missed check-ins still consume Effective Days. Ongoing has no fixed deadline. These duration counts are separate from activity schedules, completed check-ins, and streaks.
+Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of counted dates and projects the deadline using the selected counting method. New scheduled trackers can count only recurrence-matching activity dates, or include every non-holiday calendar date. Existing records without a saved method keep the previous behavior of counting every date except holidays explicitly marked in ProgressTracker's calendar. Public holidays, festivals, and missed check-ins do not change eligibility; missed check-ins still consume any eligible Effective Day. Ongoing has no fixed deadline. These duration counts are separate from activity schedules, completed check-ins, and streaks.
 
 ### ID: retire-measure
 **Category:** trackers

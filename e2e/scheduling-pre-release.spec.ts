@@ -148,14 +148,14 @@ test('unified scheduling flows through setup, holidays, check-ins, Goals, Histor
   await page.getByRole('button', { name: 'Mark holiday' }).click()
   await expect(page.getByRole('status', { name: 'Holiday added' })).toBeVisible()
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /Open E2E Effective challenge/ })).toContainText('Paused · next is Day 1')
+  await expect(page.getByRole('button', { name: /Open E2E Effective challenge/ })).toContainText('Holiday · next is Day 1')
   await page.getByRole('button', { name: /Open E2E Effective challenge/ }).click()
-  await expect(page.getByRole('dialog', { name: 'E2E Effective challenge' })).toContainText('Paused · next is Day 1')
+  await expect(page.getByRole('dialog', { name: 'E2E Effective challenge' })).toContainText('Holiday · next is Day 1')
   await page.getByRole('button', { name: 'Close check-in details' }).click()
   await page.goto('/#/trackers')
-  await expect(page.getByLabel('Challenge Paused · next is Day 1')).toBeVisible()
+  await expect(page.getByLabel('Challenge Holiday · next is Day 1')).toBeVisible()
   await page.goto(`/#/history?date=${dates.today}`)
-  await expect(page.locator('.history-entry-card').filter({ hasText: 'E2E Effective challenge' })).toContainText('Paused · next is Day 1')
+  await expect(page.locator('.history-entry-card').filter({ hasText: 'E2E Effective challenge' })).toContainText('Holiday · next is Day 1')
 
   for (const width of [320, 360, 390, 430]) {
     for (const theme of ['light', 'dark'] as const) {
@@ -268,4 +268,72 @@ test('all five recurrence choices survive setup, reload, and editing', async ({ 
     }, saved.id)
     expect(reloaded).toEqual(item.expected)
   }
+})
+
+test('both Effective Days counting methods update deadlines through creation, holidays, editing, and reload', async ({ page, context }) => {
+  const fixturePath = process.env.PROGRESSION_TEST_FIXTURE_PATH ?? '/private/tmp/progression-playwright-auth.json'
+  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as AuthFixture
+  await (await context.newCDPSession(page)).send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' })
+  await signIn(page, fixture)
+  await page.goto('/#/trackers/new')
+  await page.getByLabel('What habit do you want to build?').fill('E2E Planned Effective Days')
+  await page.getByLabel('Schedule duration').selectOption('effective')
+  await page.getByLabel('Target effective days').fill('3')
+  await page.getByLabel('Start date').fill('2026-11-01')
+  await page.getByText('More options').click()
+  await page.getByText('Activity schedule & holidays').click()
+  await page.getByRole('combobox', { name: 'Activity schedule' }).selectOption('weekdays')
+  await expect(page.getByRole('radio', { name: 'Only planned activity days' })).toBeChecked()
+  await expect(page.getByText(/3 planned activity days · Ends/)).toBeVisible()
+  await page.getByRole('button', { name: 'Create tracker' }).click()
+  await expect(page.getByRole('heading', { name: /You’re ready to begin/ })).toBeVisible()
+
+  const trackerId = await page.evaluate(async () => {
+    const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+    return (await localRepository.listTrackers()).find((item) => item.name === 'E2E Planned Effective Days')?.id
+  })
+  expect(trackerId).toBeTruthy()
+  const readTracker = () => page.evaluate(async (id) => {
+    const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+    const tracker = await localRepository.getTracker(id)
+    return { schemaVersion: tracker?.schemaVersion, deadline: tracker?.deadline, scheduling: tracker?.scheduling }
+  }, trackerId!)
+  await expect.poll(readTracker).toMatchObject({ schemaVersion: 7, deadline: '2026-11-04', scheduling: { effectiveDayCounting: 'planned-activity-days' } })
+
+  await page.goto('/#/holidays')
+  await page.getByLabel('From').fill('2026-11-02')
+  await page.getByLabel('Through').fill('2026-11-02')
+  await page.getByRole('button', { name: 'Mark holiday' }).click()
+  await expect(page.getByRole('status', { name: 'Holiday added' })).toBeVisible()
+  await expect.poll(readTracker).toMatchObject({ deadline: '2026-11-05' })
+  await page.getByRole('button', { name: 'More actions for 2026-11-02' }).click()
+  await page.getByRole('menuitem', { name: 'Remove holiday' }).click()
+  await expect.poll(readTracker).toMatchObject({ deadline: '2026-11-04' })
+
+  await page.goto(`/#/trackers/${trackerId}/edit`)
+  await page.getByText('More options').click()
+  await page.getByText('Activity schedule & holidays').click()
+  await expect(page.getByRole('radio', { name: 'Only planned activity days' })).toBeChecked()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('radio', { name: 'Include rest days too' }).check()
+  await expect(page.getByText(/3 non-holiday days · Ends/)).toBeVisible()
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('heading', { name: 'E2E Planned Effective Days' })).toBeVisible()
+  await expect.poll(readTracker).toMatchObject({ schemaVersion: 7, deadline: '2026-11-03', scheduling: { effectiveDayCounting: 'all-non-holiday-days' } })
+  await page.reload()
+  await expect.poll(readTracker).toMatchObject({ deadline: '2026-11-03', scheduling: { effectiveDayCounting: 'all-non-holiday-days' } })
+  await page.goto('/#/auth')
+  const syncButton = page.getByRole('button', { name: 'Sync this account' })
+  await expect(syncButton).toBeVisible({ timeout: 60_000 })
+  await syncButton.click()
+  await expect(page.getByRole('button', { name: 'Syncing…' })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Syncing…' })).toBeHidden({ timeout: 60_000 })
+  await expect.poll(() => page.evaluate(async (id) => {
+    const { getSupabaseClient } = await import('/ProgressTracker/src/services/supabase/client.ts')
+    const client = getSupabaseClient()
+    if (!client) return null
+    const { data, error } = await client.from('trackers').select('schema_version,definition').eq('id', id).maybeSingle()
+    if (error) return { error: error.code }
+    return data ? { schemaVersion: data.schema_version, effectiveDayCounting: data.definition?.scheduling?.effectiveDayCounting } : null
+  }, trackerId!), { timeout: 60_000 }).toEqual({ schemaVersion: 7, effectiveDayCounting: 'all-non-holiday-days' })
 })

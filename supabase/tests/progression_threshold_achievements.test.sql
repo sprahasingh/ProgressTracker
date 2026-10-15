@@ -1,4 +1,6 @@
 begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
 select plan(46);
 set local timezone = 'UTC';
 
