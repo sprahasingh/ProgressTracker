@@ -126,13 +126,17 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
       context.addIssue({ code: 'custom', path: [...path, 'operator'], message: 'Boolean comparisons support Equals only.' })
     } else if (metric.valueType !== 'boolean' && value.operator === 'at-least' && value.value === 0) {
       context.addIssue({ code: 'custom', path, message: 'A comparison of at least zero always qualifies. Choose a positive value or a different condition.' })
+    } else if (metric.valueType === 'checklist' && (typeof value.value !== 'number' || !Number.isInteger(value.value) || value.value > (metric.checklistItems?.length ?? 0))) {
+      context.addIssue({ code: 'custom', path: [...path, 'value'], message: 'Checklist comparisons use a whole checked-item count within the checklist size.' })
+    } else if (metric.precision && typeof value.value === 'number' && !isAllowedIncrement(value.value, metric.precision.increment)) {
+      context.addIssue({ code: 'custom', path: [...path, 'value'], message: `Comparison value must use increments of ${metric.precision.increment}.` })
     }
   }
   if (Array.isArray(value.operands)) value.operands.forEach((operand, index) => ruleMetricsCheck(operand, metrics, context, [...path, 'operands', index]))
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -148,6 +152,8 @@ export const trackerDefinitionSchema = z.object({
   scheduling: trackerSchedulingSchema.optional(),
   metrics: z.array(metricSchema),
   qualificationRule: ruleSchema.optional(),
+  streakRuleMode: z.enum(['same-as-success', 'custom']).optional(),
+  streakRule: ruleSchema.optional(),
   customFields: z.array(customFieldSchema),
   milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().min(0).optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
   goalPlanning: goalPlanningSchema.optional(),
@@ -173,6 +179,11 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion === 7 && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 Effective Days requires an explicit counting method.' })
   if (tracker.scheduling && tracker.scheduling.mode !== 'effective' && 'effectiveDayCounting' in tracker.scheduling && tracker.scheduling.effectiveDayCounting !== undefined) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Effective day counting applies only to Effective Days scheduling.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
+  if (tracker.schemaVersion < 8 && (tracker.streakRuleMode !== undefined || tracker.streakRule !== undefined)) context.addIssue({ code: 'custom', path: ['streakRuleMode'], message: 'Separate streak rules require tracker schema version 8.' })
+  if (tracker.schemaVersion === 8 && tracker.streakRuleMode === undefined) context.addIssue({ code: 'custom', path: ['streakRuleMode'], message: 'Schema version 8 requires an explicit streak rule mode.' })
+  if (tracker.streakRuleMode === 'custom' && tracker.streakRule === undefined) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Add at least one valid streak condition.' })
+  if (tracker.streakRuleMode === 'same-as-success' && tracker.streakRule !== undefined) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Same as Success Rule uses the saved success rule directly.' })
+  if (tracker.streakRuleMode === 'custom' && tracker.streakRule !== undefined) ruleMetricsCheck(tracker.streakRule, metrics, context, ['streakRule'])
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
   const metrics = new Map(tracker.metrics.map((metric) => [metric.id, metric]))
   if (metrics.size !== tracker.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })

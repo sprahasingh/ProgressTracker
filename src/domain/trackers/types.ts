@@ -50,6 +50,8 @@ export type TrackerRule =
   | { kind: 'all' | 'any'; operands: TrackerRule[] }
   | { kind: 'at-least'; required: number; operands: TrackerRule[] }
 
+export type TrackerStreakRuleMode = 'same-as-success' | 'custom'
+
 export type CustomFieldType =
   | 'text'
   | 'long-text'
@@ -107,7 +109,7 @@ export type GoalPlanningConfiguration = {
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   id: string
   name: string
   description: string
@@ -124,6 +126,10 @@ export type TrackerDefinition = {
   scheduling?: TrackerScheduling
   metrics: TrackerMetricDefinition[]
   qualificationRule?: TrackerRule
+  /** v8+ only. Missing mode preserves the tracker's original implicit streak behavior. */
+  streakRuleMode?: TrackerStreakRuleMode
+  /** Present only when streakRuleMode is custom. */
+  streakRule?: TrackerRule
   customFields: CustomFieldDefinition[]
   milestones: TrackerMilestoneDefinition[]
   goalPlanning?: GoalPlanningConfiguration
