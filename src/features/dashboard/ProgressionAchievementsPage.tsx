@@ -535,10 +535,11 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
   }
   const percentageAvailable = badge.earned || !unavailable && Number.isFinite(meterValue) && Number.isFinite(meterTarget) && meterTarget > 0
   const meterPercent = badge.earned ? 100 : percentageAvailable ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100))) : null
+  const statusLabel = badge.earned ? earnedCount > 1 ? `Unlocked (${earnedCount})` : 'Unlocked' : 'Locked'
   return <div className="progression-badge-card-shell">
-  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned, unlocked (${earnedCount})` : 'locked'}, ${meterPercent === null ? 'progress unavailable' : `${meterPercent}% progress`}. View badge details`}>
+  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned, ${statusLabel.toLowerCase()}` : 'locked'}, ${meterPercent === null ? 'progress unavailable' : `${meterPercent}% progress`}. View badge details`}>
     <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} />
-    <strong>{definition.name}</strong><span>{badge.earned ? `Unlocked (${earnedCount})` : 'Locked'}</span>
+    <strong>{definition.name}</strong><span>{statusLabel}</span>
     <span className={`progression-badge-percent${meterPercent === null ? ' is-unavailable' : ''}`} aria-label={meterPercent === null ? 'Progress unavailable' : `${meterPercent}% progress`}>{meterPercent === null ? '—' : `${meterPercent}%`}</span>
   </button>
   <InfoButton title={`${definition.name} badge information`} label={`More about ${definition.name}`} compact content={<BadgeInformation badge={badge} />} />

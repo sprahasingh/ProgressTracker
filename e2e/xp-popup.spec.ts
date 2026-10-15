@@ -38,6 +38,28 @@ test('XP information popup scrolls by touch and exposes its last threshold at mo
     }
 
     await page.goto('e2e/xp-popup-fixture.html')
+    const xpCard = page.locator('.progression-level-card-shell')
+    const cardLayout = await xpCard.evaluate((shell) => {
+      const bounds = (selector) => {
+        const rect = (selector === '.progression-level-card-shell' ? shell : shell.querySelector(selector)).getBoundingClientRect()
+        return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height }
+      }
+      return {
+        shell: bounds('.progression-level-card-shell'),
+        title: bounds('.progression-xp-header > strong'),
+        level: bounds('.progression-level-pill'),
+        info: bounds('.info-button'),
+        track: bounds('.progression-level-track'),
+        caption: bounds('.progression-level-caption'),
+        minHeight: getComputedStyle(shell.querySelector('.progression-level-card')).minHeight,
+      }
+    })
+    expect(cardLayout.shell.height, `XP card is too tall at ${width}px: ${JSON.stringify(cardLayout)}`).toBeLessThan(170)
+    expect(cardLayout.shell.bottom - cardLayout.caption.bottom).toBeLessThanOrEqual(14)
+    expect(cardLayout.minHeight).toBe('0px')
+    expect(Math.abs((cardLayout.level.top + cardLayout.level.bottom) - (cardLayout.info.top + cardLayout.info.bottom))).toBeLessThanOrEqual(2)
+    expect(cardLayout.track.right - cardLayout.track.left).toBeGreaterThan(width * 0.7)
+
     await page.evaluate(() => window.scrollTo(0, 180))
     const pageScrollBeforeOpen = await page.evaluate(() => window.scrollY)
     await page.getByRole('button', { name: 'XP and level information' }).click()

@@ -376,14 +376,28 @@ describe('Progression achievements interface', () => {
     const perfectWeek = { ...overview.achievements[1]!, achievementId: 'perfect-week', progress: 0, target: 7, qualificationDetails: { status: 'unavailable' } }
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [...overview.achievements, perfectWeek] })
     renderPage()
-    const earned = await screen.findByRole('button', { name: /First Step, earned, unlocked \(1\), 100% progress/ })
+    const earned = await screen.findByRole('button', { name: /First Step, earned, unlocked, 100% progress/ })
     const dedicated = screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })
     const week = screen.getByRole('button', { name: /Perfect Week, locked, progress unavailable/ })
-    expect(earned).toHaveTextContent('Unlocked (1)')
+    expect(earned).toHaveTextContent('Unlocked')
+    expect(earned).not.toHaveTextContent('Unlocked (1)')
     expect(dedicated).toHaveTextContent('23%')
     expect(week).toHaveTextContent('—')
     expect(week).not.toHaveTextContent('0%')
     expect(appStyles).toContain('height: 166px; min-width: 0; grid-template-rows: 64px 2.6em 1.2em 1.2em')
+  })
+
+  it('shows concise unlocked labels from active confirmed award counts', async () => {
+    const repeatable = { ...overview.achievements[1]!, achievementId: 'perfect-week', repeatable: true, earned: true, validAwardCount: 3 }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [...overview.achievements, repeatable] })
+    renderPage()
+    const firstAward = await screen.findByRole('button', { name: /First Step, earned, unlocked,/ })
+    const locked = screen.getByRole('button', { name: /Dedicated, locked,/ })
+    const thirdAward = screen.getByRole('button', { name: /Perfect Week, earned, unlocked \(3\),/ })
+    expect(firstAward).toHaveTextContent('Unlocked')
+    expect(firstAward).not.toHaveTextContent('Unlocked (1)')
+    expect(locked).toHaveTextContent('Locked')
+    expect(thirdAward).toHaveTextContent('Unlocked (3)')
   })
 
   it('labels last confirmed Wins while sync is pending or has failed', async () => {
@@ -456,6 +470,8 @@ describe('Progression achievements interface', () => {
     expect(within(shell).getByRole('button', { name: 'XP and level information' })).toBeInTheDocument()
     expect(within(shell).getByText('175 XP to Level 3')).toBeInTheDocument()
     expect(within(shell).queryByText(/Next milestone: Level/)).not.toBeInTheDocument()
+    expect(appStyles).toContain('.progression-level-card { min-height: 0; padding: 4px 13px 12px; }')
+    expect(appStyles).not.toContain('.progression-level-card { min-height: 150px; }')
   })
 
   it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {
