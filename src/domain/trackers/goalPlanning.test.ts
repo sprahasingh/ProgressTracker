@@ -135,6 +135,26 @@ describe('cumulative deadline planning', () => {
     expect(plan).toMatchObject({ remainingWork: 10, expectedProgress: 6, scheduledDaysRemaining: 4, automaticDaysRemaining: 3, requiredDailyPace: 2 })
   })
 
+  it('does not reserve a closed-today Manual amount a second time in required Auto pace', () => {
+    const shortGoal = { ...tracker, schedule: { kind: 'every-day' as const }, deadline: '2026-10-03' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: shortGoal, entries: [entry('2026-10-01', 6)], metricId: 'pages', totalTarget: 10,
+      startDate: '2026-10-01', asOfDate: '2026-10-01', progressSemantics: 'incremental',
+      manualAllocations: { '2026-10-01': 10 },
+    })
+    expect(plan).toMatchObject({ actualProgress: 6, remainingWork: 4, scheduledDaysRemaining: 2, automaticDaysRemaining: 2, requiredDailyPace: 2 })
+  })
+
+  it('treats a skipped today as closed and excludes its Manual allocation from future pace', () => {
+    const shortGoal = { ...tracker, schedule: { kind: 'every-day' as const }, deadline: '2026-10-03' }
+    const plan = calculateCumulativeMetricPlan({
+      tracker: shortGoal, entries: [entry('2026-10-01', 0, undefined, { outcome: 'skipped', values: {} })], metricId: 'pages', totalTarget: 10,
+      startDate: '2026-10-01', asOfDate: '2026-10-01', progressSemantics: 'incremental',
+      manualAllocations: { '2026-10-01': 10 },
+    })
+    expect(plan).toMatchObject({ actualProgress: 0, remainingWork: 10, scheduledDaysRemaining: 2, automaticDaysRemaining: 2, requiredDailyPace: 5 })
+  })
+
   it('rejects cumulative sums of snapshot metrics', () => {
     expect(() => calculateCumulativeMetricPlan({ tracker, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-10-01', asOfDate: '2026-10-02', progressSemantics: 'snapshot' })).toThrow(/incremental/)
   })

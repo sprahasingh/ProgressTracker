@@ -23,7 +23,7 @@ import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
 type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
-type GoalProgressSummary = { metricId: string; name: string; value: string; target?: number; remaining?: number; percent?: number; unit: string }
+type GoalProgressSummary = { metricId: string; name: string; value: string; target?: number; remaining?: number; expected?: number; requiredPace?: number | null; paceLabel?: string; percent?: number; unit: string }
 
 export function GoalsPage() {
   const { notify } = useToast()
@@ -164,7 +164,7 @@ export function GoalsPage() {
             }}>
               <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
               <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
-              <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}</>}</span>)}</span>
+              <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}{metricSummary.expected !== undefined && <small>Expected by today {formatTrackerNumber(metricSummary.expected)}{metricSummary.unit}{metricSummary.requiredPace === null ? ' · No Auto days remain' : metricSummary.requiredPace !== undefined ? ` · ${formatTrackerNumber(metricSummary.requiredPace)}${metricSummary.unit}/Auto day` : ''}{metricSummary.paceLabel ? ` · ${metricSummary.paceLabel}` : ''}</small>}</>}</span>)}</span>
               <span className="goal-card-expand-hint">{expanded ? 'Hide details' : 'View goal details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
             </button>
             <div className="goal-expanded-details" id={goalDetailId} hidden={!expanded}>
@@ -179,7 +179,7 @@ export function GoalsPage() {
               })}
             </ul>}
             {tracker.schemaVersion >= 2 && tracker.goalPlanning && <LazyDisclosure className="goal-plan-disclosure" summary="View daily plan"><section className="goal-plan-visualization" aria-label={`${tracker.name} ${tracker.goalPlanning.mode} plan`}>
-              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare actual progress with expected progress and the pace needed to reach the total.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, missed, skipped, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Actual progress sums only saved entries whose metric is configured as incremental; snapshots are not added. Expected progress follows scheduled dates and the deadline. Remaining is the target minus actual progress, and required pace divides remaining work across remaining scheduled days. Each metric is calculated separately in its own unit.'} /></div>
+              <div className="goal-plan-heading"><h3>{tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily plan' : 'Deadline plan'}</h3><InfoButton title={tracker.goalPlanning.mode === 'daily-recurring' ? 'Daily recurring plan' : 'Cumulative deadline plan'} summary={tracker.goalPlanning.mode === 'daily-recurring' ? 'See which scheduled days met the metric target and your consistency over time.' : 'Compare completed progress with the historical benchmark and the current plan.'} description={tracker.goalPlanning.mode === 'daily-recurring' ? 'A day is counted only when it is scheduled. Rest days are neutral. Met, below-target, missed, skipped, rest, and upcoming dates have distinct markers. This plan target is independent of the check-in minimum, target, and stretch thresholds.' : 'Completed is actual saved incremental work. Expected by today uses saved historical Manual or legacy planned values where available; otherwise it uses an even-pace benchmark. Generated Auto suggestions are not saved as history. Remaining is target minus completed. Required Auto pace divides outstanding work by eligible Auto dates after future Manual reservations. Reaching the target does not automatically mark the goal completed.'} /></div>
               {tracker.goalPlanning.mode === 'daily-recurring' ? Object.entries(tracker.goalPlanning.dailyTargets).length === 0
                 ? <p>No daily planning targets are configured.</p>
                 : <div className="goal-daily-plans">{Object.entries(tracker.goalPlanning.dailyTargets).map(([metricId, target]) => {
@@ -214,7 +214,7 @@ export function GoalsPage() {
                         <div><span>Progress</span><div className="goal-plan-bar"><i className="actual" style={{ width: `${actualPercent}%` }} /></div></div>
                       </div>
                       <dl className="goal-plan-facts"><div><dt>Completed</dt><dd>{format(plan.actualProgress)}{unit}</dd></div><div><dt>Expected by today</dt><dd>{format(plan.expectedProgress)}{unit}</dd></div><div><dt>Remaining</dt><dd>{format(plan.remainingWork)}{unit}</dd></div><div><dt>Required pace</dt><dd>{plan.requiredDailyPace === null ? 'No automatic days remain' : `${format(plan.requiredDailyPace)}${unit} / automatic day`}</dd></div></dl>
-                      <p className={`goal-plan-status ${plan.paceStatus}`}>{cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
+                      <p className={`goal-plan-status ${plan.paceStatus}`}>{plan.remainingWork === 0 && tracker.status === 'active' ? 'Target reached · goal still active' : cumulativeStatusLabel(plan.status, plan.paceStatus)} · {plan.scheduledDaysRemaining} scheduled days remain</p>
                       {tracker.status === 'active' && <CumulativeAllocationPreview
                         tracker={tracker} entries={goalEntries} metricId={metricId} startDate={startDate} asOfDate={planningToday} timeZone={planningTimeZone}
                         manualPlanWritesEnabled={isTrackerSchemaWriteEnabled(tracker.schemaVersion === 5 ? 5 : tracker.schemaVersion === 4 || metric.precision ? 4 : 3)} holidays={holidayDates} isOnline={isOnline} signedIn={authStatus === 'signed-in'}
@@ -280,10 +280,11 @@ function buildGoalProgressSummary(
   return tracker.metrics.map((metric) => {
     const target = cumulativeTargets[metric.id]
     if (target !== undefined && tracker.goalPlanning?.progressSemantics[metric.id] === 'incremental') {
-      const plan = calculateCumulativeMetricPlan({ tracker, entries, metricId: metric.id, totalTarget: target, asOfDate, startDate, progressSemantics: 'incremental', holidays, timeZone: planningTimeZone })
+      const plan = calculateCumulativeMetricPlan({ tracker, entries, metricId: metric.id, totalTarget: target, asOfDate, startDate, progressSemantics: 'incremental', holidays, timeZone: planningTimeZone, allocations: tracker.goalPlanning.allocations?.[metric.id], manualAllocations: tracker.goalPlanning.manualAllocations?.[metric.id] })
       const percent = target === 0 ? 100 : Math.min(100, Math.max(0, plan.actualProgress / target * 100))
       const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
-      return { metricId: metric.id, name: metric.name, value: `${formatTrackerNumber(plan.actualProgress)} / ${formatTrackerNumber(target)}${unit}`, target, remaining: plan.remainingWork, percent, unit }
+      const paceLabel = plan.remainingWork === 0 ? 'Target reached' : cumulativeStatusLabel(plan.status, plan.paceStatus)
+      return { metricId: metric.id, name: metric.name, value: `${formatTrackerNumber(plan.actualProgress)} / ${formatTrackerNumber(target)}${unit}`, target, remaining: plan.remainingWork, expected: plan.expectedProgress, requiredPace: plan.requiredDailyPace, paceLabel, percent, unit }
     }
     const value = latestRecorded?.values[metric.id]
     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''

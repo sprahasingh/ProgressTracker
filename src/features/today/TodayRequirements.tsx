@@ -91,18 +91,19 @@ export function getTodayMetricDetails(tracker: StoredTrackerDefinition, entry: S
       const planningTimeZone = timeZone
       const startDate = trackerActiveStartDate(tracker, planningTimeZone)
       const planningToday = planningTimeZone === timeZone ? today : localCalendarDate(new Date(), planningTimeZone)
-      const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: planningToday, holidays, timeZone: planningTimeZone }
+      const planInput = { tracker, entries, metricId: metric.id, totalTarget, startDate, asOfDate: planningToday, holidays, timeZone: planningTimeZone, allocations: planning.allocations?.[metric.id], manualAllocations: planning.manualAllocations?.[metric.id] }
       const plan = calculateCumulativeMetricPlan({ ...planInput, progressSemantics: 'incremental' })
       const preview = createCumulativeAllocationPreview(planInput)
-      const todayPlanDay = preview.days.find((day) => day.date === planningToday && day.eligible)
+      const todayPlanDay = preview.days.find((day) => day.date === planningToday)
+      const todayOpen = todayPlanDay?.eligible === true
       const savedAllocation = todayPlanDay?.manual ? todayPlanDay.amount ?? undefined : undefined
-      const todaySuggestion = todayPlanDay?.amount ?? undefined
+      const todaySuggestion = todayOpen ? todayPlanDay?.amount ?? undefined : undefined
       const nextSuggestionDay = preview.days.find((day) => day.date > planningToday && day.eligible)
       const suggestion = todaySuggestion
       const expected = savedAllocation ?? suggestion
       return {
         ...common,
-        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s planned amount' : 'Today’s manual plan', remaining: Math.max(0, expected - Number(completed)) }),
+        ...(expected === undefined ? {} : { expected, expectedLabel: savedAllocation === undefined ? 'Today’s planned amount' : todayOpen ? 'Today’s manual plan' : 'Today’s saved plan · closed', ...(todayOpen ? { remaining: Math.max(0, expected - Number(completed)) } : {}) }),
         ...(savedAllocation === undefined ? {} : { savedAllocation }),
         ...(suggestion === undefined ? {} : { suggestion }),
         ...(nextSuggestionDay?.amount === null || nextSuggestionDay?.amount === undefined ? {} : { nextSuggestion: nextSuggestionDay.amount, nextSuggestionDate: nextSuggestionDay.date }),

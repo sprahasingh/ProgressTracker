@@ -198,7 +198,7 @@ describe('Goals page allocation preview', () => {
 
     await waitFor(() => expect(screen.getAllByText('6 problems').length).toBeGreaterThanOrEqual(1))
     await user.click(screen.getByRole('button', { name: `Edit plan for ${shiftCalendarDate(today, 1)}` }))
-    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 1)}` })).toHaveValue(2)
+    expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${shiftCalendarDate(today, 1)}` })).toHaveValue(3)
     expect(screen.getByRole('columnheader', { name: 'Planned' })).toBeInTheDocument()
   })
 
@@ -221,20 +221,20 @@ describe('Goals page allocation preview', () => {
     await user.click(screen.getByRole('button', { name: `Edit plan for ${tomorrow}` }))
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 6 }, note: '' })
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(1))
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(2))
 
     await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { problems: 2 }, note: 'edited' })
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(4))
     expect(await db.trackers.get(tracker.id)).toMatchObject({ goalPlanning: tracker.goalPlanning })
 
     cleanup()
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
     await openGoalPlan(user, 'Practice problems')
     await user.click(screen.getByRole('button', { name: `Edit plan for ${tomorrow}` }))
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(4))
 
     await localRepository.deleteTrackerEntry(tracker.id, today)
-    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(3))
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: `Planned allocation for ${tomorrow}` })).toHaveValue(4))
     await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ goalPlanning: tracker.goalPlanning })
     await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, today]).first()).resolves.toMatchObject({ values: { problems: 2 }, note: 'edited', deletedAt: expect.any(String) })
   })
