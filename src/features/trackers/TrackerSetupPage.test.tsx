@@ -234,6 +234,51 @@ describe('tracker setup flow', () => {
     expect(schedule).toHaveValue('weekdays')
   })
 
+  it('saves a Saturday-only Custom Days recurrence without converting it to a weekday preset', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Weekend study')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Activity schedule & holidays'))
+    const schedule = screen.getByRole('combobox', { name: 'Activity schedule' })
+    await user.selectOptions(schedule, 'custom-days')
+    expect(screen.getByRole('button', { name: 'Sat' })).toHaveAttribute('aria-pressed', 'true')
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sun']) await user.click(screen.getByRole('button', { name: day }))
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ schedule: { kind: 'selected-weekdays', weekdays: [6] } }])
+  })
+
+  it('saves the Weekends preset as Saturday and Sunday recurrence', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Weekend walks')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Activity schedule & holidays'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Activity schedule' }), 'weekends')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ schedule: { kind: 'selected-weekdays', weekdays: [0, 6] } }])
+  })
+
+  it('rejects an empty Custom Days selection and keeps No Recurrence distinct', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Flexible activity')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Activity schedule & holidays'))
+    const schedule = screen.getByRole('combobox', { name: 'Activity schedule' })
+    await user.selectOptions(schedule, 'custom-days')
+    for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) await user.click(screen.getByRole('button', { name: day }))
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findAllByText('Select at least one day, or choose No Recurrence.', { selector: 'small' })).toHaveLength(2)
+    expect(await localRepository.listTrackers()).toHaveLength(0)
+    await user.selectOptions(schedule, 'none')
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ schedule: { kind: 'none' } }])
+  })
+
   it('defaults Strict Mode off and persists it on newly created trackers when enabled', async () => {
     const user = userEvent.setup()
     renderSetup()
@@ -426,7 +471,7 @@ describe('tracker setup flow', () => {
     await user.click(await screen.findByText('Activity schedule & holidays'))
     await user.selectOptions(screen.getByRole('combobox', { name: 'Activity schedule' }), 'weekdays')
     expect(screen.getByRole('status').textContent).toBe(before)
-    expect(screen.getByText(/This schedule controls activity expectations and Goal Auto dates, not Effective Days duration/)).toBeInTheDocument()
+    expect(screen.getByText(/Your recurrence does not change the tracker duration/)).toBeInTheDocument()
   })
 
   it('keeps goal planning directly available and persists its January 21, 2027 deadline', async () => {

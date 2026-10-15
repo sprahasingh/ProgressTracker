@@ -4,7 +4,9 @@ A schedule defines when a tracker is expected to have an opportunity. It affects
 
 ## Schedule options
 
-The tracker setup form offers common schedules such as every day, weekdays, and three times a week. Existing or advanced tracker definitions can also use selected weekdays, every N days, a chosen number of occurrences per week or month, specific dates, a one-time date, or no scheduled occurrences. A custom schedule is preserved when editing rather than silently replaced by a simpler option.
+New trackers default to **Daily**. Setup also offers **Weekdays**, **Weekends**, **Custom Days**, and **No Recurrence**. Custom Days accepts any non-empty combination of Monday through Sunday, including Saturday only or Sunday only. Its saved representation is `selected-weekdays`, using JavaScript weekday numbers (Sunday is 0 and Saturday is 6); the Weekends preset uses the existing preferred-weekdays schedule representation. No Recurrence is stored as `none` and never becomes an empty Custom Days selection. Older recurrence definitions remain intact when edited unless the user chooses a replacement.
+
+In Standard Mode, No Recurrence creates no mandatory check-in dates, missed-day expectations, or Goal Auto planning dates. Users can still record flexible progress from the tracker library or Calendar. Strict Mode remains an independent streak policy that requires every active date. Daily, Weekdays, Weekends, and Custom Days determine expected activity dates; holidays pause those dates in Standard Mode.
 
 The effective start date is the later of the configured start and the tracker’s creation date interpreted in the workspace time zone. A deadline bounds the active period. An occurrence outside that interval is not a scheduled opportunity.
 

@@ -377,6 +377,7 @@ describe('account-scoped sync engine', () => {
     await activateWorkspace('sync-user')
     const v6: StoredTrackerDefinition = {
       ...tracker('scheduling-v6-sync'), schemaVersion: 6, startDate: '2026-10-09', deadline: '2026-10-11',
+      schedule: { kind: 'selected-weekdays', weekdays: [0, 6] },
       scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
     }
     await localRepository.saveTracker(v6)
@@ -384,13 +385,38 @@ describe('account-scoped sync engine', () => {
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
     expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({
       schema_version: 6,
-      definition: { schemaVersion: 6, scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' } },
+      definition: { schemaVersion: 6, schedule: { kind: 'selected-weekdays', weekdays: [0, 6] }, scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' } },
     })
     await db.trackers.clear()
     await db.syncRecords.clear()
     const { client: pullClient } = fakeClient({ trackerRows: [serverTracker(v6)] })
     await expect(synchronizeWorkspace('sync-user', pullClient)).resolves.toMatchObject({ downloaded: 1 })
-    await expect(db.trackers.get(v6.id)).resolves.toMatchObject({ schemaVersion: 6, scheduling: v6.scheduling })
+    await expect(db.trackers.get(v6.id)).resolves.toMatchObject({ schemaVersion: 6, schedule: v6.schedule, scheduling: v6.scheduling })
+  })
+
+  it('preserves every non-empty Custom Days combination through IndexedDB edits and schema v6 sync', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    await activateWorkspace('all-custom-days-sync')
+    const combinations = Array.from({ length: 127 }, (_, index) => Array.from({ length: 7 }, (_unused, weekday) => weekday).filter((weekday) => (index + 1) & (1 << weekday)))
+    const records = combinations.map((weekdays, index) => ({
+      ...tracker(`custom-days-${index + 1}`), schemaVersion: 6 as const, schedule: { kind: 'selected-weekdays' as const, weekdays }, scheduling: { mode: 'ongoing' as const },
+    }))
+
+    for (const record of records) {
+      const original = { ...tracker(record.id), schemaVersion: 5 as const, schedule: { kind: 'every-day' as const } }
+      await db.trackers.put(original)
+      await localRepository.saveTracker(record)
+    }
+    await db.close()
+    await db.open()
+    for (const record of records) await expect(db.trackers.get(record.id)).resolves.toMatchObject({ schedule: record.schedule })
+
+    const { client, rpc } = fakeClient({ userId: 'all-custom-days-sync', rpcResults: records.map((record) => ({ data: { status: 'applied', record: serverTracker(record, 'all-custom-days-sync') }, error: null })) })
+    await expect(synchronizeWorkspace('all-custom-days-sync', client)).resolves.toMatchObject({ uploaded: records.length, failed: 0 })
+    const uploadedSchedules = new Map(rpc.mock.calls.map((call) => [call[1]?.p_record.id, call[1]?.p_record.definition.schedule]))
+    expect(records.map((record) => uploadedSchedules.get(record.id))).toEqual(records.map((record) => record.schedule))
   })
 
   it('holds v3 outbox writes in production until the hosted migration readiness flag is enabled', async () => {

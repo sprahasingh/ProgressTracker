@@ -186,30 +186,86 @@ test('unified scheduling flows through setup, holidays, check-ins, Goals, Histor
   await page.setViewportSize({ width: 390, height: 1100 })
   await page.goto('/#/auth')
   if (await page.getByRole('button', { name: 'Use password' }).isVisible().catch(() => false)) await signIn(page, fixture)
-  let quietCelebrationChecks = 0
-  for (let attempt = 0; attempt < 20 && quietCelebrationChecks < 3; attempt += 1) {
+  const syncButton = page.getByRole('button', { name: 'Sync this account' })
+  await expect(syncButton).toBeVisible({ timeout: 60_000 })
+  let syncStarted = false
+  for (let attempt = 0; attempt < 20 && !syncStarted; attempt += 1) {
     const dismissRemaining = page.getByRole('button', { name: 'Dismiss remaining' })
     const closeCelebration = page.getByRole('button', { name: 'Close celebration' })
+    const finishCelebration = page.getByRole('button', { name: 'Finish', exact: true })
     if (await dismissRemaining.isVisible().catch(() => false)) {
       await dismissRemaining.click()
-      quietCelebrationChecks = 0
     } else if (await closeCelebration.isVisible().catch(() => false)) {
       await closeCelebration.click()
-      quietCelebrationChecks = 0
+    } else if (await finishCelebration.isVisible().catch(() => false)) {
+      await finishCelebration.click()
     } else {
-      quietCelebrationChecks += 1
-      await page.waitForTimeout(250)
+      try {
+        await syncButton.click({ timeout: 1_500 })
+        syncStarted = true
+      } catch (error) {
+        const celebrationVisible = await page.getByRole('dialog').isVisible().catch(() => false)
+        if (!celebrationVisible) throw error
+      }
     }
   }
-  await expect(page.getByRole('button', { name: 'Sync this account' })).toBeVisible({ timeout: 60_000 })
-  // The app can queue a new achievement celebration after the dismiss pass;
-  // dispatch the actual sync button handler behind that unrelated overlay.
-  await page.getByRole('button', { name: 'Sync this account' }).click({ force: true })
+  expect(syncStarted).toBe(true)
+  await expect(page.getByRole('button', { name: 'Syncing…' })).toBeHidden({ timeout: 60_000 })
   await expect.poll(async () => page.evaluate(async (id) => {
     const { getSupabaseClient } = await import('/ProgressTracker/src/services/supabase/client.ts')
     const { data, error } = await getSupabaseClient()!.from('trackers').select('schema_version,definition').eq('id', id).maybeSingle()
     if (error) return error.code
     return data?.definition?.scheduling?.mode ?? null
-  }, offlineTracker.id)).toBe('ongoing')
+  }, offlineTracker.id), { timeout: 60_000 }).toBe('ongoing')
   await page.evaluate(() => localStorage.clear())
+})
+
+test('all five recurrence choices survive setup, reload, and editing', async ({ page, context }) => {
+  const fixturePath = process.env.PROGRESSION_TEST_FIXTURE_PATH ?? '/private/tmp/progression-playwright-auth.json'
+  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as AuthFixture
+  await (await context.newCDPSession(page)).send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' })
+  await signIn(page, fixture)
+
+  const cases = [
+    { name: 'E2E Recurrence Daily', choice: 'every-day', expected: { kind: 'every-day' } },
+    { name: 'E2E Recurrence Weekdays', choice: 'weekdays', expected: { kind: 'weekdays' } },
+    { name: 'E2E Recurrence Weekends', choice: 'weekends', expected: { kind: 'selected-weekdays', weekdays: [0, 6] } },
+    { name: 'E2E Recurrence Saturday', choice: 'custom-days', customDays: [6], expected: { kind: 'selected-weekdays', weekdays: [6] } },
+    { name: 'E2E Recurrence Sunday', choice: 'custom-days', customDays: [0], expected: { kind: 'selected-weekdays', weekdays: [0] } },
+    { name: 'E2E Recurrence None', choice: 'none', expected: { kind: 'none' } },
+  ] as const
+
+  for (const item of cases) {
+    await page.goto('/#/trackers/new')
+    await page.getByLabel('What habit do you want to build?').fill(item.name)
+    await page.getByText('More options').click()
+    await page.getByText('Activity schedule & holidays').click()
+    await page.getByRole('combobox', { name: 'Activity schedule' }).selectOption(item.choice)
+    if (item.choice === 'custom-days') {
+      for (const [label, day] of [['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4], ['Fri', 5], ['Sat', 6], ['Sun', 0]] as const) {
+        if (!item.customDays.includes(day)) await page.getByRole('button', { name: label }).click()
+      }
+    }
+    await page.getByRole('button', { name: 'Create tracker' }).click()
+    await expect(page.getByRole('heading', { name: /You’re ready to begin/ })).toBeVisible()
+
+    const saved = await page.evaluate(async (name) => {
+      const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+      const tracker = (await localRepository.listTrackers()).find((item) => item.name === name)
+      return { id: tracker?.id, schedule: tracker?.schedule }
+    }, item.name)
+    expect(saved.schedule).toEqual(item.expected)
+
+    await page.reload()
+    await page.goto(`/#/trackers/${saved.id}/edit`)
+    await expect(page.getByRole('heading', { name: 'Edit habit.' })).toBeVisible()
+    await page.getByText('More options').click()
+    await page.getByText('Activity schedule & holidays').click()
+    await expect(page.getByRole('combobox', { name: 'Activity schedule' })).toHaveValue(item.choice === 'custom-days' ? 'custom-days' : item.choice)
+    const reloaded = await page.evaluate(async (id) => {
+      const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+      return (await localRepository.getTracker(id))?.schedule
+    }, saved.id)
+    expect(reloaded).toEqual(item.expected)
+  }
 })

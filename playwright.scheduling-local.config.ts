@@ -50,6 +50,7 @@ export default defineConfig({
     env: {
       VITE_SUPABASE_URL: expectedApiUrl,
       VITE_SUPABASE_PUBLISHABLE_KEY: status.ANON_KEY,
+      VITE_ENABLE_TRACKER_SCHEMA_V6: 'true',
     },
   },
 })

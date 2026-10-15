@@ -72,6 +72,35 @@ describe('schedule occurrence calculation', () => {
     expect(isScheduledDate({ ...base(), deadline: '2026-10-08' }, '2026-10-09')).toBe(false)
     expect(isScheduledDate({ ...base(), status: 'paused' }, '2026-10-09')).toBe(false)
   })
+
+  it('supports each individual custom weekday, including Saturday and Sunday, and all seven days', () => {
+    const week = [
+      ['2026-11-02', 1], ['2026-11-03', 2], ['2026-11-04', 3], ['2026-11-05', 4],
+      ['2026-11-06', 5], ['2026-11-07', 6], ['2026-11-08', 0],
+    ] as const
+    for (const [date, weekday] of week) {
+      const singleDay = base({ kind: 'selected-weekdays', weekdays: [weekday] })
+      expect(isScheduledDate(singleDay, date), `weekday ${weekday} should be eligible`).toBe(true)
+      for (const [otherDate] of week.filter(([candidate]) => candidate !== date)) expect(isScheduledDate(singleDay, otherDate)).toBe(false)
+    }
+    const allDays = base({ kind: 'selected-weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] })
+    expect(week.every(([date]) => isScheduledDate(allDays, date))).toBe(true)
+    const weekends = base({ kind: 'times-per-week', count: 2, preferredWeekdays: [0, 6] })
+    expect(week.filter(([date]) => isScheduledDate(weekends, date)).map(([date]) => date)).toEqual(['2026-11-07', '2026-11-08'])
+  })
+
+  it('uses the same recurrence dates in the legacy work plan and leaves No Recurrence unscheduled', () => {
+    const weekendPlan = plan({
+      tracker: base({ kind: 'times-per-week', count: 2, preferredWeekdays: [0, 6] }),
+      startDate: '2026-11-02', deadline: '2026-11-08', asOfDate: '2026-11-02', totalWork: 4,
+    })
+    expect(weekendPlan.dailyWorkload).toBe(2)
+    expect(weekendPlan.days.filter((day) => day.state === 'planned').map((day) => day.date)).toEqual(['2026-11-07', '2026-11-08'])
+    const flexiblePlan = plan({ tracker: base({ kind: 'none' }), startDate: '2026-11-02', deadline: '2026-11-08', asOfDate: '2026-11-05', totalWork: 4 })
+    expect(flexiblePlan.status).toBe('no-scheduled-days')
+    expect(flexiblePlan.dailyWorkload).toBe(0)
+    expect(flexiblePlan.days.every((day) => day.state === 'rest')).toBe(true)
+  })
 })
 
 describe('achievement thresholds', () => {

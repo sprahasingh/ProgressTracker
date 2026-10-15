@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { trackerSetupSchema } from './trackerSetupSchema'
 
 const base = {
-  name: 'Test tracker', description: '', schedule: 'every-day', startDate: '2026-01-05', deadline: '', strictMode: false,
+  name: 'Test tracker', description: '', schedule: 'every-day', customWeekdays: [0, 1, 2, 3, 4, 5, 6], startDate: '2026-01-05', deadline: '', strictMode: false,
 }
 const today = new Date().toISOString().slice(0, 10)
 
 describe('tracker setup date range', () => {
+  it('requires at least one selected weekday for Custom Days and keeps No Recurrence distinct', () => {
+    const customEmpty = trackerSetupSchema.safeParse({ ...base, kind: 'habit', schedule: 'custom-days', customWeekdays: [] })
+    expect(customEmpty.success).toBe(false)
+    if (!customEmpty.success) expect(customEmpty.error.issues).toContainEqual(expect.objectContaining({ path: ['schedule'], message: 'Select at least one day, or choose No Recurrence.' }))
+    expect(trackerSetupSchema.safeParse({ ...base, kind: 'habit', schedule: 'none', customWeekdays: [] }).success).toBe(true)
+  })
+
   it.each(['habit', 'goal', 'challenge', 'project'] as const)('%s accepts past, current, and future starts without a deadline', (kind) => {
     for (const startDate of ['2025-12-31', today, '2099-12-31']) {
       expect(trackerSetupSchema.safeParse({ ...base, kind, startDate }).success).toBe(true)

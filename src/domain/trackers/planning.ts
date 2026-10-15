@@ -24,7 +24,7 @@ export type PlanningInput = {
 export type PlannedDay = { date: string; state: DayState; plannedWork: number; completed: boolean }
 export type WorkPlan = {
   mode: GoalMode
-  status: 'active' | 'completed' | 'overdue' | 'not-started'
+  status: 'active' | 'completed' | 'overdue' | 'not-started' | 'no-scheduled-days'
   totalWork: number
   completedWork: number
   remainingWork: number
@@ -327,45 +327,17 @@ const dateText = (time: number): string => new Date(time).toISOString().slice(0,
 const daysBetween = (from: string, to: string): number => Math.round((parseDate(to) - parseDate(from)) / DAY_MS)
 const listed = (values: readonly string[] | undefined, date: string): boolean => values?.includes(date) ?? false
 
-export function isRestDay(tracker: TrackerDefinition, date: string, restDays: readonly number[] = []): boolean {
+export function isRestDay(tracker: TrackerDefinition, date: string, restDays: readonly number[] = [], timeZone?: string): boolean {
   const weekday = new Date(parseDate(date)).getUTCDay()
   if (restDays.includes(weekday)) return true
-  const schedule = tracker.schedule
-  if (schedule.kind === 'none') return true
-  if (schedule.kind === 'weekdays') return weekday === 0 || weekday === 6
-  if (schedule.kind === 'selected-weekdays') return !schedule.weekdays.includes(weekday)
-  if (schedule.kind === 'times-per-week' && schedule.preferredWeekdays?.length) return !schedule.preferredWeekdays.includes(weekday)
-  if (schedule.kind === 'specific-dates') return !schedule.dates.includes(date)
-  if (schedule.kind === 'once') return schedule.date !== date
-  return false
+  return !isTrackerScheduledOccurrence(tracker, date, timeZone)
 }
 
-function eligibleDates(tracker: TrackerDefinition, startDate: string, endDate: string, restDays: readonly number[]): string[] {
+function eligibleDates(tracker: TrackerDefinition, startDate: string, endDate: string, restDays: readonly number[], timeZone?: string): string[] {
   const dates: string[] = []
   for (let time = parseDate(startDate); time <= parseDate(endDate); time += DAY_MS) {
     const date = dateText(time)
-    if (!isRestDay(tracker, date, restDays)) dates.push(date)
-  }
-  // N-day and quota schedules represent cadence, not a list of explicitly scheduled dates.
-  if (tracker.schedule.kind === 'times-per-week') {
-    const quota = tracker.schedule.count
-    for (let weekStart = 0; weekStart < dates.length; weekStart += 7) {
-      const week = dates.slice(weekStart, weekStart + 7)
-      for (let i = quota; i < week.length; i++) dates[weekStart + i] = ''
-    }
-    return dates.filter(Boolean)
-  }
-  if (tracker.schedule.kind === 'times-per-month') {
-    const quota = tracker.schedule.count
-    return dates.filter((date) => {
-      const day = Number(date.slice(8, 10))
-      return day % Math.ceil(31 / quota) === 1 || day === 1
-    })
-  }
-  if (tracker.schedule.kind === 'every-n-days') {
-    const interval = tracker.schedule.interval
-    const first = parseDate(startDate)
-    return dates.filter((date) => Math.round((parseDate(date) - first) / DAY_MS) % interval === 0)
+    if (!isRestDay(tracker, date, restDays, timeZone)) dates.push(date)
   }
   return dates
 }
@@ -385,7 +357,7 @@ export function createWorkPlan(input: PlanningInput): WorkPlan {
   if (!metric) throw new RangeError(`Unknown metric: ${input.metricId}`)
 
   const remaining = input.totalWork - input.completedWork
-  const calendar = eligibleDates(input.tracker, effectiveStartDate, input.deadline, input.restDays ?? [])
+  const calendar = eligibleDates({ ...input.tracker, startDate: effectiveStartDate, deadline: input.deadline }, effectiveStartDate, input.deadline, input.restDays ?? [], input.timeZone)
   const remainingDates = calendar.filter((date) => parseDate(date) >= asOf && !listed(input.completedDates, date))
   const dailyWorkload = remainingDates.length ? Math.ceil((remaining / remainingDates.length) * 100) / 100 : 0
   const calculatedCompletionDate = remaining === 0 ? (input.completedDates?.slice().sort().at(-1) ?? input.asOfDate) :
@@ -409,7 +381,7 @@ export function createWorkPlan(input: PlanningInput): WorkPlan {
     return { date, state, plannedWork: state === 'planned' ? dailyWorkload : 0, completed }
   })
 
-  let status: WorkPlan['status'] = asOf < start ? 'not-started' : remaining === 0 ? 'completed' : asOf > deadline || remainingDates.length === 0 ? 'overdue' : 'active'
+  let status: WorkPlan['status'] = asOf < start ? 'not-started' : remaining === 0 ? 'completed' : calendar.length === 0 ? 'no-scheduled-days' : asOf > deadline || remainingDates.length === 0 ? 'overdue' : 'active'
   if (input.mode === 'daily-recurring' && asOf > deadline && remaining > 0) status = 'overdue'
   const overdueByDays = status === 'overdue' ? Math.max(0, daysBetween(input.deadline, input.asOfDate)) : 0
   return { mode: input.mode, status, totalWork: input.totalWork, completedWork: input.completedWork, remainingWork: remaining, dailyWorkload, days, completionDate: calculatedCompletionDate, overdueByDays }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { TrackerLibraryPage } from './TrackerLibraryPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import type { StoredTrackerDefinition } from '../../db/models'
@@ -85,6 +85,20 @@ describe('TrackerLibraryPage initial cloud state', () => {
     expect(within(targets).getByText('total by deadline')).toBeInTheDocument()
     expect(within(targets).getByText('per check-in')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Check in today' })).toHaveAttribute('href', '/')
+  })
+
+  it('offers flexible check-in access for No Recurrence without inventing a due day', async () => {
+    const flexible = { ...trackerRow('flexible', 'Optional progress', 'habit', 'active'), schedule: { kind: 'none' as const } }
+    libraryMocks.listTrackers.mockResolvedValue([flexible])
+    function LocationState() {
+      const location = useLocation()
+      return <output data-testid="location-state">{JSON.stringify(location.state)}</output>
+    }
+    const user = userEvent.setup()
+    render(<MemoryRouter><TrackerLibraryPage /><LocationState /></MemoryRouter>)
+    expect(await screen.findByText('No Recurrence')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Record progress' }))
+    expect(screen.getByTestId('location-state')).toHaveTextContent(/"trackerId":"flexible"/)
   })
 
   it('keeps archive and delete in the overflow menu and labels the Bin confirmation action', async () => {
