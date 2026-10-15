@@ -131,7 +131,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
       if (resolveHolidayConflicts) holidayConflicts.forEach((day) => { delete nextMetricAllocations[day.date] })
       const candidate = {
         ...tracker,
-        schemaVersion: (tracker.schemaVersion >= 6 ? 6 : 5) as 5 | 6,
+        schemaVersion: (tracker.schemaVersion >= 7 ? 7 : tracker.schemaVersion >= 6 ? 6 : 5) as 5 | 6 | 7,
         goalPlanning: {
           ...tracker.goalPlanning,
           planningTimeZone: timeZone,

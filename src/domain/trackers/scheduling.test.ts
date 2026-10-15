@@ -52,6 +52,29 @@ describe('unified scheduling calculations', () => {
     expect(effectiveDayNumber({ tracker: november, date: '2026-11-11' })).toBe(11)
   })
 
+
+  it('counts only recurrence-matching activity days when selected, with holidays extending the deadline', () => {
+    const weekdays = { ...tracker({ kind: 'weekdays' }), startDate: '2026-11-01', scheduling: { mode: 'effective' as const, effectiveDays: 30, effectiveDayCounting: 'planned-activity-days' as const } }
+    expect(nthEffectiveDate({ tracker: weekdays, startDate: '2026-11-01', effectiveDays: 30 })).toBe('2026-12-11')
+    expect(nthEffectiveDate({ tracker: { ...weekdays, schedule: { kind: 'selected-weekdays', weekdays: [6] } }, startDate: '2026-11-01', effectiveDays: 5 })).toBe('2026-12-05')
+    expect(nthEffectiveDate({ tracker: weekdays, startDate: '2026-11-01', effectiveDays: 30, holidays: new Set(['2026-11-02', '2026-11-03']) })).toBe('2026-12-15')
+    expect(isEffectiveDateEligible(weekdays, '2026-11-07')).toBe(false)
+    expect(isEffectiveDateEligible({ ...weekdays, scheduling: { ...weekdays.scheduling!, effectiveDayCounting: 'all-non-holiday-days' } }, '2026-11-07')).toBe(true)
+  })
+
+  it('preserves v6 Effective Days as every non-holiday date and forces No Recurrence to flexible duration counting', () => {
+    const legacyV6 = { ...tracker({ kind: 'weekdays' }), schemaVersion: 6 as const, scheduling: { mode: 'effective' as const, effectiveDays: 3 } }
+    expect(nthEffectiveDate({ tracker: legacyV6, startDate: '2026-11-01', effectiveDays: 3 })).toBe('2026-11-03')
+    const noRecurrence = { ...legacyV6, schedule: { kind: 'none' as const }, scheduling: { ...legacyV6.scheduling, effectiveDayCounting: 'planned-activity-days' as const } }
+    expect(nthEffectiveDate({ tracker: noRecurrence, startDate: '2026-11-01', effectiveDays: 3 })).toBe('2026-11-03')
+  })
+
+  it('caps Effective Day numbering at the configured duration after the projected end', () => {
+    const effective = { ...tracker({ kind: 'every-day' }), scheduling: { mode: 'effective' as const, effectiveDays: 3, effectiveDayCounting: 'all-non-holiday-days' as const } }
+    expect(effectiveDayNumber({ tracker: effective, date: '2026-10-20' })).toBe(3)
+    expect(effectiveDaysRemaining({ tracker: effective, date: '2026-10-20', targetEffectiveDays: 3 })).toBe(0)
+  })
+
   it('derives inclusive duration deadlines and moves only effective deadlines for holidays', () => {
     const daily = tracker({ kind: 'every-day' })
     const effective = { ...daily, scheduling: { mode: 'effective' as const, effectiveDays: 100, planningTimeZone: 'UTC' } }

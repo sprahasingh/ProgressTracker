@@ -1,5 +1,5 @@
 import type { TrackerDefinition, TrackerSchedule, TrackerScheduling, TrackerSchedulingMode } from './types'
-import { isEffectiveCalendarDate, trackerActiveStartDate } from './planning'
+import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
 
 const DAY_MS = 86_400_000
 const MAX_SEARCH_DAYS = 366_000
@@ -41,17 +41,22 @@ export function trackerScheduleLabel(schedule: TrackerSchedule): string {
 }
 
 export function isEffectiveDateEligible(
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>,
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>,
   date: string,
   holidays: ReadonlySet<string> = new Set(),
   timeZone?: string,
 ): boolean {
-  return isEffectiveCalendarDate(tracker, date, holidays, timeZone)
+  if (date < trackerActiveStartDate(tracker, timeZone) || holidays.has(date)) return false
+  const method = tracker.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
+  if (method === 'planned-activity-days' && tracker.schedule.kind !== 'none') {
+    return isTrackerScheduledOccurrence({ ...tracker, deadline: undefined }, date, timeZone)
+  }
+  return true
 }
 
 /** Finds the Nth eligible calendar date with a strict bound to reject impossible schedules. */
 export function nthEffectiveDate(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
   startDate: string
   effectiveDays: number
   holidays?: ReadonlySet<string>
@@ -74,7 +79,7 @@ export function nthEffectiveDate(input: {
 }
 
 export function effectiveDayNumber(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
   date: string
   holidays?: ReadonlySet<string>
   timeZone?: string
@@ -86,7 +91,7 @@ export function effectiveDayNumber(input: {
 }
 
 export function effectiveDaysElapsed(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
   date: string
   holidays?: ReadonlySet<string>
   timeZone?: string
@@ -96,14 +101,18 @@ export function effectiveDaysElapsed(input: {
   if (input.date < start) return 0
   const tracker = { ...input.tracker, startDate: start }
   let count = 0
+  const target = input.tracker.scheduling?.mode === 'effective' ? input.tracker.scheduling.effectiveDays ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY
   for (let time = parse(start); time <= dateNumber; time += DAY_MS) {
-    if (isEffectiveDateEligible(tracker, text(time), input.holidays, input.timeZone)) count += 1
+    if (isEffectiveDateEligible(tracker, text(time), input.holidays, input.timeZone)) {
+      count += 1
+      if (count >= target) return target
+    }
   }
   return count
 }
 
 export function effectiveDaysRemaining(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
   date: string
   targetEffectiveDays: number
   holidays?: ReadonlySet<string>
@@ -114,7 +123,7 @@ export function effectiveDaysRemaining(input: {
 }
 
 export function nextEligibleDate(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
   afterDate: string
   holidays?: ReadonlySet<string>
   timeZone?: string
@@ -156,4 +165,25 @@ export function calendarDayNumber(startDate: string, deadline: string, date: str
 export function inclusiveCalendarDays(startDate: string, deadline: string): number {
   const start = parse(startDate); const end = parse(deadline)
   return end < start ? 0 : Math.round((end - start) / DAY_MS) + 1
+}
+
+
+/** Counts recurrence-matching non-holiday workdays in a date-only window. */
+export function countScheduledActivityDays(input: {
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'deadline'>
+  startDate: string
+  endDate: string
+  holidays?: ReadonlySet<string>
+  timeZone?: string
+}): number {
+  if (input.endDate < input.startDate) return 0
+  let count = 0
+  const start = parse(input.startDate)
+  const end = parse(input.endDate)
+  const tracker = { ...input.tracker, startDate: input.startDate }
+  for (let time = start; time <= end; time += DAY_MS) {
+    const date = text(time)
+    if (!input.holidays?.has(date) && isTrackerScheduledOccurrence(tracker, date, input.timeZone)) count += 1
+  }
+  return count
 }

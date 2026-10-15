@@ -13,14 +13,14 @@ import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
-import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
-import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
+import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled } from '../../domain/trackers/schemaVersionGate'
-import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling } from '../../domain/trackers/scheduling'
+import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
 
-type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; customWeekdays: number[]; startDate: string; deadline: string; schedulingMode: TrackerSchedulingMode; effectiveDays: string; strictMode: boolean }
+type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; customWeekdays: number[]; startDate: string; deadline: string; schedulingMode: TrackerSchedulingMode; effectiveDays: string; effectiveDayCounting: 'planned-activity-days' | 'all-non-holiday-days'; strictMode: boolean }
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
 type HistoricalPeriodConfirmation = { count: number; dateRange: string; resolve: (keep: boolean) => void }
@@ -76,21 +76,11 @@ function scheduleFromForm(value: string, existing?: TrackerDefinition, customWee
   return { kind: 'every-day' }
 }
 
-function suggestedPace(amount: number, startDate: string, deadline: string, schedule: TrackerDefinition['schedule'], holidays: ReadonlySet<string>): string | null {
+function suggestedPace(amount: number, startDate: string, deadline: string, tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning'>, holidays: ReadonlySet<string>, timeZone: string): string | null {
   if (!Number.isFinite(amount) || amount <= 0 || deadline < startDate) return null
-  const count = scheduledWorkdayCount(startDate, deadline, schedule, holidays)
+  const count = countScheduledActivityDays({ tracker, startDate, endDate: deadline, holidays, timeZone })
   if (count === 0) return null
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(amount / count)} per scheduled day`
-}
-
-function scheduledWorkdayCount(startDate: string, deadline: string, schedule: TrackerDefinition['schedule'], holidays: ReadonlySet<string>): number {
-  if (deadline < startDate) return 0
-  const tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt'> = { schedule, startDate: startDate as CalendarDate, deadline: deadline as CalendarDate, createdAt: `${startDate}T00:00:00.000Z` }
-  let count = 0
-  for (let date = startDate as CalendarDate; date <= deadline; date = shiftCalendarDate(date, 1)) {
-    if (!holidays.has(date) && isTrackerScheduledOccurrence(tracker, date)) count += 1
-  }
-  return count
 }
 
 function readableValidationMessage(message: string): string {
@@ -131,7 +121,7 @@ function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeForm
   return {
     name: tracker?.name ?? '', description: tracker?.description ?? '', kind: tracker?.kind ?? 'habit', schedule, customWeekdays,
     startDate: tracker?.startDate ?? todayLocal(timeZone), deadline: tracker?.deadline ?? '',
-    schedulingMode: tracker ? trackerScheduling(tracker).mode : 'ongoing', effectiveDays: String(tracker?.scheduling?.effectiveDays ?? ''), strictMode: tracker?.strictMode ?? false,
+    schedulingMode: tracker ? trackerScheduling(tracker).mode : 'ongoing', effectiveDays: String(tracker?.scheduling?.effectiveDays ?? ''), effectiveDayCounting: tracker ? tracker.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days' : 'planned-activity-days', strictMode: tracker?.strictMode ?? false,
   }
 }
 
@@ -175,14 +165,14 @@ export function TrackerSetupPage() {
     if (values.schedulingMode !== 'effective' || !/^\d+$/.test(values.effectiveDays) || Number(values.effectiveDays) < 1 || !values.startDate) return ''
     try {
       return deriveSchedulingDeadline({
-        tracker: { ...(existing ?? {} as TrackerDefinition), schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), startDate: values.startDate, createdAt: existing?.createdAt ?? `${values.startDate}T12:00:00.000Z`, scheduling: { mode: 'effective', effectiveDays: Number(values.effectiveDays), planningTimeZone: timeZone }, deadline: undefined },
+        tracker: { ...(existing ?? {} as TrackerDefinition), schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), startDate: values.startDate, createdAt: existing?.createdAt ?? `${values.startDate}T12:00:00.000Z`, scheduling: { mode: 'effective', effectiveDays: Number(values.effectiveDays), effectiveDayCounting: values.schedule === 'none' ? 'all-non-holiday-days' : ((isSchemaV7WriteEnabled() || existing?.schemaVersion === 7) ? values.effectiveDayCounting : 'all-non-holiday-days'), planningTimeZone: timeZone }, deadline: undefined },
         holidays: new Set(holidayDates), timeZone,
       }) ?? ''
     } catch { return '' }
   })()
   const selectedDeadline = values.schedulingMode === 'effective' ? projectedDeadline : values.schedulingMode === 'calendar' ? values.deadline : ''
   const projectedAutoDays = selectedDeadline
-    ? scheduledWorkdayCount(values.startDate, selectedDeadline, scheduleFromForm(values.schedule, existing, values.customWeekdays), new Set(holidayDates))
+    ? countScheduledActivityDays({ tracker: { ...(existing ?? {} as TrackerDefinition), schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), startDate: values.startDate, createdAt: existing?.createdAt ?? `${values.startDate}T12:00:00.000Z`, deadline: selectedDeadline }, startDate: values.startDate, endDate: selectedDeadline, holidays: new Set(holidayDates), timeZone })
     : 0
 
   useEffect(() => {
@@ -492,14 +482,18 @@ export function TrackerSetupPage() {
         : 'Switching to Standard Mode will recalculate this tracker’s streak using scheduled days, with holidays and rest days preserving continuity. Your recorded progress will not be deleted.'
       if (!window.confirm(message)) return
     }
-    if (existing && trackerScheduling(existing).mode !== parsed.data.schedulingMode) {
+    const previousCountingMethod = existing?.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
+    const nextCountingMethod = parsed.data.schedule === 'none' ? 'all-non-holiday-days' : parsed.data.effectiveDayCounting
+    const countingChanged = Boolean(existing && trackerScheduling(existing).mode === 'effective' && parsed.data.schedulingMode === 'effective' && previousCountingMethod !== nextCountingMethod)
+    const schedulingModeChanged = Boolean(existing && trackerScheduling(existing).mode !== parsed.data.schedulingMode)
+    if (existing && (schedulingModeChanged || countingChanged)) {
       const nextDeadline = selectedDeadline ? calendarDateLabel(selectedDeadline) : 'no fixed deadline'
       const nextDuration = parsed.data.schedulingMode === 'effective'
-        ? `${parsed.data.effectiveDays} eligible days`
+        ? `${parsed.data.effectiveDays} ${nextCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'non-holiday days'}`
         : parsed.data.schedulingMode === 'calendar' && selectedDeadline
           ? `${inclusiveCalendarDays(trackerActiveStartDate({ ...existing, startDate: parsed.data.startDate }, timeZone), selectedDeadline)} calendar days`
           : 'ongoing'
-      const message = `Review scheduling change\n\n${trackerScheduling(existing).mode} → ${parsed.data.schedulingMode}\nNew period: ${nextDuration}; ${nextDeadline}.\n\nGoal Auto allocations will recalculate for the new eligible dates. Saved Manual allocations and check-ins stay on their original dates; review any future Manual conflicts in Goals. Historical challenge day labels will use the new schedule. Continue?`
+      const message = `Review scheduling change\n\n${trackerScheduling(existing).mode}${countingChanged ? ` (${previousCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'include rest days'}) → ${nextCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'include rest days'}` : ` → ${parsed.data.schedulingMode}`}\nNew period: ${nextDuration}; ${nextDeadline}.\n\nGoal Auto allocations will recalculate for the new eligible dates. Saved Manual allocations and check-ins stay on their original dates; review any future Manual conflicts in Goals. Historical challenge day labels will use the new schedule. Continue?`
       if (!window.confirm(message)) return
     }
     if (existing && parsed.data.startDate) {
@@ -551,7 +545,8 @@ export function TrackerSetupPage() {
       const id = existing?.id ?? crypto.randomUUID()
       const kind = existing?.kind ?? form.kind
       const schedule = scheduleFromForm(form.schedule, existing, form.customWeekdays)
-      const scheduling = { mode: form.schedulingMode, ...(form.schedulingMode === 'effective' ? { effectiveDays: Number(form.effectiveDays), planningTimeZone: timeZone } : {}) } as const
+      const method = form.schedule === 'none' ? 'all-non-holiday-days' : (isSchemaV7WriteEnabled() ? form.effectiveDayCounting : 'all-non-holiday-days')
+      const scheduling = { mode: form.schedulingMode, ...(form.schedulingMode === 'effective' ? { effectiveDays: Number(form.effectiveDays), ...(isSchemaV7WriteEnabled() || existing?.schemaVersion === 7 ? { effectiveDayCounting: method } : {}), planningTimeZone: timeZone } : {}) } as const
       const effectiveDeadline = form.schedulingMode === 'calendar' ? form.deadline || undefined
         : form.schedulingMode === 'effective' ? projectedDeadline || undefined : undefined
       const submittedMetrics = configuration.metrics.map((metric, index) => index === 0 && (metric.valueType === 'quantity' || metric.valueType === 'duration') && (isNewPlannedGoal || existing?.kind === 'goal' && existing.goalPlanning || existing !== undefined)
@@ -591,8 +586,9 @@ export function TrackerSetupPage() {
         : hasV3Planning ? 3
           : persistGoalPlanning ? 2
             : existing && existing.schemaVersion < 4 ? existing.schemaVersion : 1
-      const persistScheduling = isSchemaV6WriteEnabled() && (schedulingTouched || existing?.schemaVersion === 6)
-      const schemaVersion: TrackerDefinition['schemaVersion'] = persistScheduling ? 6 : legacySchemaVersion
+      const wantsV7 = form.schedulingMode === 'effective' && (isSchemaV7WriteEnabled() || existing?.schemaVersion === 7)
+      const persistScheduling = isSchemaV6WriteEnabled() && (schedulingTouched || existing?.schemaVersion === 6 || wantsV7)
+      const schemaVersion: TrackerDefinition['schemaVersion'] = wantsV7 && persistScheduling ? 7 : persistScheduling ? 6 : legacySchemaVersion
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
         schemaVersion, id, name: form.name, description: form.description.trim(), kind,
@@ -710,7 +706,7 @@ export function TrackerSetupPage() {
       : { ...goalPlanning, mode: 'daily-recurring', dailyTargets: { ...goalPlanning.dailyTargets, [metricId]: targetNumber } }
   }
   const pace = selectedKind === 'goal' && !existing && goalAmount && selectedDeadline
-    ? suggestedPace(targetNumber, values.startDate, selectedDeadline, scheduleFromForm(values.schedule, existing, values.customWeekdays), new Set(holidayDates))
+    ? suggestedPace(targetNumber, values.startDate, selectedDeadline, { schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), startDate: values.startDate, createdAt: `${values.startDate}T00:00:00.000Z` }, new Set(holidayDates), timeZone)
     : null
   return (
     <section className="tracker-page tracker-setup-page" aria-labelledby="tracker-setup-title">
@@ -740,7 +736,7 @@ export function TrackerSetupPage() {
             {values.schedulingMode === 'calendar' && <label className="form-field"><span>Deadline</span><input data-validation-path="deadline" aria-label="Tracker deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
             {values.schedulingMode === 'effective' && <>
               <label className="form-field"><span>Target effective days</span><input data-validation-path="effectiveDays" aria-label="Target effective days" className="auth-input" type="number" min="1" max="100000" step="1" value={values.effectiveDays} onChange={(event) => update('effectiveDays', event.target.value)} aria-invalid={Boolean(fieldErrors.effectiveDays)} aria-describedby={fieldErrors.effectiveDays ? 'effective-days-error' : undefined} />{fieldErrors.effectiveDays && <small id="effective-days-error" className="auth-error">{fieldErrors.effectiveDays}</small>}</label>
-              <p className="field-hint form-field-wide">Counts every date except holidays you mark in your calendar. Activity schedule settings do not change the duration.</p>
+              <p className="field-hint form-field-wide">Marked holidays are excluded from this duration.</p>
               <p className="goal-planning-note form-field-wide" role="status">{projectedDeadline ? <>Projected deadline: <strong>{calendarDateLabel(projectedDeadline)}</strong> · {inclusiveCalendarDays(values.startDate, projectedDeadline)} calendar days.</> : 'No eligible dates found for this target.'}</p>
             </>}
             {values.schedulingMode === 'calendar' && values.deadline && <p className="field-hint form-field-wide">Ends on your selected date, regardless of holidays. {inclusiveCalendarDays(values.startDate, values.deadline)} inclusive calendar days.</p>}
@@ -763,7 +759,8 @@ export function TrackerSetupPage() {
             <summary><span><strong>More options</strong><small>Extra measures, targets, milestones, and details</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary>
             <div className="advanced-setup-content">
             {!existing && <label className="form-field advanced-description"><span>Description <em>optional</em> <InfoButton title="Description" summary="Write the context that makes this tracker meaningful." description="This text is for your own reference and does not change how values, success rules, or progress are calculated." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Why does this matter to you?" /></label>}
-              <details className="advanced-subsection"><summary>Activity schedule & holidays</summary><p className="field-hint">Choose when you plan to work or check in. Your recurrence does not change the tracker duration.</p><div className="form-grid advanced-dates"><label className="form-field"><span>Activity schedule</span><select data-validation-path="schedule" aria-label="Activity schedule" className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)} aria-invalid={Boolean(fieldErrors.schedule)} aria-describedby={fieldErrors.schedule ? 'tracker-schedule-error' : undefined}><option value="every-day">Daily</option><option value="weekdays">Weekdays</option><option value="weekends">Weekends</option><option value="custom-days">Custom Days</option><option value="none">No Recurrence</option>{values.schedule === 'keep-current' && existing && <option value="keep-current">Keep current · {trackerScheduleLabel(existing.schedule)}</option>}</select>{fieldErrors.schedule && <small id="tracker-schedule-error" className="auth-error">{fieldErrors.schedule === 'Select at least one day, or choose No Recurrence.' ? fieldErrors.schedule : readableValidationMessage(fieldErrors.schedule)}</small>}</label>
+              <details className="advanced-subsection"><summary>Activity schedule & holidays</summary><p className="field-hint">Choose when activity is expected.</p><div className="form-grid advanced-dates"><label className="form-field"><span>Activity schedule</span><select data-validation-path="schedule" aria-label="Activity schedule" className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)} aria-invalid={Boolean(fieldErrors.schedule)} aria-describedby={fieldErrors.schedule ? 'tracker-schedule-error' : undefined}><option value="every-day">Daily</option><option value="weekdays">Weekdays</option><option value="weekends">Weekends</option><option value="custom-days">Custom Days</option><option value="none">No Recurrence</option>{values.schedule === 'keep-current' && existing && <option value="keep-current">Keep current · {trackerScheduleLabel(existing.schedule)}</option>}</select>{fieldErrors.schedule && <small id="tracker-schedule-error" className="auth-error">{fieldErrors.schedule === 'Select at least one day, or choose No Recurrence.' ? fieldErrors.schedule : readableValidationMessage(fieldErrors.schedule)}</small>}</label>
+                {values.schedulingMode === 'effective' && <fieldset className="effective-day-counting" aria-label="How should your days be counted?"><legend>How should your days be counted? <InfoButton title="Effective Days counting" summary="Example: 100 Effective Days with Weekdays" content={<><h3>Example: 100 Effective Days with Weekdays</h3><p><strong>Planned activity days:</strong> Only Monday–Friday count. Weekends pause the count.</p><p><strong>Include rest days:</strong> Monday–Sunday count, even though activity is expected only on weekdays.</p><p>Marked holidays don't count. Missed check-ins don't extend the duration.</p></>} /></legend>{values.schedule === 'none' ? <small>No Recurrence has no planned activity days. Effective Days count non-holiday dates.</small> : <div className="effective-day-counting-options"><label><input type="radio" name="effective-day-counting" value="planned-activity-days" checked={values.effectiveDayCounting === 'planned-activity-days'} disabled={!isSchemaV7WriteEnabled()} onChange={() => update('effectiveDayCounting', 'planned-activity-days')} /><span>Only planned activity days</span></label><label><input type="radio" name="effective-day-counting" value="all-non-holiday-days" checked={values.effectiveDayCounting === 'all-non-holiday-days'} disabled={!isSchemaV7WriteEnabled()} onChange={() => update('effectiveDayCounting', 'all-non-holiday-days')} /><span>Include rest days too</span></label></div>}{projectedDeadline && values.effectiveDays && <small>{values.effectiveDayCounting === 'planned-activity-days' && values.schedule !== 'none' && isSchemaV7WriteEnabled() ? `${values.effectiveDays} planned activity days` : `${values.effectiveDays} non-holiday days`} · Ends {calendarDateLabel(projectedDeadline)}</small>}{!isSchemaV7WriteEnabled() && <small>Counting method changes are unavailable until schema v7 is enabled for this build.</small>}</fieldset>}
                 {values.schedule === 'custom-days' && <fieldset className="custom-weekday-picker" data-validation-path="customWeekdays" aria-label="Custom recurrence days"><legend>Select activity days</legend><div>{weekdayChoices.map(([label, day]) => <button key={day} type="button" className="custom-weekday-chip" aria-pressed={values.customWeekdays.includes(day)} onClick={() => update('customWeekdays', values.customWeekdays.includes(day) ? values.customWeekdays.filter((current) => current !== day) : [...values.customWeekdays, day].sort((a, b) => a - b))}>{label}</button>)}</div>{values.customWeekdays.length === 0 && <small className="field-hint" role="status">Select at least one day, or choose No Recurrence.</small>}</fieldset>}
                 <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
                 <p className="field-hint form-field-wide">Marked holidays pause scheduled activity expectations and Goal Auto allocations. Recorded work remains saved.</p>

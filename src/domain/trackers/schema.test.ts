@@ -43,6 +43,15 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...ongoing, deadline: '2026-12-31' }).success).toBe(false)
   })
 
+  it('requires an explicit counting method for v7 while preserving v6 legacy semantics', () => {
+    const v6 = { ...tracker, schemaVersion: 6 as const, scheduling: { mode: 'effective' as const, effectiveDays: 30 } }
+    const v7 = { ...v6, schemaVersion: 7 as const, scheduling: { ...v6.scheduling, effectiveDayCounting: 'planned-activity-days' as const } }
+    expect(trackerDefinitionSchema.safeParse(v6).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(v7).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...v7, scheduling: { mode: 'effective', effectiveDays: 30 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v7, scheduling: { mode: 'calendar' } }).success).toBe(true)
+  })
+
   it('retains future Manual overrides outside a revised v6 goal window for explicit review', () => {
     const effectiveGoal = {
       ...tracker, schemaVersion: 6 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const }, deadline: '2026-01-07',

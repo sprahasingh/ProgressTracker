@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan } from './planning'
+import { deriveSchedulingDeadline } from './scheduling'
 import { calculateTrackerAnalytics } from './analytics'
 
 const tracker: TrackerDefinition = {
@@ -88,6 +89,30 @@ describe('daily recurring planning', () => {
 })
 
 describe('cumulative deadline planning', () => {
+  it('keeps Goal quantity and completed work fixed while planned workday totals follow the Effective Days method', () => {
+    const base = {
+      ...tracker, schemaVersion: 7 as const, startDate: '2026-11-01', schedule: { kind: 'weekdays' as const }, deadline: undefined,
+      scheduling: { mode: 'effective' as const, effectiveDays: 30, effectiveDayCounting: 'planned-activity-days' as const, planningTimeZone: 'UTC' },
+      goalPlanning: { mode: 'cumulative-deadline' as const, progressSemantics: { pages: 'incremental' as const }, dailyTargets: {}, cumulativeTargets: { pages: 100 }, allocations: { pages: {} }, manualAllocations: { pages: { '2026-12-01': 4 } }, planningTimeZone: 'UTC' },
+    }
+    const plannedDeadline = deriveSchedulingDeadline({ tracker: base, holidays: new Set() })!
+    const plannedTracker = { ...base, deadline: plannedDeadline }
+    const completed = entry('2026-11-02', 10)
+    const planned = calculateCumulativeMetricPlan({ tracker: plannedTracker, entries: [completed], metricId: 'pages', totalTarget: 100, startDate: '2026-11-01', asOfDate: '2026-11-02', progressSemantics: 'incremental', holidays: new Set() })
+
+    const allDates = { ...base, scheduling: { ...base.scheduling, effectiveDayCounting: 'all-non-holiday-days' as const } }
+    const allDatesDeadline = deriveSchedulingDeadline({ tracker: allDates, holidays: new Set() }!)
+    const allDatesTracker = { ...allDates, deadline: allDatesDeadline }
+    const allDatesPlan = calculateCumulativeMetricPlan({ tracker: allDatesTracker, entries: [completed], metricId: 'pages', totalTarget: 100, startDate: '2026-11-01', asOfDate: '2026-11-02', progressSemantics: 'incremental', holidays: new Set() })
+
+    expect(plannedDeadline).toBe('2026-12-11')
+    expect(allDatesDeadline).toBe('2026-11-30')
+    expect(planned).toMatchObject({ totalTarget: 100, actualProgress: 10, scheduledDaysTotal: 30 })
+    expect(allDatesPlan).toMatchObject({ totalTarget: 100, actualProgress: 10, scheduledDaysTotal: 21 })
+    expect(plannedTracker.goalPlanning.manualAllocations.pages).toEqual({ '2026-12-01': 4 })
+    expect(allDatesTracker.goalPlanning.manualAllocations.pages).toEqual({ '2026-12-01': 4 })
+  })
+
   it('includes valid pre-creation progress within a configured backdated goal window', () => {
     const createdToday = { ...tracker, createdAt: '2026-10-02T09:00:00.000Z', startDate: '2026-10-01' }
     const plan = calculateCumulativeMetricPlan({

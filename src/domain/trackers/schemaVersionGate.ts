@@ -18,7 +18,12 @@ export function isSchemaV6WriteEnabled(): boolean {
   return !import.meta.env.PROD || import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V6 === 'true'
 }
 
+export function isSchemaV7WriteEnabled(): boolean {
+  return !import.meta.env.PROD || import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V7 === 'true'
+}
+
 export function isTrackerSchemaWriteEnabled(version: number): boolean {
+  if (version >= 7) return isSchemaV7WriteEnabled()
   if (version >= 6) return isSchemaV6WriteEnabled()
   if (version >= 5) return isSchemaV5WriteEnabled()
   if (version >= 4) return isSchemaV4WriteEnabled()

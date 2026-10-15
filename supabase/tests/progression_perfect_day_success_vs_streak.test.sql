@@ -1,12 +1,16 @@
 begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
 select plan(12);
+-- Keep the database session and stored timezone preference on the same local
+-- date. Scoring still uses its UTC default until timezone_configured is true.
 set local timezone = 'Asia/Kolkata';
 
 insert into auth.users (id,email) values ('00000000-0000-4000-8000-000000000089','perfect-day-rule-mismatch@example.test');
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000089';
 insert into public.app_settings (id,user_id,timezone,timezone_configured)
-values ('general','00000000-0000-4000-8000-000000000089','UTC',false);
+values ('general','00000000-0000-4000-8000-000000000089','Asia/Kolkata',false);
 
 -- These three trackers succeed in the Today summary at their configured
 -- minimum (5), while their separate streak qualification threshold is target

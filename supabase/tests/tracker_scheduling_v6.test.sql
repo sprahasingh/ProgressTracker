@@ -32,9 +32,9 @@ select results_eq($$select schema_version, definition->'goalPlanning'->'manualAl
 
 reset role;
 select throws_ok($$insert into public.trackers (id, user_id, kind, status, name, schema_version, definition)
-  values ('00000000-0000-4000-8000-000000000133', '00000000-0000-4000-8000-000000000031', 'habit', 'active', 'Unsupported schema', 7,
-    '{"schemaVersion":7,"id":"00000000-0000-4000-8000-000000000133","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}')$$,
-  '23514', null, 'unsupported schema versions remain rejected');
+  values ('00000000-0000-4000-8000-000000000133', '00000000-0000-4000-8000-000000000031', 'habit', 'active', 'Unsupported schema', 8,
+    '{"schemaVersion":8,"id":"00000000-0000-4000-8000-000000000133","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}')$$,
+  '23514', null, 'schema versions beyond v7 remain rejected');
 
 select * from finish();
 rollback;
