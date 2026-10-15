@@ -70,7 +70,7 @@ const reasonPresentation: Record<string, { label: string; icon: 'check' | 'spark
 
 const levelThresholds = Array.from({ length: 20 }, (_, index) => ({ level: index + 1, xp: 50 * index * (index + 1) }))
 
-function XpInformation({ overview }: { overview: ProgressionOverview }) {
+export function XpInformation({ overview }: { overview: ProgressionOverview }) {
   const remaining = overview.officialLevel.nextLevelXp - overview.confirmedXp
   return <div className="xp-information">
     <p>Confirmed net XP comes from these server-recorded rewards:</p>
