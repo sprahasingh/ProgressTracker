@@ -11,6 +11,11 @@ type Layer = {
 
 const layers: Layer[] = []
 let originalBodyOverflow = ''
+let originalBodyPosition = ''
+let originalBodyTop = ''
+let originalBodyWidth = ''
+let originalRootOverflow = ''
+let lockedScrollY = 0
 let layerSequence = 0
 const historyKey = '__progressTrackerModalLayer'
 
@@ -24,8 +29,28 @@ export function hasModalLayerAbove(element: HTMLElement | null): boolean {
 function lockBody() {
   if (layers.length === 0) {
     originalBodyOverflow = document.body.style.overflow
+    originalBodyPosition = document.body.style.position
+    originalBodyTop = document.body.style.top
+    originalBodyWidth = document.body.style.width
+    originalRootOverflow = document.documentElement.style.overflow
+    lockedScrollY = window.scrollY
+    // overflow:hidden alone does not stop touch scrolling on iOS. Pin the body
+    // at its current visual position while a modal layer owns the interaction.
+    document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
+    document.body.style.position = 'fixed'
+    document.body.style.top = `${-lockedScrollY}px`
+    document.body.style.width = '100%'
   }
+}
+
+function unlockBody() {
+  document.body.style.overflow = originalBodyOverflow
+  document.body.style.position = originalBodyPosition
+  document.body.style.top = originalBodyTop
+  document.body.style.width = originalBodyWidth
+  document.documentElement.style.overflow = originalRootOverflow
+  if (lockedScrollY) window.scrollTo(0, lockedScrollY)
 }
 
 /** Coordinates focus trapping and body scroll locking for nested modal layers. */
@@ -119,7 +144,7 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
         if (layer.previousAriaHidden === null || layer.previousAriaHidden === undefined) layer.coveredLayer.element.removeAttribute('aria-hidden')
         else layer.coveredLayer.element.setAttribute('aria-hidden', layer.previousAriaHidden)
       }
-      if (layers.length === 0) document.body.style.overflow = originalBodyOverflow
+      if (layers.length === 0) unlockBody()
       if (manageHistoryEntry) queueMicrotask(() => {
         if (layers.some((activeLayer) => activeLayer.token === token)) return
         if ((window.history.state as Record<string, unknown> | null)?.[historyKey] === token) window.history.back()

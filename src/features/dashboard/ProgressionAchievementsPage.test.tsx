@@ -151,7 +151,9 @@ describe('Progression achievements interface', () => {
     expect(screen.getByText('+10 XP pending sync')).toBeInTheDocument()
     expect(screen.getByText('LEVEL 2')).toBeInTheDocument()
     expect(screen.getByText('XP reconstructed from past activity')).toBeInTheDocument()
-    expect(screen.getByText('25 of 200 XP this level · 175 XP to level 3')).toBeInTheDocument()
+    expect(screen.getByText('175 XP to Level 3')).toBeInTheDocument()
+    expect(screen.queryByText('CONFIRMED XP')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Next milestone: Level/)).not.toBeInTheDocument()
   })
 
   it('explains XP rewards, reversals, pending confirmation, and exact level thresholds', async () => {
@@ -398,14 +400,15 @@ describe('Progression achievements interface', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('keeps XP actions outside the history button and gives the level badge its own header group', async () => {
+  it('keeps XP actions outside the history button in one compact experience card', async () => {
     renderPage()
     await screen.findByText('Your Experience')
     const shell = document.querySelector<HTMLElement>('.progression-level-card-shell')!
     expect(shell.querySelector('.progression-xp-header')).toBeInTheDocument()
     expect(shell.querySelector('.progression-xp-header .info-button')?.closest('button.progression-level-card')).toBeNull()
     expect(within(shell).getByRole('button', { name: 'XP and level information' })).toBeInTheDocument()
-    expect(within(shell).getByText(/Next milestone: Level/)).toBeInTheDocument()
+    expect(within(shell).getByText('175 XP to Level 3')).toBeInTheDocument()
+    expect(within(shell).queryByText(/Next milestone: Level/)).not.toBeInTheDocument()
   })
 
   it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {

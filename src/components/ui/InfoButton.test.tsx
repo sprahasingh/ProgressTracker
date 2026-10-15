@@ -59,6 +59,21 @@ describe('InfoButton', () => {
     expect(document.body.style.overflow).toBe('hidden')
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(document.body.style.overflow).not.toBe('hidden')
+    expect(document.body.style.position).not.toBe('fixed')
+    expect(document.documentElement.style.overflow).not.toBe('hidden')
+  })
+
+  it('keeps one vertical scroll region inside a fixed, independently closable dialog', () => {
+    render(<InfoButton title="How XP and levels work" compact content={<div>{'Level threshold. '.repeat(300)}</div>} />)
+    fireEvent.click(screen.getByRole('button', { name: 'More about How XP and levels work' }))
+    const dialog = screen.getByRole('dialog', { name: 'How XP and levels work' })
+    expect(dialog.querySelectorAll('.info-popover-content')).toHaveLength(1)
+    expect(dialog.querySelector('.info-popover-heading')).toBeInTheDocument()
+    expect(dialog.querySelector('.info-popover-content')).toContainElement(dialog.querySelector('h2'))
+    expect(styles).toMatch(/\.info-popover-content\s*\{[^}]*overflow-y:\s*auto[^}]*touch-action:\s*auto/s)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More about How XP and levels work' })).toHaveFocus()
   })
 
   it('anchors the popover beside its icon and moves it above when there is no room below', () => {

@@ -69,10 +69,10 @@ export function InfoButton({ title, summary, description, label = `More about ${
       const aboveSpace = Math.max(0, anchor.top - viewTop - margin - gap)
       const fitsBelow = naturalHeight <= belowSpace
       const fitsAbove = naturalHeight <= aboveSpace
-      const useSheet = !compact && mobile && !fitsBelow && !fitsAbove
+      const useSheet = mobile && !fitsBelow && !fitsAbove
       setPresentation(useSheet ? 'sheet' : 'anchored')
       if (useSheet) {
-        const maxHeight = Math.max(0, viewBottom - viewTop - margin * 2)
+        const maxHeight = Math.max(1, viewBottom - viewTop - margin * 2)
         popover.style.maxHeight = `${maxHeight}px`
         const bottom = viewBottom - margin
         setPosition({ top: Math.max(viewTop + margin, bottom - Math.min(naturalHeight, maxHeight)), left: viewLeft + 12 })
