@@ -44,9 +44,9 @@ describe('getChallengeDayDisplay', () => {
     }
     const holidays = new Set(['2026-10-16'])
     expect(getChallengeDayDisplay(tracker, '2026-10-16', 'UTC', holidays)).toMatchObject({
-      phase: 'paused', day: null, totalDays: 3, label: 'Paused · next is Day 2', nextEligibleDate: '2026-10-19',
+      phase: 'paused', day: null, totalDays: 3, label: 'Paused · next is Day 2', nextEligibleDate: '2026-10-17',
     })
-    expect(getChallengeDayDisplay(tracker, '2026-10-19', 'UTC', holidays)?.label).toBe('Day 2 of 3')
-    expect(getChallengeDayDisplay(tracker, '2026-10-20', 'UTC', holidays)?.label).toBe('Day 3 of 3')
+    expect(getChallengeDayDisplay(tracker, '2026-10-17', 'UTC', holidays)?.label).toBe('Day 2 of 3')
+    expect(getChallengeDayDisplay(tracker, '2026-10-18', 'UTC', holidays)?.label).toBe('Day 3 of 3')
   })
 })

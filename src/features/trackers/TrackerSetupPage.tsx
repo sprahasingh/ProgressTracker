@@ -71,15 +71,21 @@ function scheduleFromForm(value: string, existing?: TrackerDefinition): TrackerD
   return { kind: 'every-day' }
 }
 
-function suggestedPace(amount: number, startDate: string, deadline: string, schedule: TrackerDefinition['schedule']): string | null {
+function suggestedPace(amount: number, startDate: string, deadline: string, schedule: TrackerDefinition['schedule'], holidays: ReadonlySet<string>): string | null {
   if (!Number.isFinite(amount) || amount <= 0 || deadline < startDate) return null
+  const count = scheduledWorkdayCount(startDate, deadline, schedule, holidays)
+  if (count === 0) return null
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(amount / count)} per scheduled day`
+}
+
+function scheduledWorkdayCount(startDate: string, deadline: string, schedule: TrackerDefinition['schedule'], holidays: ReadonlySet<string>): number {
+  if (deadline < startDate) return 0
   const tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt'> = { schedule, startDate: startDate as CalendarDate, deadline: deadline as CalendarDate, createdAt: `${startDate}T00:00:00.000Z` }
   let count = 0
   for (let date = startDate as CalendarDate; date <= deadline; date = shiftCalendarDate(date, 1)) {
-    if (isTrackerScheduledOccurrence(tracker, date)) count += 1
+    if (!holidays.has(date) && isTrackerScheduledOccurrence(tracker, date)) count += 1
   }
-  if (count === 0) return null
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(amount / count)} per scheduled day`
+  return count
 }
 
 function readableValidationMessage(message: string): string {
@@ -158,6 +164,9 @@ export function TrackerSetupPage() {
     } catch { return '' }
   })()
   const selectedDeadline = values.schedulingMode === 'effective' ? projectedDeadline : values.schedulingMode === 'calendar' ? values.deadline : ''
+  const projectedAutoDays = selectedDeadline
+    ? scheduledWorkdayCount(values.startDate, selectedDeadline, scheduleFromForm(values.schedule, existing), new Set(holidayDates))
+    : 0
 
   useEffect(() => {
     void localRepository.listAccountHolidays().then((holidays) => setHolidayDates(holidays.map((holiday) => holiday.date))).catch(() => setHolidayDates([]))
@@ -678,7 +687,7 @@ export function TrackerSetupPage() {
       : { ...goalPlanning, mode: 'daily-recurring', dailyTargets: { ...goalPlanning.dailyTargets, [metricId]: targetNumber } }
   }
   const pace = selectedKind === 'goal' && !existing && goalAmount && selectedDeadline
-    ? suggestedPace(targetNumber, values.startDate, selectedDeadline, scheduleFromForm(values.schedule, existing))
+    ? suggestedPace(targetNumber, values.startDate, selectedDeadline, scheduleFromForm(values.schedule, existing), new Set(holidayDates))
     : null
   return (
     <section className="tracker-page tracker-setup-page" aria-labelledby="tracker-setup-title">
@@ -701,17 +710,19 @@ export function TrackerSetupPage() {
           {!existing && <fieldset className="simple-measure-choice"><legend>How do you want to measure it?</legend><div className="simple-measure-options"><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType === 'boolean'} onChange={() => chooseSimpleMeasure('boolean')} /><span>Done or not yet</span></label><label><input type="radio" name="simple-measure" checked={configuration.metrics[0]?.valueType !== 'boolean'} onChange={() => chooseSimpleMeasure('quantity')} /><span>Number or amount</span></label></div></fieldset>}
           <div className="form-grid tracker-quick-fields">
             <label className="form-field"><span>Start date</span><input data-validation-path="startDate" aria-label="Start date" className="auth-input" type="date" max={values.schedulingMode === 'calendar' ? values.deadline || undefined : undefined} value={values.startDate} onChange={(event) => update('startDate', event.target.value)} aria-invalid={Boolean(fieldErrors.startDate)} aria-describedby={fieldErrors.startDate ? 'tracker-start-date-error' : undefined} />{fieldErrors.startDate && <small id="tracker-start-date-error" className="auth-error">{fieldErrors.startDate}</small>}</label>
-            <label className="form-field"><span>Schedule duration</span><select aria-label="Schedule duration" className="auth-input" data-validation-path="schedulingMode" value={values.schedulingMode} disabled={!isSchemaV6WriteEnabled()} onChange={(event) => { setSchedulingTouched(true); update('schedulingMode', event.target.value as TrackerSchedulingMode); setValues((current) => ({ ...current, schedulingMode: event.target.value as TrackerSchedulingMode, deadline: event.target.value === 'ongoing' ? '' : current.deadline })) }}>
+            <label className="form-field"><span>Duration</span><select aria-label="Schedule duration" className="auth-input" data-validation-path="schedulingMode" value={values.schedulingMode} disabled={!isSchemaV6WriteEnabled()} onChange={(event) => { setSchedulingTouched(true); update('schedulingMode', event.target.value as TrackerSchedulingMode); setValues((current) => ({ ...current, schedulingMode: event.target.value as TrackerSchedulingMode, deadline: event.target.value === 'ongoing' ? '' : current.deadline })) }}>
               <option value="calendar">Calendar Days</option><option value="effective">Effective Days</option><option value="ongoing">Ongoing</option>
             </select></label>
             {!isSchemaV6WriteEnabled() && <small className="field-hint form-field-wide">Scheduling modes need the schema v6 deployment before they can be changed.</small>}
             {values.schedulingMode === 'calendar' && <label className="form-field"><span>Deadline</span><input data-validation-path="deadline" aria-label="Tracker deadline" className="auth-input" type="date" min={values.startDate} value={values.deadline} onChange={(event) => update('deadline', event.target.value)} aria-invalid={Boolean(fieldErrors.deadline)} aria-describedby={fieldErrors.deadline ? 'tracker-deadline-error' : undefined} />{fieldErrors.deadline && <small id="tracker-deadline-error" className="auth-error">{fieldErrors.deadline}</small>}</label>}
             {values.schedulingMode === 'effective' && <>
               <label className="form-field"><span>Target effective days</span><input data-validation-path="effectiveDays" aria-label="Target effective days" className="auth-input" type="number" min="1" max="100000" step="1" value={values.effectiveDays} onChange={(event) => update('effectiveDays', event.target.value)} aria-invalid={Boolean(fieldErrors.effectiveDays)} aria-describedby={fieldErrors.effectiveDays ? 'effective-days-error' : undefined} />{fieldErrors.effectiveDays && <small id="effective-days-error" className="auth-error">{fieldErrors.effectiveDays}</small>}</label>
-              <p className="goal-planning-note form-field-wide" role="status">{projectedDeadline ? <>Projected deadline: <strong>{calendarDateLabel(projectedDeadline)}</strong> · {inclusiveCalendarDays(values.startDate, projectedDeadline)} calendar days. Holidays and scheduled rest days are excluded.</> : 'No eligible dates found for this schedule and target.'}</p>
+              <p className="field-hint form-field-wide">Counts every date except holidays you mark in your calendar. Activity schedule settings do not change the duration.</p>
+              <p className="goal-planning-note form-field-wide" role="status">{projectedDeadline ? <>Projected deadline: <strong>{calendarDateLabel(projectedDeadline)}</strong> · {inclusiveCalendarDays(values.startDate, projectedDeadline)} calendar days.</> : 'No eligible dates found for this target.'}</p>
             </>}
-            {values.schedulingMode === 'calendar' && values.deadline && <p className="field-hint form-field-wide">{inclusiveCalendarDays(values.startDate, values.deadline)} inclusive calendar days. Holidays and rest days do not move this deadline.</p>}
+            {values.schedulingMode === 'calendar' && values.deadline && <p className="field-hint form-field-wide">Ends on your selected date, regardless of holidays. {inclusiveCalendarDays(values.startDate, values.deadline)} inclusive calendar days.</p>}
             {values.schedulingMode === 'ongoing' && <p className="field-hint form-field-wide">Track this without a fixed end date or duration.</p>}
+            {values.kind === 'goal' && planningForEditor.mode === 'cumulative-deadline' && selectedDeadline && <p className={`field-hint form-field-wide${projectedAutoDays === 0 ? ' auth-error' : ''}`} role={projectedAutoDays === 0 ? 'status' : undefined}>{projectedAutoDays === 0 ? 'No scheduled workdays fall inside this duration. Choose an activity schedule with workdays or adjust the duration.' : `Goal Auto planning can use ${projectedAutoDays} scheduled, non-holiday workdays inside this duration.`}</p>}
           </div>
           {!existing && configuration.metrics[0]?.valueType !== 'boolean' && <section className="simple-numeric-settings" aria-label="Numeric measure settings">
             <label className="form-field"><span>Unit <em>optional</em></span><input aria-label="Numeric measure unit" className="auth-input" value={configuration.metrics[0]?.unit ?? ''} onChange={(event) => setConfiguration((current) => ({ ...current, metrics: current.metrics.map((metric, index) => index === 0 ? { ...metric, unit: event.target.value } : metric) }))} placeholder="pages, minutes, sessions" /></label>
@@ -729,9 +740,9 @@ export function TrackerSetupPage() {
             <summary><span><strong>More options</strong><small>Extra measures, targets, milestones, and details</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary>
             <div className="advanced-setup-content">
             {!existing && <label className="form-field advanced-description"><span>Description <em>optional</em> <InfoButton title="Description" summary="Write the context that makes this tracker meaningful." description="This text is for your own reference and does not change how values, success rules, or progress are calculated." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Why does this matter to you?" /></label>}
-              <details className="advanced-subsection"><summary>Schedule & holidays</summary><div className="form-grid advanced-dates"><label className="form-field"><span>{selectedKind === 'habit' ? 'How often?' : 'Work days'}</span><select aria-label={selectedKind === 'habit' ? 'How often?' : 'Work days'} className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)}><option value="every-day">Every day</option><option value="weekdays">Weekdays</option><option value="three-times-weekly">3 times a week</option><option value="none">No set days</option>{values.schedule === 'custom' && <option value="custom">Keep current schedule</option>}</select></label>
+              <details className="advanced-subsection"><summary>Activity schedule & holidays</summary><p className="field-hint">Choose when you plan to work or check in. This schedule controls activity expectations and Goal Auto dates, not Effective Days duration.</p><div className="form-grid advanced-dates"><label className="form-field"><span>Activity schedule</span><select aria-label="Activity schedule" className="auth-input" value={values.schedule} onChange={(event) => update('schedule', event.target.value)}><option value="every-day">Every day</option><option value="weekdays">Weekdays</option><option value="three-times-weekly">3 times a week</option><option value="none">No set days</option>{values.schedule === 'custom' && <option value="custom">Keep current schedule</option>}</select></label>
                 <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
-                <p className="field-hint form-field-wide">Workspace holidays and excluded days are applied automatically.</p>
+                <p className="field-hint form-field-wide">Marked holidays pause scheduled activity expectations and Goal Auto allocations. Recorded work remains saved.</p>
               </div></details>
               <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" firstMetricTypeMode={existing ? 'locked' : 'setup'} persistedMetricIds={existing?.metrics.map((metric) => metric.id)} metricsWithHistory={metricsWithHistory} onRemoveMetric={requestRemoveMetric} planning={goalPlanning} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>

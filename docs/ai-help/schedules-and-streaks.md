@@ -10,9 +10,9 @@ The effective start date is the later of the configured start and the tracker’
 
 ## Scheduling duration
 
-Trackers can use **Calendar Days**, **Effective Days**, or **Ongoing** scheduling. Calendar Days uses the chosen deadline and includes both the start and deadline dates; holidays and rest days do not move it. Effective Days uses a positive target count and projects the deadline onto the target-th eligible date, excluding workspace holidays and dates excluded by the tracker’s schedule. A missed eligible date still consumes a day; check-in success and streak length do not change the count. Ongoing has no fixed deadline. Existing trackers keep their established deadline behavior.
+Trackers can use **Calendar Days**, **Effective Days**, or **Ongoing** scheduling. Calendar Days uses the chosen deadline and includes both the start and deadline dates; holidays and rest days do not move it. Effective Days uses a positive target count and projects the deadline onto the target-th date that is not explicitly marked as a holiday in the ProgressTracker calendar. Weekends, public holidays, festivals, and activity schedule settings do not change that count. A missed or skipped check-in still consumes an Effective Day. Ongoing has no fixed deadline. Existing trackers keep their established deadline behavior.
 
-For Effective Days, a challenge pauses on a holiday or scheduled rest day and resumes at its next eligible day. For Calendar Days, challenge numbering advances with each calendar date. These duration counts are separate from completed check-ins and streaks. A cumulative Goal’s work target remains its quantity target; Effective Days only sets the planning window. Auto allocations use eligible dates in that window, while saved Manual allocations remain explicit.
+For Effective Days, a challenge pauses only on a manually marked holiday and resumes on the next non-holiday date. For Calendar Days, challenge numbering advances with each calendar date. These duration counts are separate from activity schedules, completed check-ins, and streaks. A cumulative Goal’s work target remains its quantity target; Effective Days only sets the planning window. Auto allocations use scheduled, non-holiday activity dates inside that window, while saved Manual allocations remain explicit and are reported when they conflict.
 
 ## Standard Mode and Strict Mode
 

@@ -115,6 +115,12 @@ export function trackerActiveStartDate(tracker: Pick<TrackerDefinition, 'startDa
   return tracker.startDate ?? trackerCreationDate(tracker, timeZone)
 }
 
+/** Effective Days use every calendar date from the active start, except saved holidays. */
+export function isEffectiveCalendarDate(tracker: Pick<TrackerDefinition, 'startDate' | 'createdAt' | 'goalPlanning'>, date: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): boolean {
+  parseDate(date)
+  return date >= trackerActiveStartDate(tracker, timeZone) && !holidays.has(date)
+}
+
 /** Calculates a per-scheduled-day target without changing check-in threshold semantics. */
 export function calculateDailyRecurringMetricPlan(input: {
   tracker: TrackerDefinition
@@ -189,7 +195,10 @@ export function calculateCumulativeMetricPlan(input: {
   if (deadline < start) throw new RangeError('Deadline cannot precede start date.')
   const tracker = { ...input.tracker, startDate }
   const latest = latestEntriesByDate(tracker, input.entries)
-  const scheduledDates = dateRange(startDate, input.tracker.deadline).filter((date) => isTrackerScheduledOccurrence(tracker, date, input.timeZone) && !input.holidays?.has(date))
+  // Duration already bounds this range; Auto workdays are a separate intersection
+  // of the activity schedule and non-holiday dates in every duration mode.
+  const scheduledDates = dateRange(startDate, input.tracker.deadline)
+    .filter((date) => isGoalAutoPlanningDate(tracker, date, input.holidays, input.timeZone))
   const progressValues: number[] = []
   for (const [date, entry] of latest) {
     const timestamp = parseDate(date)
@@ -288,6 +297,11 @@ export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 's
     case 'specific-dates': return schedule.dates.includes(date)
     case 'once': return schedule.date === date
   }
+}
+
+/** Goal Auto work requires both an in-window activity occurrence and a non-holiday date. */
+export function isGoalAutoPlanningDate(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): boolean {
+  return !holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)
 }
 
 /** Returns whether an active tracker has a planned occurrence on this calendar date. */

@@ -198,15 +198,17 @@ describe('workspace mutation notifications', () => {
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
     await activateWorkspace('scheduling-v6-account')
     const effective: StoredTrackerDefinition = {
-      ...tracker, id: 'effective-habit', schemaVersion: 6, startDate: '2026-10-12', schedule: { kind: 'weekdays' }, deadline: '2026-10-14',
-      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+      ...tracker, id: 'effective-habit', schemaVersion: 6, startDate: '2026-11-01', schedule: { kind: 'weekdays' }, deadline: '2026-11-30',
+      scheduling: { mode: 'effective', effectiveDays: 30, planningTimeZone: 'UTC' },
     }
     await localRepository.saveTracker(effective)
-    expect(await localRepository.getTracker(effective.id)).toMatchObject({ schemaVersion: 6, scheduling: effective.scheduling, deadline: '2026-10-14' })
-    await localRepository.saveAccountHolidays(['2026-10-13'], null)
-    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-10-15' })
-    await localRepository.removeAccountHoliday('2026-10-13')
-    expect(await localRepository.listTrackers()).toMatchObject([{ id: effective.id, deadline: '2026-10-14', scheduling: effective.scheduling }])
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ schemaVersion: 6, scheduling: effective.scheduling, deadline: '2026-11-30' })
+    await localRepository.saveAccountHolidays(['2026-11-08', '2026-11-15'], null)
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-12-02' })
+    await localRepository.removeAccountHoliday('2026-11-08')
+    expect(await localRepository.getTracker(effective.id)).toMatchObject({ deadline: '2026-12-01' })
+    await localRepository.removeAccountHoliday('2026-11-15')
+    expect(await localRepository.listTrackers()).toMatchObject([{ id: effective.id, deadline: '2026-11-30', scheduling: effective.scheduling }])
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v6-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 6, scheduling: effective.scheduling } })
   })
 

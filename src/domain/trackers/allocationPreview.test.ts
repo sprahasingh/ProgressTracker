@@ -27,6 +27,32 @@ describe('cumulative allocation preview', () => {
     expect(distributeTarget(1.005, 2)).toEqual([0.503, 0.502])
   })
 
+  it('keeps Effective duration independent while scheduling Goal Auto work on scheduled dates', () => {
+    const effectiveGoal: TrackerDefinition = {
+      ...tracker, schemaVersion: 6, schedule: { kind: 'weekdays' }, startDate: '2026-11-01', deadline: '2026-12-02',
+      scheduling: { mode: 'effective', effectiveDays: 30, planningTimeZone: 'UTC' },
+      goalPlanning: { ...tracker.goalPlanning!, cumulativeTargets: { pages: 100 }, manualAllocations: { pages: { '2026-11-06': 20, '2026-11-07': 6, '2026-11-09': 5 } } },
+    }
+    const preview = createCumulativeAllocationPreview({
+      tracker: effectiveGoal, entries: [entry('2026-11-01', 10)], metricId: 'pages', totalTarget: 100,
+      startDate: '2026-11-01', asOfDate: '2026-11-01', holidays: new Set(['2026-11-09', '2026-11-15']),
+    })
+    expect(preview.days.find((day) => day.date === '2026-11-06')).toMatchObject({ eligible: true, manual: true, amount: 20 })
+    expect(preview.days.find((day) => day.date === '2026-11-07')?.eligible).toBe(false)
+    expect(preview.days.find((day) => day.date === '2026-11-09')).toMatchObject({ eligible: false, holiday: true })
+    expect(preview.manualConflicts).toContainEqual({ date: '2026-11-09', amount: 5, reason: 'holiday' })
+    expect(preview.manualConflicts).toContainEqual({ date: '2026-11-07', amount: 6, reason: 'rest-day' })
+    expect(preview.days.find((day) => day.date === '2026-11-14')?.eligible).toBe(false)
+    expect(preview.days.find((day) => day.date === '2026-11-15')?.eligible).toBe(false)
+    expect(preview.actualProgress).toBe(10)
+    expect(preview.days.filter((day) => day.eligible).length).toBe(22)
+    expect(effectiveGoal.goalPlanning?.manualAllocations?.pages).toEqual({ '2026-11-06': 20, '2026-11-07': 6, '2026-11-09': 5 })
+    expect(calculateCumulativeMetricPlan({
+      tracker: effectiveGoal, entries: [], metricId: 'pages', totalTarget: 100, startDate: '2026-11-01', asOfDate: '2026-11-01',
+      progressSemantics: 'incremental', holidays: new Set(['2026-11-09', '2026-11-15']),
+    }).scheduledDaysTotal).toBe(22)
+  })
+
   it('front-loads integer remainders and leaves later dates at zero', () => {
     expect(distributeTarget(10, 3, false, 1)).toEqual([4, 3, 3])
     expect(distributeTarget(3, 5, false, 1)).toEqual([1, 1, 1, 0, 0])
@@ -170,6 +196,18 @@ describe('cumulative allocation preview', () => {
     const noDays = createCumulativeAllocationPreview({ tracker: { ...goal, deadline: '2026-01-04' }, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-01', asOfDate: '2026-01-05' })
     expect(noDays.eligibleDayCount).toBe(0)
     expect(noDays.unallocatedWork).toBe(10)
+  })
+
+  it('reports unallocated work when every scheduled workday in a short duration is a holiday', () => {
+    const shortEffectiveGoal: TrackerDefinition = {
+      ...tracker, schemaVersion: 6, schedule: { kind: 'weekdays' }, startDate: '2026-01-05', deadline: '2026-01-07',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    }
+    const holidays = new Set(['2026-01-05', '2026-01-06', '2026-01-07'])
+    const preview = createCumulativeAllocationPreview({ tracker: shortEffectiveGoal, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05', holidays })
+    expect(preview).toMatchObject({ eligibleDayCount: 0, automaticDayCount: 0, unallocatedWork: 10 })
+    expect(calculateCumulativeMetricPlan({ tracker: shortEffectiveGoal, entries: [], metricId: 'pages', totalTarget: 10, startDate: '2026-01-05', asOfDate: '2026-01-05', progressSemantics: 'incremental', holidays })).toMatchObject({ status: 'no-scheduled-days', requiredDailyPace: null })
+    expect(preview.days.every((day) => day.amount === null || day.amount >= 0)).toBe(true)
   })
 
   it('front-loads hundredths, then recalculates decimal future days after progress', () => {

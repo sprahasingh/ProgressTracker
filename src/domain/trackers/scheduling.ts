@@ -1,5 +1,5 @@
 import type { TrackerDefinition, TrackerScheduling, TrackerSchedulingMode } from './types'
-import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
+import { isEffectiveCalendarDate, trackerActiveStartDate } from './planning'
 
 const DAY_MS = 86_400_000
 const MAX_SEARCH_DAYS = 366_000
@@ -25,10 +25,7 @@ export function isEffectiveDateEligible(
   holidays: ReadonlySet<string> = new Set(),
   timeZone?: string,
 ): boolean {
-  parse(date)
-  if (holidays.has(date)) return false
-  const startDate = trackerActiveStartDate(tracker, timeZone)
-  return isTrackerScheduledOccurrence({ ...tracker, startDate, deadline: undefined }, date, timeZone)
+  return isEffectiveCalendarDate(tracker, date, holidays, timeZone)
 }
 
 /** Finds the Nth eligible calendar date with a strict bound to reject impossible schedules. */

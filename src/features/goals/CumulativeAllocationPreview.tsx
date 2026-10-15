@@ -195,6 +195,7 @@ export function CumulativeAllocationPreview({ tracker, entries, metricId, startD
     {preview.overAllocatedWork > 0 && <p className="allocation-preview-warning" role="status">Manual allocations exceed remaining work by {format(preview.overAllocatedWork)}. Edit the Manual dates below to adjust the plan.</p>}
     {preview.overAllocatedWork === 0 && totals.overAllocation > 0 && <p className="allocation-preview-warning" role="status">The configured increment rounds the automatic plan {format(totals.overAllocation)} above the remaining target.</p>}
     {preview.unallocatedWork > 0 && <p className="allocation-preview-warning" role="status">{format(preview.unallocatedWork)} remains unallocated because no Auto dates are available. Edit a Manual date above or adjust the schedule or deadline.</p>}
+    {preview.unallocatedWork === 0 && preview.remainingTarget > 0 && preview.automaticDayCount === 1 && <p className="allocation-preview-warning" role="status">Only one scheduled Auto date is available inside this duration. Review the activity schedule or duration if you need more planning days.</p>}
   </section>
 }
 

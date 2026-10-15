@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
+import { isGoalAutoPlanningDate, trackerActiveStartDate } from './planning'
 
 const id = z.string().min(1)
 const calendarDate = z.iso.date()
@@ -169,7 +169,6 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion < 6 && tracker.scheduling !== undefined) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Explicit scheduling modes require tracker schema version 6.' })
   if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
   if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
-  if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'effective' && tracker.schedule.kind === 'none') context.addIssue({ code: 'custom', path: ['schedule'], message: 'Effective scheduling needs at least one eligible scheduled day.' })
   if (tracker.schemaVersion === 6 && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
@@ -238,7 +237,7 @@ export const trackerDefinitionSchema = z.object({
           if (metric.valueType === 'checklist' && (!Number.isInteger(amount) || amount > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Checklist allocations must be whole item counts within the checklist size.' })
           const effectiveStartDate = trackerActiveStartDate(tracker, plan.planningTimeZone)
           const historicalAllocation = date < effectiveStartDate
-          const scheduled = allocationField === 'manualAllocations' || historicalAllocation || (tracker.deadline && date <= tracker.deadline && isTrackerScheduledOccurrence({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, plan.planningTimeZone))
+          const scheduled = allocationField === 'manualAllocations' || historicalAllocation || (tracker.deadline && date <= tracker.deadline && isGoalAutoPlanningDate({ ...tracker, startDate: effectiveStartDate } as import('./types').TrackerDefinition, date, new Set(), plan.planningTimeZone))
           if (!scheduled) context.addIssue({ code: 'custom', path: ['goalPlanning', allocationField, metricId, date], message: 'Allocations must use scheduled dates on or before the goal deadline. Saved allocations before a later start date remain preserved as history.' })
         }
       }

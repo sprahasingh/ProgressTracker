@@ -101,7 +101,7 @@ The tracker’s active period begins on its configured start date, or its creati
 - src/features/trackers/TrackerSetupPage.tsx
 - src/domain/trackers/challengeDay.ts
 **Answer:**
-Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of eligible days and projects the deadline to the last one; workspace holidays and dates excluded by the tracker’s schedule do not consume days. Missed check-ins still consume eligible days. Ongoing has no fixed deadline. These day counts are separate from completed check-ins and streaks.
+Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of days and projects the deadline to the last date that is not explicitly marked as a holiday in ProgressTracker's calendar. Weekends, public holidays, festivals, and recurrence schedules do not change that count; missed check-ins still consume Effective Days. Ongoing has no fixed deadline. These duration counts are separate from activity schedules, completed check-ins, and streaks.
 
 ### ID: retire-measure
 **Category:** trackers
