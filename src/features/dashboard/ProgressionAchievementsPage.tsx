@@ -115,16 +115,6 @@ function achievementProgressLabel(badge: AchievementState, progressUnit: string)
     : `${progress} / ${badge.target} ${progressUnit}`
 }
 
-function badgeProgressText(badge: AchievementState, progressUnit: string) {
-  if (badge.achievementId === 'consistency-star') {
-    const progress = consistencyProgress(badge)
-    return progress ? `${progress.eligibleDays}; ${progress.adherence}` : 'Authoritative qualification progress is unavailable.'
-  }
-  if (badge.qualificationDetails?.message) return badge.qualificationDetails.message
-  if (['perfect-day', 'perfect-week', 'perfect-month', 'the-comeback', 'milestone-maker', 'goal-crusher'].includes(badge.achievementId)) return 'Progress is based on qualifying activity and confirmed conditions.'
-  return achievementProgressLabel(badge, progressUnit)
-}
-
 function badgeEarnedDate(badge: AchievementState) {
   const occurrences = activeAchievementOccurrences(badge.history)
   const byDate = (event: AchievementState['history'][number]) => event.sourceDate ?? event.recordedAt.slice(0, 10)
@@ -367,20 +357,20 @@ export function ProgressionAchievementsPage() {
         <div className="progression-section-heading"><div><span className="eyebrow">OVERVIEW</span><h2 id="progression-overview-title">Progress at a glance</h2></div><span className="progression-authority"><AppIcon name="privacy" /> Server-confirmed rewards</span></div>
         <div className="progression-overview-grid">
           <div className="progression-level-card-shell">
-          <button type="button" className="progression-level-card" onClick={openHistory} aria-label={`Level ${pageData.overview.officialLevel.level}, ${pageData.overview.confirmedXp} confirmed XP. Open score history`}>
-            <div className="progression-level-top"><span className="progression-card-label">CONFIRMED XP</span><span className="progression-level-pill">LEVEL {pageData.overview.officialLevel.level}</span></div>
+          <div className="progression-xp-header"><strong>Your Experience</strong><div><span className="progression-level-pill">LEVEL {pageData.overview.officialLevel.level}</span><InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={pageData.overview} />} /></div></div>
+          <button type="button" className="progression-level-card" onClick={openHistory} aria-label={`${pageData.overview.confirmedXp} confirmed XP at level ${pageData.overview.officialLevel.level}. Open score history`}>
+            <span className="progression-card-label">CONFIRMED XP</span>
             <strong className="progression-xp-total">{pageData.overview.confirmedXp.toLocaleString()} <small>XP</small></strong>
             {pageData.overview.legacyXpStatus === 'reconstructed' && <span className="progression-history-estimate">XP reconstructed from past activity</span>}
             {(pageData.overview.legacyXpStatus === 'unavailable' || pageData.overview.legacyXpStatus === 'legacy_fallback') && <span className="progression-history-unavailable">Historical XP unavailable</span>}
             {pageData.overview.legacyXpStatus === 'pending' && <span className="progression-history-unavailable">Historical XP is being prepared</span>}
             <span className="progression-level-track" role="progressbar" aria-label="Progress to next level" aria-valuenow={pageData.overview.officialLevel.progressXp} aria-valuemin={0} aria-valuemax={pageData.overview.officialLevel.requiredXp}><span style={{ width: `${Math.min(100, pageData.overview.officialLevel.progressXp / pageData.overview.officialLevel.requiredXp * 100)}%` }} /></span>
             <span className="progression-level-caption">{pageData.overview.officialLevel.progressXp.toLocaleString()} of {pageData.overview.officialLevel.requiredXp.toLocaleString()} XP this level · {(pageData.overview.officialLevel.nextLevelXp - pageData.overview.confirmedXp).toLocaleString()} XP to level {pageData.overview.officialLevel.level + 1}</span>
-            <span className="progression-milestone-row" aria-label="Upcoming level milestones">{[5, 10, 20, 30, 50, 100].filter((milestone) => milestone > pageData.overview.officialLevel.level).slice(0, 4).map((milestone) => <span className="progression-milestone" key={milestone}><AppIcon name="spark" /> L{milestone}</span>)}</span>
+            <span className="progression-milestone-row">Next milestone: Level {([5, 10, 20, 30, 50, 100].find((milestone) => milestone > pageData.overview.officialLevel.level) ?? pageData.overview.officialLevel.level + 1)}</span>
             {pageData.overview.provisionalXp > 0 && <span className="progression-pending-line"><AppIcon name="status-pending" /> +{pageData.overview.provisionalXp.toLocaleString()} XP pending sync</span>}
             {syncStatus === 'error' && <span className="progression-pending-note">Sync needs attention. Pending rewards are not included above.</span>}
             {(pageData.overview.provisionalXp > 0 && (!isOnline || syncStatus === 'offline' || syncStatus === 'waiting')) && <span className="progression-pending-note">Saved on this device; confirmation will follow when synchronization completes.</span>}
           </button>
-          <InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={pageData.overview} />} />
           </div>
           <button type="button" className="progression-summary-card" onClick={() => setDetail('consistency')} aria-label={`Consistency score ${pageData.overview.consistency.score ?? 'not available'}, view consistency details`}>
             <span className="progression-card-label">CONSISTENCY</span><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}`}<small>{pageData.overview.consistency.score === null ? '' : ' / 100'}</small></strong>
@@ -444,20 +434,20 @@ export function ProgressionAchievementsPage() {
       {pageData?.overview.provisionalXp ? <p className="progression-dialog-footnote">+{pageData.overview.provisionalXp.toLocaleString()} provisional XP is not in the confirmed total.</p> : null}
     </ProgressionDetailDialog>}
 
-    {allBadgesOpen && pageData && <ProgressionDetailDialog title="All badges" eyebrow="UNLOCKED COLLECTION" onClose={() => setAllBadgesOpen(false)}>
+    {allBadgesOpen && pageData && <ProgressionDetailDialog title={selectedBadge ? achievementDefinition(selectedBadge.achievementId)?.name ?? 'Badge details' : 'All badges'} eyebrow="UNLOCKED COLLECTION" onClose={() => { setSelectedBadge(null); setAllBadgesOpen(false) }} onBack={selectedBadge ? () => setSelectedBadge(null) : undefined}>
+      {selectedBadge ? <BadgeDetailContent badge={selectedBadge} /> : <>
       {pageData.overview.achievements.filter((badge) => badge.earned && activeAchievementOccurrences(badge.history).length > 0).length === 0
         ? <EmptyState title="Your badge shelf is ready" description="Badges will appear here after an achievement is confirmed." />
         : <div className="progression-unlocked-list">{pageData.overview.achievements.filter((badge) => badge.earned && activeAchievementOccurrences(badge.history).length > 0).map((badge) => {
           const definition = achievementDefinition(badge.achievementId)
           if (!definition) return null
           const occurrences = activeAchievementOccurrences(badge.history)
-          const earnedDate = badgeEarnedDate(badge)
-          return <button type="button" className="progression-unlocked-badge" key={badge.achievementId} onClick={() => { setAllBadgesOpen(false); setSelectedBadge(badge) }}>
+          return <button type="button" className="progression-unlocked-badge" key={badge.achievementId} onClick={() => setSelectedBadge(badge)}>
             <ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, occurrences.length) : 1} />
-            <span><strong>{definition.name}</strong><small>{definition.description}</small>{badge.repeatable && <small>Earned {occurrences.length} {occurrences.length === 1 ? 'time' : 'times'}</small>}</span>
-            {earnedDate && <time dateTime={earnedDate}>{formatCalendarDate(earnedDate)}</time>}
+            <span><strong>{definition.name}</strong>{badge.repeatable && <small>Earned {occurrences.length} {occurrences.length === 1 ? 'time' : 'times'}</small>}</span>
           </button>
         })}</div>}
+      </>}
     </ProgressionDetailDialog>}
 
     {detail === 'consistency' && pageData && <ProgressionDetailDialog title="Consistency" eyebrow="ROLLING 30 ELIGIBLE DAYS" onClose={() => setDetail(null)}>
@@ -495,7 +485,7 @@ export function ProgressionAchievementsPage() {
       <p className="progression-dialog-footnote">For live goal target progress and plan details, open <Link to="/goals" onClick={() => setDetail(null)}>Goals &amp; planning</Link>.</p>
     </ProgressionDetailDialog>}
 
-    {selectedBadge && <BadgeDetailDialog badge={selectedBadge} onClose={() => setSelectedBadge(null)} />}
+    {selectedBadge && !allBadgesOpen && <BadgeDetailDialog badge={selectedBadge} onClose={() => setSelectedBadge(null)} />}
   </section>
 }
 
@@ -524,27 +514,17 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
   const occurrences = activeAchievementOccurrences(badge.history)
   const earnedCount = badge.validAwardCount ?? occurrences.length
   const tier = badge.earned && repeatable ? Math.max(1, earnedCount) : badge.earned ? 1 : Math.max(1, badge.currentTier + 1)
-  const earnedDate = badgeEarnedDate(badge)
-  const earnedAt = earnedDate ? formatCalendarDate(earnedDate) : null
-  const consistencyDetails = consistencyProgress(badge)
   const periodProgress = ['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId) && badge.qualificationDetails?.status === 'in_progress'
   const showMeter = !badge.earned && (periodProgress || !['perfect-day', 'perfect-week', 'perfect-month', 'perfect-year', 'the-comeback', 'milestone-maker', 'goal-crusher', 'consistency-star'].includes(badge.achievementId))
   const meterValue = periodProgress ? badge.qualificationDetails?.progress ?? 0 : badge.progress
   const meterTarget = periodProgress ? badge.qualificationDetails?.target ?? 1 : badge.target
   const meterPercent = meterTarget > 0 ? Math.min(100, Math.floor(meterValue / meterTarget * 100)) : 0
   return <div className="progression-badge-card-shell">
-  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? `earned${earnedAt ? ` ${earnedAt}` : ''}` : `locked. ${badgeProgressText(badge, definition.progressUnit)} ${definition.shortRequirement}`}. View badge details`}>
+  <button type="button" className={`progression-badge-card${badge.earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${badge.earned ? 'earned' : 'locked'}. View badge details`}>
     <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} />
     <strong>{definition.name}</strong><span>{badge.earned ? 'Unlocked' : 'Locked'}</span>
     {badge.earned && repeatable && <small>Earned {earnedCount === 1 ? 'once' : `${earnedCount} times`}</small>}
-    {badge.earned && repeatable && earnedAt && <small>Most recent · {earnedAt}</small>}
-    {badge.earned && !repeatable && earnedAt && <small>Originally earned · {earnedAt}</small>}
-    <span className="progression-badge-requirement-summary">{definition.shortRequirement}</span>
-    {!badge.earned && (badge.achievementId === 'consistency-star' ? <span className="progression-badge-progress progression-badge-progress-consistency">
-      {consistencyDetails ? <><span>{consistencyDetails.eligibleDays}</span><span>{consistencyDetails.adherence}</span></> : <span>Authoritative qualification progress is unavailable.</span>}
-    </span> : <span className="progression-badge-progress">{badgeProgressText(badge, definition.progressUnit)}</span>)}
-    {showMeter && <span className="progression-badge-meter"><span>{meterValue} / {meterTarget}</span><span className="progression-level-track" role="progressbar" aria-label={`${definition.name} progress`} aria-valuenow={meterValue} aria-valuemin={0} aria-valuemax={meterTarget}><span style={{ width: `${meterPercent}%` }} /></span><small>{meterPercent}%</small></span>}
-    {earnedAt && <time dateTime={badge.unlockedAt!}>{earnedAt}</time>}
+    {!badge.earned && showMeter && <span className="progression-badge-meter"><span className="progression-level-track" role="progressbar" aria-label={`${definition.name} progress`} aria-valuenow={meterValue} aria-valuemin={0} aria-valuemax={meterTarget}><span style={{ width: `${meterPercent}%` }} /></span><small>{meterPercent}%</small></span>}
   </button>
   <InfoButton title={`${definition.name} badge information`} label={`More about ${definition.name}`} compact content={<BadgeInformation badge={badge} />} />
   </div>
@@ -553,13 +533,19 @@ function BadgeCard({ badge, onOpen }: { badge: AchievementState; onOpen: () => v
 function BadgeDetailDialog({ badge, onClose }: { badge: AchievementState; onClose: () => void }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
+  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}><BadgeDetailContent badge={badge} /></ProgressionDetailDialog>
+}
+
+function BadgeDetailContent({ badge }: { badge: AchievementState }) {
+  const definition = achievementDefinition(badge.achievementId)
+  if (!definition) return null
   const repeatable = badge.repeatable
   const occurrences = activeAchievementOccurrences(badge.history)
   const earnedCount = badge.validAwardCount ?? occurrences.length
   const tier = badge.earned && repeatable ? Math.max(1, earnedCount) : Math.max(1, badge.currentTier + (badge.earned ? 0 : 1))
   const earnedDate = badgeEarnedDate(badge)
   const consistencyDetails = consistencyProgress(badge)
-  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}>
+  return <>
     <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Unlocked' : 'Locked'}</span>{badge.earned && repeatable && <span className="progression-status-pill is-tier">Earned {earnedCount === 1 ? 'once' : `${earnedCount} times`}</span>}<p>{definition.description}</p></div></div>
     <div className="progression-badge-requirement"><strong>Unlock requirement</strong><p>{definition.requirement}</p></div>
     {badge.achievementId === 'consistency-star' && <div className="progression-badge-requirement progression-consistency-qualification"><strong>Qualification progress</strong>{consistencyDetails ? <><p>{consistencyDetails.eligibleDays}</p><p>{consistencyDetails.adherence}</p></> : <p>Authoritative qualification progress is unavailable.</p>}</div>}
@@ -571,7 +557,7 @@ function BadgeDetailDialog({ badge, onClose }: { badge: AchievementState; onClos
     {badge.qualificationDetails?.label && badge.achievementId !== 'consistency-star' && <div className="progression-badge-requirement"><strong>{badge.qualificationDetails.label}</strong><p>{badge.qualificationDetails.message}</p>{badge.qualificationDetails.status === 'in_progress' && badge.qualificationDetails.progress !== undefined && badge.qualificationDetails.target !== undefined && <span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.qualificationDetails.progress / badge.qualificationDetails.target * 100)}%` }} /></span>}</div>}
     <h3 className="progression-subheading">Achievement history</h3>
     {badge.history.length ? <ul className="progression-badge-history">{[...new Map(badge.history.map((event) => [event.id, event])).values()].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {repeatable ? `Award ${event.tier}` : 'First award'}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}{event.trackerDisplayName && <><br /><span>{event.trackerDisplayName}</span><span className="progression-deleted-tracker-tag">Deleted tracker</span><small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small></>}</span><time dateTime={event.recordedAt}>{formatRecordedTimestamp(event.recordedAt)}</time></li>)}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
-  </ProgressionDetailDialog>
+  </>
 }
 
 function recentEvents(data: PageData): HistoryItem[] {
