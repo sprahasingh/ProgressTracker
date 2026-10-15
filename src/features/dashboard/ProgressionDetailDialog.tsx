@@ -4,22 +4,24 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { useModalLayer } from '../../components/ui/useModalLayer'
 import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBounds'
 
-export function ProgressionDetailDialog({ title, eyebrow, onClose, children }: {
+export function ProgressionDetailDialog({ title, eyebrow, onClose, onBack, children }: {
   title: string
   eyebrow?: string
   onClose: () => void
+  onBack?: () => void
   children: ReactNode
 }) {
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
-  useModalLayer(true, dialogRef, onClose)
+  useModalLayer(true, dialogRef, onBack ?? onClose)
   useVisualViewportBounds(true, backdropRef)
   useEffect(() => { closeRef.current?.focus() }, [])
 
   return createPortal(<div ref={backdropRef} className="modal-backdrop progression-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section ref={dialogRef} className="progression-dialog" role="dialog" aria-modal="true" aria-labelledby="progression-dialog-title" tabIndex={-1}>
       <header className="progression-dialog-header">
+        {onBack && <button type="button" className="progression-dialog-back" onClick={onBack}><AppIcon name="chevron-down" />Back</button>}
         <div>{eyebrow && <span className="eyebrow"><span className="eyebrow-line" />{eyebrow}</span>}<h2 id="progression-dialog-title">{title}</h2></div>
         <button ref={closeRef} type="button" className="info-dialog-close" aria-label="Close details" onClick={onClose}><AppIcon name="close" /></button>
       </header>
