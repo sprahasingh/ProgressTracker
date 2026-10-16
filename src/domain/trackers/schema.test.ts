@@ -271,6 +271,48 @@ describe('generic tracker schemas', () => {
   })
 })
 
+describe('typed milestone schema v9', () => {
+  const challenge = {
+    ...tracker,
+    schemaVersion: 9 as const,
+    kind: 'challenge' as const,
+    qualificationRule: { kind: 'comparison' as const, metricId: 'problems', operator: 'at-least' as const, value: 1 },
+    startDate: '2026-01-01',
+    deadline: '2026-04-10',
+    scheduling: { mode: 'effective' as const, effectiveDays: 100, effectiveDayCounting: 'planned-activity-days' as const },
+    milestones: [],
+  }
+
+  it('accepts independent milestone calculations for quantities, successful dates, streaks, challenge days, and Yes days', () => {
+    const metrics = [
+      { id: 'problems', name: 'DSA Problems', valueType: 'quantity' as const, unit: 'problems', precision: { decimalPlaces: 0 as const, increment: 1 } },
+      { id: 'theory', name: 'Studied Theory', valueType: 'boolean' as const },
+    ]
+    const milestones = [
+      { id: 'total', title: 'First 50', description: '', type: 'cumulative-quantity' as const, metricId: 'problems', targetValue: 50, measureTypeSnapshot: 'quantity' as const, unitSnapshot: 'problems', position: 0 },
+      { id: 'big-day', title: 'Big practice day', description: '', type: 'single-day-quantity' as const, metricId: 'problems', targetValue: 10, measureTypeSnapshot: 'quantity' as const, unitSnapshot: 'problems', position: 1 },
+      { id: 'success', title: 'Productive days', description: '', type: 'successful-days' as const, targetValue: 30, position: 2 },
+      { id: 'streak', title: 'Consistency', description: '', type: 'streak-length' as const, targetValue: 10, position: 3 },
+      { id: 'challenge', title: 'Halfway', description: '', type: 'challenge-day' as const, targetValue: 50, position: 4 },
+      { id: 'theory', title: 'Theory habit', description: '', type: 'measure-completion-count' as const, metricId: 'theory', targetValue: 20, measureTypeSnapshot: 'boolean' as const, completionCondition: 'true-day' as const, position: 5 },
+    ]
+    expect(trackerDefinitionSchema.safeParse({ ...challenge, metrics, milestones }).success).toBe(true)
+  })
+
+  it('rejects typed milestone fields on older schema versions without reinterpreting legacy checkpoints', () => {
+    const old = { ...tracker, schemaVersion: 8 as const, streakRuleMode: 'same-as-success' as const, scheduling: { mode: 'calendar' as const }, milestones: [{ id: 'legacy', title: 'Old checkpoint', description: '', metricId: 'pages', targetValue: 100, position: 0 }] }
+    expect(trackerDefinitionSchema.safeParse(old).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...old, milestones: [{ ...old.milestones[0]!, type: 'cumulative-quantity', measureTypeSnapshot: 'quantity', unitSnapshot: 'pages' }] }).success).toBe(false)
+  })
+
+  it('rejects zero targets, fractional day counts, and challenge milestones beyond the configured duration', () => {
+    const day = { id: 'day', title: 'Day', description: '', type: 'challenge-day' as const, targetValue: 101, position: 0 }
+    expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [day] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [{ ...day, targetValue: 0 }] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [{ ...day, type: 'successful-days', targetValue: 2.5 }] }).success).toBe(false)
+  })
+})
+
 describe('legacy adapters', () => {
   const category = { id: 'routine-1', name: 'Read', icon: 'book', accent: 'green', schedule: { kind: 'every-day' as const }, position: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', archivedAt: null, deletedAt: null }
   const common = { id: 'entry-1', categoryId: category.id, date: '2026-01-02' as const, note: 'Ten pages', createdAt: category.createdAt, updatedAt: category.updatedAt, deletedAt: null }

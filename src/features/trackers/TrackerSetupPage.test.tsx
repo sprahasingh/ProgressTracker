@@ -638,9 +638,11 @@ describe('tracker setup flow', () => {
     expect(screen.queryByRole('heading', { name: 'Milestones' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ Add milestone' }))
     expect(milestoneDisclosure).toHaveAttribute('open')
-    const milestoneTitle = screen.getByRole('region', { name: 'Milestones' }).querySelector('input') as HTMLInputElement
+    const milestoneCard = screen.getByRole('region', { name: 'Milestones' }).querySelector('.milestone-editor-card') as HTMLElement
+    const milestoneTitle = milestoneCard.querySelector('input') as HTMLInputElement
     await user.type(milestoneTitle, 'Publish first case study')
     expect(milestoneTitle).toHaveValue('Publish first case study')
+    await user.type(within(milestoneCard).getByRole('spinbutton'), '1')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
@@ -649,7 +651,8 @@ describe('tracker setup flow', () => {
     expect(saved?.metrics[1]).toMatchObject({ name: 'Focus time', valueType: 'quantity' })
     expect(saved?.qualificationRule).toMatchObject({ kind: 'all', operands: [{ kind: 'any', operands: [expect.any(Object), expect.any(Object)] }, expect.any(Object)] })
     expect(saved?.customFields).toMatchObject([{ name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'] }])
-    expect(saved?.milestones).toMatchObject([{ title: 'Publish first case study' }])
+    expect(saved?.schemaVersion).toBe(9)
+    expect(saved?.milestones).toMatchObject([{ title: 'Publish first case study', type: 'cumulative-quantity', targetValue: 1 }])
   }, 10_000)
 
   it('edits an existing habit without changing its identity, kind, or schema version', async () => {

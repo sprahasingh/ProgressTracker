@@ -18,6 +18,7 @@ import { assertDateRange } from '../../db/calendarDate'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { selectMissingCheckIns, type MissingCheckIn } from '../../domain/trackers/missingCheckIns'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
+import { evaluateMilestones } from '../../domain/trackers/milestones'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
@@ -38,6 +39,7 @@ export function HistoryPage() {
   const [trackerFilter, setTrackerFilter] = useState('all')
   const [trackers, setTrackers] = useState<StoredTrackerDefinition[]>([])
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
+  const [milestoneEntries, setMilestoneEntries] = useState<StoredTrackerEntry[]>([])
   const [holidays, setHolidays] = useState<AccountHoliday[]>([])
   const [challengeHolidays, setChallengeHolidays] = useState<ReadonlySet<string>>(new Set())
   const [missing, setMissing] = useState<MissingCheckIn[]>([])
@@ -76,6 +78,7 @@ export function HistoryPage() {
       setLoading(false)
       setError('')
       setEntries([])
+      setMilestoneEntries([])
       setHolidays([])
       return
     }
@@ -92,9 +95,11 @@ export function HistoryPage() {
         localRepository.listAccountHolidays(missingStart, missingEnd),
         localRepository.listAccountHolidays(),
       ])
+      const milestoneHistory = (await Promise.all(allTrackers.filter((tracker) => tracker.milestones.length > 0).map((tracker) => localRepository.listTrackerEntriesForTracker(tracker.id)))).flat()
       if (request !== rangeRequest.current) return
       setTrackers(allTrackers)
       setEntries(recentEntries)
+      setMilestoneEntries(milestoneHistory)
       setHolidays(recentHolidays)
       setChallengeHolidays(new Set(allHolidays.map((holiday) => holiday.date)))
       setMissing(selectMissingCheckIns({ trackers: allTrackers, entries: missingEntries, holidays: new Set(missingHolidays.map((holiday) => holiday.date)), dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, -7 + index) as CalendarDate), today, timeZone }))
@@ -115,6 +120,13 @@ export function HistoryPage() {
   const visibleEntries = entries.filter((entry) => trackerMap.has(entry.trackerId))
   const filtered = visibleEntries.filter((entry) => trackerFilter === 'all' || entry.trackerId === trackerFilter)
   const grouped = rangeIssue ? [] : groupByDate(filtered)
+  const milestoneEvents = useMemo(() => trackers.flatMap((tracker) => {
+    if (trackerFilter !== 'all' && tracker.id !== trackerFilter) return []
+    const history = milestoneEntries.filter((entry) => entry.trackerId === tracker.id)
+    return evaluateMilestones({ tracker, entries: history, asOfDate: today, holidays: challengeHolidays, timeZone })
+      .filter((milestone) => milestone.completed && milestone.reachedDate !== null && milestone.reachedDate >= startDate && milestone.reachedDate <= endDate)
+      .map((milestone) => ({ tracker, milestone }))
+  }), [trackers, milestoneEntries, trackerFilter, today, challengeHolidays, timeZone, startDate, endDate])
   const qualifiedCount = filtered.filter((entry) => {
     const tracker = trackerMap.get(entry.trackerId)
     return tracker && isTrackerInActivePeriod(tracker, entry.date, timeZone) && entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
@@ -156,6 +168,7 @@ export function HistoryPage() {
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {holidays.length > 0 && <section className="history-holiday-list" aria-label="Holidays in this date range"><h2>Holidays & breaks</h2>{holidays.map((holiday) => <p key={holiday.id}><span className="status-mark holiday"><ActivityStatusIcon status="holiday" /></span> <strong>{calendarDateLabel(holiday.date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>{holiday.reason ? ` · ${holiday.reason}` : ''} · scheduled opportunities paused; any saved check-ins below remain unchanged.</p>)}</section>}
+      {milestoneEvents.length > 0 && <section className="history-milestone-events" aria-labelledby="history-milestone-events-title"><h2 id="history-milestone-events-title">Milestones reached</h2><ul>{milestoneEvents.map(({ tracker, milestone }) => <li key={`${tracker.id}:${milestone.milestoneId}:${milestone.reachedDate}`}><div><strong>{milestone.title}</strong><small>{tracker.name} · {milestone.progressLabel}</small></div><Link to={`/calendar?date=${milestone.reachedDate}`}>{calendarDateLabel(milestone.reachedDate!, { month: 'short', day: 'numeric', year: 'numeric' })}</Link></li>)}</ul></section>}
       {rangeIssue ? null : loading ? <p role="status" className="tracker-loading">Loading your history…</p> : error ? <Surface><EmptyState title="Your history is still here" description="This device could not open local storage. Try loading the history again." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : grouped.length === 0 ? <Surface><EmptyState title="No check-ins in this range" description="Your saved activity will appear here. Nothing is filled in until you log it." action={<Link className="button button-primary button-medium" to="/">Go to today</Link>} /></Surface> : <div className="history-timeline">
         {grouped.map(([date, dayEntries]) => <section className="history-day" key={date} aria-labelledby={`history-${date}`}><header className="history-day-heading"><h2 id={`history-${date}`}>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h2><span>{dayEntries.length} {dayEntries.length === 1 ? 'check-in' : 'check-ins'}</span></header><div className="history-entry-list">{dayEntries.map((entry) => {
           const tracker = trackerMap.get(entry.trackerId)

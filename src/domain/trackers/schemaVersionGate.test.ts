@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isTrackerSchemaWriteEnabled } from './schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isProgressionUiEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isTrackerSchemaWriteEnabled } from './schemaVersionGate'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -81,6 +81,22 @@ describe('schema v8 independent streak rule gate', () => {
     expect(isTrackerSchemaWriteEnabled(8)).toBe(true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', 'false')
     expect(isTrackerSchemaWriteEnabled(8)).toBe(false)
+  })
+})
+
+describe('schema v9 typed milestone gate', () => {
+  it('requires the v9 readiness flag and the v8/v7 prerequisites', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V9', '')
+    expect(isSchemaV9WriteEnabled()).toBe(false)
+    expect(isTrackerSchemaWriteEnabled(9)).toBe(false)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V9', 'true')
+    expect(isSchemaV9WriteEnabled()).toBe(true)
+    expect(isTrackerSchemaWriteEnabled(9)).toBe(true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', 'false')
+    expect(isTrackerSchemaWriteEnabled(9)).toBe(false)
   })
 })
 

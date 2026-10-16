@@ -7,7 +7,7 @@ import { Surface } from '../../components/ui/Surface'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
-import type { StoredTrackerDefinition } from '../../db/models'
+import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { isScheduledDate } from '../../domain/trackers/planning'
@@ -17,6 +17,7 @@ import { InfoButton } from '../../components/ui/InfoButton'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 import { trackerScheduleLabel } from '../../domain/trackers/scheduling'
+import { MilestoneProgressList } from './MilestoneProgressList'
 
 const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', project: 'Project' }
 
@@ -31,13 +32,14 @@ export function TrackerLibraryPage() {
   const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
   workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
   const readGenerationRef = useRef(0)
-  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; checkedInToday: string[]; holidays: string[] } | null>(null)
+  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; checkedInToday: string[]; holidays: string[] } | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
   const [pendingBinTracker, setPendingBinTracker] = useState<StoredTrackerDefinition | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
   const trackers = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackers : []
+  const savedEntries = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.entries : []
   const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
   const holidays = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.holidays : [])
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
@@ -52,13 +54,13 @@ export function TrackerLibraryPage() {
     setLoading(true)
     setErrorState(null)
     try {
-      const [result, entries, holidayRows] = await Promise.all([
+      const [result, holidayRows] = await Promise.all([
         localRepository.listTrackers(true),
-        localRepository.listTrackerEntriesBetween(today, today),
         localRepository.listAccountHolidays(),
       ])
+      const entries = (await Promise.all(result.map((tracker) => localRepository.listTrackerEntriesForTracker(tracker.id)))).flat()
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
-        setTrackerSnapshot({ workspaceKey: context.key, trackers: result, checkedInToday: entries.filter((entry) => entry.deletedAt === null).map((entry) => entry.trackerId), holidays: holidayRows.map((holiday) => holiday.date) })
+        setTrackerSnapshot({ workspaceKey: context.key, trackers: result, entries, checkedInToday: entries.filter((entry) => entry.deletedAt === null && entry.date === today).map((entry) => entry.trackerId), holidays: holidayRows.map((holiday) => holiday.date) })
       }
     } catch {
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
@@ -149,6 +151,7 @@ export function TrackerLibraryPage() {
               {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
               {getChallengeDayDisplay(tracker, today, timeZone, holidays) && <p className="challenge-day-label" aria-label={`Challenge ${getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}`}>{getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}</p>}
               <TrackerCardTargets tracker={tracker} />
+              {tracker.milestones.length > 0 && <details className="tracker-card-milestones"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={savedEntries.filter((entry) => entry.trackerId === tracker.id)} asOfDate={today} holidays={holidays} timeZone={timeZone} /></details>}
               <div className="tracker-card-meta">
                 <span>{trackerScheduleLabel(tracker.schedule)}</span>
                 {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}

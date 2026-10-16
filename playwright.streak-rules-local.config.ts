@@ -17,7 +17,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/private/tmp/progression-playwright-br
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'streak-rules-v8.spec.ts',
+  testMatch: ['streak-rules-v8.spec.ts', 'typed-milestones-v9.spec.ts'],
   globalSetup: './e2e/globalSetup.ts',
   globalTeardown: './e2e/globalTeardown.ts',
   fullyParallel: false,
@@ -44,6 +44,7 @@ export default defineConfig({
       VITE_ENABLE_TRACKER_SCHEMA_V6: 'true',
       VITE_ENABLE_TRACKER_SCHEMA_V7: 'true',
       VITE_ENABLE_TRACKER_SCHEMA_V8: 'true',
+      VITE_ENABLE_TRACKER_SCHEMA_V9: 'true',
     },
   },
 })

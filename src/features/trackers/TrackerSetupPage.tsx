@@ -16,7 +16,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
 
@@ -497,11 +497,18 @@ export function TrackerSetupPage() {
       setError(message)
       return
     }
-    const wantsStreakRuleV8 = configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8
+    const wantsMilestoneV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
+    const wantsStreakRuleV8 = configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8 || existing?.streakRuleMode !== undefined
     if (wantsStreakRuleV8 && !isSchemaV8WriteEnabled()) {
       const message = 'Streak rules require the schema v8 migration and VITE_ENABLE_TRACKER_SCHEMA_V8 in this production build. No tracker changes were saved.'
       setError(message)
       notify({ kind: 'error', title: 'Streak rules are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v8' })
+      return
+    }
+    if (wantsMilestoneV9 && !isSchemaV9WriteEnabled()) {
+      const message = 'Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 in this production build. No tracker changes were saved.'
+      setError(message)
+      notify({ kind: 'error', title: 'Typed milestones are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v9' })
       return
     }
     if (existing && (existing.strictMode ?? false) !== parsed.data.strictMode) {
@@ -573,9 +580,10 @@ export function TrackerSetupPage() {
       const id = existing?.id ?? crypto.randomUUID()
       const kind = existing?.kind ?? form.kind
       const schedule = scheduleFromForm(form.schedule, existing, form.customWeekdays)
-      const wantsStreakRuleV8 = configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8
-      const method = form.schedule === 'none' ? 'all-non-holiday-days' : ((isSchemaV7WriteEnabled() || wantsStreakRuleV8) ? form.effectiveDayCounting : 'all-non-holiday-days')
-      const scheduling = { mode: form.schedulingMode, ...(form.schedulingMode === 'effective' ? { effectiveDays: Number(form.effectiveDays), ...((isSchemaV7WriteEnabled() || existing?.schemaVersion === 7 || wantsStreakRuleV8) ? { effectiveDayCounting: method } : {}), planningTimeZone: timeZone } : {}) } as const
+      const wantsMilestoneV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
+      const wantsStreakRuleV8 = configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8 || existing?.streakRuleMode !== undefined
+      const method = form.schedule === 'none' ? 'all-non-holiday-days' : ((isSchemaV7WriteEnabled() || wantsStreakRuleV8 || wantsMilestoneV9) ? form.effectiveDayCounting : 'all-non-holiday-days')
+      const scheduling = { mode: form.schedulingMode, ...(form.schedulingMode === 'effective' ? { effectiveDays: Number(form.effectiveDays), ...((isSchemaV7WriteEnabled() || existing?.schemaVersion === 7 || wantsStreakRuleV8 || wantsMilestoneV9) ? { effectiveDayCounting: method } : {}), planningTimeZone: timeZone } : {}) } as const
       const effectiveDeadline = form.schedulingMode === 'calendar' ? form.deadline || undefined
         : form.schedulingMode === 'effective' ? projectedDeadline || undefined : undefined
       const submittedMetrics = configuration.metrics.map((metric, index) => index === 0 && (metric.valueType === 'quantity' || metric.valueType === 'duration') && (isNewPlannedGoal || existing?.kind === 'goal' && existing.goalPlanning || existing !== undefined)
@@ -617,9 +625,9 @@ export function TrackerSetupPage() {
         persistGoalPlanning ? 2 : 1,
         existing?.schemaVersion ?? 1,
       ) as TrackerDefinition['schemaVersion']
-      const wantsV7 = wantsStreakRuleV8 || form.schedulingMode === 'effective' && (isSchemaV7WriteEnabled() || existing?.schemaVersion === 7)
-      const persistScheduling = wantsStreakRuleV8 || isSchemaV6WriteEnabled() && (schedulingTouched || (existing?.schemaVersion ?? 0) >= 6 || wantsV7)
-      const targetSchemaVersion: TrackerDefinition['schemaVersion'] = wantsStreakRuleV8 ? 8 : wantsV7 && persistScheduling ? 7 : persistScheduling ? 6 : legacySchemaVersion
+      const wantsV7 = wantsStreakRuleV8 || wantsMilestoneV9 || form.schedulingMode === 'effective' && (isSchemaV7WriteEnabled() || existing?.schemaVersion === 7)
+      const persistScheduling = wantsMilestoneV9 || wantsStreakRuleV8 || isSchemaV6WriteEnabled() && (schedulingTouched || (existing?.schemaVersion ?? 0) >= 6 || wantsV7)
+      const targetSchemaVersion: TrackerDefinition['schemaVersion'] = wantsMilestoneV9 ? 9 : wantsStreakRuleV8 ? 8 : wantsV7 && persistScheduling ? 7 : persistScheduling ? 6 : legacySchemaVersion
       const schemaVersion = Math.max(existing?.schemaVersion ?? 1, targetSchemaVersion) as TrackerDefinition['schemaVersion']
       const candidate: TrackerDefinition = {
         ...(existing ?? {} as TrackerDefinition),
@@ -729,6 +737,9 @@ export function TrackerSetupPage() {
   }
 
   const selectedKind = existing?.kind ?? values.kind
+  const milestoneContext = { kind: selectedKind, metrics: configuration.metrics, schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), strictMode: values.strictMode, scheduling: { mode: values.schedulingMode }, deadline: selectedDeadline }
+  const typedMilestonesNeedV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
+  const milestoneV9WriteBlocked = typedMilestonesNeedV9 && !isSchemaV9WriteEnabled()
   const targetNumber = Number(goalAmount)
   const hasShortcutTarget = Boolean(goalAmount) && Number.isFinite(targetNumber) && targetNumber > 0
   let planningForEditor = goalPlanning
@@ -803,12 +814,12 @@ export function TrackerSetupPage() {
               <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               {(configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled() && <p className="field-hint" role="note">Streak rules need the schema v8 migration and production flag before these changes can be saved.</p>}
               <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
-              <details className="advanced-subsection"><summary>Milestones</summary><TrackerConfigurationEditor section="milestones" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection" data-ai-capability="goals.milestones"><summary>Milestones</summary>{milestoneV9WriteBlocked && <p className="field-hint" role="note">Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 before they can be saved in production.</p>}<TrackerConfigurationEditor section="milestones" milestoneContext={milestoneContext} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
             </div>
           </details>
           {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="goal-plan-setup" open={existing?.kind === 'goal'}><summary><span><strong>Plan targets and pace</strong><small>Choose a daily target or a total to reach by a deadline</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary><GoalPlanningEditor metrics={configuration.metrics} planning={planningForEditor} deadline={selectedDeadline} onChange={changeGoalPlanning} /></details>}
           <footer className="tracker-form-actions">
-            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving || ((configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled())}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
+            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving || milestoneV9WriteBlocked || ((configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled())}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
             <Button type="button" variant="quiet" data-discard-trigger onClick={() => { if (!dirty) navigate('/trackers'); else { setPendingNavigation(null); setConfirmDiscard(true) } }}>Cancel</Button>
           </footer>
         </form>

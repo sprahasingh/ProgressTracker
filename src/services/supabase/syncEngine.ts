@@ -7,7 +7,7 @@ import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publi
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV9WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
 import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
@@ -301,6 +301,11 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
   let failed = 0
   for (const operation of operations) {
     try {
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
         await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1

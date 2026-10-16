@@ -18,6 +18,7 @@ import { mondayFirstWeekday } from '../../db/calendarDate'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateStreak } from '../../domain/trackers/progression'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
+import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { InfoButton } from '../../components/ui/InfoButton'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
@@ -151,10 +152,15 @@ export function CalendarPage() {
     selectedEntries.some((entry) => entry.trackerId === tracker.id) || tracker.status === 'active' || tracker.id === selectedTracker?.id
   )).map((tracker) => {
     const entry = selectedEntries.find((item) => item.trackerId === tracker.id)
+    const trackerEntries = (visibleData?.entries ?? []).filter((item) => item.trackerId === tracker.id)
+    const milestoneResults = selectedDate <= today
+      ? evaluateMilestones({ tracker, entries: trackerEntries, asOfDate: selectedDate, holidays: selectedHolidays, timeZone }).filter((item) => item.reachedDate === selectedDate)
+      : []
     return {
       tracker, entry,
       status: getTrackerActivityStatus({ tracker, entry, date: selectedDate, today, holidays: selectedHolidays, timeZone }),
       challengeDay: getChallengeDayDisplay(tracker, selectedDate, timeZone, selectedHolidays),
+      milestonesReached: milestoneResults.map((item) => item.title),
     }
   })
 
@@ -191,9 +197,9 @@ export function CalendarPage() {
         {!selectedHoliday && selectedSummary && <p className="calendar-day-summary">{selectedSummary.completed} completed · {selectedSummary.partial} partial · {selectedSummary.noProgress} no progress · {selectedSummary.pending} pending · {selectedSummary.upcoming} upcoming · {selectedSummary.missed} missed · {selectedSummary.skipped} skipped · {selectedSummary.historical} historical entries · {selectedSummary.entries} {selectedTracker ? 'saved tracker' : 'active tracker'} check-in{selectedSummary.entries === 1 ? '' : 's'}</p>}
         {selectedSummary?.mixed && <p className="calendar-mixed-note">Mixed statuses across active trackers; see each tracker below.</p>}
         {selectedTracker && selectedStreak && <p className="calendar-selected-streak"><strong>{selectedTracker.name}</strong>: {selectedStreak.current} current · {selectedStreak.longest} longest streak <InfoButton title={`${selectedTracker.name} streaks`} summary="Current and longest streaks are recalculated from saved check-ins." description={selectedTracker.strictMode ? 'Strict Mode requires a qualifying check-in on every calendar day within the tracker period, including holidays and rest days. Today stays open until it ends.' : 'Standard Mode counts qualifying scheduled opportunities. Holidays and rest days preserve continuity without adding to the streak; missed scheduled days break it.'} /></p>}
-        {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status, challengeDay }) => <li key={tracker.id}>
+        {selectedTrackers.length === 0 ? <p className="calendar-no-activity">No scheduled tracker activity for this date.</p> : <ul className="calendar-activity-list">{selectedTrackers.map(({ tracker, entry, status, challengeDay, milestonesReached }) => <li key={tracker.id}>
           <span className={`calendar-status-mark ${status}`} aria-label={ACTIVITY_STATUS_PRESENTATION[status].label}><ActivityStatusIcon status={status} /></span>
-          <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{challengeDay ? ` · ${challengeDay.label}` : ''}{entry?.outcome === 'skipped' ? ' · intentionally saved' : entry ? ` · ${formatEntry(tracker, entry)}` : ''}{status === 'historical' ? ` · ${selectedDate < trackerActiveStartDate(tracker, timeZone) ? 'before the active start' : 'after the active deadline'}` : ''}</span>{entry?.note && <small>{entry.note}</small>}</div>
+          <div><strong>{tracker.name}</strong><span>{ACTIVITY_STATUS_PRESENTATION[status].label}{challengeDay ? ` · ${challengeDay.label}` : ''}{entry?.outcome === 'skipped' ? ' · intentionally saved' : entry ? ` · ${formatEntry(tracker, entry)}` : ''}{status === 'historical' ? ` · ${selectedDate < trackerActiveStartDate(tracker, timeZone) ? 'before the active start' : 'after the active deadline'}` : ''}</span>{entry?.note && <small>{entry.note}</small>}{milestonesReached.map((title) => <small className="calendar-milestone-reached" key={title}>Milestone reached: {title}</small>)}</div>
           {tracker.status === 'active' && tracker.deletedAt === null && selectedDate <= today && isTrackerInActivePeriod(tracker, selectedDate, timeZone)
             ? <Link className="button button-quiet button-small" to="/" state={{ openActivity: { trackerId: tracker.id, date: selectedDate } }}>{entry ? 'Edit check-in' : status === 'rest-day' || selectedHoliday ? 'Add voluntary check-in' : 'Add check-in'}</Link>
             : <span className="calendar-entry-unavailable">{tracker.status !== 'active' ? 'Archived trackers are read-only.' : selectedDate > today ? 'Future dates cannot be checked in yet.' : selectedDate < trackerActiveStartDate(tracker, timeZone) ? `Before tracker start (${calendarDateLabel(trackerActiveStartDate(tracker, timeZone))}).` : 'This date is outside the tracker period.'}</span>}

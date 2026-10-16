@@ -352,6 +352,19 @@ export function calculateStreak(tracker: TrackerDefinition, entries: readonly Tr
     missedCount }
 }
 
+/** Returns the first local date on which this tracker ever reached a streak length. */
+export function firstDateAtStreakLength(tracker: TrackerDefinition, entries: readonly TrackerEntry[], target: number, asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): string | null {
+  if (!Number.isSafeInteger(target) || target <= 0) throw new RangeError('Streak target must be a positive whole number.')
+  let run = 0
+  for (const occurrence of buildOccurrences(tracker, entries, asOfDate, holidays, timeZone)) {
+    if (occurrence.state === 'qualified') {
+      run += 1
+      if (run >= target) return occurrence.date
+    } else if (occurrence.state === 'failed') run = 0
+  }
+  return null
+}
+
 /** Produces a reproducible reward summary. Missed days do not subtract earned points or streak badges. */
 export function calculateProgressRewards(streak: StreakResult, policy: RewardPolicy = DEFAULT_REWARD_POLICY): ProgressRewards {
   if (!Number.isSafeInteger(streak.qualifyingCount) || streak.qualifyingCount < 0) throw new RangeError('Qualifying entry count must be a nonnegative safe integer.')

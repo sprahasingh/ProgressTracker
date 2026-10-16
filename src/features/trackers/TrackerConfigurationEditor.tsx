@@ -1,9 +1,11 @@
-import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule, TrackerStreakRuleMode, ThresholdConfiguration } from '../../domain/trackers/types'
+import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerMilestoneType, TrackerRule, TrackerStreakRuleMode, ThresholdConfiguration } from '../../domain/trackers/types'
 import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { SectionHeader } from '../../components/ui/SectionHeader'
 import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { AppIcon } from '../../components/ui/AppIcon'
+import { activeTrackerMetrics } from '../../domain/trackers/types'
+import { availableMilestoneTypes, milestoneConfigurationIssue, milestonePreview, milestoneTargetLabel, milestoneTypeLabel, type MilestoneConfigurationContext } from '../../domain/trackers/milestones'
 
 function freshMetric(index: number): TrackerMetricDefinition {
   return { id: crypto.randomUUID(), name: `Measure ${index + 1}`, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
@@ -134,6 +136,7 @@ type Props = {
   streakRule?: TrackerRule
   onStreakRuleModeChange?: (mode: TrackerStreakRuleMode | 'legacy') => void
   onStreakRuleChange?: (rule: TrackerRule | undefined) => void
+  milestoneContext?: MilestoneConfigurationContext
 }
 
 function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinition[]): string {
@@ -150,7 +153,139 @@ function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinitio
   return `(${parts.join(rule.kind === 'all' ? ' AND ' : ' OR ')})`
 }
 
-export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, planning, streakRuleMode = 'legacy', streakRule, onStreakRuleModeChange, onStreakRuleChange }: Props) {
+function milestoneMeasureIsCompatible(type: TrackerMilestoneType | 'legacy', metric: TrackerMetricDefinition): boolean {
+  if (type === 'cumulative-quantity' || type === 'single-day-quantity') return metric.valueType === 'quantity' || metric.valueType === 'duration'
+  if (type === 'measure-completion-count') return metric.valueType === 'boolean' || metric.valueType === 'checklist'
+  return type === 'legacy'
+}
+
+function milestoneMeasureSnapshot(type: TrackerMilestoneType, metric: TrackerMetricDefinition | undefined) {
+  if (!metric || !milestoneMeasureIsCompatible(type, metric)) return { metricId: undefined, measureTypeSnapshot: undefined, unitSnapshot: undefined, completionCondition: undefined, checklistItemId: undefined, checklistItemLabelSnapshot: undefined, checklistItemsSnapshot: undefined }
+  if (type === 'cumulative-quantity' || type === 'single-day-quantity') return { metricId: metric.id, measureTypeSnapshot: metric.valueType, unitSnapshot: metric.unit ?? '', completionCondition: undefined, checklistItemId: undefined, checklistItemLabelSnapshot: undefined, checklistItemsSnapshot: undefined }
+  if (type === 'measure-completion-count' && metric.valueType === 'boolean') return { metricId: metric.id, measureTypeSnapshot: 'boolean' as const, completionCondition: 'true-day' as const, checklistItemId: undefined, checklistItemLabelSnapshot: undefined, checklistItemsSnapshot: undefined }
+  if (type === 'measure-completion-count' && metric.valueType === 'checklist') {
+    const item = metric.checklistItems?.[0]
+    return { metricId: metric.id, measureTypeSnapshot: 'checklist' as const, completionCondition: 'checklist-item-day' as const, checklistItemId: item?.id, checklistItemLabelSnapshot: item?.label, checklistItemsSnapshot: metric.checklistItems?.map((checklistItem) => checklistItem.id) ?? [] }
+  }
+  return { metricId: undefined, measureTypeSnapshot: undefined, unitSnapshot: undefined, completionCondition: undefined, checklistItemId: undefined, checklistItemLabelSnapshot: undefined, checklistItemsSnapshot: undefined }
+}
+
+function createMilestone(type: TrackerMilestoneType, metrics: TrackerMetricDefinition[], position: number): TrackerMilestoneDefinition {
+  const compatible = activeTrackerMetrics(metrics).filter((metric) => milestoneMeasureIsCompatible(type, metric))
+  return {
+    id: crypto.randomUUID(), title: '', description: '', type,
+    ...milestoneMeasureSnapshot(type, compatible[0]),
+    position,
+  }
+}
+
+function defaultMilestoneType(context: MilestoneConfigurationContext): TrackerMilestoneType | undefined {
+  const metrics = activeTrackerMetrics(context.metrics)
+  if (metrics.some((metric) => metric.valueType === 'quantity' || metric.valueType === 'duration')) return 'cumulative-quantity'
+  if (metrics.some((metric) => metric.valueType === 'boolean' || metric.valueType === 'checklist')) return 'measure-completion-count'
+  return availableMilestoneTypes(context)[0]
+}
+
+function MilestoneEditor({ metrics, milestones, onMilestonesChange, context, section }: {
+  metrics: TrackerMetricDefinition[]
+  milestones: TrackerMilestoneDefinition[]
+  onMilestonesChange: (milestones: TrackerMilestoneDefinition[]) => void
+  context: MilestoneConfigurationContext
+  section?: 'milestones'
+}) {
+  const availableTypes = availableMilestoneTypes(context)
+  const defaultType = defaultMilestoneType(context)
+  const update = (id: string, changes: Partial<TrackerMilestoneDefinition>) => onMilestonesChange(milestones.map((item) => item.id === id ? { ...item, ...changes } : item))
+
+  function addMilestone() {
+    if (!defaultType) return
+    onMilestonesChange([...milestones, createMilestone(defaultType, metrics, milestones.length)])
+  }
+
+  function changeType(milestone: TrackerMilestoneDefinition, requested: string) {
+    if (requested === 'legacy' || requested === milestone.type || !availableTypes.includes(requested as TrackerMilestoneType)) return
+    if (milestone.targetValue !== undefined && !window.confirm('Changing what this milestone measures can change its progress and completion. The old target will be cleared so you can enter a value for the new meaning. Continue?')) return
+    const type = requested as TrackerMilestoneType
+    const currentMeasure = metrics.find((item) => item.id === milestone.metricId)
+    const compatibleMeasure = currentMeasure && milestoneMeasureIsCompatible(type, currentMeasure) && !currentMeasure.retiredAt
+      ? currentMeasure
+      : activeTrackerMetrics(metrics).find((item) => milestoneMeasureIsCompatible(type, item))
+    const snapshot = milestoneMeasureSnapshot(type, compatibleMeasure)
+    update(milestone.id, { type, ...snapshot, targetValue: undefined })
+  }
+
+  function changeMeasure(milestone: TrackerMilestoneDefinition, metricId: string) {
+    const metric = metrics.find((item) => item.id === metricId)
+    if (!metric) return
+    if (milestone.metricId !== metricId && milestone.targetValue !== undefined && !window.confirm('Changing the measure can change this milestone’s progress and completion. The target will be cleared so you can enter it in the selected measure’s unit. Continue?')) return
+    if (milestone.type === undefined) {
+      update(milestone.id, { metricId: metricId || undefined })
+      return
+    }
+    update(milestone.id, { ...milestoneMeasureSnapshot(milestone.type, metric), targetValue: milestone.metricId === metricId ? milestone.targetValue : undefined })
+  }
+
+  function changeChecklistCondition(milestone: TrackerMilestoneDefinition, condition: 'checklist-item-day' | 'checklist-complete-day', metric: TrackerMetricDefinition) {
+    if (condition === 'checklist-item-day') {
+      const item = metric.checklistItems?.find((candidate) => candidate.id === milestone.checklistItemId) ?? metric.checklistItems?.[0]
+      update(milestone.id, { completionCondition: condition, checklistItemId: item?.id, checklistItemLabelSnapshot: item?.label, checklistItemsSnapshot: metric.checklistItems?.map((candidate) => candidate.id) ?? [] })
+    } else update(milestone.id, { completionCondition: condition, checklistItemId: undefined, checklistItemLabelSnapshot: undefined, checklistItemsSnapshot: metric.checklistItems?.map((candidate) => candidate.id) ?? [] })
+  }
+
+  return <section data-validation-path="milestones" className="configuration-section" aria-label="Milestones">
+    <SectionHeader title={section ? undefined : 'Milestones'} headingId={section ? undefined : 'milestones-heading'} description="Set a clear target and see exactly how its progress is calculated." help={{ title: 'Milestones', summary: 'Small, measurable checkpoints inside a tracker.', description: 'Each new milestone names the measure, target, and calculation. Historical progress is derived from saved check-ins. Older checkpoints keep their original best-observation calculation until you intentionally convert them.' }} action={<Button type="button" variant="secondary" size="small" disabled={!defaultType} onClick={addMilestone}>＋ Add milestone</Button>} />
+    {!defaultType && milestones.length === 0 && <p className="field-hint">Add an active measure or set a fixed challenge duration to create a measurable milestone.</p>}
+    {milestones.map((milestone, index) => {
+      const type = milestone.type ?? 'legacy'
+      const currentMetric = metrics.find((item) => item.id === milestone.metricId)
+      const typeOptions = [...availableTypes]
+      if (milestone.type && !typeOptions.includes(milestone.type)) typeOptions.push(milestone.type)
+      const optionsForType = type === 'legacy' ? metrics
+        : activeTrackerMetrics(metrics).filter((metric) => milestoneMeasureIsCompatible(type, metric))
+      const measureOptions = [...new Map([...(currentMetric ? [[currentMetric.id, currentMetric] as const] : []), ...optionsForType.map((metric) => [metric.id, metric] as const)]).values()]
+      const canSelectMeasure = type === 'legacy' || type === 'cumulative-quantity' || type === 'single-day-quantity' || type === 'measure-completion-count'
+      const issue = type === 'legacy' ? null : currentMetric ? milestoneConfigurationIssue(milestone, currentMetric) : canSelectMeasure ? 'Choose a measure for this milestone.' : null
+      const unavailableType = milestone.type !== undefined && !availableTypes.includes(milestone.type)
+      const targetLabel = milestoneTargetLabel(type, currentMetric)
+      const integerTarget = ['successful-days', 'streak-length', 'challenge-day', 'measure-completion-count'].includes(type)
+      return <article className="configuration-card milestone-editor-card" key={milestone.id}>
+        <div className="form-grid configuration-grid">
+          <label className="form-field"><span>Milestone name</span><input data-validation-path={`milestones.${index}.title`} className="auth-input" value={milestone.title} onChange={(event) => update(milestone.id, { title: event.target.value })} placeholder="First 50 problems" /></label>
+          <label className="form-field"><span>What should this milestone track?</span><select data-validation-path={`milestones.${index}.type`} className="auth-input" value={type} onChange={(event) => changeType(milestone, event.target.value)}>
+            {milestone.type === undefined && <option value="legacy">{milestoneTypeLabel('legacy')}</option>}
+            {typeOptions.map((option) => <option key={option} value={option}>{milestoneTypeLabel(option)}{option === milestone.type && unavailableType ? ' · needs review' : ''}</option>)}
+          </select></label>
+          {canSelectMeasure && <label className="form-field"><span>Which measure?{type === 'legacy' && <em>optional</em>}</span><select data-validation-path={`milestones.${index}.metricId`} className="auth-input" value={milestone.metricId ?? ''} onChange={(event) => changeMeasure(milestone, event.target.value)}>
+            {type === 'legacy' && <option value="">No measure</option>}
+            {measureOptions.map((metric) => <option key={metric.id} value={metric.id}>{metric.name}{metric.retiredAt ? ' · retired' : ''}{!milestoneMeasureIsCompatible(type, metric) && type !== 'legacy' ? ' · needs review' : ''}</option>)}
+          </select></label>}
+          {canSelectMeasure && !measureOptions.some((metric) => !metric.retiredAt && milestoneMeasureIsCompatible(type, metric)) && type !== 'legacy' && <p className="field-hint form-field-wide">Add an active compatible measure before using this milestone type.</p>}
+          {type === 'measure-completion-count' && currentMetric?.valueType === 'checklist' && <>
+            <label className="form-field"><span>What counts as complete?</span><select className="auth-input" value={milestone.completionCondition === 'checklist-complete-day' ? 'checklist-complete-day' : 'checklist-item-day'} onChange={(event) => changeChecklistCondition(milestone, event.target.value as 'checklist-item-day' | 'checklist-complete-day', currentMetric)}><option value="checklist-item-day">A selected checklist item</option><option value="checklist-complete-day">The full checklist</option></select></label>
+            {milestone.completionCondition !== 'checklist-complete-day' && <label className="form-field"><span>Checklist item</span><select data-validation-path={`milestones.${index}.checklistItemId`} className="auth-input" value={milestone.checklistItemId ?? ''} onChange={(event) => {
+              const item = currentMetric.checklistItems?.find((candidate) => candidate.id === event.target.value)
+              update(milestone.id, { checklistItemId: item?.id, checklistItemLabelSnapshot: item?.label, checklistItemsSnapshot: currentMetric.checklistItems?.map((candidate) => candidate.id) ?? [] })
+            }}>{currentMetric.checklistItems?.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+          </>}
+          {type !== 'legacy' && <label className="form-field"><span>{targetLabel}</span><input data-validation-path={`milestones.${index}.targetValue`} className="auth-input" type="number" min={integerTarget ? 1 : currentMetric?.precision?.increment} max={Number.MAX_SAFE_INTEGER} step={integerTarget ? 1 : currentMetric?.precision?.increment ?? 'any'} value={milestone.targetValue ?? ''} onChange={(event) => update(milestone.id, { targetValue: event.target.value === '' ? undefined : Number(event.target.value) })} /></label>}
+          {type === 'legacy' && milestone.metricId && <label className="form-field"><span>Saved measure checkpoint</span><input data-validation-path={`milestones.${index}.targetValue`} className="auth-input" type="number" min="0" step={currentMetric?.valueType === 'boolean' || currentMetric?.valueType === 'checklist' ? 1 : currentMetric?.precision?.increment ?? 'any'} value={milestone.targetValue ?? ''} onChange={(event) => update(milestone.id, { targetValue: event.target.value === '' ? undefined : Number(event.target.value) })} /></label>}
+          <label className="form-field"><span>Due date <em>optional</em></span><input data-validation-path={`milestones.${index}.dueDate`} className="auth-input" type="date" value={milestone.dueDate ?? ''} onChange={(event) => update(milestone.id, { dueDate: event.target.value || undefined })} /></label>
+          <label className="form-field form-field-wide"><span>Description <em>optional</em></span><textarea className="auth-input tracker-textarea" value={milestone.description} onChange={(event) => update(milestone.id, { description: event.target.value })} /></label>
+          <p className="milestone-live-preview form-field-wide" aria-live="polite"><strong>Preview:</strong> {milestonePreview(context, milestone)}</p>
+          {issue && <p className="milestone-configuration-issue form-field-wide" role="status">{issue}</p>}
+          {unavailableType && !issue && <p className="milestone-configuration-issue form-field-wide" role="status">This milestone type no longer matches the tracker’s current setup. Choose a supported type to continue.</p>}
+          {currentMetric && (type === 'cumulative-quantity' || type === 'single-day-quantity') && milestone.measureTypeSnapshot === currentMetric.valueType && milestone.unitSnapshot !== (currentMetric.unit ?? '') && <div className="form-field-wide"><Button type="button" variant="secondary" size="small" onClick={() => {
+            if (window.confirm('Updating the saved unit keeps the numeric target but changes the unit it represents. Review that target before continuing. Update the unit?')) update(milestone.id, { unitSnapshot: currentMetric.unit ?? '' })
+          }}>Review target in {currentMetric.unit?.trim() || 'the updated unit'}</Button></div>}
+          {milestone.type === undefined && <p className="field-hint form-field-wide">This saved checkpoint still compares its best single recorded value. Choose another type to convert it; its old target will be cleared.</p>}
+          <Button type="button" variant="destructive" size="small" onClick={() => onMilestonesChange(milestones.filter((item) => item.id !== milestone.id).map((item, position) => ({ ...item, position })))}>Remove milestone</Button>
+        </div>
+      </article>
+    })}
+  </section>
+}
+
+export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, planning, streakRuleMode = 'legacy', streakRule, onStreakRuleModeChange, onStreakRuleChange, milestoneContext }: Props) {
   const duplicateNameFor = (metric: TrackerMetricDefinition) => {
     const normalized = metric.name.trim().toLowerCase()
     if (!normalized) return ''
@@ -284,25 +419,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
         </div></article>)}
       </section>}
 
-      {(!section || section === 'milestones') && <section data-validation-path="milestones" className="configuration-section" aria-label={section === 'milestones' ? 'Milestones' : undefined} aria-labelledby={section === 'milestones' ? undefined : 'milestones-heading'}>
-        <SectionHeader title={section === 'milestones' ? undefined : 'Milestones'} headingId={section === 'milestones' ? undefined : 'milestones-heading'} description="Break a larger outcome into meaningful checkpoints." help={{ title: 'Milestones', summary: 'Mark meaningful checkpoints along a larger goal.', description: 'A milestone can have a title, optional date, optional linked metric and checkpoint value, and a descriptive note. Boolean values compare as 1 for true and 0 for false; checklists compare by checked-item count. Numeric checkpoints use the metric’s direction. Milestones do not create extra progress records.' }} action={<Button type="button" variant="secondary" size="small" onClick={() => onMilestonesChange([...milestones, { id: crypto.randomUUID(), title: '', description: '', position: milestones.length }])}>＋ Add milestone</Button>} />
-        {milestones.map((milestone, index) => <article className="configuration-card" key={milestone.id}><div className="form-grid configuration-grid">
-          <label className="form-field"><span>Milestone <InfoButton title="Milestone" summary="Name an important checkpoint along the way." description="Milestones break a larger goal into smaller outcomes. They are markers for progress, not separate trackers." /></span><input data-validation-path={`milestones.${index}.title`} className="auth-input" value={milestone.title} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, title: event.target.value } : item))} /></label>
-          <label className="form-field"><span>Due date <em>optional</em> <InfoButton title="Milestone due date" summary="Add a target date for this checkpoint." description="The date helps you see when a milestone is due. It is separate from the overall tracker deadline and uses a calendar date." /></span><input data-validation-path={`milestones.${index}.dueDate`} className="auth-input" type="date" value={milestone.dueDate ?? ''} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, dueDate: event.target.value || undefined } : item))} /></label>
-          <label className="form-field"><span>Linked measure <em>optional</em> <InfoButton title="Linked measure" summary="Connect a milestone to one of the tracker’s metrics." description="A linked measure lets the goal page show the best observed value against the milestone checkpoint. Choose None for a descriptive milestone." /></span><select data-validation-path={`milestones.${index}.metricId`} className="auth-input" value={milestone.metricId ?? ''} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, metricId: event.target.value || undefined } : item))}><option value="">None</option>{metrics.map((metric) => <option key={metric.id} value={metric.id}>{metric.name}</option>)}</select></label>
-          {milestone.metricId && (() => {
-            const metric = metrics.find((item) => item.id === milestone.metricId)
-            const checkpointHelp = metric?.valueType === 'boolean'
-              ? 'Boolean progress compares true as 1 and false as 0. Use 1 for a completed checkpoint or 0 for a not-completed checkpoint.'
-              : metric?.valueType === 'checklist'
-                ? 'Checklist progress is the number of checked items. Enter a whole count up to the number of checklist items.'
-                : 'The goal page compares the best recorded value for the linked metric with this checkpoint, respecting whether higher or lower is better. Example: enter 100 pages to mark the first 100 pages as a milestone.'
-            return <label className="form-field"><span>Measure checkpoint <em>optional</em> <InfoButton title="Measure checkpoint" summary={metric?.valueType === 'boolean' ? 'Boolean values compare as 1 for true and 0 for false.' : metric?.valueType === 'checklist' ? 'Checklist values compare by the number of checked items.' : 'Set the value that marks this linked milestone reached.'} description={checkpointHelp} /></span><input data-validation-path={`milestones.${index}.targetValue`} className="auth-input" type="number" min="0" max={metric?.valueType === 'boolean' ? 1 : metric?.valueType === 'checklist' ? metric.checklistItems?.length : undefined} step={metric?.valueType === 'boolean' || metric?.valueType === 'checklist' ? 1 : metric?.precision?.increment ?? 'any'} value={milestone.targetValue ?? ''} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, targetValue: event.target.value === '' ? undefined : Number(event.target.value) } : item))} /></label>
-          })()}
-          <label className="form-field form-field-wide"><span>Description <em>optional</em> <InfoButton title="Milestone description" summary="Add context for what this checkpoint means." description="This note appears with the milestone on your goal page. It is informational and does not affect qualification or calculations." /></span><textarea className="auth-input tracker-textarea" value={milestone.description} onChange={(event) => onMilestonesChange(milestones.map((item) => item.id === milestone.id ? { ...item, description: event.target.value } : item))} /></label>
-          <Button type="button" variant="destructive" size="small" onClick={() => onMilestonesChange(milestones.filter((item) => item.id !== milestone.id).map((item, position) => ({ ...item, position })))}>Remove milestone</Button>
-        </div></article>)}
-      </section>}
+      {(!section || section === 'milestones') && <MilestoneEditor metrics={metrics} milestones={milestones} onMilestonesChange={onMilestonesChange} context={milestoneContext ?? { kind: 'goal', metrics, schedule: { kind: 'every-day' }, strictMode: false, scheduling: { mode: 'ongoing' }, deadline: undefined }} section={section === 'milestones' ? 'milestones' : undefined} />}
     </div>
   )
 }
