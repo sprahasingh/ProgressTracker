@@ -35,6 +35,7 @@ describe('local check-in history', () => {
     render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
     await user.click(await screen.findByRole('button', { name: /Edit check-in for/ }))
     const input = await screen.findByRole('spinbutton', { name: 'Distance' })
+    await user.click(input)
     await user.clear(input)
     await user.type(input, '6')
     await user.click(screen.getByRole('button', { name: 'Update check-in' }))
