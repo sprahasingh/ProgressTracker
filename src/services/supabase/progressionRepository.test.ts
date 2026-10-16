@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { activeAchievementOccurrences, calculateConsistencySummary, makeAchievementStates, mapEvent, type AchievementHistoryEvent } from './progressionRepository'
+import { activeAchievementOccurrences, calculateConsistencySummary, fullyReversedProgressionEventIds, makeAchievementStates, mapEvent, type AchievementHistoryEvent, type ProgressionEvent } from './progressionRepository'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'consistency-tracker', name: 'Daily reading', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -13,15 +13,65 @@ function entry(id: string, date: string, outcome: StoredTrackerEntry['outcome'] 
   return { id, trackerId: tracker.id, date, outcome, values: { done }, note: '', createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null }
 }
 
+function xpEvent(id: string, xpDelta: number, overrides: Partial<ProgressionEvent> = {}): ProgressionEvent {
+  return {
+    id, userId: 'account-1', effectiveDate: '2026-10-13', recordedAt: `2026-10-13T12:00:00.000Z`, xpDelta,
+    eventCategory: 'check_in', reasonCode: 'DAILY_CHECK_IN_COMPLETED', reversesEventId: null,
+    sourceId: null, trackerId: null, goalId: null, displayName: 'Progression reward', deletedTracker: false,
+    ...overrides,
+  }
+}
+
 describe('progression data contract calculations', () => {
   it('maps tracker sources from PostgREST object and array relationship shapes', () => {
     const source = { source_id: 'entry-1', tracker_id: 'tracker-1', goal_id: null, display_name: 'Daily reading' }
     const row = {
-      id: 'event-1', effective_date: '2026-10-13', recorded_at: '2026-10-13T12:00:00.000Z', xp_delta: 10,
+      id: 'event-1', user_id: 'account-1', effective_date: '2026-10-13', recorded_at: '2026-10-13T12:00:00.000Z', xp_delta: 10,
       event_category: 'score', reason_code: 'DAILY_CHECK_IN_COMPLETED', reverses_event_id: null,
     }
     expect(mapEvent({ ...row, progression_event_sources: source })).toMatchObject({ sourceId: 'entry-1', trackerId: 'tracker-1', displayName: 'Daily reading' })
     expect(mapEvent({ ...row, progression_event_sources: [source] })).toMatchObject({ sourceId: 'entry-1', trackerId: 'tracker-1', displayName: 'Daily reading' })
+  })
+
+  it('hides only complete reversal groups linked to their original award', () => {
+    const award = xpEvent('award', 10)
+    const reversal = xpEvent('reversal', -10, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    expect(fullyReversedProgressionEventIds([award, reversal])).toEqual(new Set(['award', 'reversal']))
+  })
+
+  it('keeps unreversed, orphaned, partial, and malformed transactions visible', () => {
+    const award = xpEvent('award', 10)
+    const orphan = xpEvent('orphan-reversal', -10, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: 'missing-award' })
+    const partial = xpEvent('partial-reversal', -5, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    const malformed = xpEvent('malformed-reversal', -10, { eventCategory: 'check_in', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    expect(fullyReversedProgressionEventIds([award])).toEqual(new Set())
+    expect(fullyReversedProgressionEventIds([orphan])).toEqual(new Set())
+    expect(fullyReversedProgressionEventIds([award, partial])).toEqual(new Set())
+    expect(fullyReversedProgressionEventIds([award, malformed])).toEqual(new Set())
+  })
+
+  it('sums multiple direct reversals and keeps every member visible until their net reaches zero', () => {
+    const award = xpEvent('award', 10)
+    const first = xpEvent('first-reversal', -4, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    const second = xpEvent('second-reversal', -6, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    expect(fullyReversedProgressionEventIds([award, first])).toEqual(new Set())
+    expect(fullyReversedProgressionEventIds([award, first, second])).toEqual(new Set(['award', 'first-reversal', 'second-reversal']))
+  })
+
+  it('matches each re-award independently and ignores unrelated awards with the same XP value', () => {
+    const original = xpEvent('original', 10)
+    const originalReversal = xpEvent('original-reversal', -10, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: original.id })
+    const reAward = xpEvent('re-award', 10, { recordedAt: '2026-10-13T13:00:00.000Z' })
+    const unrelatedAward = xpEvent('unrelated-award', 10, { recordedAt: '2026-10-13T14:00:00.000Z' })
+    const reAwardReversal = xpEvent('re-award-reversal', -10, { eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: reAward.id })
+    expect(fullyReversedProgressionEventIds([original, originalReversal, reAward, unrelatedAward])).toEqual(new Set(['original', 'original-reversal']))
+    expect(fullyReversedProgressionEventIds([original, originalReversal, reAward, reAwardReversal, unrelatedAward])).toEqual(new Set(['original', 'original-reversal', 're-award', 're-award-reversal']))
+  })
+
+  it('does not match transactions across user ownership boundaries', () => {
+    const award = xpEvent('award', 10)
+    const otherUsersReversal = xpEvent('reversal', -10, { userId: 'different-account', eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
+    expect(fullyReversedProgressionEventIds([award, otherUsersReversal])).toEqual(new Set())
   })
 
   it('uses occurrence identities and exact reversals to derive the same live state for every badge surface', () => {
