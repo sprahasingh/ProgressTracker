@@ -14,7 +14,7 @@ import { PROGRESSION_REWARDS } from '../../domain/trackers/progressionModel'
 import { calculateStreak, qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker, isArchivedTracker } from '../../domain/trackers/lifecycle'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { activeAchievementOccurrences, getProgressionHistory, getProgressionOverview, invalidateProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
+import { activeAchievementOccurrences, fullyReversedProgressionEventIds, getProgressionHistory, getProgressionOverview, invalidateProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { achievementDefinition } from './achievementCatalog'
@@ -221,6 +221,7 @@ export function ProgressionAchievementsPage() {
   const [error, setError] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyRange, setHistoryRange] = useState<HistoryRange>('7')
+  const [showReversedTransactions, setShowReversedTransactions] = useState(false)
   const [historyPage, setHistoryPage] = useState<HistoryPage>({ rows: [], hasMore: false })
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
@@ -251,6 +252,7 @@ export function ProgressionAchievementsPage() {
     setLoading(Boolean(owner && !cached))
     setRefreshing(false)
     setHistoryOpen(false)
+    setShowReversedTransactions(false)
     setHistoryPage({ rows: [], hasMore: false })
     setHistoryError('')
     setDetail(null)
@@ -297,8 +299,6 @@ export function ProgressionAchievementsPage() {
     return () => { refreshGeneration.current += 1 }
   }, [refresh, workspaceReady])
   const refreshLocalSnapshot = useCallback(() => { void refresh(false) }, [refresh])
-  const refreshConfirmedSnapshot = useCallback(() => { void refresh(true) }, [refresh])
-  useWorkspaceDataChanges(owner, workspaceReady, refreshLocalSnapshot, true, refreshConfirmedSnapshot)
 
   const entriesByTracker = useMemo(() => {
     const grouped = new Map<string, StoredTrackerEntry[]>()
@@ -372,11 +372,21 @@ export function ProgressionAchievementsPage() {
     setHistoryPage({ rows: [], hasMore: false })
     void fetchHistoryPage(0, true)
   }
+  const refreshConfirmedSnapshot = useCallback(() => {
+    void refresh(true)
+    if (historyOpen) {
+      setHistoryPage({ rows: [], hasMore: false })
+      void fetchHistoryPage(0, true)
+    }
+  }, [refresh, historyOpen, fetchHistoryPage])
+
+  const reversedTransactionIds = useMemo(() => fullyReversedProgressionEventIds(pageData?.overview.scoreHistory ?? []), [pageData?.overview.scoreHistory])
 
   const visibleHistory = useMemo(() => {
     if (!pageData) return []
     const start = historyRange === 'all' ? null : shiftCalendarDate(today as CalendarDate, -(Number(historyRange) - 1))
-    const confirmed = historyPage.rows.filter((event) => event.effectiveDate <= today && (!start || event.effectiveDate >= start))
+    const confirmed = historyPage.rows.filter((event) => event.effectiveDate <= today && (!start || event.effectiveDate >= start)
+      && (showReversedTransactions || !reversedTransactionIds.has(event.id)))
     const pending = pageData.overview.provisionalRewards.filter((reward) => reward.effectiveDate <= today && (!start || reward.effectiveDate >= start)).map((reward) => {
       const entryId = reward.id.slice('check-in:'.length)
       const entry = pageData.entries.find((item) => item.id === entryId)
@@ -387,7 +397,9 @@ export function ProgressionAchievementsPage() {
       ...confirmed.map((event) => ({ ...event, pending: false as const })),
       ...pending,
     ].sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate))
-  }, [historyPage.rows, historyRange, pageData, today])
+  }, [historyPage.rows, historyRange, pageData, today, showReversedTransactions, reversedTransactionIds])
+
+  useWorkspaceDataChanges(owner, workspaceReady, refreshLocalSnapshot, true, refreshConfirmedSnapshot)
 
   if (status === 'loading' || sessionTransitionPending || loading && workspaceReady) {
     return <section className="tracker-page progression-page" aria-labelledby="achievements-title"><PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" /><SectionTabs label="Insights sections" items={insightsSectionTabs} /><p role="status" className="tracker-loading">Loading your confirmed progress…</p></section>
@@ -481,9 +493,15 @@ export function ProgressionAchievementsPage() {
       <div className="progression-range-filter" role="group" aria-label="Filter score history by date">
         {historyRanges.map(({ value, label }) => <button type="button" key={value} aria-pressed={historyRange === value} className={historyRange === value ? 'is-selected' : ''} onClick={() => changeHistoryRange(value)}>{label}</button>)}
       </div>
+      <label className="progression-history-toggle"><input type="checkbox" checked={showReversedTransactions} onChange={(event) => setShowReversedTransactions(event.target.checked)} /><span>Show reversed transactions</span></label>
       {historyError && <div className="form-alert" role="alert"><div><span>{progressionFailureMessage(historyError).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{historyError}</code></details></div><Button variant="secondary" size="small" onClick={() => void fetchHistoryPage(historyPage.rows.length ? Math.floor(historyPage.rows.length / historyPageSize) : 0, !historyPage.rows.length)}>Retry</Button></div>}
       {historyLoading && <p className="tracker-loading" role="status">Loading score history…</p>}
-      {!historyLoading && !historyError && visibleHistory.length === 0 && pageData && <EmptyState title={pageData.overview.scoreHistory.length === 0 && pageData.overview.provisionalRewards.length === 0 && !historyPage.hasMore ? 'No score history yet' : 'No rewards in this period'} description="Confirmed rewards and eligible pending estimates will appear here." />}
+      {!historyLoading && !historyError && visibleHistory.length === 0 && pageData && <EmptyState
+        title={pageData.overview.scoreHistory.length === 0 && pageData.overview.provisionalRewards.length === 0 && !historyPage.hasMore ? 'No score history yet' : 'No rewards in this period'}
+        description={!showReversedTransactions && historyPage.rows.some((event) => reversedTransactionIds.has(event.id))
+          ? 'Fully reversed transactions are hidden. Turn on “Show reversed transactions” to review them.'
+          : 'Confirmed rewards and eligible pending estimates will appear here.'}
+      />}
       {visibleHistory.length > 0 && <ul className="progression-event-list progression-dialog-event-list">{visibleHistory.map((item) => <HistoryRow key={item.id} item={item} allEvents={pageData?.overview.scoreHistory ?? []} />)}</ul>}
       {historyPage.hasMore && <Button variant="secondary" disabled={historyLoading} onClick={() => void fetchHistoryPage(Math.floor(historyPage.rows.length / historyPageSize), false)}>{historyLoading ? 'Loading…' : 'Load more history'}</Button>}
       {pageData?.overview.provisionalXp ? <p className="progression-dialog-footnote">+{pageData.overview.provisionalXp.toLocaleString()} provisional XP is not in the confirmed total.</p> : null}
@@ -627,7 +645,8 @@ function BadgeDetailContent({ badge }: { badge: AchievementState }) {
 }
 
 function recentEvents(data: PageData): HistoryItem[] {
-  const confirmed = data.overview.scoreHistory.map((event) => ({ ...event, pending: false as const }))
+  const reversedIds = fullyReversedProgressionEventIds(data.overview.scoreHistory)
+  const confirmed = data.overview.scoreHistory.filter((event) => !reversedIds.has(event.id)).map((event) => ({ ...event, pending: false as const }))
   const pending = data.overview.provisionalRewards.map((reward) => {
     const entryId = reward.id.slice('check-in:'.length)
     const entry = data.entries.find((item) => item.id === entryId)

@@ -17,6 +17,7 @@ const overviewVersions = new Map<string, number>()
 
 export type ProgressionEvent = {
   id: string
+  userId: string
   effectiveDate: string
   recordedAt: string
   xpDelta: number
@@ -126,7 +127,7 @@ export type ProgressionOverview = {
 }
 
 type RawEvent = {
-  id: string; effective_date: string; recorded_at: string; xp_delta: number; event_category: string; reason_code: string
+  id: string; user_id: string; effective_date: string; recorded_at: string; xp_delta: number; event_category: string; reason_code: string
   reverses_event_id: string | null
   progression_event_sources?: Array<{ source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string }>
     | { source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string } | null
@@ -158,6 +159,7 @@ export function mapEvent(row: RawEvent, retained?: RetainedRewardContext): Progr
   const source = Array.isArray(relation) ? relation[0] : relation
   return {
     id: row.id,
+    userId: row.user_id,
     effectiveDate: row.effective_date,
     recordedAt: row.recorded_at,
     xpDelta: row.xp_delta,
@@ -170,6 +172,30 @@ export function mapEvent(row: RawEvent, retained?: RetainedRewardContext): Progr
     displayName: retained?.tracker_display_name ?? source?.display_name ?? 'Progression reward',
     deletedTracker: retained?.deleted_tracker ?? false,
   }
+}
+
+/** Returns ids that belong to a complete, directly linked XP reversal group. */
+export function fullyReversedProgressionEventIds(events: readonly ProgressionEvent[]): Set<string> {
+  const uniqueEvents = [...new Map(events.map((event) => [event.id, event])).values()]
+  const reversalsByAwardId = new Map<string, ProgressionEvent[]>()
+  for (const event of uniqueEvents) {
+    if (!event.reversesEventId) continue
+    const reversals = reversalsByAwardId.get(event.reversesEventId) ?? []
+    reversals.push(event)
+    reversalsByAwardId.set(event.reversesEventId, reversals)
+  }
+
+  const hiddenIds = new Set<string>()
+  for (const award of uniqueEvents) {
+    if (award.xpDelta <= 0 || award.eventCategory === 'reversal' || award.reasonCode === 'AWARD_REVERSAL' || award.reversesEventId !== null) continue
+    const reversals = reversalsByAwardId.get(award.id)
+    if (!reversals?.length || reversals.some((event) => event.eventCategory !== 'reversal'
+      || event.userId !== award.userId || event.reasonCode !== 'AWARD_REVERSAL' || event.xpDelta >= 0 || event.reversesEventId !== award.id)) continue
+    if (award.xpDelta + reversals.reduce((sum, event) => sum + event.xpDelta, 0) !== 0) continue
+    hiddenIds.add(award.id)
+    for (const reversal of reversals) hiddenIds.add(reversal.id)
+  }
+  return hiddenIds
 }
 
 async function getRetainedRewardContexts(
@@ -203,7 +229,7 @@ async function queryAllEvents(client: NonNullable<ReturnType<typeof getSupabaseC
   for (let offset = 0; ; offset += pageSize) {
     countDevPerformance('supabase.progression-event-page-request')
     const { data, error } = await client.from('progression_events')
-      .select('id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
+      .select('id,user_id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
       .eq('user_id', userId).order('recorded_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + pageSize - 1)
     if (error) throw progressionReadError('progression_events (confirmed XP)', error)
     const page = (data ?? []) as RawEvent[]
@@ -379,7 +405,7 @@ export async function getProgressionHistory(userId: string, page = 0, perPage = 
   await assertAccount(client, userId)
   const from = page * perPage
   const { data, error } = await client.from('progression_events')
-    .select('id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
+    .select('id,user_id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
     .eq('user_id', userId).order('recorded_at', { ascending: false }).order('id', { ascending: false }).range(from, from + perPage)
   if (error) throw progressionReadError('progression_events (score history)', error)
   const rows = (data ?? []) as RawEvent[]
@@ -487,7 +513,7 @@ export async function getNewlyConfirmedRewards(userId: string, since: string): P
   if (!client) throw new Error('Supabase is not configured.')
   await assertAccount(client, userId)
   const { data, error } = await client.from('progression_events')
-    .select('id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
+    .select('id,user_id,effective_date,recorded_at,xp_delta,event_category,reason_code,reverses_event_id,progression_event_sources(source_id,tracker_id,goal_id,display_name)')
     .eq('user_id', userId).gt('recorded_at', since).gt('xp_delta', 0).order('recorded_at').order('id')
   if (error) throw progressionReadError('progression_events (newly confirmed rewards)', error)
   const rows = (data ?? []) as RawEvent[]

@@ -6,7 +6,7 @@ const expectedApiUrl = process.env.PROGRESSION_TEST_API_URL ?? 'http://127.0.0.1
 const databaseContainer = process.env.PROGRESSION_TEST_DB_CONTAINER ?? 'supabase_db_progression-live-api-isolated-20261014'
 const statusOutput = execFileSync('supabase', ['status', '--workdir', supabaseWorkdir, '--output', 'env'], {
   encoding: 'utf8',
-  env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: 'true' },
+  env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: '1' },
 })
 const status = Object.fromEntries(statusOutput.split(/\r?\n/).flatMap((line) => {
   const match = line.match(/^([A-Z_]+)="(.*)"$/)
@@ -19,6 +19,8 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(expectedApiUrl) || apiUrl !== expectedAp
   throw new Error(`The browser suite requires the configured isolated Supabase project at ${expectedApiUrl}.`)
 }
 
+process.env.PROGRESSION_TEST_API_URL = apiUrl
+process.env.PROGRESSION_TEST_ANON_KEY = anonKey
 process.env.SUPABASE_DB_CONTAINER = databaseContainer
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/private/tmp/progression-playwright-browsers'
 

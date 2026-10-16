@@ -19,14 +19,18 @@ const mocks = vi.hoisted(() => ({
   auth: { isOnline: true, syncStatus: 'complete' as string },
 }))
 
-vi.mock('../../services/supabase/progressionRepository', () => ({
+vi.mock('../../services/supabase/progressionRepository', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/supabase/progressionRepository')>()
+  return {
+  ...actual,
   getProgressionOverview: mocks.getProgressionOverview,
   getProgressionHistory: mocks.getProgressionHistory,
   activeAchievementOccurrences: (history: Array<{ id: string; eventType: string; reversesEventId: string | null }>) => {
     const reversed = new Set(history.filter((event) => event.eventType === 'revoked' && event.reversesEventId).map((event) => event.reversesEventId))
     return [...new Map(history.filter((event) => event.eventType === 'unlocked' && !reversed.has(event.id)).map((event) => [event.id, event])).values()]
   },
-}))
+  }
+})
 vi.mock('../../db/localRepository', () => ({ localRepository: {
   listTrackers: mocks.listTrackers,
   listTrackerEntriesBetween: mocks.listTrackerEntriesBetween,
@@ -45,9 +49,9 @@ const tracker: StoredTrackerDefinition = {
   metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [], milestones: [], createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 const entry: StoredTrackerEntry = { id: 'entry-1', trackerId: tracker.id, date: today, outcome: 'recorded', values: { done: true }, note: '', createdAt: `${today}T10:00:00.000Z`, updatedAt: `${today}T10:00:00.000Z`, deletedAt: null }
-const checkIn = { id: 'xp-1', effectiveDate: today, recordedAt: `${today}T10:00:00.000Z`, xpDelta: 10, eventCategory: 'check_in', reasonCode: 'DAILY_CHECK_IN_COMPLETED', reversesEventId: null, sourceId: entry.id, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
-const reversal = { id: 'reverse-1', effectiveDate: today, recordedAt: `${today}T11:00:00.000Z`, xpDelta: -10, eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: checkIn.id, sourceId: entry.id, trackerId: null, goalId: null, displayName: 'Deleted tracker', deletedTracker: false }
-const streakAward = { id: 'streak-1', effectiveDate: today, recordedAt: `${today}T12:00:00.000Z`, xpDelta: 35, eventCategory: 'streak_milestone', reasonCode: 'STREAK_MILESTONE', reversesEventId: null, sourceId: null, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
+const checkIn = { id: 'xp-1', userId: 'account-1', effectiveDate: today, recordedAt: `${today}T10:00:00.000Z`, xpDelta: 10, eventCategory: 'check_in', reasonCode: 'DAILY_CHECK_IN_COMPLETED', reversesEventId: null, sourceId: entry.id, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
+const reversal = { id: 'reverse-1', userId: 'account-1', effectiveDate: today, recordedAt: `${today}T11:00:00.000Z`, xpDelta: -10, eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: checkIn.id, sourceId: entry.id, trackerId: null, goalId: null, displayName: 'Deleted tracker', deletedTracker: false }
+const streakAward = { id: 'streak-1', userId: 'account-1', effectiveDate: today, recordedAt: `${today}T12:00:00.000Z`, xpDelta: 35, eventCategory: 'streak_milestone', reasonCode: 'STREAK_MILESTONE', reversesEventId: null, sourceId: null, trackerId: tracker.id, goalId: null, displayName: 'Read each day', deletedTracker: false }
 const overview: ProgressionOverview = {
   legacyXpStatus: 'reconstructed',
   confirmedXp: 125,
@@ -240,20 +244,75 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText(earnedTimestamp)).toBeInTheDocument()
   })
 
-  it('opens paginated history with date filters and shows reversals and anonymized sources', async () => {
+  it('hides complete reversal groups by default and can show the original transactions', async () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Score history' })
     expect(within(dialog).getByRole('group', { name: 'Filter score history by date' })).toBeInTheDocument()
+    const reversalToggle = within(dialog).getByRole('checkbox', { name: 'Show reversed transactions' })
+    expect(reversalToggle).not.toBeChecked()
     await user.click(within(dialog).getByRole('button', { name: '90 days' }))
     expect(mocks.getProgressionHistory).toHaveBeenLastCalledWith('account-1', 0, 30)
+    expect(within(dialog).queryByText('Award reversed')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('Qualifying check-in')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('Pending server confirmation')).toBeInTheDocument()
+    expect(screen.getByText('125')).toBeInTheDocument()
+    await user.click(reversalToggle)
+    expect(reversalToggle).toBeChecked()
     expect(within(dialog).getByText('Award reversed')).toBeInTheDocument()
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
     expect(within(dialog).getByText(/Reverses qualifying check-in/)).toBeInTheDocument()
-    expect(within(dialog).getByText('Pending server confirmation')).toBeInTheDocument()
+    expect(within(dialog).getByText('Qualifying check-in')).toBeInTheDocument()
+    expect(screen.getByText('125')).toBeInTheDocument()
     const activeReward = within(dialog).getByText('Qualifying check-in').closest('li')!
     expect(activeReward.querySelector('.progression-deleted-tracker-tag')).toBeNull()
+  })
+
+  it('matches reversal groups across history pages and replaces pages cleanly when filters refresh', async () => {
+    const user = userEvent.setup()
+    mocks.getProgressionHistory
+      .mockResolvedValueOnce({ rows: [reversal], hasMore: true })
+      .mockResolvedValueOnce({ rows: [checkIn], hasMore: false })
+      .mockResolvedValue({ rows: [reversal, checkIn], hasMore: false })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Score history' })
+    expect(within(dialog).queryByText('Award reversed')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('Qualifying check-in')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Load more history' }))
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Show reversed transactions' }))
+    expect(within(dialog).getByText('Award reversed')).toBeInTheDocument()
+    expect(await within(dialog).findByText('Qualifying check-in')).toBeInTheDocument()
+    const eventLabels = Array.from(dialog.querySelectorAll('.progression-dialog-event-list .progression-event-copy > strong')).map((node) => node.textContent)
+    expect(eventLabels.slice(0, 2)).toEqual(['Award reversed', 'Qualifying check-in'])
+    await user.click(within(dialog).getByRole('button', { name: '30 days' }))
+    expect(mocks.getProgressionHistory).toHaveBeenLastCalledWith('account-1', 0, 30)
+    expect(within(dialog).getAllByText('Award reversed')).toHaveLength(1)
+    expect(within(dialog).getAllByText('Qualifying check-in')).toHaveLength(1)
+    expect(screen.getByText('125')).toBeInTheDocument()
+  })
+
+  it('refreshes an open score history after sync without changing the selected display mode', async () => {
+    const user = userEvent.setup()
+    mocks.getProgressionHistory
+      .mockResolvedValueOnce({ rows: [streakAward], hasMore: false })
+      .mockResolvedValueOnce({ rows: [reversal, checkIn], hasMore: false })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Score history' })
+    expect(within(dialog).getByText('Streak milestone')).toBeInTheDocument()
+    const toggle = within(dialog).getByRole('checkbox', { name: 'Show reversed transactions' })
+    await user.click(toggle)
+    expect(toggle).toBeChecked()
+
+    await act(async () => { publishWorkspaceSyncCompleted('account-1') })
+    expect(await within(dialog).findByText('Award reversed')).toBeInTheDocument()
+    expect(within(dialog).getByText('Qualifying check-in')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Streak milestone')).not.toBeInTheDocument()
+    expect(toggle).toBeChecked()
+    expect(mocks.getProgressionHistory).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('125')).toBeInTheDocument()
   })
 
   it('renders history in a fixed blurred viewport overlay and closes on outside tap', async () => {

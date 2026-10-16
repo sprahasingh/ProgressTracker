@@ -14,6 +14,7 @@
     "typecheck": "tsc -b --pretty",
     "test": "vitest run",
     "test:e2e:achievements": "playwright test --config playwright.config.ts",
+    "test:e2e:xp-history": "node scripts/run-xp-history-playwright.mjs",
     "test:e2e:xp-popup": "playwright test --config playwright.xp-popup.config.ts",
     "test:e2e:goals-local": "playwright test --config playwright.goals-local.config.ts",
     "test:e2e:scheduling-pre-release": "playwright test --config playwright.scheduling-local.config.ts",
