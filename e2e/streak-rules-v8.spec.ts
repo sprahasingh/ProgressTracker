@@ -69,11 +69,16 @@ async function seedEntry(page: Page, trackerId: string, date: string, values: Re
 async function createHistoricalEntry(page: Page, tracker: TrackerFixture, date: string, value: string, shouldShowNotice = false) {
   await page.goto('/#/history')
   await dismissVisibleCelebrations(page)
+  await page.goto('/#/history')
+  await expect(page.getByLabel('Add or edit a date')).toBeVisible()
   await page.getByRole('combobox', { name: 'Tracker', exact: true }).selectOption(tracker.id)
   await page.getByLabel('Add or edit a date').fill(date)
   await clickAfterClearingCelebrations(page, page.getByRole('button', { name: 'Add / edit check-in' }))
   let dialog = page.getByRole('dialog', { name: tracker.name })
-  if (await dismissVisibleCelebrations(page)) dialog = await reopenHistoryEditor(page, tracker, date)
+  if (!await dialog.isVisible().catch(() => false)) {
+    await dismissVisibleCelebrations(page)
+    if (!await dialog.isVisible().catch(() => false)) dialog = await reopenHistoryEditor(page, tracker, date)
+  }
   await expect(dialog).toBeVisible()
   if (shouldShowNotice) await expect(dialog.getByRole('note')).toHaveText('Past entries can update your XP, streaks, and achievements.')
   dialog = await fillHistoryValue(page, tracker, date, value)
@@ -99,6 +104,9 @@ async function fillHistoryValue(page: Page, tracker: TrackerFixture, date: strin
 }
 
 async function reopenHistoryEditor(page: Page, tracker: TrackerFixture, date: string) {
+  await page.goto('/#/history')
+  await expect(page.getByLabel('Add or edit a date')).toBeVisible()
+  await page.getByRole('combobox', { name: 'Tracker', exact: true }).selectOption(tracker.id)
   await page.getByLabel('Add or edit a date').fill(date)
   await clickAfterClearingCelebrations(page, page.getByRole('button', { name: 'Add / edit check-in' }))
   const dialog = page.getByRole('dialog', { name: tracker.name })
@@ -309,8 +317,8 @@ test.describe('v8 tracker behavior', () => {
     await page.locator('summary').filter({ hasText: 'Streak rule' }).click()
     const streak = page.getByRole('region', { name: 'Streak rule' })
     await streak.getByLabel('Streak rule mode').selectOption('custom')
-    await streak.getByRole('combobox', { name: 'Condition', exact: true }).selectOption('equals')
-    await streak.getByRole('spinbutton').fill('1')
+    await streak.getByRole('combobox', { name: 'Condition', exact: true }).selectOption('positive-value')
+    await expect(streak.getByRole('combobox', { name: 'Condition', exact: true })).toHaveValue('positive-value')
     await page.locator('summary').filter({ hasText: 'Success rule' }).click()
     await page.getByRole('region', { name: 'Success rule' }).getByRole('spinbutton').fill('5')
     await page.getByRole('button', { name: 'Create tracker' }).click()
@@ -343,14 +351,14 @@ test.describe('v8 tracker behavior', () => {
     expect(initial.trackerXp, `Expected this tracker to earn only the two streak milestones (35 + 50 XP); account XP ${initial.xp}, tracker-linked events: ${JSON.stringify(initial.events)}`).toBe(85)
     expect(initial.history.some((event) => event.eventType === 'unlocked' && event.reversesEventId === null)).toBe(true)
 
-    await createHistoricalEntry(page, { ...tracker, id: savedTracker.id, name: savedTracker.name, metrics: [{ id: savedTracker.metricId, name: 'Progress', valueType: 'quantity' }] }, dateShift(firstDate, 1), '5')
+    await createHistoricalEntry(page, { ...tracker, id: savedTracker.id, name: savedTracker.name, metrics: [{ id: savedTracker.metricId, name: 'Progress', valueType: 'quantity' }] }, dateShift(firstDate, 1), '0')
     await clickSync(page)
     await expect.poll(() => page.evaluate(async ({ trackerId, date, metricId }) => {
       const client = (await import('/ProgressTracker/src/services/supabase/client.ts')).getSupabaseClient()!
       const { data, error } = await client.from('tracker_entries').select('entry_values').eq('tracker_id', trackerId).eq('entry_date', date).single()
       if (error) throw new Error(error.message)
       return data.entry_values[metricId]
-    }, { trackerId: savedTracker.id, date: dateShift(firstDate, 1), metricId: savedTracker.metricId }), { timeout: 30_000 }).toBe(5)
+    }, { trackerId: savedTracker.id, date: dateShift(firstDate, 1), metricId: savedTracker.metricId }), { timeout: 30_000 }).toBe(0)
     await page.evaluate(async (userId) => {
       await (await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')).getEarnedAndLockedBadges(userId)
     }, fixture().userId)
@@ -359,7 +367,7 @@ test.describe('v8 tracker behavior', () => {
       const { data, error } = await client.from('progression_events').select('xp_delta,progression_event_sources(tracker_id)').eq('user_id', userId)
       if (error) throw new Error(error.message)
       return data.filter((event) => event.progression_event_sources?.tracker_id === trackerId).reduce((sum, event) => sum + event.xp_delta, 0)
-    }, { userId: fixture().userId, trackerId: savedTracker.id }), { timeout: 15_000 }).toBe(45)
+    }, { userId: fixture().userId, trackerId: savedTracker.id }), { timeout: 15_000 }).toBe(35)
     const reversed = await page.evaluate(async (userId) => {
       const repository = await import('/ProgressTracker/src/services/supabase/progressionRepository.ts')
       const badge = (await repository.getEarnedAndLockedBadges(userId)).find((item) => item.achievementId === 'steady-flame')!
@@ -390,7 +398,7 @@ test.describe('v8 tracker behavior', () => {
         acknowledged: JSON.parse(localStorage.getItem(`progress-tracker:achievement-seen:${userId}`) ?? '[]') as string[],
       }
     }, { userId: fixture().userId, trackerId: savedTracker.id })
-    expect(afterReload.xp).toBe(45)
+    expect(afterReload.xp).toBe(35)
     expect(afterReload.eventIds).toEqual(beforeReload.eventIds)
     expect(afterReload.acknowledged).toContain(reversed.find((event) => event.eventType === 'unlocked' && event.reversesEventId === null)?.id)
     await expect(page.locator('.badge-celebration-backdrop')).toHaveCount(0)
@@ -451,11 +459,45 @@ test.describe('v8 tracker behavior', () => {
     await expect(page.getByRole('heading', { name: 'V8 Insights Rules' })).toBeVisible()
   })
 
-  test('reload retains local data and explicit Supabase sync persists v8 tracker and entry', async ({ page }) => {
-    const tracker = await createTracker(page, 'V8 Reload Sync', 'quantity')
+  test('creates, saves, reopens, records, reloads, and syncs an Any positive value Streak Rule', async ({ page }) => {
+    await beginTracker(page, 'V8 Positive Value Sync', 'quantity')
+    await page.setViewportSize({ width: 320, height: 844 })
+    await page.getByText('More options').click()
+    await page.locator('summary').filter({ hasText: 'Streak rule' }).click()
+    const streak = page.getByRole('region', { name: 'Streak rule' })
+    await streak.getByLabel('Streak rule mode').selectOption('custom')
+    const condition = streak.getByRole('combobox', { name: 'Condition', exact: true })
+    await expect(condition).toBeVisible()
+    await condition.selectOption('positive-value')
+    const mobileBounds = await condition.boundingBox()
+    expect(mobileBounds).not.toBeNull()
+    expect(mobileBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(mobileBounds!.x + mobileBounds!.width).toBeLessThanOrEqual(320)
+    await condition.press('g')
+    await condition.press('Tab')
+    await expect(condition).toHaveValue('greater-than')
+    await condition.selectOption('positive-value')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const desktopBounds = await condition.boundingBox()
+    expect(desktopBounds).not.toBeNull()
+    expect(desktopBounds!.x + desktopBounds!.width).toBeLessThanOrEqual(1440)
+    await page.getByRole('button', { name: 'Create tracker' }).click()
+    await expect(page.getByRole('heading', { name: /You’re ready to begin/ })).toBeVisible()
+    const tracker = await readTracker(page, 'V8 Positive Value Sync')
+    expect(tracker.schemaVersion).toBe(8)
+    expect(tracker.streakRule).toMatchObject({ kind: 'comparison', operator: 'greater-than', value: 0 })
+
+    await page.goto(`/#/trackers/${tracker.id}/edit`)
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible()
+    await page.getByText('More options').click()
+    await page.locator('summary').filter({ hasText: 'Streak rule' }).click()
+    const reopenedCondition = page.getByRole('region', { name: 'Streak rule' }).getByRole('combobox', { name: 'Condition', exact: true })
+    await expect(reopenedCondition).toHaveValue('positive-value')
+
     await page.goto('/')
-    await page.getByRole('button', { name: /Open V8 Reload Sync/ }).click()
-    await page.getByRole('spinbutton', { name: 'Progress' }).fill('3')
+    await page.getByRole('button', { name: /Open V8 Positive Value Sync/ }).click()
+    await page.getByRole('spinbutton', { name: 'Progress' }).fill('0.25')
     await page.getByRole('button', { name: 'Save check-in' }).click()
     await expect(page.getByText(/Saved on this device/)).toBeVisible()
     await page.getByRole('button', { name: 'Close check-in details' }).click()
@@ -469,8 +511,8 @@ test.describe('v8 tracker behavior', () => {
         client.from('tracker_entries').select('id,entry_values').eq('tracker_id', trackerId),
       ])
       if (trackerError || entryError) throw new Error([trackerError?.message, entryError?.message].filter(Boolean).join('; '))
-      return { schemaVersion: cloudTracker?.schema_version, entries: entries.length, value: entries[0]?.entry_values?.[metricId] }
-    }, { trackerId: tracker.id, metricId: tracker.metrics[0]!.id }), { timeout: 45_000 }).toMatchObject({ schemaVersion: 8, entries: 1, value: 3 })
+      return { schemaVersion: cloudTracker?.schema_version, streakRule: cloudTracker?.definition?.streakRule, entries: entries.length, value: entries[0]?.entry_values?.[metricId] }
+    }, { trackerId: tracker.id, metricId: tracker.metrics[0]!.id }), { timeout: 45_000 }).toMatchObject({ schemaVersion: 8, streakRule: { kind: 'comparison', operator: 'greater-than', value: 0 }, entries: 1, value: 0.25 })
   })
 
   test('tracker setup and Insights remain usable across responsive widths and both themes', async ({ page }) => {

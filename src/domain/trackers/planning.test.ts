@@ -137,6 +137,58 @@ describe('achievement thresholds', () => {
   })
 })
 
+describe('strict-positive comparisons used by custom streak rules', () => {
+  const comparison = (metricId: string) => ({ kind: 'comparison' as const, metricId, operator: 'greater-than' as const, value: 0 })
+
+  it.each([
+    ['quantity', 'pages', undefined, false],
+    ['quantity', 'pages', null, false],
+    ['quantity', 'pages', '', false],
+    ['quantity', 'pages', 0, false],
+    ['quantity', 'pages', 1, true],
+    ['quantity', 'pages', 0.01, true],
+    ['quantity', 'pages', -1, false],
+    ['duration', 'minutes', undefined, false],
+    ['duration', 'minutes', null, false],
+    ['duration', 'minutes', '', false],
+    ['duration', 'minutes', 0, false],
+    ['duration', 'minutes', 30, true],
+    ['duration', 'minutes', 0.25, true],
+    ['duration', 'minutes', -0.25, false],
+  ] as const)('uses a strict zero boundary for %s values (%s: %s)', (valueType, metricId, value, expected) => {
+    const metric = { id: metricId, name: metricId, valueType }
+    const values = value === undefined ? {} : { [metricId]: value }
+    expect(evaluateQualificationRule(comparison(metricId), [metric], values).qualified).toBe(expected)
+  })
+
+  it('qualifies checklist rules from the number of completed items, including empty and missing data', () => {
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [
+      { id: 'read', label: 'Read', position: 0 }, { id: 'write', label: 'Write', position: 1 }, { id: 'review', label: 'Review', position: 2 },
+    ] }
+    const rule = comparison('steps')
+    expect(evaluateQualificationRule(rule, [checklist], {}).qualified).toBe(false)
+    expect(evaluateQualificationRule(rule, [checklist], { steps: null }).qualified).toBe(false)
+    expect(evaluateQualificationRule(rule, [checklist], { steps: { read: false, write: false, review: false } }).qualified).toBe(false)
+    expect(evaluateQualificationRule(rule, [checklist], { steps: { read: true, write: false, review: false } }).qualified).toBe(true)
+    expect(evaluateQualificationRule(rule, [checklist], { steps: { read: true, write: true, review: true } }).qualified).toBe(true)
+    expect(evaluateQualificationRule(rule, [checklist], { steps: [true, true, false] }).qualified).toBe(true)
+  })
+
+  it('composes with other measure rules using AND and OR without changing their comparisons', () => {
+    const metrics = [
+      { id: 'pages', name: 'Pages', valueType: 'quantity' as const },
+      { id: 'minutes', name: 'Minutes', valueType: 'duration' as const },
+    ]
+    const positivePages = comparison('pages')
+    const atLeastFiveMinutes = { kind: 'comparison' as const, metricId: 'minutes', operator: 'at-least' as const, value: 5 }
+    const values = { pages: 0.5, minutes: 4 }
+    expect(evaluateQualificationRule({ kind: 'all', operands: [positivePages, atLeastFiveMinutes] }, metrics, values).qualified).toBe(false)
+    expect(evaluateQualificationRule({ kind: 'any', operands: [positivePages, atLeastFiveMinutes] }, metrics, values).qualified).toBe(true)
+    expect(evaluateQualificationRule({ kind: 'all', operands: [positivePages, atLeastFiveMinutes] }, metrics, { pages: 0.5, minutes: 5 }).qualified).toBe(true)
+    expect(evaluateQualificationRule({ kind: 'any', operands: [positivePages, atLeastFiveMinutes] }, metrics, { pages: 0, minutes: 4 }).qualified).toBe(false)
+  })
+})
+
 describe('qualification rules', () => {
   const metrics = base().metrics
   const rule = { kind: 'all' as const, operands: [

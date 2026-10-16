@@ -46,7 +46,7 @@ export function activeTrackerMetrics(metrics: readonly TrackerMetricDefinition[]
 
 export type TrackerRule =
   | { kind: 'threshold'; metricId: string; level: 'minimum' | 'target' | 'stretch' }
-  | { kind: 'comparison'; metricId: string; operator: 'equals' | 'at-least' | 'at-most'; value: boolean | number }
+  | { kind: 'comparison'; metricId: string; operator: 'equals' | 'greater-than' | 'at-least' | 'at-most'; value: boolean | number }
   | { kind: 'all' | 'any'; operands: TrackerRule[] }
   | { kind: 'at-least'; required: number; operands: TrackerRule[] }
 
