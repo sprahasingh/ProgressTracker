@@ -1,7 +1,8 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from './types'
 import { assertDateRange } from '../../db/calendarDate'
-import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerEvaluationHistoryStartDate } from './planning'
 import { calculateStreak, qualifiesForStreak } from './progression'
+import { trackerStrictModeForDate } from './ruleVersions'
 
 export type MetricObservation = { date: string; value: number }
 export type MetricAnalytics = {
@@ -74,13 +75,13 @@ export function calculateTrackerAnalytics(
   let scheduledQualifiedCount = 0
   let streakQualifiedCount = 0
   if (activeSchedule) {
-    const trackerFirst = trackerActiveStartDate(tracker, timeZone)
+    const trackerFirst = trackerEvaluationHistoryStartDate(tracker, timeZone)
     const firstDate = trackerFirst > startDate ? trackerFirst : startDate
     const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
     const boundedEnd = tracker.deadline && tracker.deadline < endDate ? tracker.deadline : endDate
     for (let time = dateNumber(firstDate); time <= dateNumber(boundedEnd); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      const opportunity = tracker.strictMode === true ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && !holidays.has(date)
+      const opportunity = trackerStrictModeForDate(tracker, date) ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && !holidays.has(date)
       if (!opportunity) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.

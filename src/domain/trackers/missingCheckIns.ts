@@ -1,5 +1,6 @@
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { trackerStrictModeForDate } from './ruleVersions'
 
 export type MissingCheckIn = { date: CalendarDate; tracker: StoredTrackerDefinition }
 
@@ -19,7 +20,7 @@ export function selectMissingCheckIns(input: {
     for (const tracker of input.trackers) {
       if (tracker.status !== 'active' || tracker.deletedAt !== null || !isTrackerInActivePeriod(tracker, date, input.timeZone)) continue
       if (liveEntries.has(`${tracker.id}:${date}`)) continue
-      if (tracker.strictMode === true) {
+      if (trackerStrictModeForDate(tracker, date)) {
         missing.push({ date, tracker })
         continue
       }

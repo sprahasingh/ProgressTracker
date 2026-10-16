@@ -15,6 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_TRACKER_SCHEMA_V8?: string
   /** Enable typed milestone writes after the v9 migration and downgrade guard are verified. */
   readonly VITE_ENABLE_TRACKER_SCHEMA_V9?: string
+  readonly VITE_ENABLE_TRACKER_SCHEMA_V10?: string
   readonly VITE_ENABLE_PERMANENT_DELETION?: string
   readonly VITE_ENABLE_AUTOMATIC_BIN_CLEANUP?: string
   readonly VITE_ENABLE_HOLIDAY_PERMANENT_DELETION?: string

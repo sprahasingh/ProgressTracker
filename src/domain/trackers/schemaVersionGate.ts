@@ -32,7 +32,13 @@ export function isSchemaV9WriteEnabled(): boolean {
   return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V9 === 'true' && isSchemaV8WriteEnabled())
 }
 
+/** Versioned historical tracker rules require the v10 server validator and v9 prerequisites. */
+export function isSchemaV10WriteEnabled(): boolean {
+  return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V10 === 'true' && isSchemaV9WriteEnabled())
+}
+
 export function isTrackerSchemaWriteEnabled(version: number): boolean {
+  if (version >= 10) return isSchemaV10WriteEnabled()
   if (version >= 9) return isSchemaV9WriteEnabled()
   if (version >= 8) return isSchemaV8WriteEnabled()
   if (version >= 7) return isSchemaV7WriteEnabled()

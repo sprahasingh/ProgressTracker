@@ -27,10 +27,11 @@ Standard Mode counts the tracker’s scheduled dates as opportunities and pauses
 **Sources:**
 - src/domain/trackers/progression.ts
 - src/domain/trackers/planning.ts
+- src/domain/trackers/ruleVersions.ts
 - src/domain/trackers/progression.test.ts
 - supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Your current streak is the run of recent tracking opportunities whose entries meet the tracker’s Streak Rule. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays. Success rates and normal daily success XP use the separate Success Rule.
+Your current streak is the run of recent tracking opportunities whose entries meet the Streak Rule effective on each date. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays. Success rates and normal daily success XP use the separate Success Rule effective on each date. A versioned rule change does not reset continuity across the date boundary.
 
 ### ID: all-trackers-streak
 **Category:** streaks

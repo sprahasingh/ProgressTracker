@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { categoryToTracker, dailyEntryToTrackerEntry } from './legacyAdapters'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from './schema'
 import type { TrackerDefinition } from './types'
+import { trackerEvaluationSnapshot } from './ruleVersions'
 
 const tracker: TrackerDefinition = {
   schemaVersion: 1, id: 'project-1', name: 'Write a book', description: '', kind: 'project', status: 'active', categoryId: null,
@@ -340,6 +341,44 @@ describe('typed milestone schema v9', () => {
     expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [day] }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [{ ...day, targetValue: 0 }] }).success).toBe(false)
     expect(trackerDefinitionSchema.safeParse({ ...challenge, milestones: [{ ...day, type: 'successful-days', targetValue: 2.5 }] }).success).toBe(false)
+  })
+})
+
+describe('versioned evaluation schema v10', () => {
+  const versioned = {
+    ...tracker,
+    schemaVersion: 10 as const,
+    scheduling: { mode: 'calendar' as const },
+    ruleVersions: [{
+      id: 'rule-version-1', effectiveFrom: '2026-01-01', revision: 1,
+      application: 'recalculate-all-history' as const, recordedAt: '2026-10-16T12:00:00.000Z',
+      evaluation: trackerEvaluationSnapshot({ ...tracker, scheduling: { mode: 'calendar' } }),
+    }],
+  }
+
+  it('accepts ordered inclusive-start snapshots containing stable measure semantics', () => {
+    expect(trackerDefinitionSchema.safeParse(versioned).success).toBe(true)
+  })
+
+  it('rejects duplicate or out-of-order effective dates and revisions', () => {
+    const duplicate = { ...versioned, ruleVersions: [versioned.ruleVersions[0]!, { ...versioned.ruleVersions[0]!, id: 'rule-version-2', revision: 2 }] }
+    const reversed = { ...versioned, ruleVersions: [
+      { ...versioned.ruleVersions[0]!, id: 'rule-version-1', effectiveFrom: '2026-01-02' },
+      { ...versioned.ruleVersions[0]!, id: 'rule-version-2', effectiveFrom: '2026-01-01', revision: 2 },
+    ] }
+    expect(trackerDefinitionSchema.safeParse(duplicate).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse(reversed).success).toBe(false)
+  })
+
+  it('requires v10 rule history and rejects version data on older definitions', () => {
+    expect(trackerDefinitionSchema.safeParse({ ...versioned, ruleVersions: undefined }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, ruleVersions: versioned.ruleVersions }).success).toBe(false)
+  })
+
+  it('allows cosmetic metadata edits while requiring the current evaluation to match the history head', () => {
+    const renamed = { ...versioned, name: 'Renamed tracker', metrics: versioned.metrics.map((metric, index) => ({ ...metric, name: `Renamed measure ${index + 1}` })) }
+    expect(trackerDefinitionSchema.safeParse(renamed).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...versioned, strictMode: true }).success).toBe(false)
   })
 })
 

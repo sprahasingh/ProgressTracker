@@ -1,5 +1,6 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { trackerStrictModeForDate } from './ruleVersions'
 
 export type ActivityStatus = 'pending' | 'upcoming' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'outside-period' | 'missed' | 'skipped' | 'holiday' | 'rest-day' | 'inactive' | 'no-trackers' | 'unscheduled'
 
@@ -37,7 +38,7 @@ export function getTrackerActivityStatus(input: {
   timeZone?: string
 }): ActivityStatus {
   const { tracker, entry, date, today } = input
-  const strict = tracker.strictMode === true
+  const strict = trackerStrictModeForDate(tracker, date)
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) {
     return entry && entry.deletedAt === null ? 'historical' : 'outside-period'
   }

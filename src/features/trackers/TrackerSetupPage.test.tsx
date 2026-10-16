@@ -7,6 +7,7 @@ import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import styles from '../../styles.css?raw'
+import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
 import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
 
 const { navigation, routeParams } = vi.hoisted(() => ({ navigation: vi.fn(), routeParams: { trackerId: undefined as string | undefined } }))
@@ -310,7 +311,7 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toMatchObject([{ strictMode: true }])
   })
 
-  it('asks before recalculating historical streaks when Strict Mode changes on an existing tracker', async () => {
+  it('offers prospective, retrospective, and cancel choices for an evaluation change while preserving form values', async () => {
     const existing = {
       schemaVersion: 1 as const, id: 'strict-history', name: 'Read', description: '', kind: 'habit' as const,
       status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' as const },
@@ -319,18 +320,24 @@ describe('tracker setup flow', () => {
       customFields: [], milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
     }
     await localRepository.saveTracker(existing)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     renderSetup('/trackers/strict-history/edit')
     await user.click(await screen.findByText('More options'))
     await user.click(await screen.findByText('Activity schedule & holidays'))
     await user.click(await screen.findByRole('checkbox', { name: /Strict Mode/ }))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('including past holidays and rest days'))
+    expect(await screen.findByRole('heading', { name: 'How should your new rules apply?' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Apply from today \(recommended\)/ })).toBeChecked()
+    expect(screen.getByText(/including any activity already recorded today/)).toBeInTheDocument()
     expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('strictMode')
-    confirm.mockReturnValue(true)
+    const ruleDialog = screen.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+    await user.click(within(ruleDialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('checkbox', { name: /Strict Mode/ })).toBeChecked()
+    expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('strictMode')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ strictMode: true }))
+    await user.click(screen.getByRole('radio', { name: /Recalculate all history/ }))
+    await user.click(screen.getByRole('button', { name: 'Recalculate all history' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 10, strictMode: true, ruleVersions: [{ application: 'recalculate-all-history' }] }))
   })
 
   it('offers compact numeric unit, target, and precision controls and saves them', async () => {
@@ -347,6 +354,46 @@ describe('tracker setup flow', () => {
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
     expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 8, streakRuleMode: 'same-as-success', metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
+  })
+
+  it('opens the history choice before validating a changed schema v10 rule head', async () => {
+    const base: TrackerDefinition = {
+      ...datedTracker('edit-v10-history-again', 'habit', '2026-01-05', null),
+      scheduling: { mode: 'ongoing' },
+      metrics: [{
+        id: 'sessions', name: 'Sessions', valueType: 'quantity', unit: 'sessions',
+        thresholds: { direction: 'increase', minimum: 1, target: 5, streakQualification: 'minimum' },
+      }],
+      qualificationRule: { kind: 'comparison', metricId: 'sessions', operator: 'at-least', value: 3 },
+      streakRuleMode: 'same-as-success', strictMode: false,
+    }
+    const existing: TrackerDefinition = {
+      ...base,
+      schemaVersion: 10,
+      ruleVersions: [{
+        id: 'v10-baseline', effectiveFrom: '2026-01-05', revision: 1, application: 'baseline',
+        recordedAt: '2026-01-05T00:00:00.000Z', evaluation: trackerEvaluationSnapshot(base),
+      }],
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Success rule', { selector: 'summary' }))
+    const successRule = screen.getByRole('region', { name: 'Success rule' })
+    await user.clear(within(successRule).getByRole('spinbutton', { name: 'Value' }))
+    await user.type(within(successRule).getByRole('spinbutton', { name: 'Value' }), '5')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your new rules apply?' })
+    expect(within(dialog).getByRole('radio', { name: /Apply from today/ })).toBeChecked()
+    await user.click(within(dialog).getByRole('radio', { name: /Recalculate all history/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Recalculate all history' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
+      schemaVersion: 10,
+      qualificationRule: { value: 5 },
+      ruleVersions: [{ application: 'recalculate-all-history', effectiveFrom: '2026-01-05' }],
+    }))
   })
 
   it.each([
@@ -520,8 +567,13 @@ describe('tracker setup flow', () => {
     const streakSection = screen.getByRole('region', { name: 'Streak rule' })
     await user.selectOptions(within(streakSection).getByRole('combobox', { name: 'Streak rule mode' }), 'same-as-success')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
 
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 8, streakRuleMode: 'same-as-success' }))
+    await waitFor(async () => {
+      const saved = await localRepository.getTracker(existing.id)
+      expect(saved).toMatchObject({ schemaVersion: 10, streakRuleMode: 'same-as-success' })
+      expect(saved?.ruleVersions?.map((version) => version.application)).toEqual(['baseline', 'apply-from-today'])
+    })
     expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('streakRule')
     await expect(localRepository.getTrackerEntry(existing.id, '2026-10-15')).resolves.toMatchObject({ id: savedEntry.id, values: { sessions: 3 }, note: savedEntry.note })
   })
@@ -806,7 +858,9 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     const start = await screen.findByLabelText('Start date')
     fireEvent.change(start, { target: { value: '2099-12-31' } })
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
 
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2099-12-31', kind }))
     expect((await localRepository.getTracker(existing.id))?.deadline).toBeUndefined()
@@ -817,7 +871,9 @@ describe('tracker setup flow', () => {
     await localRepository.saveTracker(existing)
     renderSetup(`/trackers/${existing.id}/edit`)
     fireEvent.change(await screen.findByLabelText('Start date'), { target: { value: '2025-12-31' } })
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Save changes' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
 
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2025-12-31', kind }))
   })
@@ -857,6 +913,7 @@ describe('tracker setup flow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await user.click(await screen.findByRole('button', { name: 'Keep historical entries' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-07' }))
     expect(await db.trackerEntries.get(savedEntry.id)).toMatchObject({ date: '2026-01-05', values: { done: true } })
     expect(await db.trackerEntries.get(nextSavedEntry.id)).toMatchObject({ date: '2026-01-06', values: { done: false } })
@@ -894,6 +951,7 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     expect(await screen.findByRole('alertdialog', { name: 'Keep historical check-ins?' })).toHaveTextContent('1 existing check-in')
     await user.click(screen.getByRole('button', { name: 'Keep historical entries' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
 
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
       startDate: '2026-01-06', goalPlanning: { allocations: { pages: { '2026-01-05': 3, '2026-01-06': 4 } } },
@@ -953,8 +1011,11 @@ describe('tracker setup flow', () => {
     await user.clear(target)
     await user.type(target, '12')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply from today' }))
     await waitFor(() => expect(navigation).toHaveBeenCalled())
-    expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 1, metrics: [{ thresholds: { target: 12 } }] })
+    const saved = await localRepository.getTracker(existing.id)
+    expect(saved).toMatchObject({ schemaVersion: 10, metrics: [{ thresholds: { target: 12 } }] })
+    expect(saved?.ruleVersions?.map((version) => version.application)).toEqual(['baseline', 'apply-from-today'])
   })
 
   it('sets the least restrictive valid increment for selected precision and saves the v4 definition', async () => {

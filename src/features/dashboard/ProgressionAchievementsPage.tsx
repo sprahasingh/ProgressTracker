@@ -22,6 +22,7 @@ import { ProgressionBadge } from './ProgressionBadge'
 import { ProgressionDetailDialog } from './ProgressionDetailDialog'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 
 type PageData = {
   overview: ProgressionOverview
@@ -194,7 +195,7 @@ function getLocalActivity(data: PageData, trackers: readonly StoredTrackerDefini
     for (const tracker of trackers) {
       if (isArchivedTracker(tracker) && tracker.archivedAt && date >= localCalendarDate(new Date(tracker.archivedAt), timeZone)) continue
       const inPeriod = isTrackerInActivePeriod(tracker, date, timeZone)
-      const isEligible = inPeriod && (tracker.strictMode === true || (!data.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
+      const isEligible = inPeriod && (trackerStrictModeForDate(tracker, date) || (!data.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
       if (!isEligible) { activity.exempt += 1; continue }
       const entry = entryByTrackerDate.get(`${tracker.id}:${date}`)
       if (entry?.outcome === 'recorded') activity.completed += 1
@@ -316,7 +317,7 @@ export function ProgressionAchievementsPage() {
   const activeTrackers = useMemo(() => pageData?.trackers.filter(isActiveTracker) ?? [], [pageData])
   const archivedTrackers = useMemo(() => pageData?.trackers.filter(isArchivedTracker) ?? [], [pageData])
   const hasQualifiedOpenDay = Boolean(pageData && activeTrackers.some((tracker) => {
-    if (!isTrackerInActivePeriod(tracker, today, timeZone) || tracker.strictMode !== true && (pageData.holidays.has(today) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
+    if (!isTrackerInActivePeriod(tracker, today, timeZone) || !trackerStrictModeForDate(tracker, today) && (pageData.holidays.has(today) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
     const entry = entriesByTracker.get(tracker.id)?.find((item) => item.date === today)
     return Boolean(entry && qualifiesForStreak(tracker, entry))
   }))

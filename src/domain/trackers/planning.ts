@@ -1,5 +1,6 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
 import { activeTrackerMetrics } from './types'
+import { trackerDefinitionForDate, trackerRuleVersionForDate } from './ruleVersions'
 import { calendarDateInTimeZone } from '../../db/calendarDate'
 
 export type GoalMode = 'daily-recurring' | 'cumulative-deadline'
@@ -113,6 +114,14 @@ export function trackerCreationDate(tracker: Pick<TrackerDefinition, 'createdAt'
 /** The configured start is authoritative when present; older dates can be backfilled. */
 export function trackerActiveStartDate(tracker: Pick<TrackerDefinition, 'startDate' | 'createdAt' | 'goalPlanning'>, timeZone?: string): string {
   return tracker.startDate ?? trackerCreationDate(tracker, timeZone)
+}
+
+/** Earliest date across the saved evaluation timeline, for complete history walks. */
+export function trackerEvaluationHistoryStartDate(tracker: Pick<TrackerDefinition, 'startDate' | 'createdAt' | 'goalPlanning' | 'ruleVersions'>, timeZone?: string): string {
+  const starts = [trackerActiveStartDate(tracker, timeZone), ...(tracker.ruleVersions ?? []).map((version) =>
+    version.evaluation.startDate ?? trackerCreationDate(tracker, timeZone),
+  )]
+  return starts.sort()[0]!
 }
 
 /** Effective Days use every calendar date from the active start, except saved holidays. */
@@ -268,13 +277,16 @@ function sumDecimalValues(values: readonly number[]): number {
 }
 
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */
-export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, timeZone?: string): boolean {
+export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning' | 'ruleVersions'>, date: string, timeZone?: string): boolean {
   const time = parseDate(date)
-  const activeStart = trackerActiveStartDate(tracker, timeZone)
+  const version = trackerRuleVersionForDate(tracker, date)
+  const evaluation = version?.evaluation
+  const activeStart = trackerActiveStartDate({ ...tracker, startDate: evaluation ? evaluation.startDate ?? undefined : tracker.startDate }, timeZone)
   if (date < activeStart) return false
-  if (tracker.deadline && date > tracker.deadline) return false
+  const deadline = evaluation ? evaluation.deadline ?? undefined : tracker.deadline
+  if (deadline && date > deadline) return false
   const weekday = new Date(time).getUTCDay()
-  const schedule = tracker.schedule
+  const schedule = evaluation?.schedule ?? tracker.schedule
   switch (schedule.kind) {
     case 'none': return false
     case 'every-day': return true
@@ -311,10 +323,12 @@ export function isScheduledDate(tracker: TrackerDefinition, date: string, timeZo
 }
 
 /** Checks the inclusive configured tracker date window. */
-export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning'>, date: string, timeZone?: string): boolean {
+export function isTrackerInActivePeriod(tracker: Pick<TrackerDefinition, 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning' | 'ruleVersions'>, date: string, timeZone?: string): boolean {
   parseDate(date)
-  const first = trackerActiveStartDate(tracker, timeZone)
-  return date >= first && (!tracker.deadline || date <= tracker.deadline)
+  const evaluation = trackerRuleVersionForDate(tracker, date)?.evaluation
+  const first = trackerActiveStartDate({ ...tracker, startDate: evaluation ? evaluation.startDate ?? undefined : tracker.startDate }, timeZone)
+  const deadline = evaluation ? evaluation.deadline ?? undefined : tracker.deadline
+  return date >= first && (!deadline || date <= deadline)
 }
 
 const DAY_MS = 86_400_000
@@ -462,6 +476,7 @@ export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly T
 
 export function evaluateTrackerEntry(tracker: TrackerDefinition, entry: TrackerEntry): RuleEvaluation {
   if (entry.trackerId !== tracker.id) throw new RangeError('Entry belongs to a different tracker.')
+  tracker = trackerDefinitionForDate(tracker, entry.date)
   if (entry.outcome === 'skipped') return { qualified: false, achievedMetricIds: [], failedMetricIds: activeTrackerMetrics(tracker.metrics).map((metric) => metric.id).sort() }
   if (!tracker.qualificationRule) {
     const metric = activeTrackerMetrics(tracker.metrics)[0]

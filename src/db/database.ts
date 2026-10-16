@@ -23,7 +23,7 @@ import type {
   LocalMotivationMessage,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -453,6 +453,9 @@ export async function queueSyncMutation(
   entity: 'tracker' | 'tracker_entry' | 'account_holiday',
   payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday,
 ): Promise<void> {
+  if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
+    throw new Error('Versioned tracker rule writes are disabled until the schema v10 migration is applied and verified.')
+  }
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
     throw new Error('Typed milestone writes are disabled until the tracker schema v9 migration is applied and verified.')
   }

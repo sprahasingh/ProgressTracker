@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { getChallengeDayDisplay } from './challengeDay'
+import { challengeDaysElapsed, firstChallengeDateAtDay, getChallengeDayDisplay } from './challengeDay'
 import type { TrackerDefinition } from './types'
+import { versionTrackerRuleChange } from './ruleVersions'
 
 const challenge = (startDate: string, deadline: string): TrackerDefinition => ({
   schemaVersion: 1, id: 'challenge', name: 'DSA', description: '', kind: 'challenge', status: 'active', categoryId: null,
@@ -54,5 +55,34 @@ describe('getChallengeDayDisplay', () => {
     const tracker = { ...challenge('2026-10-15', '2026-10-20'), schemaVersion: 7 as const, schedule: { kind: 'weekdays' as const }, scheduling: { mode: 'effective' as const, effectiveDays: 3, effectiveDayCounting: 'all-non-holiday-days' as const } }
     expect(getChallengeDayDisplay(tracker, '2026-10-17')?.label).toBe('Day 3 of 3 · Rest day')
     expect(getChallengeDayDisplay(tracker, '2026-10-16', 'UTC', new Set(['2026-10-16']))?.label).toContain('Holiday')
+  })
+
+  it('continues challenge-day numbering across prospective schedule versions', () => {
+    const before: TrackerDefinition = {
+      ...challenge('2026-10-01', '2026-10-31'),
+      schemaVersion: 6,
+      scheduling: { mode: 'calendar' },
+      schedule: { kind: 'every-day' },
+    }
+    const after: TrackerDefinition = {
+      ...before,
+      schedule: { kind: 'weekdays' },
+      deadline: undefined,
+      scheduling: { mode: 'effective', effectiveDays: 10, effectiveDayCounting: 'planned-activity-days' },
+    }
+    const versioned = versionTrackerRuleChange({
+      before,
+      after,
+      application: 'apply-from-today',
+      today: '2026-10-05',
+      historyStartDate: '2026-10-01',
+      recordedAt: '2026-10-05T00:00:00.000Z',
+    })
+
+    expect(challengeDaysElapsed(versioned, '2026-10-04', 'UTC')).toBe(4)
+    expect(getChallengeDayDisplay(versioned, '2026-10-05', 'UTC')?.label).toBe('Day 5 of 10')
+    expect(getChallengeDayDisplay(versioned, '2026-10-10', 'UTC')?.label).toBe('Rest day · next is Day 10')
+    expect(getChallengeDayDisplay(versioned, '2026-10-12', 'UTC')?.label).toBe('Day 10 of 10')
+    expect(firstChallengeDateAtDay(versioned, 10, '2026-10-12', 'UTC')).toBe('2026-10-12')
   })
 })

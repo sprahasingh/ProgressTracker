@@ -41,8 +41,30 @@ Moving a tracker to the Bin keeps its saved progress and rewards. You can restor
 - src/domain/trackers/invariants.ts
 - src/features/trackers/TrackerConfigurationEditor.tsx
 - src/domain/trackers/analytics.ts
+- src/domain/trackers/ruleVersions.ts
+- src/domain/trackers/progression.ts
+- src/domain/trackers/types.ts
+- supabase/migrations/20261117000100_versioned_tracker_evaluation_rules_v10.sql
 **Answer:**
-Rule and schedule edits recalculate derived history using the current tracker settings, so historical success, streaks, and progress can change while saved activity values remain intact. A saved measure’s type and historical meaning are protected; checklist item definitions also stay fixed after history exists. Custom fields with saved values keep their label and interpretation. Retire a measure or field to stop collecting future values while retaining its definition for old entries.
+Rule and schedule edits can change derived success, streaks, and progress, but saved check-in values, notes, dates, and identities remain intact. Versioned trackers evaluate each date with the rule settings saved for that date. A saved measure’s type and historical meaning are protected; checklist item definitions also stay fixed after history exists. Custom fields with saved values keep their label and interpretation. Retire a measure or field to stop collecting future values while retaining its definition for old entries.
+
+### ID: tracker-rule-history-choices
+**Category:** trackers
+**Question:** How does changing a tracker rule affect my past progress?
+**Aliases:**
+- What does Apply from today mean?
+- What happens if I recalculate all history?
+- Will editing a rule change my saved check-ins?
+**Keywords:** tracker rule, historical rules, Apply from today, recalculate history, streak, XP
+**Suggestible:** true
+**Sources:**
+- src/features/trackers/TrackerSetupPage.tsx
+- src/domain/trackers/ruleVersions.ts
+- src/domain/trackers/types.ts
+- src/domain/trackers/progression.ts
+- supabase/migrations/20261117000100_versioned_tracker_evaluation_rules_v10.sql
+**Answer:**
+For an existing tracker, an evaluation-affecting edit asks how you want the new rules to apply. **Apply from today** is selected by default: earlier dates keep their prior rules, today (in the workspace time zone) uses the new rules for the whole day, and a backdated check-in uses the rules effective on its date. **Recalculate all history** uses the new rules across the tracker’s applicable history. Neither choice rewrites saved check-in values, notes, dates, or entry identities. XP and achievements may change after synchronization under the existing reward and cutover rules. Cancel, Escape, or closing the choice returns to editing without saving the pending changes. Cosmetic edits such as a name or description change do not ask this question.
 
 ### ID: archive-tracker
 **Category:** trackers
@@ -70,7 +92,7 @@ Archiving a tracker removes it from Today and current activity while keeping its
 - src/domain/trackers/planning.ts
 - src/features/trackers/TrackerSetupPage.tsx
 **Answer:**
-New trackers start with Daily recurrence. You can choose Weekdays, Weekends, any non-empty Custom Days combination (including Saturday only or Sunday only), or No Recurrence. In Standard Mode, No Recurrence creates no mandatory or missed check-in days, but you can still record flexible progress from the tracker library or Calendar. The selected recurrence controls Standard Mode expected dates, consistency, and Goal Auto planning; Strict Mode remains an independent streak policy that treats every active date as a streak opportunity. Calendar Days stays fixed. Effective Days can count recurrence-matching activity dates or all non-holiday dates; existing records without a method retain the latter behavior.
+New trackers start with Daily recurrence. You can choose Weekdays, Weekends, any non-empty Custom Days combination (including Saturday only or Sunday only), or No Recurrence. In Standard Mode, No Recurrence creates no mandatory or missed check-in days, but you can still record flexible progress from the tracker library or Calendar. The selected recurrence controls Standard Mode expected dates, consistency, and Goal Auto planning; Strict Mode remains an independent streak policy that treats every active date as a streak opportunity. Calendar Days stays fixed. Effective Days can count recurrence-matching activity dates or all non-holiday dates; existing records without a method retain the latter behavior. Changing recurrence on an existing tracker offers the same Apply from today or Recalculate all history choice as other evaluation-affecting edits.
 
 ### ID: start-date-deadline
 **Category:** trackers
@@ -86,7 +108,7 @@ New trackers start with Daily recurrence. You can choose Weekdays, Weekends, any
 - src/domain/trackers/planning.test.ts
 - src/features/trackers/TrackerSetupPage.tsx
 **Answer:**
-The tracker’s active period begins on its configured start date, or its creation date in the workspace time zone when no start date is set, and ends at its deadline when one is set. A configured start date can be before tracker creation, allowing eligible past activity to be recorded. Dates outside the active period are not tracking opportunities; a deadline stops schedule-based calculations from counting later dates.
+The tracker’s active period begins on its configured start date, or its creation date in the workspace time zone when no start date is set, and ends at its deadline when one is set. A configured start date can be before tracker creation, allowing eligible past activity to be recorded. Dates outside the active period are not tracking opportunities; a deadline stops schedule-based calculations from counting later dates. Changing the start date or deadline on an existing tracker asks whether to apply the new period from today or recalculate all applicable history. Saved check-ins outside the resulting active period stay in History but do not count as opportunities.
 
 ### ID: tracker-duration-modes
 **Category:** trackers
@@ -101,7 +123,7 @@ The tracker’s active period begins on its configured start date, or its creati
 - src/features/trackers/TrackerSetupPage.tsx
 - src/domain/trackers/challengeDay.ts
 **Answer:**
-Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of counted dates and projects the deadline using the selected counting method. New scheduled trackers can count only recurrence-matching activity dates, or include every non-holiday calendar date. Existing records without a saved method keep the previous behavior of counting every date except holidays explicitly marked in ProgressTracker's calendar. Public holidays, festivals, and missed check-ins do not change eligibility; missed check-ins still consume any eligible Effective Day. Ongoing has no fixed deadline. These duration counts are separate from activity schedules, completed check-ins, and streaks.
+Calendar Days uses the deadline you choose, and holidays or rest days do not move it. Effective Days asks for a number of counted dates and projects the deadline using the selected counting method. New scheduled trackers can count only recurrence-matching activity dates, or include every non-holiday calendar date. Existing records without a saved method keep the previous behavior of counting every date except holidays explicitly marked in ProgressTracker's calendar. Public holidays, festivals, and missed check-ins do not change eligibility; missed check-ins still consume any eligible Effective Day. Ongoing has no fixed deadline. These duration counts are separate from activity schedules, completed check-ins, and streaks. Editing an existing tracker’s duration or scheduling settings offers Apply from today or Recalculate all history.
 
 ### ID: retire-measure
 **Category:** trackers
@@ -133,7 +155,7 @@ Retiring a measure removes it from future check-ins while keeping its definition
 - src/features/trackers/TrackerSetupPage.tsx
 - src/features/trackers/TrackerSetupPage.test.tsx
 **Answer:**
-Open Trackers, choose the tracker’s edit action, update its supported settings, then save. Rule and schedule edits recalculate derived history under the current configuration, while saved activity values remain intact. Saved measure definitions and custom-field meanings are protected; retire one and add a replacement to change how future check-ins are recorded.
+Open Trackers, choose the tracker’s edit action, update its supported settings, then save. An evaluation-affecting rule, schedule, or active-period change asks whether to apply the new settings from today or recalculate all applicable history. The default keeps earlier dates under their previous rule versions. A rename, description, or other cosmetic edit does not show that choice. Saved activity and measure definitions remain intact; retire a measure or custom field and add a replacement to change how future check-ins are recorded.
 
 ### ID: tracker-created-active-date
 **Category:** trackers

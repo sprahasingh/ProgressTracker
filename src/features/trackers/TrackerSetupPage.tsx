@@ -5,10 +5,12 @@ import { AppIcon, type AppIconName } from '../../components/ui/AppIcon'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
+import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
 import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule, TrackerSchedulingMode } from '../../domain/trackers/types'
+import { trackerEvaluationChanged, versionTrackerRuleChange, type RuleApplicationMode } from '../../domain/trackers/ruleVersions'
 import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
@@ -16,7 +18,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
-import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
 
@@ -24,6 +26,7 @@ type FormValues = { name: string; description: string; kind: TrackerKind; schedu
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; streakRuleMode: TrackerDefinition['streakRuleMode'] | 'legacy'; streakRule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
 type HistoricalPeriodConfirmation = { count: number; dateRange: string; resolve: (keep: boolean) => void }
+type PendingRuleChange = { candidate: TrackerDefinition; mode: RuleApplicationMode; historyStartDate: string }
 const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
 const kindOptions: Array<{ kind: TrackerKind; title: string; description: string; icon: AppIconName }> = [
   { kind: 'habit', title: 'Habit', description: 'Build a regular routine.', icon: 'habit' },
@@ -164,6 +167,7 @@ export function TrackerSetupPage() {
   const [dirty, setDirty] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [historicalPeriodConfirmation, setHistoricalPeriodConfirmation] = useState<HistoricalPeriodConfirmation | null>(null)
+  const [pendingRuleChange, setPendingRuleChange] = useState<PendingRuleChange | null>(null)
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null)
   const advancedSetupRef = useRef<HTMLDetailsElement>(null)
   const allowNavigationRef = useRef(false)
@@ -513,26 +517,6 @@ export function TrackerSetupPage() {
       notify({ kind: 'error', title: 'Typed milestones are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v9' })
       return
     }
-    if (existing && (existing.strictMode ?? false) !== parsed.data.strictMode) {
-      const message = parsed.data.strictMode
-        ? 'Enabling Strict Mode will recalculate this tracker’s streak using every calendar day, including past holidays and rest days. Your recorded progress will not be deleted.'
-        : 'Switching to Standard Mode will recalculate this tracker’s streak using scheduled days, with holidays and rest days preserving continuity. Your recorded progress will not be deleted.'
-      if (!window.confirm(message)) return
-    }
-    const previousCountingMethod = existing?.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
-    const nextCountingMethod = parsed.data.schedule === 'none' ? 'all-non-holiday-days' : parsed.data.effectiveDayCounting
-    const countingChanged = Boolean(existing && trackerScheduling(existing).mode === 'effective' && parsed.data.schedulingMode === 'effective' && previousCountingMethod !== nextCountingMethod)
-    const schedulingModeChanged = Boolean(existing && trackerScheduling(existing).mode !== parsed.data.schedulingMode)
-    if (existing && (schedulingModeChanged || countingChanged)) {
-      const nextDeadline = selectedDeadline ? calendarDateLabel(selectedDeadline) : 'no fixed deadline'
-      const nextDuration = parsed.data.schedulingMode === 'effective'
-        ? `${parsed.data.effectiveDays} ${nextCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'non-holiday days'}`
-        : parsed.data.schedulingMode === 'calendar' && selectedDeadline
-          ? `${inclusiveCalendarDays(trackerActiveStartDate({ ...existing, startDate: parsed.data.startDate }, timeZone), selectedDeadline)} calendar days`
-          : 'ongoing'
-      const message = `Review scheduling change\n\n${trackerScheduling(existing).mode}${countingChanged ? ` (${previousCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'include rest days'}) → ${nextCountingMethod === 'planned-activity-days' ? 'planned activity days' : 'include rest days'}` : ` → ${parsed.data.schedulingMode}`}\nNew period: ${nextDuration}; ${nextDeadline}.\n\nGoal Auto allocations will recalculate for the new eligible dates. Saved Manual allocations and check-ins stay on their original dates; review any future Manual conflicts in Goals. Historical challenge day labels will use the new schedule. Continue?`
-      if (!window.confirm(message)) return
-    }
     if (existing && parsed.data.startDate) {
       const nextPeriod = { ...existing, startDate: parsed.data.startDate, deadline: selectedDeadline || undefined }
       const narrowsStart = trackerActiveStartDate(nextPeriod, timeZone) > trackerActiveStartDate(existing, timeZone)
@@ -638,7 +622,9 @@ export function TrackerSetupPage() {
         schemaVersion, id, name: form.name, description: form.description.trim(), kind,
         status: existing?.status === 'archived' && archivedStatusAfterSave === 'active' ? 'active' : existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
-        schedule, startDate: form.startDate || undefined, deadline: effectiveDeadline,
+        schedule,
+        startDate: form.startDate || undefined,
+        deadline: effectiveDeadline,
         ...(persistScheduling ? { scheduling } : {}),
         metrics: submittedMetrics,
         strictMode: form.strictMode,
@@ -649,7 +635,15 @@ export function TrackerSetupPage() {
         ...(persistGoalPlanning ? { goalPlanning: submittedPlanning } : {}),
         createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.status === 'archived' && archivedStatusAfterSave === 'archived' ? existing.archivedAt : null, deletedAt: null,
       }
-      const checked = trackerDefinitionSchema.safeParse(candidate)
+      const evaluationChanged = Boolean(existing && trackerEvaluationChanged(existing, candidate, timeZone))
+      // A schema v10 draft cannot satisfy the stored-history/head invariant
+      // until its version list is rebuilt after the user chooses how to apply
+      // the edit. Validate changed evaluation fields against the v9 shape,
+      // which contains the same tracker settings without that history invariant.
+      const validationCandidate = existing?.schemaVersion === 10 && evaluationChanged
+        ? { ...candidate, schemaVersion: 9 as const, ruleVersions: undefined }
+        : candidate
+      const checked = trackerDefinitionSchema.safeParse(validationCandidate)
       if (!checked.success) {
         setValidationIssues(inlineIssueMap(checked.error.issues))
         const allocationIncrementIssues = checked.error.issues.filter((issue) =>
@@ -699,6 +693,17 @@ export function TrackerSetupPage() {
       }))
         return
       }
+      if (existing && evaluationChanged) {
+        if (!isSchemaV10WriteEnabled()) {
+          const message = 'Versioned tracker rules need the schema v10 migration and VITE_ENABLE_TRACKER_SCHEMA_V10 in this production build. No tracker changes were saved.'
+          setError(message)
+          notify({ kind: 'error', title: 'Historical rule versions are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v10' })
+          return
+        }
+        const earliestStart = [trackerActiveStartDate(existing, timeZone), trackerActiveStartDate(checked.data, timeZone)].sort()[0]!
+        setPendingRuleChange({ candidate: checked.data as TrackerDefinition, mode: 'apply-from-today', historyStartDate: earliestStart })
+        return
+      }
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
       allowNavigationRef.current = true
       setDirty(false)
@@ -715,6 +720,61 @@ export function TrackerSetupPage() {
       const recoverableMessage = /measure type|retired measure|saved check-ins|active measure/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
       setError(recoverableMessage)
       notify({ kind: 'error', title: existing ? 'Couldn’t update tracker' : 'Couldn’t create tracker', description: recoverableMessage, duration: 0, dedupeKey: existing?.id ? `tracker:${existing.id}` : `tracker-create:${values.name}` })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmVersionedSave() {
+    if (!pendingRuleChange || !existing || saving) return
+    if (!isSchemaV10WriteEnabled()) {
+      setError('Versioned tracker rules are disabled until the schema v10 migration is applied and verified.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const candidate = pendingRuleChange.candidate
+      const inferredScheduling = candidate.scheduling ?? trackerScheduling(candidate)
+      const currentScheduling = inferredScheduling.mode === 'effective'
+        ? {
+            ...inferredScheduling,
+            effectiveDayCounting: inferredScheduling.effectiveDayCounting ?? existing.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days',
+            planningTimeZone: inferredScheduling.planningTimeZone ?? timeZone,
+          }
+        : inferredScheduling
+      const versionReadyCandidate = { ...candidate, schemaVersion: 10 as const, scheduling: currentScheduling }
+      const historyStartDate = [
+        trackerActiveStartDate(existing, timeZone),
+        trackerActiveStartDate(versionReadyCandidate, timeZone),
+        pendingRuleChange.historyStartDate,
+      ].sort()[0]!
+      const versioned = versionTrackerRuleChange({
+        before: existing,
+        after: versionReadyCandidate,
+        application: pendingRuleChange.mode,
+        today: todayLocal(timeZone),
+        historyStartDate,
+        recordedAt: new Date().toISOString(),
+      })
+      const checked = trackerDefinitionSchema.safeParse(versioned)
+      if (!checked.success) {
+        const message = checked.error.issues[0]?.message ?? 'The versioned tracker configuration is invalid.'
+        setError(message)
+        notify({ kind: 'error', title: 'Tracker details need attention', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
+        return
+      }
+      const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
+      setPendingRuleChange(null)
+      allowNavigationRef.current = true
+      setDirty(false)
+      notify({ kind: 'success', title: 'Tracker updated', description: 'Your changes were saved on this device. Progression will be confirmed when sync completes.', dedupeKey: `tracker:${result.id}` })
+      navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : ''
+      const recoverableMessage = /measure type|retired measure|saved check-ins|active measure|conflict|schema v10/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
+      setError(recoverableMessage)
+      notify({ kind: 'error', title: 'Couldn’t update tracker', description: recoverableMessage, duration: 0, dedupeKey: `tracker:${existing.id}` })
     } finally {
       setSaving(false)
     }
@@ -744,6 +804,7 @@ export function TrackerSetupPage() {
   const milestoneContext = { kind: selectedKind, metrics: configuration.metrics, schedule: scheduleFromForm(values.schedule, existing, values.customWeekdays), strictMode: values.strictMode, scheduling: { mode: values.schedulingMode }, deadline: selectedDeadline }
   const typedMilestonesNeedV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
   const milestoneV9WriteBlocked = typedMilestonesNeedV9 && !isSchemaV9WriteEnabled()
+  const ruleV10WriteBlocked = existing?.schemaVersion === 10 && !isSchemaV10WriteEnabled()
   const targetNumber = Number(goalAmount)
   const hasShortcutTarget = Boolean(goalAmount) && Number.isFinite(targetNumber) && targetNumber > 0
   let planningForEditor = goalPlanning
@@ -823,11 +884,34 @@ export function TrackerSetupPage() {
           </details>
           {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="goal-plan-setup" open={existing?.kind === 'goal'}><summary><span><strong>Plan targets and pace</strong><small>Choose a daily target or a total to reach by a deadline</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary><GoalPlanningEditor metrics={configuration.metrics} planning={planningForEditor} deadline={selectedDeadline} onChange={changeGoalPlanning} /></details>}
           <footer className="tracker-form-actions">
-            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving || milestoneV9WriteBlocked || ((configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled())}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
+            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving || ruleV10WriteBlocked || milestoneV9WriteBlocked || ((configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled())}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
             <Button type="button" variant="quiet" data-discard-trigger onClick={() => { if (!dirty) navigate('/trackers'); else { setPendingNavigation(null); setConfirmDiscard(true) } }}>Cancel</Button>
           </footer>
         </form>
       </Surface>
+      {pendingRuleChange && <ConfirmActionDialog
+        className="tracker-rule-application-dialog"
+        title="How should your new rules apply?"
+        description="Changing these rules may affect your past progress, streaks, milestones, and rewards."
+        actionLabel={pendingRuleChange.mode === 'apply-from-today' ? 'Apply from today' : 'Recalculate all history'}
+        actionDisabled={saving}
+        cancelDisabled={saving}
+        onCancel={() => { if (!saving) { setPendingRuleChange(null); setError('') } }}
+        onConfirm={() => { void confirmVersionedSave() }}
+      >
+        <fieldset className="tracker-rule-application-options" disabled={saving}>
+          <legend>Choose how to apply these changes</legend>
+          <label>
+            <input type="radio" name="rule-application" value="apply-from-today" checked={pendingRuleChange.mode === 'apply-from-today'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'apply-from-today' } : current)} />
+            <span><strong>Apply from today (recommended)</strong><small>Keep earlier days under their previous rules. Use the new rules starting today, including any activity already recorded today.</small></span>
+          </label>
+          <label>
+            <input type="radio" name="rule-application" value="recalculate-all-history" checked={pendingRuleChange.mode === 'recalculate-all-history'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'recalculate-all-history' } : current)} />
+            <span><strong>Recalculate all history</strong><small>Apply the new rules to previous activity too. Your streaks, statistics, milestones, XP, and achievements may change.</small></span>
+          </label>
+        </fieldset>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+      </ConfirmActionDialog>}
       {confirmDiscard && <div className="modal-backdrop tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description"><h2 id="discard-title">Discard unsaved changes?</h2><p id="discard-description">Your tracker setup will be lost if you leave now.</p><div><Button type="button" variant="quiet" onClick={() => { setConfirmDiscard(false); setPendingNavigation(null) }}>Keep editing</Button><Button type="button" variant="destructive" onClick={discardAndLeave}>Discard changes</Button></div></section></div>}
       {historicalPeriodConfirmation && <div className="modal-backdrop tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="historical-period-title" aria-describedby="historical-period-description"><h2 id="historical-period-title">Keep historical check-ins?</h2><p id="historical-period-description">Changing the tracker period will place {historicalPeriodConfirmation.count} existing check-in{historicalPeriodConfirmation.count === 1 ? '' : 's'} outside the active tracking period ({historicalPeriodConfirmation.dateRange}). Their dates and values will remain in History, but they will not count toward current-period streaks, completion rates, or goal progress.</p><div><Button type="button" variant="quiet" onClick={() => { const resolve = historicalPeriodConfirmation.resolve; setHistoricalPeriodConfirmation(null); resolve(false) }}>Cancel changes</Button><Button type="button" onClick={() => { const resolve = historicalPeriodConfirmation.resolve; setHistoricalPeriodConfirmation(null); resolve(true) }}>Keep historical entries</Button></div></section></div>}
     </section>

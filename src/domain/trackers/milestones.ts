@@ -1,8 +1,10 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerMilestoneType } from './types'
 import { activeTrackerMetrics } from './types'
-import { calendarDayNumber, effectiveDaysElapsed, inclusiveCalendarDays, nthEffectiveDate, schedulingMode } from './scheduling'
+import { inclusiveCalendarDays, schedulingMode } from './scheduling'
 import { calculateStreak, firstDateAtStreakLength } from './progression'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, latestEntriesByDate, metricObservationForMilestone, trackerActiveStartDate, isTrackerScheduledOccurrence } from './planning'
+import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersions'
+import { challengeDaysElapsed, firstChallengeDateAtDay } from './challengeDay'
 
 export type MilestoneProgress = {
   milestoneId: string
@@ -22,13 +24,11 @@ export type MilestoneProgress = {
   secondaryValue?: number
 }
 
-const DAY_MS = 86_400_000
 const dateNumber = (date: string) => {
   const value = Date.parse(`${date}T00:00:00.000Z`)
   if (!Number.isFinite(value) || new Date(value).toISOString().slice(0, 10) !== date) throw new RangeError(`Invalid calendar date: ${date}`)
   return value
 }
-const dateText = (value: number) => new Date(value).toISOString().slice(0, 10)
 const unitText = (metric: TrackerMetricDefinition) => metric.unit?.trim() || (metric.valueType === 'checklist' ? 'items' : 'times')
 export type MilestoneConfigurationContext = Pick<TrackerDefinition, 'metrics' | 'kind' | 'scheduling' | 'deadline' | 'schedule' | 'strictMode'>
 
@@ -139,7 +139,7 @@ function eligibleRecordedEntries(input: {
 }
 
 function isProgressionOpportunity(tracker: TrackerDefinition, date: string, holidays: ReadonlySet<string>, timeZone?: string): boolean {
-  return tracker.strictMode === true || (!holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone))
+  return trackerStrictModeForDate(tracker, date) || (!holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone))
 }
 
 export function milestoneConfigurationIssue(milestone: TrackerMilestoneDefinition, metric: TrackerMetricDefinition | undefined): string | null {
@@ -166,21 +166,22 @@ function checklistValue(value: unknown): Record<string, unknown> | null {
 }
 
 function challengeProgress(tracker: TrackerDefinition, target: number, asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string): { current: number; reachedDate: string | null; total: number } | null {
-  const mode = schedulingMode(tracker)
+  const evaluation = trackerDefinitionForDate(tracker, asOfDate)
+  const mode = schedulingMode(evaluation)
   if (tracker.kind !== 'challenge' || mode === 'ongoing') return null
-  const start = trackerActiveStartDate(tracker, timeZone)
+  const start = trackerActiveStartDate(evaluation, timeZone)
   if (mode === 'effective') {
-    const total = tracker.scheduling?.effectiveDays ?? 0
+    const total = evaluation.scheduling?.effectiveDays ?? 0
     if (!total) return null
-    const current = effectiveDaysElapsed({ tracker, date: asOfDate, holidays, timeZone })
-    const reachedDate = current >= target ? nthEffectiveDate({ tracker, startDate: start, effectiveDays: target, holidays, timeZone }) : null
+    const current = Math.min(challengeDaysElapsed(tracker, asOfDate, timeZone, holidays), total)
+    const reachedDate = current >= target ? firstChallengeDateAtDay(tracker, target, asOfDate, timeZone, holidays) : null
     return { current, reachedDate, total }
   }
-  if (!tracker.deadline || tracker.deadline < start) return null
-  const total = inclusiveCalendarDays(start, tracker.deadline)
-  const current = calendarDayNumber(start, tracker.deadline, asOfDate)
-  const targetDate = dateText(dateNumber(start) + (target - 1) * DAY_MS)
-  return { current, reachedDate: current >= target ? targetDate : null, total }
+  if (!evaluation.deadline || evaluation.deadline < start) return null
+  const total = inclusiveCalendarDays(start, evaluation.deadline)
+  const current = Math.min(challengeDaysElapsed(tracker, asOfDate, timeZone, holidays), total)
+  const reachedDate = current >= target ? firstChallengeDateAtDay(tracker, target, asOfDate, timeZone, holidays) : null
+  return { current, reachedDate, total }
 }
 
 /** Calculates each target from its own authoritative activity source. */
@@ -302,8 +303,9 @@ function formatValue(value: number): string {
 /** The date-only day number used by Calendar Days and Effective Days milestones. */
 export function milestoneChallengeDayAt(tracker: TrackerDefinition, date: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): number | null {
   if (tracker.kind !== 'challenge') return null
-  const mode = schedulingMode(tracker)
-  if (mode === 'effective') return effectiveDaysElapsed({ tracker, date, holidays, timeZone })
-  if (!tracker.deadline) return null
-  return calendarDayNumber(trackerActiveStartDate(tracker, timeZone), tracker.deadline, date)
+  const evaluation = trackerDefinitionForDate(tracker, date)
+  const mode = schedulingMode(evaluation)
+  if (mode === 'effective') return Math.min(challengeDaysElapsed(tracker, date, timeZone, holidays), evaluation.scheduling?.effectiveDays ?? Number.MAX_SAFE_INTEGER)
+  if (mode !== 'calendar' || !evaluation.deadline) return null
+  return Math.min(challengeDaysElapsed(tracker, date, timeZone, holidays), inclusiveCalendarDays(trackerActiveStartDate(evaluation, timeZone), evaluation.deadline))
 }

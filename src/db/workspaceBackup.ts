@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { openDatabase } from './database'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
-import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
@@ -230,6 +230,9 @@ export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId
   }
   if (!isSchemaV9WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 9)) {
     throw new Error('This backup contains typed milestone records that this build cannot restore yet.')
+  }
+  if (!isSchemaV10WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 10)) {
+    throw new Error('This backup contains versioned tracker rules that this build cannot restore yet.')
   }
   if (!isSchemaV6WriteEnabled() && backup.stores.trackers.some((tracker) => typeof tracker === 'object' && tracker !== null && 'schemaVersion' in tracker && tracker.schemaVersion === 6)) {
     throw new Error('This backup contains unified scheduling records that this build cannot restore yet.')

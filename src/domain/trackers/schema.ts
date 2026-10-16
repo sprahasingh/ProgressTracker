@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { isGoalAutoPlanningDate, trackerActiveStartDate } from './planning'
+import { trackerEvaluationSignature } from './ruleVersions'
+import type { TrackerEvaluationSnapshot } from './types'
 
 const id = z.string().min(1)
 const calendarDate = z.iso.date()
@@ -125,6 +127,37 @@ const trackerSchedulingSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('ongoing') }),
 ])
 
+const evaluationSnapshotSchema = z.object({
+  schedule: scheduleSchema,
+  startDate: calendarDate.nullable().optional(),
+  deadline: calendarDate.nullable().optional(),
+  scheduling: trackerSchedulingSchema.nullable().optional(),
+  metrics: z.array(metricSchema),
+  qualificationRule: ruleSchema.nullable().optional(),
+  streakRuleMode: z.enum(['same-as-success', 'custom']).nullable().optional(),
+  streakRule: ruleSchema.nullable().optional(),
+  strictMode: z.boolean().nullable().optional(),
+}).superRefine((evaluation, context) => {
+  if (evaluation.startDate && evaluation.deadline && evaluation.deadline < evaluation.startDate) {
+    context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
+  }
+  const metrics = new Map(evaluation.metrics.map((metric) => [metric.id, metric]))
+  if (metrics.size !== evaluation.metrics.length) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Metric IDs must be unique.' })
+  if (evaluation.qualificationRule) ruleMetricsCheck(evaluation.qualificationRule, metrics, context, ['qualificationRule'])
+  if (evaluation.streakRuleMode === 'custom' && evaluation.streakRule) ruleMetricsCheck(evaluation.streakRule, metrics, context, ['streakRule'])
+  if (evaluation.streakRuleMode === 'custom' && !evaluation.streakRule) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Custom streak versions require a streak rule.' })
+  if (evaluation.streakRuleMode === 'same-as-success' && evaluation.streakRule) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Same as Success Rule versions cannot contain a separate streak rule.' })
+})
+
+const trackerRuleVersionSchema = z.object({
+  id,
+  effectiveFrom: calendarDate,
+  revision: z.number().int().positive(),
+  application: z.enum(['baseline', 'apply-from-today', 'recalculate-all-history']),
+  recordedAt: z.iso.datetime(),
+  evaluation: evaluationSnapshotSchema,
+})
+
 function isIanaTimeZone(value: string): boolean {
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false }
 }
@@ -154,7 +187,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -176,6 +209,7 @@ export const trackerDefinitionSchema = z.object({
   milestones: z.array(milestoneSchema),
   goalPlanning: goalPlanningSchema.optional(),
   strictMode: z.boolean().optional(),
+  ruleVersions: z.array(trackerRuleVersionSchema).min(1).optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
@@ -186,19 +220,53 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined || tracker.goalPlanning?.manualAllocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
   if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if ([3, 4, 5, 6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
-  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
+  if ([3, 4, 5, 6, 7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ([6, 7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
   if (tracker.schemaVersion === 5 && (tracker.kind !== 'goal' || tracker.goalPlanning?.mode !== 'cumulative-deadline' || !tracker.goalPlanning.planningTimeZone || !tracker.goalPlanning.allocations || !tracker.goalPlanning.manualAllocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 5 requires a timezone-aware cumulative goal with separate manual allocations.' })
-  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema v6 and newer require an explicit scheduling mode.' })
+  if ([6, 7, 8, 9, 10].includes(tracker.schemaVersion) && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema v6 and newer require an explicit scheduling mode.' })
   if (tracker.schemaVersion < 6 && tracker.scheduling !== undefined) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Explicit scheduling modes require tracker schema version 6.' })
-  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
-  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
-  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
-  if ([7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 and newer Effective Days require an explicit counting method.' })
+  if ([6, 7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
+  if ([6, 7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
+  if ([6, 7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
+  if ([7, 8, 9, 10].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 and newer Effective Days require an explicit counting method.' })
   if (tracker.scheduling && tracker.scheduling.mode !== 'effective' && 'effectiveDayCounting' in tracker.scheduling && tracker.scheduling.effectiveDayCounting !== undefined) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Effective day counting applies only to Effective Days scheduling.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.schemaVersion < 8 && (tracker.streakRuleMode !== undefined || tracker.streakRule !== undefined)) context.addIssue({ code: 'custom', path: ['streakRuleMode'], message: 'Separate streak rules require tracker schema version 8.' })
   if (tracker.schemaVersion === 8 && tracker.streakRuleMode === undefined) context.addIssue({ code: 'custom', path: ['streakRuleMode'], message: 'Schema version 8 requires an explicit streak rule mode.' })
+  if (tracker.schemaVersion === 10 && !tracker.ruleVersions?.length) context.addIssue({ code: 'custom', path: ['ruleVersions'], message: 'Schema version 10 requires at least one historical rule version.' })
+  if (tracker.schemaVersion < 10 && tracker.ruleVersions !== undefined) context.addIssue({ code: 'custom', path: ['ruleVersions'], message: 'Historical rule versions require tracker schema version 10.' })
+  if (tracker.ruleVersions) {
+    const ids = new Set<string>()
+    const dates = new Set<string>()
+    tracker.ruleVersions.forEach((version, index) => {
+      if (ids.has(version.id)) context.addIssue({ code: 'custom', path: ['ruleVersions', index, 'id'], message: 'Rule version IDs must be unique.' })
+      if (dates.has(version.effectiveFrom)) context.addIssue({ code: 'custom', path: ['ruleVersions', index, 'effectiveFrom'], message: 'Rule versions must have one unique effective start per date.' })
+      if (index > 0) {
+        const previous = tracker.ruleVersions![index - 1]!
+        if (version.effectiveFrom <= previous.effectiveFrom) context.addIssue({ code: 'custom', path: ['ruleVersions', index, 'effectiveFrom'], message: 'Rule versions must be ordered by increasing effective date.' })
+        if (version.revision <= previous.revision) context.addIssue({ code: 'custom', path: ['ruleVersions', index, 'revision'], message: 'Rule version revisions must increase.' })
+      }
+      ids.add(version.id)
+      dates.add(version.effectiveFrom)
+    })
+    if (tracker.schemaVersion === 10 && tracker.ruleVersions.length > 0) {
+      const latest = tracker.ruleVersions[tracker.ruleVersions.length - 1]!
+      const currentEvaluation = {
+        schedule: tracker.schedule,
+        startDate: tracker.startDate ?? null,
+        deadline: tracker.deadline ?? null,
+        scheduling: tracker.scheduling ?? null,
+        metrics: tracker.metrics,
+        qualificationRule: tracker.qualificationRule ?? null,
+        streakRuleMode: tracker.streakRuleMode ?? null,
+        streakRule: tracker.streakRule ?? null,
+        strictMode: tracker.strictMode ?? false,
+      }
+      if (trackerEvaluationSignature(latest.evaluation as unknown as Partial<TrackerEvaluationSnapshot>) !== trackerEvaluationSignature(currentEvaluation as unknown as Partial<TrackerEvaluationSnapshot>)) {
+        context.addIssue({ code: 'custom', path: ['ruleVersions', tracker.ruleVersions.length - 1, 'evaluation'], message: 'The latest rule version must match the tracker’s current evaluation settings.' })
+      }
+    }
+  }
   if (tracker.streakRuleMode === 'custom' && tracker.streakRule === undefined) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Add at least one valid streak condition.' })
   if (tracker.streakRuleMode === 'same-as-success' && tracker.streakRule !== undefined) context.addIssue({ code: 'custom', path: ['streakRule'], message: 'Same as Success Rule uses the saved success rule directly.' })
   if (tracker.startDate && tracker.deadline && tracker.deadline < tracker.startDate) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Deadline cannot precede start date.' })
