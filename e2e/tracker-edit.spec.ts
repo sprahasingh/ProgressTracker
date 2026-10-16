@@ -382,6 +382,39 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
   })
   expect(emptySaved.record?.definition.ruleVersions?.[0]?.evaluation.scheduling).not.toHaveProperty('effectiveDayCounting')
 
+  await page.reload()
+  await page.goto(`/#/trackers/${emptyTracker.id}/edit`)
+  const reloadedEvaluation = await page.evaluate(async ({ trackerId, today }) => {
+    const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+    const { evaluateTrackerEntry } = await import('/ProgressTracker/src/domain/trackers/planning.ts')
+    const { qualifiesForStreak } = await import('/ProgressTracker/src/domain/trackers/progression.ts')
+    const saved = await localRepository.getTracker(trackerId)
+    if (!saved) throw new Error('Reloaded legacy tracker was not available locally.')
+    const makeEntry = (date: string) => ({
+      id: `evaluation-${date}`, trackerId, date, outcome: 'recorded' as const,
+      values: { progress: 0.5 }, note: '', createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null,
+    })
+    const historical = makeEntry('2026-10-16')
+    const current = makeEntry(today)
+    return {
+      schemaVersion: saved.schemaVersion,
+      rules: saved.ruleVersions?.map((version) => ({ effectiveFrom: version.effectiveFrom, application: version.application })),
+      historicalSuccess: evaluateTrackerEntry(saved, historical).qualified,
+      historicalStreak: qualifiesForStreak(saved, historical),
+      currentStreak: qualifiesForStreak(saved, current),
+    }
+  }, { trackerId: emptyTracker.id, today })
+  expect(reloadedEvaluation).toMatchObject({
+    schemaVersion: 10,
+    rules: [
+      { effectiveFrom: '2026-10-16', application: 'baseline' },
+      { effectiveFrom: today, application: 'apply-from-today' },
+    ],
+    historicalSuccess: false,
+    historicalStreak: true,
+    currentStreak: false,
+  })
+
   const deletedTracker = legacyV6Challenge(randomUUID())
   await seedTracker(page, deletedTracker, fixture.userId, null)
   const deletedSeed = await syncAndReadRemote(page, fixture.userId, deletedTracker.id, deletedTracker.name)
@@ -538,6 +571,10 @@ test('preserves historical checklist and custom-field meaning through responsive
   await page.reload()
   await page.goto(`/#/trackers/${tracker.id}/edit`)
   const celebration = page.locator('.badge-celebration[role="dialog"]')
+  // The newly earned award can arrive after the route renders. Wait for it
+  // before checking visibility so it cannot appear over the mobile controls
+  // after the dismissal loop has already been skipped.
+  await expect(celebration).toBeVisible()
   for (let index = 0; index < 5 && await celebration.isVisible(); index += 1) {
     await celebration.getByRole('button', { name: /^(Next|Finish)$/ }).click()
   }

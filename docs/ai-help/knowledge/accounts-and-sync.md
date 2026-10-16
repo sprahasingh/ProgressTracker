@@ -73,7 +73,7 @@ Use the account screen to request an email sign-in link or choose password sign-
 - src/db/workspaceBackup.ts
 - src/db/workspaceBackup.test.ts
 **Answer:**
-Settings provides a local workspace backup you can download as JSON and restore into the same guest workspace or account. Restore previews changes, adds missing records, skips identical records, and stops if it finds a conflicting ID or date. Keep the backup file private.
+Settings provides a local workspace backup you can download as JSON and restore into the same guest workspace or account. Restore previews changes, adds missing records, skips identical records, and stops if it finds a conflicting ID or date. Sync operation states are preserved too: a server-rejected change remains blocked with its payload and diagnostic, and an already superseded operation remains historical; neither is made retryable by restoring a backup. Keep the backup file private.
 
 ### ID: signout-local-data
 **Category:** accounts-sync
