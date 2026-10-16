@@ -1,4 +1,4 @@
-import type { TrackerDefinition } from './types'
+import type { CustomFieldDefinition, TrackerDefinition } from './types'
 
 /** Prevent an existing metric ID from changing the type of its saved values. */
 export function trackerMetricTypeChange(previous: TrackerDefinition, next: TrackerDefinition): string | undefined {
@@ -32,4 +32,32 @@ export function historicalMetricMeaningChange(previous: TrackerDefinition, next:
     if (JSON.stringify(oldMeaning) !== JSON.stringify(nextMeaning)) return metric.name
   }
   return undefined
+}
+
+/** Keep a custom field's label and value interpretation stable while preserving its stable ID. */
+export function historicalCustomFieldMeaningChange(previous: TrackerDefinition, next: TrackerDefinition, historicalFieldIds: ReadonlySet<string>): string | undefined {
+  const nextById = new Map(next.customFields.map((field) => [field.id, field]))
+  for (const field of previous.customFields) {
+    if (!historicalFieldIds.has(field.id)) continue
+    const candidate = nextById.get(field.id)
+    if (!candidate) return field.name
+    if (customFieldMeaning(field) !== customFieldMeaning(candidate)) return field.name
+  }
+  return undefined
+}
+
+/** Retired custom fields must remain available to display and safely resave old values. */
+export function retiredCustomFieldMeaningChange(previous: TrackerDefinition, next: TrackerDefinition): string | undefined {
+  const nextById = new Map(next.customFields.map((field) => [field.id, field]))
+  for (const field of previous.customFields) {
+    if (!field.retiredAt) continue
+    const candidate = nextById.get(field.id)
+    if (!candidate || customFieldMeaning(field) !== customFieldMeaning(candidate) || candidate.retiredAt !== field.retiredAt) return field.name
+  }
+  return undefined
+}
+
+function customFieldMeaning(field: CustomFieldDefinition): string {
+  const { position: _position, retiredAt: _retiredAt, ...meaning } = field
+  return JSON.stringify(meaning)
 }

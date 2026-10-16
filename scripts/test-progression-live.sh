@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-status_output="$(SUPABASE_TELEMETRY_DISABLED=1 supabase status -o env)"
+supabase_workdir="${SUPABASE_WORKDIR:-$PWD}"
+status_output="$(SUPABASE_TELEMETRY_DISABLED=1 supabase status --workdir "$supabase_workdir" -o env)"
 get_status_value() {
   local key="$1"
   printf '%s\n' "$status_output" | awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); gsub(/^"|"$/, ""); print; exit }'
@@ -10,8 +11,8 @@ get_status_value() {
 export SUPABASE_URL="$(get_status_value API_URL)"
 export SUPABASE_ANON_KEY="$(get_status_value ANON_KEY)"
 export SUPABASE_SERVICE_ROLE_KEY="$(get_status_value SERVICE_ROLE_KEY)"
-project_id="$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml | head -n 1)"
-export SUPABASE_DB_CONTAINER="$(docker ps --filter "name=^/supabase_db_${project_id}$" --format '{{.Names}}' | head -n 1)"
+project_id="$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' "$supabase_workdir/supabase/config.toml" | head -n 1)"
+export SUPABASE_DB_CONTAINER="${SUPABASE_DB_CONTAINER:-$(docker ps --filter "name=^/supabase_db_${project_id}$" --format '{{.Names}}' | head -n 1)}"
 export VITE_SUPABASE_URL="$SUPABASE_URL"
 export VITE_SUPABASE_PUBLISHABLE_KEY="$(get_status_value PUBLISHABLE_KEY)"
 export VITE_ENABLE_PERMANENT_DELETION=true

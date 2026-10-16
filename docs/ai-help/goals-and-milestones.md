@@ -49,6 +49,8 @@ The editor only offers types supported by the tracker and its measures. It shows
 
 Older milestones without a saved type keep their original best-single-observation comparison. Their saved meaning is shown explicitly until the user chooses a conversion. A typed milestone saves its stable measure ID and relevant type, unit, or checklist snapshots; its progress and threshold date remain derived from current authoritative entries. Existing goal-milestone rewards continue to use the same reward policy and stable award identity, so edits can reverse and re-reach a milestone without duplicate awards. Ordinary milestones do not add a new reward amount.
 
+Displayed milestone progress describes saved tracker history under the current milestone rules. Confirmed XP is reconciled separately: milestone rewards require individually eligible check-ins after the progression cutover. A milestone may therefore show completed from earlier history without a confirmed reward. Removing or invalidating a rewarded milestone makes its old reward ineligible and records a linked reversal; restoring eligibility can create a new award generation.
+
 If a milestone refers to a measure, resolve that dependency before removing or retiring the measure. Retired measure definitions remain available for historical display, but they should not remain a dependency of an active plan that needs future inputs.
 
 ## Examples and common mistakes

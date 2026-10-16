@@ -13,6 +13,11 @@ function parseEntry(value: unknown): StoredTrackerEntry {
   return trackerEntrySchema.parse(normalizeTrackerEntryTimestamps(value)) as StoredTrackerEntry
 }
 
+async function clearQueuedOperations(database: Awaited<ReturnType<typeof openDatabase>>, userId: string, entity: SyncOperation['entity'], entityId: string) {
+  const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, entity, entityId]).toArray()
+  if (queued.length) await database.syncOperations.bulkDelete(queued.map(({ id }) => id))
+}
+
 function trackerFromRemote(row: Record<string, unknown>): StoredTrackerDefinition {
   const tracker = parseTracker(row.definition)
   if (row.user_id === undefined || row.id !== tracker.id || row.kind !== tracker.kind || row.status !== tracker.status || row.name !== tracker.name || row.schema_version !== tracker.schemaVersion) {
@@ -68,7 +73,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       if (conflict.entity === 'tracker') {
         const local = await database.trackers.get(conflict.entityId) ?? parseTracker(conflict.localPayload)
         const fork = parseTracker({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() })
-        if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+        await clearQueuedOperations(database, userId, 'tracker', conflict.entityId)
         await database.trackers.delete(conflict.entityId)
         await database.trackerVerification.delete(conflict.entityId)
         await database.syncRecords.delete(stateKey)
@@ -79,6 +84,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         for (const entry of linkedEntries) {
           const forkedEntry = parseEntry({ ...entry, trackerId: fork.id, updatedAt: new Date().toISOString() })
           await database.trackerEntries.put(forkedEntry)
+          await clearQueuedOperations(database, userId, 'tracker_entry', entry.id)
           await queueSyncMutation(database, userId, 'tracker_entry', forkedEntry)
           queuedLocalChanges = true
           const entryConflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', entry.id]).first()
@@ -89,7 +95,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       } else {
         const local = await database.trackerEntries.get(conflict.entityId) ?? parseEntry(conflict.localPayload)
         const fork = parseEntry({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() })
-        if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+        await clearQueuedOperations(database, userId, 'tracker_entry', conflict.entityId)
         await database.trackerEntries.delete(conflict.entityId)
         await database.syncRecords.delete(stateKey)
         await database.trackerEntries.put(fork)
@@ -134,7 +140,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         await database.accountHolidays.put({ id: String(remote.id), date: remote.holiday_date as AccountHoliday['date'], reason: remote.reason as AccountHoliday['reason'], createdAt: String(remote.created_at), updatedAt: String(remote.updated_at), deletedAt: remote.deleted_at === null ? null : String(remote.deleted_at) })
       }
       await database.syncRecords.put({ key: `${conflict.entity}:${recordId}`, ownerUserId: userId, entity: conflict.entity, entityId: recordId, serverRevision: revision } satisfies SyncRecordState)
-      if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
+      await clearQueuedOperations(database, userId, conflict.entity, conflict.entityId)
       if (recordId !== conflict.entityId) await database.syncRecords.delete(stateKey)
       await database.syncConflicts.delete(conflict.id)
       if (deletionRequest) await database.permanentDeletionRequests.delete(deletionRequest.id)
@@ -170,9 +176,9 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       const replacement = parseEntry({ ...payload as StoredTrackerEntry, id: String(remote.id) })
       await database.trackerEntries.delete(conflict.entityId)
       await database.trackerEntries.put(replacement)
-      if (existing?.ownerUserId === userId) await database.syncOperations.delete(existing.id)
       payload = replacement
     }
+    await clearQueuedOperations(database, userId, conflict.entity, conflict.entityId)
     await queueSyncMutation(database, userId, conflict.entity, payload)
     queuedLocalChanges = true
     // Ensure the newly queued operation always targets the revision the user reviewed.

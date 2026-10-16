@@ -7,7 +7,7 @@ import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publi
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
-import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV9WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
 import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
@@ -89,11 +89,34 @@ async function markFailure(database: ProgressTrackerDatabase, operation: SyncOpe
   if (latest) await database.syncOperations.put({ ...latest, attempts: latest.attempts + 1, lastError: message })
 }
 
+async function markInFlight(database: ProgressTrackerDatabase, operationId: string): Promise<SyncOperation | undefined> {
+  return database.transaction('rw', [database.syncOperations], async () => {
+    const latest = await database.syncOperations.get(operationId)
+    if (!latest || latest.status === 'conflict') return undefined
+    const inFlight = { ...latest, status: 'in-flight' as const }
+    await database.syncOperations.put(inFlight)
+    return inFlight
+  })
+}
+
+async function recordQueuedConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null, reason: string) {
+  const ownerUserId = operation.ownerUserId
+  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday'
+  if (!ownerUserId) throw new Error('This queued operation has no authenticated owner.')
+  let localPayload = operation.payload
+  if (operation.entity === 'tracker') localPayload = await database.trackers.get(operation.entityId) ?? localPayload
+  else if (operation.entity === 'tracker_entry') localPayload = await database.trackerEntries.get(operation.entityId) ?? localPayload
+  else if (operation.entity === 'account_holiday') localPayload = await database.accountHolidays.get(operation.entityId) ?? localPayload
+  const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray()
+  for (const sibling of queued) if (sibling.id !== operation.id) await database.syncOperations.delete(sibling.id)
+  const latest = await database.syncOperations.get(operation.id)
+  if (latest) await database.syncOperations.put({ ...latest, payload: localPayload, status: 'conflict', attempts: latest.attempts + 1, lastError: reason })
+  await database.syncConflicts.put({ id: operation.id, ownerUserId, entity, entityId: operation.entityId, localPayload: localPayload!, remoteRecord, detectedAt: new Date().toISOString(), reason })
+}
+
 async function markConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null, reason = 'The cloud record changed since this device last read it.') {
-  await database.transaction('rw', [database.syncOperations, database.syncConflicts], async () => {
-    const latest = await database.syncOperations.get(operation.id)
-    if (latest) await database.syncOperations.put({ ...latest, status: 'conflict', attempts: latest.attempts + 1, lastError: reason })
-    await database.syncConflicts.put({ id: operation.id, ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, localPayload: operation.payload!, remoteRecord, detectedAt: new Date().toISOString(), reason })
+  await database.transaction('rw', [database.syncOperations, database.syncConflicts, database.trackers, database.trackerEntries, database.accountHolidays], async () => {
+    await recordQueuedConflict(database, operation, remoteRecord, reason)
   })
 }
 
@@ -102,12 +125,18 @@ function isPermanentWriteRejection(code: string | undefined): boolean {
 }
 
 async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
-  if (!operation.ownerUserId) throw new Error('This queued operation has no authenticated owner.')
-  const revision: SyncRecordState = { key: keyFor(operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', operation.entityId), ownerUserId: operation.ownerUserId!, entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday', entityId: operation.entityId, serverRevision: record.server_revision }
+  const ownerUserId = operation.ownerUserId
+  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday'
+  if (!ownerUserId) throw new Error('This queued operation has no authenticated owner.')
+  const revision: SyncRecordState = { key: keyFor(entity, operation.entityId), ownerUserId, entity, entityId: operation.entityId, serverRevision: record.server_revision }
   await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification, database.trackers], async () => {
     await database.syncRecords.put(revision)
-    const latest = await database.syncOperations.filter((candidate) => candidate.ownerUserId === operation.ownerUserId && candidate.entity === operation.entity && candidate.entityId === operation.entityId).first()
-    if (operation.entity === 'tracker' && latest?.id === operation.id) {
+    const queued = (await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray())
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    const index = queued.findIndex((candidate) => candidate.id === operation.id)
+    const next = index >= 0 ? queued[index + 1] : undefined
+    const isLatest = index >= 0 && index === queued.length - 1
+    if (operation.entity === 'tracker' && isLatest) {
       const current = await database.trackers.get(operation.entityId)
       const payload = operation.payload as StoredTrackerDefinition | undefined
       const sameDeletedAt = (left: string | null | undefined, right: string | null) => {
@@ -119,8 +148,8 @@ async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOpe
         await database.trackerVerification.delete(operation.entityId)
       }
     }
-    if (latest?.id === operation.id) await database.syncOperations.delete(latest.id)
-    else if (latest) await database.syncOperations.put({ ...latest, expectedRevision: record.server_revision })
+    if (index >= 0) await database.syncOperations.delete(operation.id)
+    if (next && next.status !== 'conflict') await database.syncOperations.put({ ...next, expectedRevision: record.server_revision })
   })
 }
 
@@ -294,15 +323,64 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
 
 async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
   const operations = (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
-    .filter((operation) => operation.entity === entity && operation.status === 'pending')
+    .filter((operation) => operation.entity === entity && operation.status !== 'conflict')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
   let uploaded = 0
   let conflicts = 0
   let failed = 0
-  for (const operation of operations) {
+  for (const queued of operations) {
+    let operation: SyncOperation | undefined
     try {
+      operation = await database.syncOperations.get(queued.id)
+      if (!operation || operation.status === 'conflict') continue
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
         await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 7 && !isSchemaV7WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      await accountState(database, userId)
+      await assertCurrentSession(client, userId)
+      operation = await markInFlight(database, operation.id)
+      if (!operation) continue
+      // Keep the operation ID and payload durable before sending the RPC. If the
+      // server commits but its response is interrupted, a retry replays its receipt.
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
+        failed += 1
+        break
+      }
+      if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
+        await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
@@ -365,7 +443,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
         if (isPermanentWriteRejection(error.code)) {
           await markConflict(database, operation, null, `The server rejected this saved change (${error.code}). Review the local record and resolve the sync issue before retrying.`)
           conflicts += 1
-          continue
+          break
         }
         throw new Error(error.message)
       }
@@ -401,13 +479,13 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
         if (result.record && result.record.user_id !== userId) throw new Error('The server returned a row for a different account; it was not saved locally.')
         await markConflict(database, operation, result.record as unknown as Record<string, unknown> | null)
         conflicts += 1
-        continue
+        break
       }
       if (result?.status !== 'applied' || !result.record || result.record.user_id !== userId) throw new Error('The sync server returned an invalid or differently owned result.')
       await acknowledge(database, operation, result.record)
       uploaded += 1
     } catch (cause) {
-      await markFailure(database, operation, errorMessage(cause))
+      if (operation) await markFailure(database, operation, errorMessage(cause))
       failed += 1
       // Entry writes depend on tracker writes; stop this entity queue on first failure.
       if (entity === 'tracker') break
@@ -426,8 +504,7 @@ async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: str
     const local = await database.trackers.get(row.id)
     if (queued) {
       if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
-        await database.syncOperations.put({ ...queued, status: 'conflict', attempts: queued.attempts + 1, lastError: 'The cloud record changed since this device last read it.' })
-        await database.syncConflicts.put({ id: queued.id, ownerUserId: userId, entity: 'tracker', entityId: row.id, localPayload: queued.payload as StoredTrackerDefinition, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+        await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud record changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
       return { downloaded: 0, conflicts: 0 }
@@ -465,8 +542,7 @@ async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: strin
     const local = await database.trackerEntries.get(row.id)
     if (queued) {
       if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
-        await database.syncOperations.put({ ...queued, status: 'conflict', attempts: queued.attempts + 1, lastError: 'The cloud record changed since this device last read it.' })
-        await database.syncConflicts.put({ id: queued.id, ownerUserId: userId, entity: 'tracker_entry', entityId: row.id, localPayload: queued.payload as StoredTrackerEntry, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+        await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud record changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
       return { downloaded: 0, conflicts: 0 }
@@ -495,8 +571,7 @@ async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: str
     const local = await database.accountHolidays.get(row.id)
     if (queued) {
       if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
-        await database.syncOperations.put({ ...queued, status: 'conflict', attempts: queued.attempts + 1, lastError: 'The cloud holiday changed since this device last read it.' })
-        await database.syncConflicts.put({ id: queued.id, ownerUserId: userId, entity: 'account_holiday', entityId: row.id, localPayload: queued.payload as AccountHoliday, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+        await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud holiday changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
       return { downloaded: 0, conflicts: 0 }

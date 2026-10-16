@@ -42,6 +42,17 @@ describe('shared type-aware daily entry fields', () => {
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
   })
 
+  it('does not offer retired custom fields again and still shows their saved value while editing history', () => {
+    const tracker: TrackerDefinition = { ...base, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }], customFields: [
+      { id: 'mood', name: 'Mood', type: 'single-select', required: false, position: 0, options: ['Focused', 'Tired'], retiredAt: '2026-10-11T00:00:00.000Z' },
+    ] }
+    const setValue = vi.fn()
+    render(<TrackerEntryFields tracker={tracker} values={{ 'field:mood': 'Focused' }} setValue={setValue} date="2026-10-10" />)
+    expect(screen.queryByRole('combobox', { name: /Mood/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('note')).toHaveTextContent('Mood · Retired')
+    expect(screen.getByRole('note')).toHaveTextContent('Saved value: Focused')
+  })
+
   it('uses an independent configured increment for each numeric measure and previews configured targets', async () => {
     const setValue = vi.fn()
     const tracker: TrackerDefinition = {

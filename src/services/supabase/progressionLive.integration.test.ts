@@ -179,8 +179,15 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     })
     await unavailableRpcClient.auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token })
     await expect(synchronizeWorkspace(userId, unavailableRpcClient)).resolves.toMatchObject({ failed: 1, uploaded: 0 })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', entry.id]).first()).resolves.toMatchObject({
+      status: 'in-flight', payload: { values: { done: true } },
+    })
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ values: { done: true } })
     const pendingAfterNetworkFailure = await getProvisionalXp(userId, today)
-    expect(pendingAfterNetworkFailure).toEqual(expect.arrayContaining([expect.objectContaining({ xpDelta: 10 })]))
+    expect(pendingAfterNetworkFailure).toEqual(expect.arrayContaining([
+      expect.objectContaining({ xpDelta: 10 }),
+      expect.objectContaining({ id: `perfect-day:${today}`, xpDelta: 20 }),
+    ]))
     await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
     expect(await getConfirmedXp(userId)).toBe(30)
     expect(await getProvisionalXp(userId, today)).toEqual([])
@@ -204,6 +211,8 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const staleSync = await synchronizeWorkspace(userId, client)
     expect(staleSync.conflicts).toBeGreaterThan(0)
     await expect(db.syncOperations.get(staleOperation!.id)).resolves.toMatchObject({ status: 'conflict' })
+    const unresolvedFixtureConflicts = await db.syncConflicts.where('ownerUserId').equals(userId).count()
+    expect(unresolvedFixtureConflicts).toBe(2)
 
     // PostgreSQL session-level barrier: both independent psql transactions are
     // confirmed waiting before they are released together.
@@ -243,7 +252,17 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     expect((perfectDay.match(/conflict/g) ?? []).length).toBe(1)
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_award_state WHERE user_id='${userId}' AND reason_code='PERFECT_DAY_BONUS' AND current_xp>0;`)).toBe('1')
 
-    const partialTracker = { ...tracker, id: crypto.randomUUID(), name: 'Partial sync fixture', createdAt: now, updatedAt: now }
+    // The next fixture retries an entry dated yesterday. Make that date
+    // eligible for this disposable account without changing production policy.
+    const retryCutover = `${shiftCalendarDate(today, -2)}T00:00:00.000Z`
+    await queryLocalDatabase(`UPDATE public.progression_account_state SET initialized_at='${retryCutover}'::timestamptz WHERE user_id='${userId}'; UPDATE public.progression_achievement_accounts SET initialized_at='${retryCutover}'::timestamptz WHERE user_id='${userId}';`)
+
+    const partialTracker = {
+      ...tracker, id: crypto.randomUUID(), name: 'Partial sync fixture',
+      // The rejected second write is intentionally backdated to yesterday.
+      // Keep this test tracker's start anchor before that date.
+      createdAt: `${shiftCalendarDate(today, -2)}T00:00:00.000Z`, updatedAt: now,
+    }
     await localRepository.saveTracker(partialTracker)
     await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
     const partialFirst = await localRepository.saveTrackerEntry({ trackerId: partialTracker.id, date: today, outcome: 'recorded', values: { done: true }, note: 'first transaction commits' })
@@ -266,11 +285,28 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const fixedPayload = { ...partialSecond, trackerId: partialTracker.id }
     await db.syncConflicts.delete(partialSecondOperation!.id)
     await db.syncOperations.put({ ...partialSecondOperation!, status: 'pending', expectedRevision: null, payload: fixedPayload, attempts: partialSecondOperation!.attempts + 1, lastError: null })
-    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    await expect(db.syncOperations.get(partialSecondOperation!.id)).resolves.toMatchObject({
+      status: 'pending', expectedRevision: null, payload: { trackerId: partialTracker.id },
+    })
+    const partialRetry = await synchronizeWorkspace(userId, client)
+    const partialRetryOperation = await db.syncOperations.get(partialSecondOperation!.id)
+    if (partialRetry.uploaded !== 1) {
+      const remoteRetryEntry = await client.from('tracker_entries').select('id,tracker_id,server_revision').eq('id', partialSecond.id).maybeSingle()
+      throw new Error(`The repaired local entry did not upload: ${JSON.stringify({ result: partialRetry, operation: partialRetryOperation && { status: partialRetryOperation.status, expectedRevision: partialRetryOperation.expectedRevision, trackerId: (partialRetryOperation.payload as StoredTrackerEntry).trackerId, lastError: partialRetryOperation.lastError }, remote: remoteRetryEntry.data, remoteError: remoteRetryEntry.error?.message })}`)
+    }
+    expect(partialRetry).toMatchObject({ uploaded: 1, failed: 0 })
     expect((await client.from('tracker_entries').select('id').eq('id', partialSecond.id).maybeSingle()).data?.id).toBe(partialSecond.id)
-    expect(await getConfirmedXp(userId)).toBe(xpAfterPartial)
+    const xpAfterRetry = await getConfirmedXp(userId)
+    if (xpAfterRetry !== xpAfterPartial + 10) {
+      const xpEvents = await queryLocalDatabase(`SELECT e.effective_date,e.xp_delta,e.event_category,e.reason_code,e.reverses_event_id,s.source_id,s.tracker_id FROM public.progression_events e LEFT JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' ORDER BY e.recorded_at,e.id;`)
+      throw new Error(`The repaired entry changed confirmed XP from ${xpAfterPartial} to ${xpAfterRetry}, expected ${xpAfterPartial + 10}. Events: ${xpEvents}`)
+    }
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_event_sources s JOIN public.progression_events e ON e.user_id=s.user_id AND e.id=s.event_id WHERE s.user_id='${userId}' AND s.source_id='${partialSecond.id}' AND e.reason_code='DAILY_CHECK_IN_COMPLETED';`)).toBe('1')
 
-    const duplicateTracker = { ...tracker, id: crypto.randomUUID(), name: 'Concurrent duplicate fixture', createdAt: now, updatedAt: now }
+    const duplicateTracker = {
+      ...tracker, id: crypto.randomUUID(), name: 'Concurrent duplicate fixture',
+      createdAt: `${shiftCalendarDate(today, -2)}T00:00:00.000Z`, updatedAt: now,
+    }
     await localRepository.saveTracker(duplicateTracker)
     await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
     const duplicateDate = shiftCalendarDate(today, -1)
@@ -330,6 +366,82 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     expect(goalRace).toHaveLength(2)
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND current_xp>0;`)).toBe('1')
 
+    const firstMilestoneEvent = await queryLocalDatabase(`SELECT current_event_id FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND current_xp>0;`)
+    const milestoneAchievementBeforeEdit = await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)
+    expect(milestoneAchievementBeforeEdit).toBe('1')
+
+    // Removing the configured stable ID must reverse its award, revoke the
+    // derived badge, and leave its historical event and reversal relationship.
+    await localRepository.saveTracker({ ...goalTracker, milestones: [] })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${firstMilestoneEvent}';`)).toBe('1')
+    expect(await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${userId}' AND achievement_id='milestone-maker' AND event_type='revoked';`)).toBe('1')
+
+    // Clearing the target is explicit ineligibility too. Restoring the same ID
+    // creates a new generation rather than duplicating or reviving old credit.
+    const milestone = goalTracker.milestones[0]!
+    await localRepository.saveTracker({ ...goalTracker, milestones: [milestone] })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    const secondMilestoneEvent = await queryLocalDatabase(`SELECT current_event_id FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND current_xp>0;`)
+    expect(await queryLocalDatabase(`SELECT generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('3')
+    const targetless = { ...milestone }
+    delete targetless.targetValue
+    await localRepository.saveTracker({ ...goalTracker, milestones: [targetless] })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${secondMilestoneEvent}';`)).toBe('1')
+
+    await localRepository.saveTracker({ ...goalTracker, milestones: [milestone] })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    expect(await queryLocalDatabase(`SELECT current_xp || ':' || generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('25:5')
+    const milestoneEventCount = await queryLocalDatabase(`SELECT count(*) FROM public.progression_events e JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' AND s.tracker_id='${goalTracker.id}' AND e.reason_code='GOAL_MILESTONE';`)
+    await queryLocalDatabase(`SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid); SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid);`)
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events e JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' AND s.tracker_id='${goalTracker.id}' AND e.reason_code='GOAL_MILESTONE';`)).toBe(milestoneEventCount)
+
+    const fieldTracker: StoredTrackerDefinition = {
+      ...tracker, id: crypto.randomUUID(), name: 'Custom field server guard',
+      customFields: [{ id: 'mood', name: 'Mood', type: 'text', required: false, position: 0 }],
+    }
+    await localRepository.saveTracker(fieldTracker)
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    await localRepository.saveTrackerEntry({ trackerId: fieldTracker.id, date: today, outcome: 'recorded', values: { done: true, 'field:mood': 'Focused' }, note: '' })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    const fieldRevision = await queryLocalDatabase(`SELECT server_revision FROM public.trackers WHERE user_id='${userId}' AND id='${fieldTracker.id}';`)
+    const invalidFieldEdit = { ...fieldTracker, customFields: [{ ...fieldTracker.customFields[0]!, name: 'Energy' }] }
+    const serverGuard = await client.rpc('apply_tracker_sync_operation', {
+      p_expected_user_id: userId,
+      p_operation_id: crypto.randomUUID(),
+      p_entity: 'tracker',
+      p_expected_revision: Number(fieldRevision),
+      p_record: { id: fieldTracker.id, schema_version: 1, kind: 'habit', status: 'active', name: invalidFieldEdit.name, definition: invalidFieldEdit, created_at: now, updated_at: now, deleted_at: null },
+    })
+    expect(serverGuard.error?.code).toBe('23514')
+    expect(await queryLocalDatabase(`SELECT definition->'customFields'->0->>'name' FROM public.trackers WHERE user_id='${userId}' AND id='${fieldTracker.id}';`)).toBe('Mood')
+
+    // A concurrent rule edit and entry correction must converge against the
+    // final tracker definition, regardless of which transaction obtains the
+    // tracker lock first.
+    const raceTracker: StoredTrackerDefinition = {
+      ...tracker, id: crypto.randomUUID(), name: 'Tracker definition concurrency',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', minimum: 1, target: 5, stretch: 20, streakQualification: 'minimum' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' },
+    }
+    await localRepository.saveTracker(raceTracker)
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    const raceEntry = await localRepository.saveTrackerEntry({ trackerId: raceTracker.id, date: today, outcome: 'recorded', values: { pages: 5 }, note: '' })
+    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    const editedDefinition = { ...raceTracker, qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'stretch' as const } }
+    const updatedValues = JSON.stringify({ pages: 7 })
+    const editTrackerSql = `UPDATE public.trackers SET definition=$definition$${JSON.stringify(editedDefinition)}$definition$::jsonb WHERE user_id='${userId}' AND id='${raceTracker.id}';`
+    const editEntrySql = `UPDATE public.tracker_entries SET entry_values=$values$${updatedValues}$values$::jsonb WHERE user_id='${userId}' AND id='${raceEntry.id}';`
+    expect(await overlapPostgresTransactions(userId, [editTrackerSql, editEntrySql], 'postgres')).toHaveLength(2)
+    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${raceTracker.id}' AND reason_code='DAILY_CHECK_IN_COMPLETED';`)).toBe('0')
+    expect(await queryLocalDatabase(`SELECT entry_values->>'pages' FROM public.tracker_entries WHERE user_id='${userId}' AND id='${raceEntry.id}';`)).toBe('7')
+    expect(await queryLocalDatabase(`SELECT definition->'qualificationRule'->>'level' FROM public.trackers WHERE user_id='${userId}' AND id='${raceTracker.id}';`)).toBe('stretch')
+    expect(await queryLocalDatabase(`SELECT definition->'metrics'->0->'thresholds'->>'target' FROM public.trackers WHERE user_id='${userId}' AND id='${raceTracker.id}';`)).toBe('5')
+
     const achievementRace = await overlapPostgresTransactions(userId, [
       `SELECT public.reconcile_progression_achievements('${userId}'::uuid);`,
       `SELECT public.reconcile_progression_achievements('${userId}'::uuid);`,
@@ -388,9 +500,8 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const historyAfterDeletion = await getProgressionHistory(userId, 0, 200)
     expect(winsAfterDeletion.confirmedXp).toBe(winsBeforeDeletion.confirmedXp)
     expect(winsAfterDeletion.officialLevel).toEqual(winsBeforeDeletion.officialLevel)
-    const summarizeBadges = (badges: typeof badgesAfterDeletion) => badges.map((badge) => ({
+    const summarizeBadgeAwards = (badges: typeof badgesAfterDeletion) => badges.map((badge) => ({
       achievementId: badge.achievementId,
-      progress: badge.progress,
       target: badge.target,
       currentTier: badge.currentTier,
       repeatable: badge.repeatable,
@@ -398,7 +509,10 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
       unlockedAt: badge.unlockedAt,
       unlocks: badge.history.filter((event) => event.eventType === 'unlocked').map((event) => ({ tier: event.tier, generation: event.generation, recordedAt: event.recordedAt })),
     })).sort((left, right) => left.achievementId.localeCompare(right.achievementId))
-    expect(summarizeBadges(badgesAfterDeletion)).toEqual(summarizeBadges(badgesBeforeDeletion))
+    expect(summarizeBadgeAwards(badgesAfterDeletion)).toEqual(summarizeBadgeAwards(badgesBeforeDeletion))
+    const beforeBadgeProgress = new Map(badgesBeforeDeletion.map((badge) => [badge.achievementId, badge.progress]))
+    expect(badgesAfterDeletion.every((badge) => badge.progress >= (beforeBadgeProgress.get(badge.achievementId) ?? 0))).toBe(true)
+    expect(await queryLocalDatabase(`SELECT coalesce(bool_and(current.progress >= retained.progress),true)::text FROM public.progression_retained_achievement_progress retained JOIN public.progression_achievement_progress current USING (user_id,achievement_id) WHERE retained.user_id='${userId}';`)).toBe('true')
     expect(historyAfterDeletion.rows.filter((event) => event.reasonCode === 'STREAK_MILESTONE').map((event) => ({ effectiveDate: event.effectiveDate, xpDelta: event.xpDelta })))
       .toEqual(milestoneBeforeDeletion.map((event) => ({ effectiveDate: event.effectiveDate, xpDelta: event.xpDelta })))
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.trackers WHERE user_id='${userId}' AND id='${streakTracker.id}';`)).toBe('0')

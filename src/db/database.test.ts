@@ -1,6 +1,6 @@
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProgressTrackerDatabase, activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestWorkspaceSummary } from './database'
+import { ProgressTrackerDatabase, activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceSyncOperations, decideGuestData, getGuestWorkspaceSummary, queueSyncMutation } from './database'
 import { db } from './database'
 import type { DailyEntry } from './models'
 
@@ -24,7 +24,8 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(db)
     await db.trackers.put({ id: 'account-is-removed', name: 'Account data' } as never)
     await db.syncOperations.put({ id: 'pending-delete', ownerUserId: ownerId, entity: 'tracker', entityId: 'account-is-removed', operation: 'upsert', expectedRevision: null, createdAt: new Date().toISOString(), attempts: 0, status: 'pending', lastError: null })
-    await expect(countPendingWorkspaceSyncOperations(ownerId)).resolves.toBe(1)
+    await db.syncOperations.put({ id: 'interrupted-delete', ownerUserId: ownerId, entity: 'tracker', entityId: 'another-account-record', operation: 'upsert', expectedRevision: 3, createdAt: new Date().toISOString(), attempts: 1, status: 'in-flight', lastError: 'response interrupted' })
+    await expect(countPendingWorkspaceSyncOperations(ownerId)).resolves.toBe(2)
     await clearDeletedAccountWorkspace(ownerId)
     await expect(db.trackers.count()).resolves.toBe(0)
     await expect(db.syncOperations.count()).resolves.toBe(0)
@@ -32,6 +33,19 @@ describe('ProgressTracker database migrations', () => {
     await activateWorkspace(null)
     openedDatabases.push(db)
     await expect(db.trackers.get('guest-remains')).resolves.toMatchObject({ name: 'Guest data' })
+  })
+
+  it('blocks schema-v8 tracker outbox writes until the streak-rule migration flag is enabled', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', '')
+    const ownerId = `schema-v8-gate-${crypto.randomUUID()}`
+    await activateWorkspace(ownerId)
+    openedDatabases.push(db)
+    const v8 = { id: 'schema-v8-tracker', schemaVersion: 8, name: 'Streak rules' } as never
+
+    await expect(queueSyncMutation(db, ownerId, 'tracker', v8)).rejects.toThrow(/schema v8 migration/)
+    await expect(db.syncOperations.where('ownerUserId').equals(ownerId).count()).resolves.toBe(0)
   })
 
   it('expires guest holidays from their deletion timestamp only after the 30-day cutoff is enabled', async () => {

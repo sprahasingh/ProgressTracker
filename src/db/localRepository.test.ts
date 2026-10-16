@@ -58,6 +58,43 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.saveTracker(extended)).resolves.toMatchObject({ metrics: [{ retiredAt: expect.any(String) }, {}, { id: 'new' }] })
   })
 
+  it('locks custom-field meaning after use, retires fields without losing values, and allows old entries to be resaved', async () => {
+    await activateWorkspace('historical-custom-field-owner')
+    const original: StoredTrackerDefinition = { ...tracker,
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+      customFields: [{ id: 'mood', name: 'Mood', type: 'single-select', required: false, position: 0, options: ['Focused', 'Tired'] }],
+    }
+    await localRepository.saveTracker(original)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: original.id, date: '2026-10-10', outcome: 'recorded', values: { done: true, 'field:mood': 'Focused' }, note: 'Before retirement' })
+
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/saved check-in values/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [] })).rejects.toThrow(/saved check-in values/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, options: ['Calm', 'Tired'] }] })).rejects.toThrow(/saved check-in values/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, required: true }] })).rejects.toThrow(/saved check-in values/i)
+
+    const retired = { ...original, customFields: [{ ...original.customFields[0]!, retiredAt: '2026-10-11T00:00:00.000Z' }] }
+    await localRepository.saveTracker(retired)
+    await localRepository.saveTrackerEntry({ trackerId: original.id, date: entry.date, outcome: 'recorded', values: { done: false, 'field:mood': 'Focused' }, note: 'Other historical detail edited' })
+    await expect(localRepository.getTrackerEntry(original.id, '2026-10-10')).resolves.toMatchObject({ values: { done: false, 'field:mood': 'Focused' }, note: 'Other historical detail edited' })
+    await expect(localRepository.saveTrackerEntry({ trackerId: original.id, date: entry.date, outcome: 'recorded', values: { done: false, 'field:mood': 'Calm' }, note: '' })).rejects.toThrow(/retired custom fields/i)
+    await expect(localRepository.saveTracker({ ...retired, customFields: [] })).rejects.toThrow(/original definition/i)
+  })
+
+  it('keeps deleted-entry values as historical definitions for edit guards', async () => {
+    await activateWorkspace('deleted-entry-definition-owner')
+    const definition: StoredTrackerDefinition = { ...tracker,
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+      customFields: [{ id: 'mood', name: 'Mood', type: 'text', required: false, position: 0 }],
+    }
+    await localRepository.saveTracker(definition)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-10', outcome: 'recorded', values: { done: true, 'field:mood': 'Focused' }, note: '' })
+    await localRepository.deleteTrackerEntry(definition.id, '2026-10-10')
+
+    await expect(localRepository.listTrackerHistoricalValueKeys(definition.id)).resolves.toEqual(expect.arrayContaining(['done', 'field:mood']))
+    await expect(localRepository.saveTracker({ ...definition, customFields: [{ ...definition.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/saved check-in values/i)
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ deletedAt: expect.any(String), values: { 'field:mood': 'Focused' } })
+  })
+
   it('keeps notification preferences and custom messages isolated per account workspace', async () => {
     await activateWorkspace('notification-prefs-a')
     await localRepository.saveNotificationPreferences({ enabled: true, daily_enabled: true, daily_times: ['09:00'], overdue_enabled: false, overdue_times: ['10:00'], remind_partial: false, motivation_mode: 'off', motivation_times: ['18:00'], motivation_weekdays: [1], timezone: 'Asia/Kolkata', quiet_start: null, quiet_end: null, allow_overdue_during_quiet: false, daily_limit: 4, motivation_daily_limit: 1, tracker_ids: null })

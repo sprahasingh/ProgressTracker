@@ -42,7 +42,7 @@ Moving a tracker to the Bin keeps its saved progress and rewards. You can restor
 - src/features/trackers/TrackerConfigurationEditor.tsx
 - src/domain/trackers/analytics.ts
 **Answer:**
-Some edits can change which dates count in schedule-based statistics, because calculations use the tracker’s current schedule and active period. A saved measure’s type and historical interpretation are protected. Retiring a measure removes it from future check-ins while retaining its definition for old entries.
+Rule and schedule edits recalculate derived history using the current tracker settings, so historical success, streaks, and progress can change while saved activity values remain intact. A saved measure’s type and historical meaning are protected; checklist item definitions also stay fixed after history exists. Custom fields with saved values keep their label and interpretation. Retire a measure or field to stop collecting future values while retaining its definition for old entries.
 
 ### ID: archive-tracker
 **Category:** trackers
@@ -117,7 +117,7 @@ Calendar Days uses the deadline you choose, and holidays or rest days do not mov
 - src/domain/trackers/schema.test.ts
 - src/features/history/HistoryPage.tsx
 **Answer:**
-Retiring a measure removes it from future check-ins while keeping its definition available to interpret older entries. That is why an old measure may still appear when you review historical data.
+Retiring a measure removes it from future check-ins while keeping its definition available to interpret older entries. Resolve any success-rule, streak-rule, goal-plan, or milestone dependency first. That is why an old measure may still appear when you review historical data.
 
 ### ID: tracker-editing
 **Category:** trackers
@@ -133,7 +133,7 @@ Retiring a measure removes it from future check-ins while keeping its definition
 - src/features/trackers/TrackerSetupPage.tsx
 - src/features/trackers/TrackerSetupPage.test.tsx
 **Answer:**
-Open Trackers, choose the tracker’s edit action, update its supported settings, then save. You can change configuration such as its schedule and add measures, while saved measure types and their historical meaning are protected.
+Open Trackers, choose the tracker’s edit action, update its supported settings, then save. Rule and schedule edits recalculate derived history under the current configuration, while saved activity values remain intact. Saved measure definitions and custom-field meanings are protected; retire one and add a replacement to change how future check-ins are recorded.
 
 ### ID: tracker-created-active-date
 **Category:** trackers

@@ -126,7 +126,7 @@ function defaultValues(tracker?: TrackerDefinition, timeZone = Intl.DateTimeForm
           : tracker ? [] : [0, 1, 2, 3, 4, 5, 6]
   return {
     name: tracker?.name ?? '', description: tracker?.description ?? '', kind: tracker?.kind ?? 'habit', schedule, customWeekdays,
-    startDate: tracker?.startDate ?? todayLocal(timeZone), deadline: tracker?.deadline ?? '',
+    startDate: tracker ? trackerActiveStartDate(tracker, timeZone) : todayLocal(timeZone), deadline: tracker?.deadline ?? '',
     schedulingMode: tracker ? trackerScheduling(tracker).mode : 'ongoing', effectiveDays: String(tracker?.scheduling?.effectiveDays ?? ''), effectiveDayCounting: tracker ? tracker.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days' : 'planned-activity-days', strictMode: tracker?.strictMode ?? false,
   }
 }
@@ -141,6 +141,7 @@ export function TrackerSetupPage() {
   const [existing, setExisting] = useState<TrackerDefinition>()
   const [archivedStatusAfterSave, setArchivedStatusAfterSave] = useState<'archived' | 'active'>('archived')
   const [metricsWithHistory, setMetricsWithHistory] = useState<string[]>([])
+  const [customFieldsWithHistory, setCustomFieldsWithHistory] = useState<string[]>([])
   const [values, setValues] = useState<FormValues>(() => defaultValues(undefined, timeZone))
   const [scheduleTouched, setScheduleTouched] = useState(false)
   const [holidayDates, setHolidayDates] = useState<string[]>([])
@@ -262,13 +263,14 @@ export function TrackerSetupPage() {
   useEffect(() => {
     if (!trackerId) return
     let current = true
-    Promise.all([localRepository.getTracker(trackerId), localRepository.listTrackerEntriesForTracker(trackerId)]).then(([tracker, entries]) => {
+    Promise.all([localRepository.getTracker(trackerId), localRepository.listTrackerHistoricalValueKeys(trackerId)]).then(([tracker, historicalValueKeys]) => {
       if (!current) return
       if (!tracker) setError('This tracker could not be found on this device.')
       else {
         setExisting(tracker)
         setArchivedStatusAfterSave('archived')
-        setMetricsWithHistory(tracker.metrics.filter((metric) => entries.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
+        setMetricsWithHistory(tracker.metrics.filter((metric) => historicalValueKeys.includes(metric.id)).map((metric) => metric.id))
+        setCustomFieldsWithHistory(tracker.customFields.filter((field) => historicalValueKeys.includes(`field:${field.id}`)).map((field) => field.id))
         setValues(defaultValues(tracker))
         setConfiguration({ metrics: tracker.metrics, rule: tracker.qualificationRule, streakRuleMode: tracker.streakRuleMode ?? 'legacy', streakRule: tracker.streakRule, customFields: tracker.customFields, milestones: tracker.milestones })
         setGoalPlanning(tracker.goalPlanning ?? emptyGoalPlanning())
@@ -815,7 +817,7 @@ export function TrackerSetupPage() {
               <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               {(configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled() && <p className="field-hint" role="note">Streak rules need the schema v8 migration and production flag before these changes can be saved.</p>}
-              <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} customFieldsWithHistory={customFieldsWithHistory} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection" data-ai-capability="goals.milestones"><summary>Milestones</summary>{milestoneV9WriteBlocked && <p className="field-hint" role="note">Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 before they can be saved in production.</p>}<TrackerConfigurationEditor section="milestones" milestoneContext={milestoneContext} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
             </div>
           </details>

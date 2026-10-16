@@ -298,7 +298,7 @@ test('both Effective Days counting methods update deadlines through creation, ho
     const tracker = await localRepository.getTracker(id)
     return { schemaVersion: tracker?.schemaVersion, deadline: tracker?.deadline, scheduling: tracker?.scheduling }
   }, trackerId!)
-  await expect.poll(readTracker).toMatchObject({ schemaVersion: 7, deadline: '2026-11-04', scheduling: { effectiveDayCounting: 'planned-activity-days' } })
+  await expect.poll(readTracker).toMatchObject({ schemaVersion: 8, deadline: '2026-11-04', scheduling: { effectiveDayCounting: 'planned-activity-days' } })
 
   await page.goto('/#/holidays')
   await page.getByLabel('From').fill('2026-11-02')
@@ -319,7 +319,7 @@ test('both Effective Days counting methods update deadlines through creation, ho
   await expect(page.getByText(/3 non-holiday days · Ends/)).toBeVisible()
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('heading', { name: 'E2E Planned Effective Days' })).toBeVisible()
-  await expect.poll(readTracker).toMatchObject({ schemaVersion: 7, deadline: '2026-11-03', scheduling: { effectiveDayCounting: 'all-non-holiday-days' } })
+  await expect.poll(readTracker).toMatchObject({ schemaVersion: 8, deadline: '2026-11-03', scheduling: { effectiveDayCounting: 'all-non-holiday-days' } })
   await page.reload()
   await expect.poll(readTracker).toMatchObject({ deadline: '2026-11-03', scheduling: { effectiveDayCounting: 'all-non-holiday-days' } })
   await page.goto('/#/auth')
@@ -335,5 +335,5 @@ test('both Effective Days counting methods update deadlines through creation, ho
     const { data, error } = await client.from('trackers').select('schema_version,definition').eq('id', id).maybeSingle()
     if (error) return { error: error.code }
     return data ? { schemaVersion: data.schema_version, effectiveDayCounting: data.definition?.scheduling?.effectiveDayCounting } : null
-  }, trackerId!), { timeout: 60_000 }).toEqual({ schemaVersion: 7, effectiveDayCounting: 'all-non-holiday-days' })
+  }, trackerId!), { timeout: 60_000 }).toEqual({ schemaVersion: 8, effectiveDayCounting: 'all-non-holiday-days' })
 })

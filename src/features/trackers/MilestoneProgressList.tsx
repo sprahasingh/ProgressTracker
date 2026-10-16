@@ -2,17 +2,19 @@ import type { TrackerDefinition, TrackerEntry } from '../../domain/trackers/type
 import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { calendarDateLabel } from '../shared/localDates'
 
-export function MilestoneProgressList({ tracker, entries, asOfDate, holidays, timeZone }: {
+export function MilestoneProgressList({ tracker, entries, asOfDate, holidays, timeZone, showRewardEligibilityNote = false }: {
   tracker: TrackerDefinition
   entries: readonly TrackerEntry[]
   asOfDate: string
   holidays?: ReadonlySet<string>
   timeZone?: string
+  showRewardEligibilityNote?: boolean
 }) {
   const milestones = evaluateMilestones({ tracker, entries, asOfDate, holidays, timeZone })
   if (!milestones.length) return null
   const definitions = new Map(tracker.milestones.map((milestone) => [milestone.id, milestone]))
   return <section className="milestone-progress-list" aria-label={`${tracker.name} milestone progress`}>
+    {showRewardEligibilityNote && <p className="field-hint" role="note">Progress uses saved tracker history and the current milestone rules. Confirmed XP is checked separately; milestone rewards require individually eligible check-ins after the progression cutover.</p>}
     <ul>
       {milestones.map((milestone) => {
         const definition = definitions.get(milestone.milestoneId)

@@ -91,7 +91,7 @@ Mark as skipped saves an intentional skipped outcome for that date. It is not th
 - src/domain/trackers/types.ts
 - src/features/shared/TrackerEntryFields.test.tsx
 **Answer:**
-Custom check-in fields add context to an entry, such as a note or selected answer. They are separate from tracker measures and are not used as numeric goal totals.
+Custom check-in fields add context to an entry, such as a note or selected answer. They are separate from tracker measures and are not used as numeric goal totals. Once a field has saved values, its label, type, options, and required setting are protected so old answers keep their meaning. Retire it to hide it from future forms; its old value remains visible and is preserved when editing that entry.
 
 ### ID: checkin-types
 **Category:** check-ins
@@ -106,7 +106,7 @@ Custom check-in fields add context to an entry, such as a note or selected answe
 - src/features/trackers/trackerSetupSchema.ts
 - src/features/shared/TrackerEntryFields.tsx
 **Answer:**
-Every measure, including the primary measure, can use Yes/No, Quantity, Duration, or Checklist values. Each type keeps its own input and comparison behavior, and saved measure definitions retain their meaning when a tracker is edited.
+Every measure, including the primary measure, can use Yes/No, Quantity, Duration, or Checklist values. Each type keeps its own input and comparison behavior. Once history exists, the measure’s saved meaning is protected; checklist item IDs and labels also stay fixed so past checked states are not reinterpreted. Retire the measure and add a new one to track something differently.
 
 ### ID: checkin-empty-versus-zero-status
 **Category:** check-ins

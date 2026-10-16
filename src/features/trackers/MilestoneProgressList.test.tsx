@@ -28,4 +28,16 @@ describe('MilestoneProgressList', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
     expect(screen.getByText(/^Target reached /)).toBeInTheDocument()
   })
+
+  it('distinguishes visible goal progress from server-confirmed XP eligibility', () => {
+    const tracker: TrackerDefinition = {
+      schemaVersion: 9, id: 'goal-progress', name: 'Goal progress', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' }],
+      customFields: [], milestones: [{ id: 'target', title: 'Read 5 pages', description: '', type: 'cumulative-quantity', metricId: 'pages', targetValue: 5, measureTypeSnapshot: 'quantity', unitSnapshot: 'pages', position: 0 }],
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    render(<MilestoneProgressList tracker={tracker} entries={[]} asOfDate="2026-01-02" showRewardEligibilityNote />)
+    expect(screen.getByRole('note')).toHaveTextContent('Confirmed XP is checked separately')
+    expect(screen.getByRole('note')).toHaveTextContent('after the progression cutover')
+  })
 })

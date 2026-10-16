@@ -452,6 +452,21 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('disabled until the hosted migration') })
   })
 
+  it('holds schema-v8 tracker uploads until the streak-rule migration readiness flag is enabled', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', '')
+    await activateWorkspace('sync-user')
+    const v8 = { ...tracker('schema-v8-disabled'), schemaVersion: 8 as const, scheduling: { mode: 'ongoing' as const }, streakRuleMode: 'same-as-success' as const }
+    await db.trackers.put(v8)
+    await db.syncOperations.put({ id: crypto.randomUUID(), ownerUserId: 'sync-user', entity: 'tracker', entityId: v8.id, operation: 'upsert', expectedRevision: null, payload: v8, createdAt: new Date().toISOString(), attempts: 0, status: 'pending', lastError: null })
+    const { client, rpc } = fakeClient()
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('Schema v8') })
+  })
+
   it('uploads only the active owner’s queued tracker and records the server revision', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())
@@ -686,7 +701,7 @@ describe('account-scoped sync engine', () => {
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, conflicts: 0 })
     const entryOperation = await db.syncOperations.where('ownerUserId').equals('sync-user').filter((item) => item.entity === 'tracker_entry').first()
-    expect(entryOperation).toMatchObject({ status: 'pending', lastError: expect.stringContaining('tracker is in the Bin') })
+    expect(entryOperation).toMatchObject({ status: 'in-flight', lastError: expect.stringContaining('tracker is in the Bin') })
     expect(await db.syncConflicts.where('ownerUserId').equals('sync-user').count()).toBe(0)
   })
 
@@ -702,7 +717,7 @@ describe('account-scoped sync engine', () => {
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, conflicts: 0 })
     expect(rpc).toHaveBeenCalledOnce()
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({
-      status: 'pending', payload: { note: 'offline check-in' }, lastError: expect.stringContaining('Archived trackers'),
+      status: 'in-flight', payload: { note: 'offline check-in' }, lastError: expect.stringContaining('Archived trackers'),
     })
   })
 
@@ -763,8 +778,47 @@ describe('account-scoped sync engine', () => {
     const { client } = fakeClient({ rpcError: { message: 'RPC migration is not installed.' } })
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ attempts: 1, status: 'pending', lastError: 'RPC migration is not installed.' })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ attempts: 1, status: 'in-flight', lastError: 'RPC migration is not installed.' })
     await expect(db.trackers.get('sync-tracker')).resolves.toMatchObject({ name: 'Sync tracker' })
+  })
+
+  it('replays a committed write after an interrupted response before uploading a newer edit', async () => {
+    await activateWorkspace('sync-user')
+    const original = tracker('interrupted-create-edit')
+    await localRepository.saveTracker(original)
+    const { client, rpc } = fakeClient()
+    let serverRecord: ReturnType<typeof serverTracker> | null = null
+    const receipts = new Map<string, { status: 'applied'; record: ReturnType<typeof serverTracker> }>()
+    let loseFirstResponse = true
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      const operationId = String(args.p_operation_id)
+      const receipt = receipts.get(operationId)
+      if (receipt) return { data: receipt, error: null }
+
+      const expectedRevision = args.p_expected_revision as number | null
+      const currentRevision = serverRecord?.server_revision ?? null
+      if (expectedRevision !== currentRevision) return { data: { status: 'conflict', record: serverRecord }, error: null }
+
+      const payload = args.p_record as Record<string, unknown>
+      serverRecord = serverTracker(payload.definition as StoredTrackerDefinition, 'sync-user', (currentRevision ?? 0) + 1)
+      const applied = { status: 'applied' as const, record: serverRecord }
+      receipts.set(operationId, applied)
+      if (loseFirstResponse) {
+        loseFirstResponse = false
+        throw new Error('Connection closed after the server committed the write.')
+      }
+      return { data: applied, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
+    await localRepository.saveTracker({ ...original, name: 'Edited after interrupted upload' })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, conflicts: 0, failed: 0 })
+    expect(rpc.mock.calls.map(([, args]) => args.p_expected_revision)).toEqual([null, null, 1])
+    expect(rpc.mock.calls[0]?.[1]?.p_operation_id).toBe(rpc.mock.calls[1]?.[1]?.p_operation_id)
+    expect(rpc.mock.calls[1]?.[1]?.p_operation_id).not.toBe(rpc.mock.calls[2]?.[1]?.p_operation_id)
+    expect(serverRecord).toMatchObject({ name: 'Edited after interrupted upload', server_revision: 2 })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', original.id]).count()).resolves.toBe(0)
   })
 
   it('keeps an operation queued when the server rejects it after an account-session switch', async () => {
@@ -780,7 +834,7 @@ describe('account-scoped sync engine', () => {
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
     expect(rpc).toHaveBeenCalledOnce()
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', attempts: 1 })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1 })
     await expect(db.trackers.get('sync-tracker')).resolves.toMatchObject({ name: 'Sync tracker' })
   })
 
@@ -950,6 +1004,6 @@ describe('account-scoped sync engine', () => {
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1 })
     expect(rpc).not.toHaveBeenCalled()
     await expect(db.trackers.get(malformed.id)).resolves.toMatchObject({ createdAt: 'not-a-datetime' })
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', attempts: 1 })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1 })
   })
 })
