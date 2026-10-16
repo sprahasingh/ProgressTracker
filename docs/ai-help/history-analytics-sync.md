@@ -2,7 +2,7 @@
 
 ## Check-in records and History
 
-A check-in belongs to a tracker and date and stores values by stable measure ID. The tracker definition supplies the labels, units, and types used to interpret those values. Editing a measure with saved history is restricted so old values keep their meaning. Retiring the measure removes it from future check-in forms, but the definition remains for historical rendering.
+A check-in belongs to a tracker and date and stores values by stable measure ID. The tracker definition supplies the labels, units, and types used to interpret those values. Editing a measure with saved history is restricted so old values keep their meaning. Retiring the measure removes it from future check-in forms, but the definition remains for historical rendering. Custom fields with saved values follow the same preservation rule: their label, type, options, and required setting cannot be changed or removed. Retiring a field hides it from new forms; old values remain visible and are carried through when that entry is resaved.
 
 History lets you review recorded and skipped dates and see each saved measure value with its name and unit. A legacy Checklist is rendered as a checked-item count while its retained item states preserve the old context. Retired measures can still appear in past entries. The latest live revision for a date is used; deleted/tombstoned entries are not treated as current activity.
 

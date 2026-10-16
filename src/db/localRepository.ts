@@ -6,7 +6,7 @@ import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspac
 import { measureDevPerformance } from '../utils/devPerformance'
 import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
-import { historicalMetricMeaningChange, retiredMetricMeaningChange } from '../domain/trackers/invariants'
+import { historicalCustomFieldMeaningChange, historicalMetricMeaningChange, retiredCustomFieldMeaningChange, retiredMetricMeaningChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
 import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
@@ -436,15 +436,27 @@ export const localRepository = {
       if (existing?.deletedAt) throw new Error('Restore this tracker from the Bin before editing it.')
       if (existing) {
         if (activeTrackerMetrics(existing.metrics).length > 0 && activeTrackerMetrics(draft.metrics).length === 0) throw new Error('Keep at least one active measure so this tracker can record future check-ins.')
-        if (JSON.stringify(existing.metrics) !== JSON.stringify(draft.metrics)) {
-          const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).filter((entry) => entry.deletedAt === null).toArray()
-          const historicalMetricIds = new Set(existing.metrics.filter((metric) => history.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
-          const changedHistoricalType = existing.metrics.find((metric) => historicalMetricIds.has(metric.id) && draft.metrics.some((candidate) => candidate.id === metric.id && candidate.valueType !== metric.valueType))
-          if (changedHistoricalType) throw new Error(`The saved measure type for “${changedHistoricalType.name}” can’t be changed because its historical values use the original type. Retire it and add a new measure to record it differently.`)
-          const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
-          if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
-          const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
-          if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
+        const metricsChanged = JSON.stringify(existing.metrics) !== JSON.stringify(draft.metrics)
+        const customFieldsChanged = JSON.stringify(existing.customFields) !== JSON.stringify(draft.customFields)
+        if (metricsChanged || customFieldsChanged) {
+          const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).toArray()
+          const historicalKeys = new Set(history.flatMap((entry) => Object.keys(entry.values)))
+          if (metricsChanged) {
+            const historicalMetricIds = new Set(existing.metrics.filter((metric) => historicalKeys.has(metric.id)).map((metric) => metric.id))
+            const changedHistoricalType = existing.metrics.find((metric) => historicalMetricIds.has(metric.id) && draft.metrics.some((candidate) => candidate.id === metric.id && candidate.valueType !== metric.valueType))
+            if (changedHistoricalType) throw new Error(`The saved measure type for “${changedHistoricalType.name}” can’t be changed because its historical values use the original type. Retire it and add a new measure to record it differently.`)
+            const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
+            if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
+            const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
+            if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
+          }
+          if (customFieldsChanged) {
+            const historicalFieldIds = new Set(existing.customFields.filter((field) => historicalKeys.has(`field:${field.id}`)).map((field) => field.id))
+            const changedRetiredMeaning = retiredCustomFieldMeaningChange(existing, draft)
+            if (changedRetiredMeaning) throw new Error(`The retired custom field “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
+            const changedHistoricalMeaning = historicalCustomFieldMeaningChange(existing, draft, historicalFieldIds)
+            if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-in values. Keep its name, type, unit, options, and required setting; retire it and add a new field to change how you capture this detail.`)
+          }
         }
       }
       if (activeOwner) {
@@ -488,6 +500,12 @@ export const localRepository = {
   async listTrackerEntriesForTracker(trackerId: string): Promise<StoredTrackerEntry[]> {
     const database = await openDatabase()
     return (await database.trackerEntries.where('[trackerId+date]').between([trackerId, '0000-01-01'], [trackerId, '9999-12-31']).toArray()).filter((entry) => entry.deletedAt === null)
+  },
+
+  async listTrackerHistoricalValueKeys(trackerId: string): Promise<string[]> {
+    const database = await openDatabase()
+    const entries = await database.trackerEntries.where('[trackerId+date]').between([trackerId, '0000-01-01'], [trackerId, '9999-12-31']).toArray()
+    return [...new Set(entries.flatMap((entry) => Object.keys(entry.values)))]
   },
 
   async getTrackerEntry(trackerId: string, date: CalendarDate): Promise<StoredTrackerEntry | undefined> {

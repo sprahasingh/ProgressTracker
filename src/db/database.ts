@@ -23,7 +23,7 @@ import type {
   LocalMotivationMessage,
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
-import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -280,7 +280,7 @@ export async function activateWorkspace(userId: string | null): Promise<number> 
 export async function countPendingWorkspaceSyncOperations(userId: string): Promise<number> {
   if (activeWorkspaceKey !== userId) throw new Error('Open the matching account workspace before checking its pending changes.')
   await openDatabase()
-  return db.syncOperations.where('ownerUserId').equals(userId).and((operation) => operation.status === 'pending').count()
+  return db.syncOperations.where('ownerUserId').equals(userId).and((operation) => operation.status === 'pending' || operation.status === 'in-flight').count()
 }
 
 /** Erase only the confirmed-deleted account's local workspace after cloud success. */
@@ -456,6 +456,9 @@ export async function queueSyncMutation(
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
     throw new Error('Typed milestone writes are disabled until the tracker schema v9 migration is applied and verified.')
   }
+  if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
+    throw new Error('Custom streak rule writes are disabled until the tracker schema v8 migration is applied and verified.')
+  }
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
     throw new Error('Schema v3 local and cloud writes are disabled until the hosted migration is applied and verified.')
   }
@@ -473,12 +476,21 @@ export async function queueSyncMutation(
   }
   if (!ownerUserId) return
   const entityId = payload.id
-  const existing = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, entityId]).toArray()
-  if (existing.length) await database.syncOperations.bulkDelete(existing.map(({ id }) => id))
+  const existing = (await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, entityId]).toArray())
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+  if (existing.some((operation) => operation.status === 'conflict')) throw new Error('Resolve this record’s cloud conflict before saving another change.')
   const state = await database.syncRecords.get(`${entity}:${entityId}`)
+  const latest = existing[existing.length - 1]
+  if (latest?.status === 'pending' && latest.attempts === 0) {
+    await database.syncOperations.put({ ...latest, expectedRevision: state?.serverRevision ?? latest.expectedRevision, payload, lastError: null })
+    return
+  }
+  const now = Date.now()
+  const lastCreatedAt = existing.length ? Date.parse(existing[existing.length - 1]!.createdAt) : Number.NaN
+  const createdAt = new Date(Math.max(now, Number.isFinite(lastCreatedAt) ? lastCreatedAt + 1 : now)).toISOString()
   await database.syncOperations.add({
     id: crypto.randomUUID(), ownerUserId, entity, entityId, operation: 'upsert',
-    expectedRevision: state?.serverRevision ?? null, payload, createdAt: new Date().toISOString(),
+    expectedRevision: state?.serverRevision ?? null, payload, createdAt,
     attempts: 0, status: 'pending', lastError: null,
   })
 }

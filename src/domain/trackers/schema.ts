@@ -100,6 +100,7 @@ const customFieldSchema = z.object({
   position: z.number().int().nonnegative(),
   unit: z.string().optional(),
   options: z.array(z.string().trim().min(1)).optional(),
+  retiredAt: z.iso.datetime().optional(),
 }).superRefine((field, context) => {
   const select = field.type === 'single-select' || field.type === 'multi-select'
   if (select && !field.options?.length) context.addIssue({ code: 'custom', path: ['options'], message: 'Select fields require at least one option.' })
@@ -337,7 +338,7 @@ function isAllowedIncrement(value: number, increment: number): boolean {
 /** Validate typed values against a tracker's metric and custom-field definitions. */
 export function validateTrackerEntryValues(tracker: {
   metrics: Array<{ id: string; valueType: string; checklistItems?: Array<{ id: string }>; precision?: { decimalPlaces: 0 | 1 | 2; increment: number }; retiredAt?: string }>
-  customFields: Array<{ id: string; type: string; required: boolean; options?: string[] }>
+  customFields: Array<{ id: string; type: string; required: boolean; options?: string[]; retiredAt?: string }>
 }, values: Record<string, unknown>, options: { enforcePrecision?: boolean; existingValues?: Record<string, unknown> } = {}): string | undefined {
   const allowed = new Set<string>()
   for (const metric of tracker.metrics) {
@@ -345,7 +346,7 @@ export function validateTrackerEntryValues(tracker: {
     const value = values[metric.id]
     if (value === undefined || value === null) continue
     const unchangedExistingValue = options.existingValues !== undefined && Object.hasOwn(options.existingValues, metric.id)
-      && options.existingValues[metric.id] === value
+      && storedValuesEqual(options.existingValues[metric.id], value)
     if (metric.retiredAt && !unchangedExistingValue) return 'Retired measures cannot be used in new check-ins.'
     if (metric.valueType === 'boolean' && typeof value !== 'boolean') return 'Boolean measures need a yes or no value.'
     if ((metric.valueType === 'quantity' || metric.valueType === 'duration') && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return 'Numeric measures must be finite, nonnegative numbers.'
@@ -360,6 +361,11 @@ export function validateTrackerEntryValues(tracker: {
     const key = `field:${field.id}`
     allowed.add(key)
     const value = values[key]
+    const unchangedExistingValue = options.existingValues !== undefined && Object.hasOwn(options.existingValues, key)
+      && storedValuesEqual(options.existingValues[key], value)
+    if (field.retiredAt && !unchangedExistingValue) return 'Retired custom fields cannot be changed in new check-ins.'
+    if (field.retiredAt) continue
+    if (unchangedExistingValue) continue
     if ((value === undefined || value === null || value === '') && field.required) return `${field.id} is required.`
     if (value === undefined || value === null || value === '') continue
     const numeric = field.type === 'integer' || field.type === 'decimal' || field.type === 'duration' || field.type === 'rating' || field.type === 'quantity'
@@ -369,6 +375,21 @@ export function validateTrackerEntryValues(tracker: {
     if (field.options && (typeof value === 'string' && !field.options.includes(value) || Array.isArray(value) && value.some((option) => !field.options?.includes(String(option))))) return `${field.id} has an invalid option.`
   }
   if (Object.keys(values).some((key) => !allowed.has(key))) return 'This entry contains a value that is not configured for the tracker.'
+}
+
+function storedValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => storedValuesEqual(value, right[index]))
+  }
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  const leftKeys = Object.keys(leftRecord).sort()
+  const rightKeys = Object.keys(rightRecord).sort()
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]
+    && storedValuesEqual(leftRecord[key], rightRecord[key]))
 }
 
 export type TrackerDefinitionInput = z.input<typeof trackerDefinitionSchema>

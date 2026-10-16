@@ -21,6 +21,7 @@ process.env.SUPABASE_DB_CONTAINER = databaseContainer
 process.env.PROGRESSION_TEST_SUPABASE_WORKDIR = supabaseWorkdir
 process.env.PROGRESSION_TEST_DB_CONTAINER = databaseContainer
 process.env.PROGRESSION_TEST_API_URL = expectedApiUrl
+process.env.PROGRESSION_TEST_ANON_KEY = status.ANON_KEY
 process.env.PROGRESSION_TEST_FIXTURE_PATH = '/private/tmp/progresstracker-scheduling-pre-release-auth.json'
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/private/tmp/progression-playwright-browsers'
 

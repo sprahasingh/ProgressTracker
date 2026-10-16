@@ -51,13 +51,24 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
           {!invalidInputs.has(metric.id) && typeof value === 'number' && target !== undefined && <TargetFeedback value={value} target={target} direction={metric.thresholds?.direction ?? 'increase'} unit={metric.unit} targetLabel={targetLabel} />}
         </div>
       })}
-      {tracker.customFields.slice().sort((a, b) => a.position - b.position).map((field) => <CustomField key={field.id} field={field} value={values[`field:${field.id}`]} setValue={(value) => setValue(`field:${field.id}`, value)} onValidityChange={(valid) => reportInputValidity(`field:${field.id}`, valid)} />)}
+      {tracker.customFields.slice().sort((a, b) => a.position - b.position).map((field) => {
+        const value = values[`field:${field.id}`]
+        if (field.retiredAt) return value === undefined || value === null || value === '' ? null : <p className="field-hint" role="note" key={field.id}><strong>{field.name} · Retired</strong><br />Saved value: {formatCustomFieldValue(value)}</p>
+        return <CustomField key={field.id} field={field} value={value} setValue={(next) => setValue(`field:${field.id}`, next)} onValidityChange={(valid) => reportInputValidity(`field:${field.id}`, valid)} />
+      })}
     </div>
     {showDraftPreview && invalidInputs.size === 0 && date && activeTrackerMetrics(tracker.metrics).some((metric) => {
       const value = values[metric.id]
       return value !== undefined && value !== null && value !== ''
     }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} />}
   </>
+}
+
+function formatCustomFieldValue(value: TrackerValue): string {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(', ')
+  if (value !== null && typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 function BooleanChoice({ id, label, value, setValue, required = false, contextualStatus }: {

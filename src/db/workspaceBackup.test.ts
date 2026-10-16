@@ -33,6 +33,9 @@ describe('workspace backups', () => {
     await activateWorkspace(accountId)
     const [holiday] = await localRepository.saveAccountHolidays(['2026-12-24'], 'travel')
     if (!holiday) throw new Error('Holiday did not persist locally.')
+    const queued = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()
+    if (!queued) throw new Error('Holiday sync operation did not persist locally.')
+    await db.syncOperations.put({ ...queued, status: 'in-flight', attempts: 1, lastError: 'The response was interrupted.' })
     const backup = await createWorkspaceBackup(accountId)
     expect(backup.version).toBe(WORKSPACE_BACKUP_VERSION)
     expect(backup.stores.accountHolidays).toContainEqual(expect.objectContaining({ id: holiday.id, date: '2026-12-24', reason: 'travel' }))
@@ -40,7 +43,7 @@ describe('workspace backups', () => {
     await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
     await restoreWorkspaceBackup(backup, accountId)
     await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ date: '2026-12-24', reason: 'travel', deletedAt: null })
-    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ payload: { date: '2026-12-24', reason: 'travel' } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1, lastError: 'The response was interrupted.', payload: { date: '2026-12-24', reason: 'travel' } })
   })
 
   it('validates and restores v2 planning data with its pending sync payload intact', async () => {
@@ -94,6 +97,21 @@ describe('workspace backups', () => {
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V3', '')
     await expect(restoreWorkspaceBackup(backup, accountId)).rejects.toThrow(/cannot restore schema v3/)
     await expect(db.trackers.get(planned.id)).resolves.toMatchObject({ schemaVersion: 3 })
+  })
+
+  it('refuses to restore schema-v8 trackers before the streak-rule migration is enabled', async () => {
+    const accountId = `streak-v8-backup-gate-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    const v8 = { ...restoreTracker, id: 'backup-v8-tracker', schemaVersion: 8 as const, scheduling: { mode: 'ongoing' as const }, streakRuleMode: 'same-as-success' as const }
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(v8 as never)
+    const backup = await createWorkspaceBackup(accountId)
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', '')
+
+    await expect(restoreWorkspaceBackup(backup, accountId)).rejects.toThrow(/streak-rule records/)
+    await expect(db.trackers.get(v8.id)).resolves.toMatchObject({ schemaVersion: 8, streakRuleMode: 'same-as-success' })
   })
 
   it('exports a consistent, versioned snapshot of the current workspace, including pending sync data', async () => {

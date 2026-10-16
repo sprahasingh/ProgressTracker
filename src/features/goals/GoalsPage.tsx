@@ -232,7 +232,7 @@ export function GoalsPage() {
                     </div>
                   })}</div>}
             </section></LazyDisclosure>}
-            {tracker.milestones.length > 0 && <details className="goal-milestone-disclosure"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={goalEntries} asOfDate={planningToday} holidays={holidayDates} timeZone={timeZone} /></details>}
+            {tracker.milestones.length > 0 && <details className="goal-milestone-disclosure"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={goalEntries} asOfDate={planningToday} holidays={holidayDates} timeZone={timeZone} showRewardEligibilityNote /></details>}
             <LazyDisclosure className="goal-history-disclosure" summary="History and activity"><div className="goal-card-summary">
               <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}{historicalEntryCount ? ` · ${historicalEntryCount} outside current period` : ''}</span>
               <span>{latest ? `${latestInPeriod ? latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · ' : 'Latest historical check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { activeAchievementOccurrences, calculateConsistencySummary, fullyReversedProgressionEventIds, makeAchievementStates, mapEvent, type AchievementHistoryEvent, type ProgressionEvent } from './progressionRepository'
+import { activeAchievementOccurrences, calculateConsistencySummary, fullyReversedProgressionEventIds, localProvisional, makeAchievementStates, mapEvent, type AchievementHistoryEvent, type ProgressionEvent } from './progressionRepository'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'consistency-tracker', name: 'Daily reading', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -72,6 +72,40 @@ describe('progression data contract calculations', () => {
     const award = xpEvent('award', 10)
     const otherUsersReversal = xpEvent('reversal', -10, { userId: 'different-account', eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: award.id })
     expect(fullyReversedProgressionEventIds([award, otherUsersReversal])).toEqual(new Set())
+  })
+
+  it('restores provisional check-in and perfect-day rewards after their prior awards are fully reversed', () => {
+    const savedEntry = entry('source-entry', '2026-10-13')
+    const snapshot = {
+      trackers: [tracker], entries: [savedEntry], pendingEntryIds: new Set([savedEntry.id]),
+      holidays: new Set<string>(), timeZone: 'UTC',
+    }
+    const checkIn = xpEvent('check-in-award', 10, { sourceId: savedEntry.id })
+    const checkInReversal = xpEvent('check-in-reversal', -10, {
+      eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: checkIn.id, sourceId: savedEntry.id,
+    })
+    const perfectDay = xpEvent('perfect-day-award', 20, { reasonCode: 'PERFECT_DAY_BONUS', sourceId: savedEntry.id })
+    const perfectDayReversal = xpEvent('perfect-day-reversal', -20, {
+      eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: perfectDay.id, sourceId: savedEntry.id,
+    })
+
+    expect(localProvisional(snapshot, savedEntry.date, [checkIn, checkInReversal, perfectDay, perfectDayReversal])
+      .map(({ xpDelta }) => xpDelta).sort((left, right) => left - right)).toEqual([10, 20])
+  })
+
+  it('does not offer provisional rewards when a current award generation is still active', () => {
+    const savedEntry = entry('source-entry', '2026-10-13')
+    const snapshot = {
+      trackers: [tracker], entries: [savedEntry], pendingEntryIds: new Set([savedEntry.id]),
+      holidays: new Set<string>(), timeZone: 'UTC',
+    }
+    const original = xpEvent('original-award', 10, { sourceId: savedEntry.id })
+    const reversal = xpEvent('original-reversal', -10, {
+      eventCategory: 'reversal', reasonCode: 'AWARD_REVERSAL', reversesEventId: original.id, sourceId: savedEntry.id,
+    })
+    const currentGeneration = xpEvent('current-award', 10, { sourceId: savedEntry.id, recordedAt: '2026-10-14T12:00:00.000Z' })
+
+    expect(localProvisional(snapshot, savedEntry.date, [original, reversal, currentGeneration])).toEqual([])
   })
 
   it('uses occurrence identities and exact reversals to derive the same live state for every badge surface', () => {

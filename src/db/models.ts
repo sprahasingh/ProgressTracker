@@ -130,7 +130,7 @@ export type SyncOperation = {
   payload?: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday
   createdAt: string
   attempts: number
-  status: 'pending' | 'conflict'
+  status: 'pending' | 'in-flight' | 'conflict'
   lastError: string | null
 }
 

@@ -32,11 +32,13 @@ The setup page remains a single form. A validation error identifies the relevant
 
 Open the tracker from **Trackers**, then choose its edit action. You can update supported settings and add new measures. A saved measure’s type and historical interpretation are protected. Retire a measure with history to remove it from future check-ins while retaining the definition for old entries. Resolve rule, milestone, or plan dependencies before removing or retiring a measure.
 
+Rule and schedule edits recalculate derived history under the current tracker settings; the saved activity values themselves remain unchanged. This can change historical success, streak, goal, and milestone progress, and synchronization may reconcile progression rewards. Existing custom fields with saved values keep their label and value type; retire one to stop collecting future values while preserving its historical values. Checklist items also remain fixed after that measure has check-in history.
+
 Archiving or pausing a tracker changes whether it is active for future opportunities; it does not erase recorded history. Deleting to the Bin is a separate lifecycle action and follows the app’s restore/permanent-delete flow.
 
 ## Check-ins and custom fields
 
-A check-in records the values for active measures on a date. Custom check-in fields, such as a short note or selected answer, add context to that entry; they are not measure values and are not used as numeric goal totals. A deliberate skip is different from recording a value. Editing the same date keeps the latest live revision for current calculations; deleted/tombstoned entries are excluded from current progress.
+A check-in records the values for active measures on a date. Custom check-in fields, such as a short note or selected answer, add context to that entry; they are not measure values and are not used as numeric goal totals. A field with saved values stays in the tracker definition so its old values retain their meaning; retirement hides it from future forms, and its saved value is read-only when editing an old entry. A deliberate skip is different from recording a value. Editing the same date keeps the latest live revision for current calculations; deleted/tombstoned entries are excluded from current progress.
 
 ## Account, local data, and synchronization
 

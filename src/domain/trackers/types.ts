@@ -75,6 +75,8 @@ export type CustomFieldDefinition = {
   position: number
   unit?: string
   options?: string[]
+  /** Retired fields remain available to interpret saved check-in values. */
+  retiredAt?: string
 }
 
 export type TrackerMilestoneDefinition = {

@@ -64,6 +64,23 @@ describe('tracker setup flow', () => {
     await waitFor(async () => expect(await localRepository.getTracker(archived.id)).toMatchObject({ status: 'archived', archivedAt: archived.archivedAt }))
   })
 
+  it('keeps the inferred creation date when an older tracker has no saved start date', async () => {
+    const existing = datedTracker('legacy-inferred-start', 'habit')
+    delete existing.startDate
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-02', outcome: 'recorded', values: { done: true }, note: 'Before this edit' })
+    const confirm = vi.spyOn(window, 'confirm')
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+
+    expect(await screen.findByLabelText('Start date')).toHaveValue('2026-01-01')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ startDate: '2026-01-01' }))
+    expect(confirm).not.toHaveBeenCalled()
+    await expect(localRepository.getTrackerEntry(existing.id, '2026-01-02')).resolves.toMatchObject({ values: { done: true }, note: 'Before this edit' })
+    confirm.mockRestore()
+  })
+
   it('saves reactivation with tracker edits in one offline sync operation', async () => {
     await activateWorkspace('archive-edit-owner')
     const activeTracker = datedTracker('reactivate-archived', 'habit')
@@ -389,6 +406,50 @@ describe('tracker setup flow', () => {
     expect(newType).toHaveValue('boolean')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'duration' }, { valueType: 'boolean' }] }))
+  })
+
+  it('locks checklist item editing when saved values use the checklist definition', async () => {
+    const existing = datedTracker('checklist-history-lock', 'habit')
+    existing.metrics = [{ id: 'routine', name: 'Routine', valueType: 'checklist', checklistItems: [
+      { id: 'read', label: 'Read', position: 0 }, { id: 'review', label: 'Review', position: 1 },
+    ] }]
+    existing.qualificationRule = undefined
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-10-10', outcome: 'recorded', values: { routine: { read: true, review: false } }, note: '' })
+
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    expect(screen.getByRole('textbox', { name: 'Checklist item 1' })).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: 'Remove' }).every((button) => button.hasAttribute('disabled'))).toBe(true)
+    expect(screen.getByRole('button', { name: '＋ Add checklist item' })).toBeDisabled()
+    expect(screen.getByText(/Saved checklist values keep these item IDs and labels/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ checklistItems: [{ id: 'read', label: 'Read' }, { id: 'review', label: 'Review' }] }] }))
+  })
+
+  it('locks a historical custom field and retires it while preserving its saved value', async () => {
+    const existing = datedTracker('custom-field-history-lock', 'habit')
+    existing.customFields = [{ id: 'mood', name: 'Mood', type: 'single-select', required: false, position: 0, options: ['Focused', 'Tired'] }]
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-10-10', outcome: 'recorded', values: { done: true, 'field:mood': 'Focused' }, note: '' })
+
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Extra check-in details'))
+    expect(screen.getByRole('textbox', { name: 'Field name' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Field type' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: /Options/ })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: /Required/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Retire field' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Retire field' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ customFields: [{ id: 'mood', name: 'Mood', retiredAt: expect.any(String) }] }))
+    await expect(localRepository.getTrackerEntry(existing.id, '2026-10-10')).resolves.toMatchObject({ values: { 'field:mood': 'Focused' } })
   })
 
   it('saves a custom Streak Rule independently from the Success Rule', async () => {

@@ -252,7 +252,7 @@ async function getLocalSnapshot(userId: string): Promise<LocalSnapshot> {
   return {
     trackers: trackers.filter((tracker) => tracker.deletedAt === null),
     entries: entries.filter((entry) => entry.deletedAt === null),
-    pendingEntryIds: new Set(operations.filter((op) => op.entity === 'tracker_entry' && op.status === 'pending').map((op) => op.entityId)),
+    pendingEntryIds: new Set(operations.filter((op) => op.entity === 'tracker_entry' && (op.status === 'pending' || op.status === 'in-flight')).map((op) => op.entityId)),
     holidays: new Set(holidays.filter((holiday) => holiday.deletedAt === null).map((holiday) => holiday.date)),
     timeZone: settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
   }
@@ -380,9 +380,13 @@ export async function getProvisionalXp(userId: string, today = localCalendarDate
   return localProvisional(snapshot, today, events)
 }
 
-function localProvisional(snapshot: LocalSnapshot, today: string, confirmedEvents: readonly ProgressionEvent[] = []): ProvisionalReward[] {
-  const confirmedSourceIds = new Set(confirmedEvents.map((event) => event.sourceId).filter((id): id is string => id !== null))
-  const pendingEntryIds = new Set([...snapshot.pendingEntryIds].filter((id) => !confirmedSourceIds.has(id)))
+export function localProvisional(snapshot: LocalSnapshot, today: string, confirmedEvents: readonly ProgressionEvent[] = []): ProvisionalReward[] {
+  const fullyReversedIds = fullyReversedProgressionEventIds(confirmedEvents)
+  const activeCheckInSourceIds = new Set(confirmedEvents
+    .filter((event) => event.reasonCode === 'DAILY_CHECK_IN_COMPLETED' && event.xpDelta > 0 && !fullyReversedIds.has(event.id))
+    .map((event) => event.sourceId)
+    .filter((id): id is string => id !== null))
+  const pendingEntryIds = new Set([...snapshot.pendingEntryIds].filter((id) => !activeCheckInSourceIds.has(id)))
   const rewards = selectProvisionalRewards({
     trackers: snapshot.trackers, entries: snapshot.entries, pendingEntryIds, today,
     timeZone: snapshot.timeZone, holidays: snapshot.holidays,
@@ -390,8 +394,9 @@ function localProvisional(snapshot: LocalSnapshot, today: string, confirmedEvent
   const dates = new Set(snapshot.entries.filter((entry) => entry.date <= today && pendingEntryIds.has(entry.id)).map((entry) => entry.date))
   for (const date of dates) {
     const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
-    const confirmedNet = confirmedEvents.filter((event) => event.reasonCode === 'PERFECT_DAY_BONUS' && event.effectiveDate === date).reduce((sum, event) => sum + event.xpDelta, 0)
-    if (counts.eligible > 0 && counts.completed === counts.eligible && confirmedNet <= 0) {
+    const hasActivePerfectDayAward = confirmedEvents.some((event) => event.reasonCode === 'PERFECT_DAY_BONUS'
+      && event.effectiveDate === date && event.xpDelta > 0 && !fullyReversedIds.has(event.id))
+    if (counts.eligible > 0 && counts.completed === counts.eligible && !hasActivePerfectDayAward) {
       rewards.push({ id: `perfect-day:${date}`, effectiveDate: date, xpDelta: 20 })
     }
   }
