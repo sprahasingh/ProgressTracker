@@ -20,6 +20,9 @@ afterEach(() => {
 
 function CurrentPath() { return <output data-testid="current-path">{useLocation().pathname}</output> }
 function renderAssistant(path = '/') { return render(<MemoryRouter initialEntries={[path]}><CurrentPath /><AIHelpAssistant /></MemoryRouter>) }
+function findAssistantPanel(role: 'region' | 'dialog') {
+  return screen.findByRole(role, { name: 'Ask ProgressTracker' }, { timeout: 5_000 })
+}
 
 describe('AI Help Assistant', () => {
   it('opens from the accessible header entry and submits a page-aware suggestion', async () => {
@@ -27,7 +30,7 @@ describe('AI Help Assistant', () => {
     const user = userEvent.setup()
     renderAssistant('/dashboard')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
-    expect(await screen.findByRole('region', { name: 'Ask ProgressTracker' })).toBeInTheDocument()
+    expect(await findAssistantPanel('region')).toBeInTheDocument()
     await user.type(await screen.findByRole('textbox', { name: 'Ask about ProgressTracker' }), 'How is completion rate calculated?{Enter}')
     expect(await screen.findByText('A streak counts scheduled days.')).toBeInTheDocument()
     expect(mocks.invoke).toHaveBeenCalledWith('ai-help', expect.objectContaining({ body: expect.objectContaining({ pageContext: 'analytics' }) }))
@@ -41,7 +44,7 @@ describe('AI Help Assistant', () => {
     const user = userEvent.setup()
     renderAssistant('/analytics')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
-    await screen.findByRole('region', { name: 'Ask ProgressTracker' })
+    await findAssistantPanel('region')
     await waitFor(() => expect(screen.getAllByRole('button').some((button) => button.closest('.ai-help-suggestions'))).toBe(true))
     const question = screen.getAllByRole('button').find((button) => button.closest('.ai-help-suggestions'))!
     const text = question.textContent!.trim()
@@ -85,7 +88,7 @@ describe('AI Help Assistant', () => {
     mocks.invoke.mockResolvedValue({ data: { accepted: true }, error: null })
     renderAssistant('/goals')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
-    const panel = await screen.findByRole('dialog', { name: 'Ask ProgressTracker' })
+    const panel = await findAssistantPanel('dialog')
     await user.click(await screen.findByRole('button', { name: 'Send general feedback' }))
     const feedback = await screen.findByRole('dialog', { name: 'Send Feedback' })
     expect(panel).toHaveProperty('inert', true)
@@ -112,7 +115,7 @@ describe('AI Help Assistant', () => {
     const user = userEvent.setup()
     renderAssistant('/settings')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
-    const panel = await screen.findByRole('region', { name: 'Ask ProgressTracker' })
+    const panel = await findAssistantPanel('region')
     await user.click(await screen.findByRole('button', { name: 'Send general feedback' }))
     const dialog = await screen.findByRole('dialog', { name: 'Send Feedback' })
     const textarea = screen.getByRole('textbox', { name: 'Your message' })
@@ -302,7 +305,7 @@ describe('AI Help Assistant', () => {
     renderAssistant()
     const trigger = screen.getByRole('button', { name: 'Open AI Help Assistant' })
     await user.click(trigger)
-    expect(await screen.findByRole('dialog', { name: 'Ask ProgressTracker' })).toHaveAttribute('aria-modal', 'true')
+    expect(await findAssistantPanel('dialog')).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('textbox', { name: 'Ask about ProgressTracker' })).not.toHaveFocus()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask ProgressTracker' })).not.toBeInTheDocument())

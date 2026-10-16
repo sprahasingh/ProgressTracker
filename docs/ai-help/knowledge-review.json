@@ -1,15 +1,15 @@
 {
   "offline-sync": {
     "src/db/localRepository.ts": "cf97a26293fdc00776d56347c59b8b3c84b4485139054a47f629c4e38651eaae",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "cross-device-sync": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3"
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045"
   },
   "sync-conflicts": {
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/db/syncConflictRepository.ts": "bdf76fc3a4913beedc2009f3f64556eddf64aff39aacbb728097e70e44d79aeb",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
@@ -29,15 +29,15 @@
   },
   "offline-sync-later": {
     "src/db/localRepository.ts": "cf97a26293fdc00776d56347c59b8b3c84b4485139054a47f629c4e38651eaae",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "sync-deletion": {
     "src/db/localRepository.ts": "cf97a26293fdc00776d56347c59b8b3c84b4485139054a47f629c4e38651eaae",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3"
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045"
   },
   "sync-conflict-preserves-versions": {
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/db/syncConflictRepository.ts": "bdf76fc3a4913beedc2009f3f64556eddf64aff39aacbb728097e70e44d79aeb",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
@@ -149,8 +149,8 @@
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "4a6ff6c14253961dedb4d2da539414d2dd8091c7956378703b13c1bc6ff66430",
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "7787baa865030606e9b6f1001c4d46649147377c50151a4c9074672899ae67d4",
     "src/features/trackers/trackerSetupSchema.ts": "66283bd504863adb0dd1a6e8077a1abd300037a757fd648aa4669b4564dc7726"
   },
   "daily-vs-cumulative-goal": {
@@ -178,7 +178,7 @@
     "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22",
     "src/features/calendar/CalendarPage.tsx": "ee1682f4966de2dbb7709a78554f9b34b703dcf4c8bdc13113f2cb415ed8b99f",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql": "d242e25bd8461cbe65757a1c60192be8c6994bc7ca5a23dae243e4b393ac2ff3"
   },
   "goal-deadline": {
@@ -226,7 +226,7 @@
   },
   "history-clear-sync": {
     "src/db/localRepository.ts": "cf97a26293fdc00776d56347c59b8b3c84b4485139054a47f629c4e38651eaae",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22"
   },
   "history-reenter-cleared": {
@@ -374,7 +374,7 @@
   "local-settings": {
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
     "src/features/settings/WorkspaceTimeZone.tsx": "2855cc6677532c5e2620d085bed13461284f3865065ea7590f94f22f405c41d9",
-    "src/services/supabase/syncEngine.ts": "dea17f17ce15f12ae10d09c96e1e3940ade8d0cdfc985866c0838ae2a721fec3",
+    "src/services/supabase/syncEngine.ts": "08fdac817f73172f708d580c6c71c5e750001e42b69f123a012bbe3b524b4045",
     "src/features/settings/appearance.test.ts": "554dfe730f1cc496ae35502d57373d22d2bb793e59c7d4101e69760b662dbfb6",
     "src/features/settings/WorkspaceAppearance.test.tsx": "544ace6e6a697be95cdb38748c2b93c80c7e8a887f5ab53460d1119464ab1ec6"
   },
@@ -503,7 +503,7 @@
     "supabase/migrations/20261117000100_versioned_tracker_evaluation_rules_v10.sql": "aa9d70fc01b86c81f31568d0375fd512a8c6000a18e2a9b5135961affb275372"
   },
   "tracker-rule-history-choices": {
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6",
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54",
     "src/domain/trackers/ruleVersions.ts": "6f7afb8a5283398a1ee919aeb68d0bb67b6a0b8206ba0a8292e185ea646dfe60",
     "src/domain/trackers/types.ts": "81da818169203896f0eab3b3cb3bec7ae8057bd7278fac9c21b593c3ed577e11",
     "src/domain/trackers/progression.ts": "a90c3684451075cad153657bccb7a2fde23c3a1fa225cea41affca0a14cb3bba",
@@ -515,17 +515,17 @@
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6"
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54"
   },
   "start-date-deadline": {
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
     "src/domain/trackers/activePeriod.test.ts": "40b4e24d42e0650c6900bc4ed1e411b35c6dd88e4595427b4748ae31aa6f5916",
     "src/domain/trackers/planning.test.ts": "4269f1025bac12c978558b6690b9961f42a3b4aa7c4398fb659a298d9e49bb2a",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6"
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54"
   },
   "tracker-duration-modes": {
     "src/domain/trackers/scheduling.ts": "e5652c0f475b91ccd7330d247f06d2c3dcc45318454b09d5c47ccaa4ffe8485a",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6",
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54",
     "src/domain/trackers/challengeDay.ts": "01f1f73a5706736063f8c36e87994d5326e87cb33f364f227e3f622b820e2161"
   },
   "retire-measure": {
@@ -537,8 +537,8 @@
   "tracker-editing": {
     "src/features/trackers/TrackerLibraryPage.tsx": "0437b529684f3263e98768ce5fc141a32815c6023bdd4152f06d241426970138",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "ce58ec54029784bd87350814decf0a2fcb4ffb17dc37dfcdce0bbe4097c220c1",
-    "src/features/trackers/TrackerSetupPage.tsx": "9ec6da1ddeae2b956bc8b36282402adf600790df9cbb0f27583760987aea65e6",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "4a6ff6c14253961dedb4d2da539414d2dd8091c7956378703b13c1bc6ff66430"
+    "src/features/trackers/TrackerSetupPage.tsx": "997e050093560971e9212b58947c1fb990a0283640be2bad830efa95efafdf54",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "7787baa865030606e9b6f1001c4d46649147377c50151a4c9074672899ae67d4"
   },
   "tracker-created-active-date": {
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",

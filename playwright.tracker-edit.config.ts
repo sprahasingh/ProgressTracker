@@ -37,6 +37,7 @@ export default defineConfig({
   reporter: 'line',
   use: {
     ...devices['Desktop Chrome'],
+    timezoneId: 'Asia/Calcutta',
     baseURL: 'http://127.0.0.1:4188/ProgressTracker/',
     viewport: { width: 390, height: 844 },
     actionTimeout: 15_000,

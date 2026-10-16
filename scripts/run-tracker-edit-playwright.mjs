@@ -8,6 +8,8 @@ const markerPath = join(projectRoot, 'TRACKER_EDIT_E2E_LOCAL_ONLY')
 const configPath = join(projectRoot, 'supabase', 'config.toml')
 const migrationsPath = join(projectRoot, 'supabase', 'migrations')
 const sourceMigrationsPath = resolve('supabase/migrations')
+const testsPath = join(projectRoot, 'supabase', 'tests')
+const sourceTestsPath = resolve('supabase/tests')
 const expectedConfig = `project_id = "${projectId}"
 
 [api]
@@ -92,6 +94,17 @@ function prepareProject() {
       writeFileSync(target, readFileSync(source), { flag: 'wx' })
     }
   }
+
+  mkdirSync(testsPath, { recursive: true })
+  for (const name of readdirSync(sourceTestsPath).filter((item) => item.endsWith('.test.sql')).sort()) {
+    const source = join(sourceTestsPath, name)
+    const target = join(testsPath, name)
+    if (existsSync(target)) {
+      if (!readFileSync(source).equals(readFileSync(target))) fail(`pgTAP test ${target} differs from the repository copy; refusing to overwrite a local test file.`)
+    } else {
+      writeFileSync(target, readFileSync(source), { flag: 'wx' })
+    }
+  }
 }
 
 prepareProject()
@@ -104,7 +117,15 @@ const redactedStartOutput = `${start.stdout ?? ''}${start.stderr ?? ''}`.replace
 if (redactedStartOutput) process.stdout.write(redactedStartOutput)
 if (start.status !== 0) fail(`Could not start the dedicated local Tracker Edit Supabase project (exit ${start.status ?? 'unknown'}). Existing projects and volumes were left untouched.`)
 
-const result = spawnSync('./node_modules/.bin/playwright', ['test', '--config', 'playwright.tracker-edit.config.ts'], {
+const migrations = spawnSync('supabase', ['migration', 'up', '--local', '--workdir', projectRoot], {
+  encoding: 'utf8',
+  env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: '1' },
+})
+if (migrations.stdout) process.stdout.write(migrations.stdout)
+if (migrations.stderr) process.stderr.write(migrations.stderr)
+if (migrations.status !== 0) fail(`Could not apply pending migrations to the dedicated local Tracker Edit Supabase project (exit ${migrations.status ?? 'unknown'}). Existing data and volumes were left untouched.`)
+
+const result = spawnSync('./node_modules/.bin/playwright', ['test', '--config', 'playwright.tracker-edit.config.ts', ...process.argv.slice(2)], {
   cwd: process.cwd(),
   env: {
     ...process.env,

@@ -14,6 +14,7 @@ import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrack
 import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
 import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { publishHolidayDeletionNotification } from '../holidayDeletionNotifications'
+import { isNetworkFailure, isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -122,6 +123,11 @@ async function markConflict(database: ProgressTrackerDatabase, operation: SyncOp
 
 function isPermanentWriteRejection(code: string | undefined): boolean {
   return code !== undefined && ['22001', '22007', '22008', '22023', '22P02', '23502', '23503', '23505', '23514'].includes(code)
+}
+
+function reportUnsupportedSyncSchema(operation: SyncOperation): void {
+  const schemaVersion = operation.entity === 'tracker' ? (operation.payload as StoredTrackerDefinition | undefined)?.schemaVersion : undefined
+  reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'payload-validation', ...(schemaVersion ? { schemaVersion } : {}), entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' })
 }
 
 async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
@@ -330,45 +336,54 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
   let failed = 0
   for (const queued of operations) {
     let operation: SyncOperation | undefined
+    let phase: 'workspace-preflight' | 'payload-validation' | 'server-request' | 'server-acknowledgement' = 'workspace-preflight'
     try {
       operation = await database.syncOperations.get(queued.id)
       if (!operation || operation.status === 'conflict') continue
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 7 && !isSchemaV7WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
@@ -380,51 +395,61 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       // Keep the operation ID and payload durable before sending the RPC. If the
       // server commits but its response is interrupted, a retry replays its receipt.
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 7 && !isSchemaV7WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
+        reportUnsupportedSyncSchema(operation)
         await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
         break
       }
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
+      phase = 'payload-validation'
       const payload = toServerPayload(operation)
       const uploadMeasure = measureDevPerformance(`sync.${operation.entity}-write`)
       if (operation.entity === 'tracker_entry') countDevPerformance('sync.tracker-entry-write-request')
       let rpcResponse: Awaited<ReturnType<typeof client.rpc>>
+      phase = 'server-request'
       try {
         rpcResponse = operation.entity === 'account_holiday'
           ? await client.rpc('apply_account_holiday_sync_operation', {
@@ -451,6 +476,14 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       if (error) {
         if (isPermanentWriteRejection(error.code)) {
+          const schemaFailure = isUnsupportedSchemaFailure(new Error(error.message))
+          reportTrackerWriteDiagnostic({
+            category: schemaFailure ? 'unsupported-schema-version' : 'server-validation-rejection',
+            phase: 'server-request',
+            ...(operation.entity === 'tracker' ? { schemaVersion: (operation.payload as StoredTrackerDefinition).schemaVersion } : {}),
+            entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday',
+            serverCode: error.code,
+          })
           await markConflict(database, operation, null, `The server rejected this saved change (${error.code}). Review the local record and resolve the sync issue before retrying.`)
           conflicts += 1
           break
@@ -487,14 +520,27 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       if (result?.status === 'conflict') {
         if (result.record && result.record.user_id !== userId) throw new Error('The server returned a row for a different account; it was not saved locally.')
+        reportTrackerWriteDiagnostic({ category: 'revision-conflict', phase: 'server-request', ...(operation.entity === 'tracker' ? { schemaVersion: (operation.payload as StoredTrackerDefinition).schemaVersion } : {}), entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' })
         await markConflict(database, operation, result.record as unknown as Record<string, unknown> | null)
         conflicts += 1
         break
       }
       if (result?.status !== 'applied' || !result.record || result.record.user_id !== userId) throw new Error('The sync server returned an invalid or differently owned result.')
+      phase = 'server-acknowledgement'
       await acknowledge(database, operation, result.record)
       uploaded += 1
     } catch (cause) {
+      const invalidDefinition = phase === 'payload-validation' && cause instanceof Error && cause.name === 'ZodError'
+      const category = invalidDefinition ? 'invalid-tracker-definition'
+        : phase === 'server-acknowledgement' ? 'local-persistence-failure'
+          : isUnsupportedSchemaFailure(cause) ? 'unsupported-schema-version'
+            : isNetworkFailure(cause) ? 'network-failure' : 'sync-failure'
+      reportTrackerWriteDiagnostic({
+        category,
+        phase,
+        ...(operation?.entity === 'tracker' ? { schemaVersion: (operation.payload as StoredTrackerDefinition | undefined)?.schemaVersion } : {}),
+        ...(operation ? { entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' } : {}),
+      })
       if (operation) await markFailure(database, operation, errorMessage(cause))
       failed += 1
       // Entry writes depend on tracker writes; stop this entity queue on first failure.
@@ -677,6 +723,13 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
 async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {
   const measure = measureDevPerformance('sync.workspace')
   try { return await runSynchronizationCore(userId, injectedClient) }
+  catch (cause) {
+    const category = cause instanceof Error && cause.name === 'ZodError' ? 'invalid-tracker-definition'
+      : isUnsupportedSchemaFailure(cause) ? 'unsupported-schema-version'
+        : isNetworkFailure(cause) ? 'network-failure' : 'sync-failure'
+    reportTrackerWriteDiagnostic({ category, phase: 'workspace-preflight' })
+    throw cause
+  }
   finally { measure() }
 }
 

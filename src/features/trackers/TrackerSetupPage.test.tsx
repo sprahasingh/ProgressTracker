@@ -8,6 +8,8 @@ import { TrackerSetupPage } from './TrackerSetupPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import styles from '../../styles.css?raw'
 import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
+import { qualifiesForStreak } from '../../domain/trackers/progression'
+import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
 
 const { navigation, routeParams } = vi.hoisted(() => ({ navigation: vi.fn(), routeParams: { trackerId: undefined as string | undefined } }))
@@ -16,6 +18,8 @@ vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
   return { ...actual, useNavigate: () => navigation, useParams: () => routeParams }
 })
+
+vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({ timeZone: 'Asia/Calcutta' }) }))
 
 afterEach(async () => {
   cleanup()
@@ -52,7 +56,77 @@ function datedTracker(id: string, kind: TrackerKind, startDate = '2026-01-05', d
   }
 }
 
+function legacyV6Tracker(id: string): TrackerDefinition {
+  return {
+    schemaVersion: 6, id, name: '100 Days Of MERN', description: '', kind: 'challenge', status: 'active',
+    categoryId: null, tags: [], icon: '', accent: '#315e46', schedule: { kind: 'every-day' },
+    startDate: '2026-10-16', deadline: '2027-01-23',
+    scheduling: { mode: 'effective', effectiveDays: 100, planningTimeZone: 'Asia/Calcutta' },
+    metrics: [{
+      id: 'progress', name: 'Progress', valueType: 'quantity', unit: 'Hours',
+      precision: { decimalPlaces: 1, increment: 0.5 },
+      thresholds: { direction: 'increase', minimum: 1, target: 1.5, stretch: 2, streakQualification: 'any-recorded-value' },
+    }],
+    qualificationRule: { kind: 'threshold', metricId: 'progress', level: 'minimum' },
+    customFields: [], milestones: [], strictMode: false,
+    createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', archivedAt: null, deletedAt: null,
+  }
+}
+
 describe('tracker setup flow', () => {
+  it('edits a production-shaped schema-v6 tracker with a soft-deleted skipped entry and preserves its legacy rule path', async () => {
+    const existing = legacyV6Tracker('legacy-v6-tombstone-rule-edit')
+    await localRepository.saveTracker(existing)
+    const tombstone = {
+      id: 'legacy-v6-deleted-skip', trackerId: existing.id, date: '2026-10-16' as const, outcome: 'skipped' as const,
+      values: {}, note: '', createdAt: '2026-10-16T16:00:00.000Z', updatedAt: '2026-10-16T16:00:00.000Z',
+      deletedAt: '2026-10-16T16:04:23.431Z',
+    }
+    await db.trackerEntries.put(tombstone)
+    const timeZone = 'Asia/Calcutta'
+    const todayParts = new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+    const today = `${todayParts.find((part) => part.type === 'year')!.value}-${todayParts.find((part) => part.type === 'month')!.value}-${todayParts.find((part) => part.type === 'day')!.value}`
+    const historicalEntry = {
+      id: 'legacy-v6-partial-progress', trackerId: existing.id, date: '2026-10-16' as const, outcome: 'recorded' as const,
+      values: { progress: 0.5 }, note: '', createdAt: '2026-10-16T10:00:00.000Z', updatedAt: '2026-10-16T10:00:00.000Z', deletedAt: null,
+    }
+
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Streak rule', { selector: 'summary' }))
+    const streakSection = screen.getByRole('region', { name: 'Streak rule' })
+    await user.selectOptions(within(streakSection).getByRole('combobox', { name: 'Streak rule mode' }), 'custom')
+    await user.selectOptions(streakSection.querySelector<HTMLSelectElement>('.rule-leaf-controls select:not([aria-label])')!, 'target')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your new rules apply?' })
+    expect(within(dialog).getByRole('radio', { name: /Apply from today \(recommended\)/ })).toBeChecked()
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 6 })
+    await user.click(within(dialog).getByRole('button', { name: 'Apply from today' }))
+
+    const saved = await localRepository.getTracker(existing.id)
+    expect(saved).toMatchObject({
+      schemaVersion: 10,
+      scheduling: { mode: 'effective', effectiveDays: 100, effectiveDayCounting: 'all-non-holiday-days', planningTimeZone: timeZone },
+      metrics: [{ id: 'progress', thresholds: { streakQualification: 'any-recorded-value' } }],
+      qualificationRule: existing.qualificationRule,
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'threshold', metricId: 'progress', level: 'target' },
+      ruleVersions: [
+        { effectiveFrom: '2026-10-16', revision: 1, application: 'baseline' },
+        { effectiveFrom: today, revision: 2, application: 'apply-from-today' },
+      ],
+    })
+    const prior = saved!.ruleVersions![0]!.evaluation
+    expect(prior.streakRuleMode).toBeNull()
+    expect(prior.streakRule).toBeNull()
+    expect(prior.scheduling).not.toHaveProperty('effectiveDayCounting')
+    expect(evaluateTrackerEntry(saved!, historicalEntry).qualified).toBe(false)
+    expect(qualifiesForStreak(saved!, historicalEntry)).toBe(true)
+    expect(await db.trackerEntries.get(tombstone.id)).toEqual(tombstone)
+  })
+
   it('keeps an archived tracker archived when edited and saved without status changes', async () => {
     const archived = { ...datedTracker('keep-archived', 'habit'), status: 'archived' as const, archivedAt: '2026-10-02T00:00:00.000Z' }
     await localRepository.saveTracker(archived)

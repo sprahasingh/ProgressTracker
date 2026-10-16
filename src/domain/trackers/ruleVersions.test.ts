@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateStreak, qualifiesForStreak } from './progression'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { isEffectiveDateEligible } from './scheduling'
 import { trackerDefinitionForDate, trackerEvaluationChanged, trackerEvaluationSnapshot, trackerRuleVersionForDate, versionTrackerRuleChange } from './ruleVersions'
 
 const oldTracker: TrackerDefinition = {
@@ -12,6 +13,21 @@ const oldTracker: TrackerDefinition = {
   qualificationRule: { kind: 'comparison', metricId: 'amount', operator: 'at-least', value: 5 },
   streakRuleMode: 'same-as-success', customFields: [], milestones: [],
   createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+}
+
+const legacyV6Tracker: TrackerDefinition = {
+  schemaVersion: 6, id: 'legacy-v6-rule-edit', name: '100 Days Of MERN', description: '',
+  kind: 'challenge', status: 'active', categoryId: null, tags: [], icon: '', accent: '#315e46',
+  schedule: { kind: 'every-day' }, startDate: '2026-10-16', deadline: '2027-01-23',
+  scheduling: { mode: 'effective', effectiveDays: 100, planningTimeZone: 'Asia/Calcutta' },
+  metrics: [{
+    id: 'progress', name: 'Progress', valueType: 'quantity', unit: 'Hours',
+    precision: { decimalPlaces: 1, increment: 0.5 },
+    thresholds: { direction: 'increase', minimum: 1, target: 1.5, stretch: 2, streakQualification: 'any-recorded-value' },
+  }],
+  qualificationRule: { kind: 'threshold', metricId: 'progress', level: 'minimum' },
+  customFields: [], milestones: [], strictMode: false,
+  createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', archivedAt: null, deletedAt: null,
 }
 
 function changeThreshold(tracker: TrackerDefinition, threshold: number): TrackerDefinition {
@@ -34,6 +50,82 @@ function prospective(before: TrackerDefinition, after: TrackerDefinition, today 
 }
 
 describe('date-effective tracker rule history', () => {
+  it('builds a v10 baseline from the exact legacy v6 definition without filling missing fields from modern defaults', () => {
+    expect(legacyV6Tracker).not.toHaveProperty('streakRule')
+    expect(legacyV6Tracker).not.toHaveProperty('streakRuleMode')
+    expect(legacyV6Tracker.scheduling).not.toHaveProperty('effectiveDayCounting')
+
+    const after: TrackerDefinition = {
+      ...legacyV6Tracker,
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'threshold', metricId: 'progress', level: 'target' },
+    }
+    const versioned = versionTrackerRuleChange({
+      before: legacyV6Tracker, after, application: 'apply-from-today', today: '2026-10-17',
+      historyStartDate: '2026-10-16', recordedAt: '2026-10-17T01:00:00.000Z',
+    })
+    const baseline = versioned.ruleVersions?.[0]
+
+    expect(versioned.ruleVersions).toHaveLength(2)
+    expect(baseline).toMatchObject({ effectiveFrom: '2026-10-16', revision: 1, application: 'baseline' })
+    expect(baseline?.evaluation).toMatchObject({
+      schedule: legacyV6Tracker.schedule,
+      startDate: '2026-10-16',
+      deadline: '2027-01-23',
+      scheduling: legacyV6Tracker.scheduling,
+      metrics: legacyV6Tracker.metrics,
+      qualificationRule: legacyV6Tracker.qualificationRule,
+      strictMode: false,
+    })
+    expect(baseline?.evaluation.streakRuleMode).toBeNull()
+    expect(baseline?.evaluation.streakRule).toBeNull()
+    expect(baseline?.evaluation.scheduling).not.toHaveProperty('effectiveDayCounting')
+    expect(versioned.ruleVersions?.[1]).toMatchObject({
+      effectiveFrom: '2026-10-17', revision: 2, application: 'apply-from-today',
+      evaluation: { streakRuleMode: 'custom', streakRule: { kind: 'threshold', level: 'target' } },
+    })
+  })
+
+  it('keeps legacy streak and success results before an apply-from-today v10 boundary', () => {
+    const historicalEntry: TrackerEntry = {
+      id: 'legacy-progress', trackerId: legacyV6Tracker.id, date: '2026-10-16', outcome: 'recorded',
+      values: { progress: 0.5 }, note: '', createdAt: '2026-10-16T10:00:00.000Z',
+      updatedAt: '2026-10-16T10:00:00.000Z', deletedAt: null,
+    }
+    const after: TrackerDefinition = {
+      ...legacyV6Tracker,
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'threshold', metricId: 'progress', level: 'target' },
+    }
+    const versioned = versionTrackerRuleChange({
+      before: legacyV6Tracker, after, application: 'apply-from-today', today: '2026-10-17',
+      historyStartDate: '2026-10-16', recordedAt: '2026-10-17T01:00:00.000Z',
+    })
+
+    expect(evaluateTrackerEntry(versioned, historicalEntry).qualified).toBe(false)
+    expect(qualifiesForStreak(versioned, historicalEntry)).toBe(true)
+    expect(qualifiesForStreak(versioned, { ...historicalEntry, date: '2026-10-17' })).toBe(false)
+  })
+
+  it('uses the legacy effective-day fallback and measure identity for v6 baselines', () => {
+    const after: TrackerDefinition = {
+      ...legacyV6Tracker,
+      scheduling: { ...legacyV6Tracker.scheduling!, effectiveDayCounting: 'all-non-holiday-days' },
+      streakRuleMode: 'same-as-success',
+    }
+    const versioned = versionTrackerRuleChange({
+      before: legacyV6Tracker, after, application: 'apply-from-today', today: '2026-10-17',
+      historyStartDate: '2026-10-16', recordedAt: '2026-10-17T01:00:00.000Z',
+    })
+
+    expect(versioned.ruleVersions?.[0]?.evaluation.metrics[0]?.id).toBe('progress')
+    expect(isEffectiveDateEligible(legacyV6Tracker, '2026-10-17', new Set(), 'Asia/Calcutta')).toBe(true)
+    expect(isEffectiveDateEligible({
+      ...legacyV6Tracker,
+      scheduling: { ...legacyV6Tracker.scheduling!, effectiveDayCounting: 'all-non-holiday-days' },
+    }, '2026-10-17', new Set(), 'Asia/Calcutta')).toBe(true)
+  })
+
   it('uses the activity date for success and Same as Success, including backdated entries', () => {
     const versioned = prospective(oldTracker, changeThreshold(oldTracker, 10))
     expect(trackerRuleVersionForDate(versioned, '2026-10-09')?.effectiveFrom).toBe('2026-10-01')

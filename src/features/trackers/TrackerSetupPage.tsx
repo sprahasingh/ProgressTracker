@@ -18,6 +18,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
+import { isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
 import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
@@ -506,12 +507,14 @@ export function TrackerSetupPage() {
     const wantsMilestoneV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
     const wantsStreakRuleV8 = configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8 || existing?.streakRuleMode !== undefined
     if (wantsStreakRuleV8 && !isSchemaV8WriteEnabled()) {
+      reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'editor-validation', schemaVersion: 8 })
       const message = 'Streak rules require the schema v8 migration and VITE_ENABLE_TRACKER_SCHEMA_V8 in this production build. No tracker changes were saved.'
       setError(message)
       notify({ kind: 'error', title: 'Streak rules are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v8' })
       return
     }
     if (wantsMilestoneV9 && !isSchemaV9WriteEnabled()) {
+      reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'editor-validation', schemaVersion: 9 })
       const message = 'Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 in this production build. No tracker changes were saved.'
       setError(message)
       notify({ kind: 'error', title: 'Typed milestones are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v9' })
@@ -560,6 +563,7 @@ export function TrackerSetupPage() {
       return
     }
     setSaving(true)
+    let writePhase: 'editor-validation' | 'local-save' = 'editor-validation'
     try {
       const form = parsed.data
       const now = new Date().toISOString()
@@ -645,6 +649,7 @@ export function TrackerSetupPage() {
         : candidate
       const checked = trackerDefinitionSchema.safeParse(validationCandidate)
       if (!checked.success) {
+        reportTrackerWriteDiagnostic({ category: 'invalid-tracker-definition', phase: 'editor-validation', schemaVersion: candidate.schemaVersion })
         setValidationIssues(inlineIssueMap(checked.error.issues))
         const allocationIncrementIssues = checked.error.issues.filter((issue) =>
           issue.path[0] === 'goalPlanning' && issue.path[1] === 'allocations'
@@ -695,6 +700,7 @@ export function TrackerSetupPage() {
       }
       if (existing && evaluationChanged) {
         if (!isSchemaV10WriteEnabled()) {
+          reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'editor-validation', schemaVersion: 10 })
           const message = 'Versioned tracker rules need the schema v10 migration and VITE_ENABLE_TRACKER_SCHEMA_V10 in this production build. No tracker changes were saved.'
           setError(message)
           notify({ kind: 'error', title: 'Historical rule versions are not writable yet', description: message, duration: 0, dedupeKey: 'tracker-schema-v10' })
@@ -704,6 +710,7 @@ export function TrackerSetupPage() {
         setPendingRuleChange({ candidate: checked.data as TrackerDefinition, mode: 'apply-from-today', historyStartDate: earliestStart })
         return
       }
+      writePhase = 'local-save'
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
       allowNavigationRef.current = true
       setDirty(false)
@@ -717,6 +724,11 @@ export function TrackerSetupPage() {
       else setSavedTracker(result)
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : ''
+      reportTrackerWriteDiagnostic({
+        category: isUnsupportedSchemaFailure(cause) ? 'unsupported-schema-version' : writePhase === 'local-save' ? 'local-persistence-failure' : 'invalid-tracker-definition',
+        phase: writePhase,
+        ...(existing ? { schemaVersion: existing.schemaVersion } : {}),
+      })
       const recoverableMessage = /measure type|retired measure|saved check-ins|active measure/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
       setError(recoverableMessage)
       notify({ kind: 'error', title: existing ? 'Couldn’t update tracker' : 'Couldn’t create tracker', description: recoverableMessage, duration: 0, dedupeKey: existing?.id ? `tracker:${existing.id}` : `tracker-create:${values.name}` })
@@ -733,6 +745,8 @@ export function TrackerSetupPage() {
     }
     setSaving(true)
     setError('')
+    let writePhase: 'version-construction' | 'local-save' = 'version-construction'
+    let writeSchemaVersion: number | undefined
     try {
       const candidate = pendingRuleChange.candidate
       const inferredScheduling = candidate.scheduling ?? trackerScheduling(candidate)
@@ -757,13 +771,16 @@ export function TrackerSetupPage() {
         historyStartDate,
         recordedAt: new Date().toISOString(),
       })
+      writeSchemaVersion = versioned.schemaVersion
       const checked = trackerDefinitionSchema.safeParse(versioned)
       if (!checked.success) {
+        reportTrackerWriteDiagnostic({ category: 'invalid-tracker-definition', phase: 'version-construction', schemaVersion: versioned.schemaVersion })
         const message = checked.error.issues[0]?.message ?? 'The versioned tracker configuration is invalid.'
         setError(message)
         notify({ kind: 'error', title: 'Tracker details need attention', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
         return
       }
+      writePhase = 'local-save'
       const result = await localRepository.saveTracker(checked.data as TrackerDefinition)
       setPendingRuleChange(null)
       allowNavigationRef.current = true
@@ -772,6 +789,11 @@ export function TrackerSetupPage() {
       navigate('/trackers', { replace: true, state: { savedTracker: result.id } })
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : ''
+      reportTrackerWriteDiagnostic({
+        category: isUnsupportedSchemaFailure(cause) ? 'unsupported-schema-version' : writePhase === 'local-save' ? 'local-persistence-failure' : 'invalid-tracker-definition',
+        phase: writePhase,
+        ...(writeSchemaVersion ? { schemaVersion: writeSchemaVersion } : {}),
+      })
       const recoverableMessage = /measure type|retired measure|saved check-ins|active measure|conflict|schema v10/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
       setError(recoverableMessage)
       notify({ kind: 'error', title: 'Couldn’t update tracker', description: recoverableMessage, duration: 0, dedupeKey: `tracker:${existing.id}` })
