@@ -154,13 +154,39 @@ describe('Progression achievements interface', () => {
 
   it('separates confirmed XP and pending rewards and shows the server level', async () => {
     renderPage()
+    expect(await screen.findByRole('heading', { name: /Wins/ })).toBeInTheDocument()
     expect(await screen.findByText('125')).toBeInTheDocument()
     expect(screen.getByText('+10 XP pending sync')).toBeInTheDocument()
     expect(screen.getByText('LEVEL 2')).toBeInTheDocument()
     expect(screen.getByText('XP reconstructed from past activity')).toBeInTheDocument()
     expect(screen.getByText('175 XP to Level 3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /30-day account consistency 75/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Insights' })).toHaveAttribute('href', '/analytics')
+    expect(screen.queryByText('XP THIS WEEK')).not.toBeInTheDocument()
+    expect(screen.getByText('+35 confirmed XP · past 7 days')).toBeInTheDocument()
+    expect(screen.queryByText('ACTIVE STREAKS')).not.toBeInTheDocument()
+    expect(screen.queryByText('BADGES', { selector: '.progression-card-label' })).not.toBeInTheDocument()
     expect(screen.queryByText('CONFIRMED XP')).not.toBeInTheDocument()
     expect(screen.queryByText(/Next milestone: Level/)).not.toBeInTheDocument()
+  })
+
+  it('keeps badge collection navigation in the collection section after removing the summary card', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const allBadges = await screen.findByRole('button', { name: '1 of 2 earned, show all badges' })
+    await user.click(allBadges)
+    expect(await screen.findByRole('dialog', { name: 'All badges' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /First Step, earned/ })).toBeInTheDocument()
+  })
+
+  it('uses responsive breakpoints and existing theme surfaces for the Wins overview', () => {
+    expect(appStyles).toMatch(/\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*900px\)[\s\S]*?\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*560px\)[\s\S]*?\.progression-level-card-shell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.progression-recent-unlocks button\s*\{[^}]*min-height:\s*44px/)
+    expect(appStyles).toContain('.progression-consistency-summary { grid-column: 1 / -1;')
+    expect(appStyles).toContain('background: var(--surface)')
+    expect(appStyles).toContain('[data-theme=\'dark\'] .progression-level-card')
   })
 
   it('explains XP rewards, reversals, pending confirmation, and exact level thresholds', async () => {
@@ -349,7 +375,7 @@ describe('Progression achievements interface', () => {
   it('shows consistency details with eligible-day adherence and exclusions', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /Consistency score 75/ }))
+    await user.click(await screen.findByRole('button', { name: /30-day account consistency 75/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Consistency' })
     expect(within(dialog).getByText('75%')).toBeInTheDocument()
     expect(within(dialog).getByText(/completed trackers divided by eligible trackers/)).toBeInTheDocument()
@@ -359,7 +385,7 @@ describe('Progression achievements interface', () => {
   it('shows streak progress, upcoming and earned milestone rewards, and goal details link', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /active streaks, view streak details/i }))
+    await user.click(await screen.findByRole('button', { name: /Tracker streak history/ }))
     const streakDialog = await screen.findByRole('dialog', { name: 'Streaks & recent activity' })
     expect(within(streakDialog).getByText(/Next streak milestone:/)).toBeInTheDocument()
     expect(within(streakDialog).getByText(/\+35 XP/)).toBeInTheDocument()
@@ -379,7 +405,7 @@ describe('Progression achievements interface', () => {
     mocks.listTrackerEntriesBetween.mockResolvedValueOnce([entry, archivedEntry])
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /active streaks, view streak details/i }))
+    await user.click(await screen.findByRole('button', { name: /Tracker streak history/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Streaks & recent activity' })
     expect(within(dialog).getByRole('group', { name: 'Filter streak history' })).toBeInTheDocument()
     expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
@@ -429,7 +455,7 @@ describe('Progression achievements interface', () => {
     expect(repeatableBadge.querySelector('.badge-threshold-value')).toHaveTextContent('100')
     expect(repeatableBadge).toHaveTextContent('Unlocked (2)')
     expect(repeatableBadge).not.toHaveTextContent('×2 earned')
-    expect(screen.getByRole('button', { name: '2 distinct badge types unlocked. Show all badges' })).toHaveTextContent('2 unlocked')
+    expect(screen.getByRole('button', { name: '2 of 4 earned, show all badges' })).toHaveTextContent('2 of 4 earned')
     expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
   })
 
@@ -526,7 +552,7 @@ describe('Progression achievements interface', () => {
   it('opens a modal containing only active unlocked badges from the whole card button', async () => {
     const user = userEvent.setup()
     renderPage()
-    const card = await screen.findByRole('button', { name: /distinct badge types unlocked\. Show all badges/ })
+    const card = await screen.findByRole('button', { name: /earned, show all badges/ })
     card.focus()
     await user.keyboard('{Enter}')
     const dialog = await screen.findByRole('dialog', { name: 'All badges' })
@@ -539,7 +565,7 @@ describe('Progression achievements interface', () => {
   it('navigates into an All Badges detail view and Back preserves the root dialog', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /distinct badge types unlocked\. Show all badges/ }))
+    await user.click(await screen.findByRole('button', { name: /earned, show all badges/ }))
     const rootDialog = await screen.findByRole('dialog', { name: 'All badges' })
     await user.click(within(rootDialog).getByRole('button', { name: /First Step/ }))
     const detail = await screen.findByRole('dialog', { name: 'First Step' })
@@ -633,7 +659,7 @@ describe('Progression achievements interface', () => {
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, confirmedXp: 0, officialLevel: { level: 1, currentLevelXp: 0, nextLevelXp: 100, progressXp: 0, requiredXp: 100 }, provisionalXp: 0, provisionalRewards: [], scoreHistory: [], streakHistory: [], consistency: { score: null, eligibleDays: 0, dailyAdherence: [] } })
     mocks.getProgressionHistory.mockResolvedValue({ rows: [], hasMore: false })
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /Consistency score not available/ }))
+    await user.click(await screen.findByRole('button', { name: /30-day account consistency not available/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Consistency' })
     expect(within(dialog).getByText(/Today’s eligible activity will count after the date closes in UTC/)).toBeInTheDocument()
     expect(within(dialog).getByText('No eligible days yet')).toBeInTheDocument()

@@ -2618,6 +2618,65 @@ select.auth-input option { background: var(--surface-raised); color: var(--ink);
 @media (min-width: 761px) { .account-delete-backdrop { align-items: center; padding: 24px; } .account-delete-dialog { border-radius: 18px; } }
 @media (max-width: 380px) { .account-delete-heading, .account-delete-content { padding-right: 14px; padding-left: 14px; } .account-delete-actions { padding-right: 14px; padding-left: 14px; } .account-export { align-items: flex-start; flex-direction: column; } }
 
+/* Compact Insights summaries keep the metric definitions beside their values. */
+.analytics-summary-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 12px; margin: 24px 0 10px; }
+.analytics-summary-group { min-width: 0; padding: 15px 17px; background: var(--surface); }
+.analytics-summary-group > h2 { margin: 0 0 7px; color: var(--ink); font-size: 14px; font-weight: 680; letter-spacing: -.12px; }
+.analytics-summary-list { display: grid; }
+.analytics-summary-stat { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label value" "detail detail"; align-items: center; gap: 2px 8px; padding: 9px 0; border-top: 1px solid var(--line); }
+.analytics-summary-label { display: inline-flex; min-width: 0; grid-area: label; align-items: center; gap: 3px; color: var(--ink-muted); font-size: 10px; line-height: 1.3; }
+.analytics-summary-stat > strong { grid-area: value; color: var(--ink); font-size: 21px; font-variant-numeric: tabular-nums; font-weight: 620; line-height: 1; text-align: right; }
+.analytics-summary-stat > small { grid-area: detail; color: var(--ink-subtle); font-size: 9px; line-height: 1.35; }
+.analytics-context-summary { display: flex; min-height: 36px; align-items: center; flex-wrap: wrap; gap: 3px 7px; margin: 0 2px 17px; color: var(--ink-subtle); font-size: 10px; }
+.analytics-context-summary > span { display: inline-flex; align-items: baseline; gap: 5px; }
+.analytics-context-summary > span strong { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.analytics-context-summary > p { flex-basis: 100%; margin: 2px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.5; }
+.analytics-tracker-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 8px 16px; margin: 17px 0 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.analytics-tracker-stats > div { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.analytics-tracker-stats dt { display: flex; align-items: center; gap: 3px; color: var(--ink-subtle); font-size: 9px; }
+.analytics-tracker-stats dd { margin: 0; color: var(--ink); font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 620; overflow-wrap: anywhere; }
+.analytics-consistency { margin: 12px 0 0; font-size: 11px; }
+.analytics-tracker-heading > div { min-width: 0; }
+.analytics-tracker-heading h2 { overflow-wrap: anywhere; }
+.progression-consistency-summary { grid-column: 1 / -1; display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label value" "context value" "action value"; align-items: center; gap: 6px 18px; padding: 14px 17px; }
+.progression-consistency-summary .progression-card-label { grid-area: label; }
+.progression-consistency-summary > strong { grid-area: value; font-size: clamp(27px, 4vw, 36px); }
+.progression-consistency-summary > span:not(.progression-card-label):not(.progression-card-action) { grid-area: context; font-size: 11px; }
+.progression-consistency-summary .progression-card-action { grid-area: action; margin-top: 0; }
+.progression-insights-link { margin: 11px 0 0; color: var(--ink-subtle); font-size: 11px; }
+.progression-insights-link a { color: var(--accent-strong); font-weight: 680; text-decoration: underline; text-underline-offset: 2px; }
+.progression-weekly-xp { margin: 4px 0 0; color: var(--ink-subtle); font-size: 10px; font-variant-numeric: tabular-nums; }
+.progression-section-context { margin: 0; color: var(--ink-subtle); font-size: 10px; text-align: right; }
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .analytics-summary-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-summary-rewards { grid-column: 1 / -1; }
+  .analytics-summary-rewards .analytics-summary-list { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 12px; }
+}
+@media (min-width: 761px) and (max-width: 900px) {
+  .analytics-summary-rewards .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+}
+@media (max-width: 760px) {
+  .progression-recent-unlocks button { min-height: 44px; }
+  .analytics-summary-groups { grid-template-columns: minmax(0, 1fr); gap: 9px; margin-top: 16px; }
+  .analytics-summary-group { padding: 11px 13px; border-radius: var(--radius-card-nested); }
+  .analytics-summary-group > h2 { margin-bottom: 3px; }
+  .analytics-summary-stat { padding: 6px 0; }
+  .analytics-summary-stat > strong { font-size: 19px; }
+  .analytics-tracker-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+  .analytics-context-summary { margin-bottom: 12px; }
+  .progression-consistency-summary { min-height: 0; padding: 12px 13px; }
+  .progression-section-context { max-width: 45%; line-height: 1.4; }
+}
+@media (max-width: 420px) {
+  .progression-consistency-summary { gap: 5px 10px; }
+  .progression-consistency-summary > span:not(.progression-card-label):not(.progression-card-action) { font-size: 10px; }
+  .analytics-tracker { padding: 14px; }
+  .analytics-tracker-heading h2 { font-size: 18px; }
+  .progression-section-heading:has(.progression-section-context) { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .progression-section-context { max-width: none; text-align: left; }
+}
+
 @media (max-width: 760px) {
   .today-checkin-card.status-card { padding: 15px; }
   .calendar-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }

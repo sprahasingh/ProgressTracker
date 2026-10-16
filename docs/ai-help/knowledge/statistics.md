@@ -148,7 +148,7 @@ The percentage is unavailable when there are no counted opportunities in the sel
 - src/domain/trackers/analytics.ts
 - src/features/analytics/AnalyticsPage.tsx
 **Answer:**
-No. Analytics summarizes each measure separately, so values with different units are not added together. Comparable counts such as completed opportunities can be combined, while measure values stay with their own tracker and unit.
+No. Analytics summarizes each measure separately, so values with different units are not added together. Comparable counts such as completed opportunities can be summed across trackers; the same calendar date can contribute once for each tracker. Measure values stay with their own tracker and unit.
 
 ### ID: completion-holiday-entry
 **Category:** statistics

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -98,14 +99,17 @@ export function AnalyticsPage() {
   const entriesById = new Map(allEntries.map((entry) => [entry.id, entry]))
   const accountXp = progression ? periodEvents.reduce((sum, event) => sum + event.xpDelta, 0) + periodProvisional.reduce((sum, reward) => sum + reward.xpDelta, 0) : null
   const trackerAttributedXp = progression ? periodEvents.filter((event) => event.trackerId !== null).reduce((sum, event) => sum + event.xpDelta, 0) + periodProvisional.filter((reward) => entriesById.get(reward.id.replace(/^check-in:/, ''))?.trackerId).reduce((sum, reward) => sum + reward.xpDelta, 0) : null
-  const selectedSummary = selectedTracker ? summaries.find((summary) => summary.tracker.id === selectedTracker.id) : null
   const selectedTrackerXp = progression && selectedTracker ? periodEvents.filter((event) => event.trackerId === selectedTracker.id).reduce((sum, event) => sum + event.xpDelta, 0) + periodProvisional.filter((reward) => entriesById.get(reward.id.replace(/^check-in:/, ''))?.trackerId === selectedTracker.id).reduce((sum, reward) => sum + reward.xpDelta, 0) : null
   const otherAccountXp = accountXp === null || trackerAttributedXp === null ? null : accountXp - trackerAttributedXp
+  const accountXpOutsideSelectedTracker = accountXp === null || selectedTrackerXp === null ? null : accountXp - selectedTrackerXp
   const earnedBadges = progression ? selectedTracker ? progression.achievements.reduce((count, achievement) => {
     const active = activeAchievementOccurrences(achievement.history)
     const attributed = active.filter((event) => event.sourceEventId && progression.scoreHistory.some((score) => score.id === event.sourceEventId && score.trackerId === selectedTracker.id))
     return count + attributed.length
   }, 0) : progression.achievements.filter((achievement) => achievement.earned).length : null
+  const hasNoCheckIns = entriesCount === 0
+  const hasNoOpportunities = scheduledCount === 0
+  const hasNoMetricObservations = summaries.every((summary) => summary.metrics.every((metric) => metric.observationCount === 0))
 
   return <section className="tracker-page analytics-page" aria-labelledby="analytics-title">
     <PageHeader headingId="analytics-title" eyebrow="YOUR PATTERNS" title="Analytics" description="Review current consistency and saved activity. Archived trackers remain labeled in historical reports." help={{ title: 'Analytics', summary: 'Statistics follow the tracker selector and selected date range.', description: 'All Trackers adds comparable counts such as check-ins and eligible opportunities while keeping metric values separate because units can differ. Individual Tracker recalculates counts and trends using only that tracker. Scheduled opportunities and consistency include active trackers only. Archived tracker cards show retained historical values and saved check-ins, but do not contribute to current completion or opportunity statistics. Holidays and rest days are excluded in Standard Mode and required in Strict Mode.' }} />
@@ -118,33 +122,56 @@ export function AnalyticsPage() {
     </div>
     {visibleError && <div role="alert" className="form-alert">{visibleError}</div>}
     {visibleLoading ? <p role="status" className="tracker-loading">Loading your analytics…</p> : visibleError ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open your workspace analytics." action={<Button variant="secondary" onClick={() => void refresh()}>Try again</Button>} /></Surface> : summaries.length === 0 ? <Surface><EmptyState title="Analytics start with your first tracker" description="Create a tracker and log activity to see consistency and metric trends here." action={<Link className="button button-primary button-medium" to="/trackers/new">Create a tracker</Link>} /></Surface> : <>
-      <div className="dashboard-stats" role="group" aria-label="Activity summary">
-        <AnalyticsStat label="Check-ins" value={entriesCount} detail={`${range} day period`} help="Counts saved recorded and intentionally skipped entries for the selected tracker, or all displayed trackers. In All Trackers, counts are added across trackers." />
-        <AnalyticsStat label="Success rules met" value={qualifiedCount} detail="among recorded check-ins" help="Counts recorded entries that met each tracker’s configured success rule. A day can have a saved entry that does not meet its rule." />
-        <AnalyticsStat label="Success rate" value={successRate === null ? '—' : `${successRate}%`} detail={recordedCount ? `${qualifiedCount} of ${recordedCount} recorded entries` : 'no recorded entries'} help="Success Rule matches divided by recorded check-ins. Streak-only dates do not count as successes." />
-        <AnalyticsStat label="Streak-qualified days" value={streakQualifiedCount} detail="in the selected period" help="Counts dates that met each tracker’s Streak Rule on an eligible streak opportunity. This is separate from Success Rule matches and success rate." />
-        <AnalyticsStat label="Scheduled opportunities" value={scheduledCount} detail={selectedTracker ? 'selected tracker' : 'active trackers only'} help="Counts elapsed eligible days in the period. Standard Mode excludes holidays and rest days; Strict Mode requires every calendar day in the tracker’s active date range. An unlogged today is still open." />
-        <AnalyticsStat label={selectedTracker ? 'Account holidays' : 'Holidays'} value={holidayCount} detail="account-wide in this period" help="Marked holidays are account-wide settings. They pause Standard Mode streaks; Strict Mode still requires qualifying activity on those dates." />
-        <AnalyticsStat label="Consistency" value={consistency === null ? '—' : `${consistency}%`} detail={consistency === null ? 'no scheduled opportunities' : `${qualifiedScheduled} of ${scheduledCount} scheduled days met success`} help="Success Rule matches divided by elapsed scheduled opportunities. Rest days are excluded in Standard Mode; Strict Mode uses every in-period calendar date. A streak-only day does not inflate consistency." />
-        {selectedSummary && <>
-          <AnalyticsStat label="Current Streak" value={selectedSummary.currentStreak} detail={`${selectedTracker?.name} · Streak Rule`} help="Uses only this tracker’s Streak Rule and scheduling policy. Success Rule-only dates do not advance it." />
-          <AnalyticsStat label="Longest Streak" value={selectedSummary.longestStreak} detail={`${selectedTracker?.name} · all saved history`} help="The longest run of this tracker’s Streak Rule across its active dates. Historical edits are reflected after local and server reconciliation." />
-        </>}
-        {progression && <>
+      <div className="analytics-summary-groups" role="group" aria-label="Period summary">
+        <AnalyticsGroup title="Activity" className="analytics-summary-activity">
+          <AnalyticsStat label="Check-ins" value={entriesCount} detail={`${range} day period`} help="Counts the latest saved recorded and intentionally skipped entries in the selected period. In All Trackers, counts are added across trackers; the same date can contribute one entry per tracker." />
+          <AnalyticsStat label="Successful check-ins" value={qualifiedCount} detail={recordedCount ? `of ${recordedCount} recorded check-ins` : 'among recorded check-ins'} help="Counts recorded entries that met each tracker’s configured Success Rule. A saved entry can fail that rule. In All Trackers, matching entries are added across trackers." />
+          <AnalyticsStat label="Success rate" value={successRate === null ? '—' : `${successRate}%`} detail={recordedCount ? `${qualifiedCount} of ${recordedCount} recorded entries` : 'no recorded entries'} help="Success Rule matches divided by recorded check-ins. When there are no recorded entries, the rate is undefined. Streak-only dates do not count as successes." />
+        </AnalyticsGroup>
+        <AnalyticsGroup title="Consistency" className="analytics-summary-consistency">
+          <AnalyticsStat label="Consistency" value={consistency === null ? '—' : `${consistency}%`} detail={consistency === null ? 'no scheduled opportunities' : `${qualifiedScheduled} of ${scheduledCount} opportunities`} help="Success Rule matches divided by elapsed eligible opportunities in the selected period. All Trackers adds tracker opportunities, so one date may contribute once per tracker. Standard Mode excludes rest days and holidays; Strict Mode requires every in-period calendar date in the active range. An unlogged today remains open. A streak-only day does not raise consistency." />
+          <AnalyticsStat label="Streak-qualified days" value={streakQualifiedCount} detail={`${range} day period`} help="Counts tracker-date opportunities on active trackers that met each tracker’s Streak Rule and scheduling policy. In All Trackers, one calendar date can count once for each qualifying tracker. Archived tracker streak history remains in its tracker details. This is separate from Success Rule matches and success rate." />
+          <AnalyticsStat label="Scheduled opportunities" value={scheduledCount} detail={selectedTracker ? 'selected tracker' : 'active trackers only'} help="Counts elapsed eligible tracker-date opportunities in the period. Standard Mode excludes holidays and rest days; Strict Mode requires every calendar day in the tracker’s active date range. An unlogged today is still open. Archived trackers do not contribute." />
+        </AnalyticsGroup>
+        {progression && <AnalyticsGroup title="XP & rewards" className="analytics-summary-rewards">
           {selectedTracker
-            ? <AnalyticsStat label="Tracker XP" value={selectedTrackerXp ?? '—'} detail="net XP attributed to this tracker" help="Includes confirmed and pending rewards with a source linked to this tracker. Account-wide and older unattributed rewards are not assigned to it." />
+            ? <>
+              <AnalyticsStat label="Selected tracker XP" value={selectedTrackerXp ?? '—'} detail={`${range} day period · net XP`} help="Includes confirmed and pending rewards in this period with a source linked to the selected tracker. Account-wide rewards and rewards linked to other trackers are outside this value." />
+              <AnalyticsStat label="Account XP" value={accountXp ?? '—'} detail={`${range} day period · all account sources`} help="Net XP across all account sources in the selected period, including tracker-attributed, account-wide, older unattributed ledger events, and pending rewards." />
+              <AnalyticsStat label="XP outside selected tracker" value={accountXpOutsideSelectedTracker ?? '—'} detail="period account total minus selected tracker" help="Account XP not attributed to the selected tracker. It may include rewards from other trackers, account-wide rewards, and older rewards without reliable tracker attribution." />
+              <AnalyticsStat label="Tracker badge awards" value={earnedBadges ?? '—'} detail="active linked awards · all time" help="Counts active achievement unlock occurrences linked to reward events from the selected tracker across all time. Account-wide badges and awards linked to other trackers are not included." />
+            </>
             : <>
-              <AnalyticsStat label="Tracker-attributed XP" value={trackerAttributedXp ?? '—'} detail="net XP with a tracker source" help="Sums rewards whose ledger source identifies a tracker. Account-wide and unattributed rewards remain separate." />
-              <AnalyticsStat label="Account-wide and unattributed XP" value={otherAccountXp ?? '—'} detail="net account XP without a tracker source" help="Includes account-wide rewards and older rewards that do not have reliable tracker attribution. These are not assigned to individual trackers." />
+              <AnalyticsStat label="Account XP" value={accountXp ?? '—'} detail={`${range} day period · all account sources`} help="Net XP across all account sources in the selected period, including tracker-attributed, account-wide, older unattributed ledger events, and pending rewards." />
+              <AnalyticsStat label="Tracker-attributed XP" value={trackerAttributedXp ?? '—'} detail={`${range} day period · tracker-linked net XP`} help="Sums confirmed and pending rewards in the selected period whose ledger source identifies a tracker. Account-wide and older unattributed rewards remain outside this value." />
+              <AnalyticsStat label="Account-wide & unattributed XP" value={otherAccountXp ?? '—'} detail={`${range} day period · no tracker source`} help="Account XP minus tracker-attributed XP. Includes account-wide rewards and older rewards that do not have reliable tracker attribution; it does not combine rewards with tracker sources." />
+              <AnalyticsStat label="Badge types earned" value={earnedBadges ?? '—'} detail="active achievement types · all time" help="Counts distinct achievement types with an active earned award for the account. Repeatable award occurrences do not increase this type count. Badge history and progress are available in Wins." />
             </>}
-          <AnalyticsStat label="Account XP" value={accountXp ?? '—'} detail="net XP across all sources in this period" help="Includes tracker-attributed, account-wide, and unattributed ledger events, plus pending rewards." />
-          <AnalyticsStat label={selectedTracker ? 'Badges attributed to tracker' : 'Earned badges'} value={earnedBadges ?? '—'} detail={selectedTracker ? 'unlock events with a linked tracker source' : 'active account awards'} help={selectedTracker ? 'Only badge unlock records linked to a reward event from this tracker are counted. Account-wide badges are not assigned to it.' : 'Counts active earned achievement awards for the account. Badge history and progress are available in Wins.'} />
-        </>}
+        </AnalyticsGroup>}
+      </div>
+      <div className="analytics-context-summary" role="group" aria-label="Period context">
+        <span>Holidays <strong>{holidayCount}</strong></span>
+        <InfoButton title="Holidays" label="About the holiday count" compact summary="Account-wide marked holidays in this period." description="Marked holidays are account-wide settings. They pause Standard Mode streaks; Strict Mode still requires qualifying activity on those dates." />
+        {(hasNoCheckIns || hasNoOpportunities || hasNoMetricObservations && recordedCount === 0) && <p role="status">
+          {hasNoCheckIns && hasNoOpportunities
+            ? `No check-ins or scheduled opportunities in this period.${hasNoMetricObservations ? ' Metric trends will appear after recorded entries include values.' : ''}`
+            : hasNoCheckIns
+              ? `No check-ins in this period. An unlogged current day remains open; earlier eligible opportunities are counted after they close.${hasNoMetricObservations ? ' Metric trends will appear after recorded entries include values.' : ''}`
+              : hasNoOpportunities ? `No scheduled opportunities for active trackers in this period; consistency is undefined.${hasNoMetricObservations && recordedCount === 0 ? ' No recorded metric values are available for this period.' : ''}` : 'No recorded metric values in this period. Trends appear when recorded entries include values.'}
+        </p>}
       </div>
       <div className="analytics-trackers">
         {summaries.map((summary) => <Surface className="analytics-tracker" key={summary.tracker.id}>
-          <header className="analytics-tracker-heading"><div><span className="tracker-kind-chip">{summary.tracker.status}</span><h2>{summary.tracker.name}</h2></div><span>{summary.recordedCount} recorded · {summary.skippedCount} skipped · {summary.currentStreak} current / {summary.longestStreak} longest streak{summary.historicalCount ? ` · ${summary.historicalCount} historical entries excluded` : ''}</span></header>
-          {summary.scheduledCount !== null && <p className="analytics-consistency">{summary.consistencyPercent === null ? 'No scheduled dates in this period.' : `${summary.scheduledQualifiedCount} of ${summary.scheduledCount} scheduled days met the success rule · ${summary.consistencyPercent}% consistency.`}</p>}
+          <header className="analytics-tracker-heading"><div><span className="tracker-kind-chip">{summary.tracker.status}</span><h2>{summary.tracker.name}</h2></div></header>
+          <dl className="analytics-tracker-stats">
+            <div><dt>Recorded</dt><dd>{summary.recordedCount}</dd></div>
+            <div><dt>Skipped</dt><dd>{summary.skippedCount}</dd></div>
+            <div><dt>Current streak <InfoButton title="Current streak" summary="Consecutive qualifying opportunities up to today." description="Uses only this tracker’s Streak Rule and scheduling policy. Success Rule-only dates do not advance it." compact /></dt><dd>{summary.currentStreak}</dd></div>
+            <div><dt>Longest streak <InfoButton title="Longest streak" summary="The longest qualifying run in this tracker’s history." description="The longest run of this tracker’s Streak Rule across its active dates. Historical edits are reflected after local and server reconciliation." compact /></dt><dd>{summary.longestStreak}</dd></div>
+            <div><dt>Scheduling</dt><dd>{summary.scheduledCount === null ? 'Inactive for consistency' : summary.scheduledCount === 0 ? 'No elapsed opportunities' : `${summary.scheduledCount} elapsed opportunities`}</dd></div>
+            {summary.historicalCount > 0 && <div><dt>Historical entries excluded</dt><dd>{summary.historicalCount}</dd></div>}
+          </dl>
+          {summary.scheduledCount !== null && summary.consistencyPercent !== null && <p className="analytics-consistency">{summary.scheduledQualifiedCount} of {summary.scheduledCount} scheduled days met the Success Rule · {summary.consistencyPercent}% consistency.</p>}
           {summary.metrics.length > 0 && <div className="analytics-metrics">
             {summary.metrics.map((metricSummary) => {
               const { metric, observations } = metricSummary
@@ -154,7 +181,7 @@ export function AnalyticsPage() {
               const latest = metricSummary.latestValue
               return <section className="analytics-metric" key={metric.id} aria-label={`${metric.name} analysis`}>
                 <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values{metricSummary.averageValue === null ? '' : ` · average ${formatTrackerNumber(metricSummary.averageValue)}${unit}`}</span></div>
-                {visibleObservations.length === 0 ? <p className="analytics-empty-metric">No values recorded in this period.</p> : <>
+                {visibleObservations.length === 0 ? hasNoMetricObservations && recordedCount === 0 ? null : <p className="analytics-empty-metric">No values recorded in this period.</p> : <>
                   <p className="analytics-latest">Latest: {latest === null ? '—' : metric.valueType === 'boolean' ? latest : formatTrackerNumber(latest)}{latest === null ? '' : unit}{metric.valueType === 'boolean' && latest !== null ? latest === 1 ? ' · yes' : ' · no' : ''}</p>
                   <div className="analytics-value-chart" aria-hidden="true">
                     {visibleObservations.map((item) => <span key={item.date} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
@@ -198,6 +225,18 @@ function MetricDailyValues({ metricName, valueType, unit, observations }: {
   </details>
 }
 
+function AnalyticsGroup({ title, className, children }: { title: string; className: string; children: ReactNode }) {
+  const headingId = useId()
+  return <Surface role="group" className={`analytics-summary-group ${className}`} aria-labelledby={headingId}>
+    <h2 id={headingId}>{title}</h2>
+    <div className="analytics-summary-list">{children}</div>
+  </Surface>
+}
+
 function AnalyticsStat({ label, value, detail, help }: { label: string; value: number | string; detail: string; help: string }) {
-  return <Surface className="dashboard-stat"><span className="dashboard-stat-label">{label}<InfoButton title={label} summary={detail} description={help} /></span><strong>{value}</strong><small>{detail}</small></Surface>
+  return <div className="analytics-summary-stat">
+    <span className="analytics-summary-label">{label}<InfoButton title={label} summary={detail} description={help} compact /></span>
+    <strong>{value}</strong>
+    <small>{detail}</small>
+  </div>
 }
