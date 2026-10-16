@@ -435,6 +435,68 @@ describe('tracker setup flow', () => {
     expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('streakRuleMode')
   })
 
+  it('removes a saved custom streak rule when switching an existing tracker back to Success Rule', async () => {
+    const existing = {
+      ...datedTracker('streak-cure-existing-rule', 'habit', '2026-01-05', null),
+      schemaVersion: 8 as const,
+      scheduling: { mode: 'ongoing' as const },
+      metrics: [{
+        id: 'sessions', name: 'Sessions', valueType: 'quantity' as const, unit: 'sessions',
+        thresholds: { direction: 'increase' as const, minimum: 1, target: 5, streakQualification: 'target' as const },
+      }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'sessions', level: 'target' as const },
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'comparison' as const, metricId: 'sessions', operator: 'at-least' as const, value: 1 },
+    }
+    await localRepository.saveTracker(existing)
+    const savedEntry = await localRepository.saveTrackerEntry({
+      trackerId: existing.id, date: '2026-10-15', outcome: 'recorded', values: { sessions: 3 }, note: 'Historical progress stays intact',
+    })
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Streak rule', { selector: 'summary' }))
+    const streakSection = screen.getByRole('region', { name: 'Streak rule' })
+    await user.selectOptions(within(streakSection).getByRole('combobox', { name: 'Streak rule mode' }), 'same-as-success')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 8, streakRuleMode: 'same-as-success' }))
+    expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('streakRule')
+    await expect(localRepository.getTrackerEntry(existing.id, '2026-10-15')).resolves.toMatchObject({ id: savedEntry.id, values: { sessions: 3 }, note: savedEntry.note })
+  })
+
+  it('preserves a custom Streak Rule when only basic tracker details change', async () => {
+    const existing = {
+      ...datedTracker('streak-cure-unrelated-edit', 'habit', '2026-01-05', null),
+      schemaVersion: 8 as const,
+      scheduling: { mode: 'ongoing' as const },
+      metrics: [{
+        id: 'sessions', name: 'Sessions', valueType: 'quantity' as const, unit: 'sessions',
+        thresholds: { direction: 'increase' as const, minimum: 1, target: 5, streakQualification: 'target' as const },
+      }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'sessions', level: 'target' as const },
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'comparison' as const, metricId: 'sessions', operator: 'at-least' as const, value: 2 },
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    const name = await screen.findByRole('textbox', { name: 'What habit do you want to build?' })
+    await user.clear(name)
+    await user.type(name, 'Streak Cure renamed')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
+      name: 'Streak Cure renamed',
+      schemaVersion: 8,
+      streakRuleMode: 'custom',
+      streakRule: existing.streakRule,
+      qualificationRule: existing.qualificationRule,
+      metrics: existing.metrics,
+      scheduling: existing.scheduling,
+    }))
+  })
+
   it('retires a saved measure with history after confirmation and keeps its original definition', async () => {
     const existing = datedTracker('retire-measure-flow', 'habit')
     existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' })

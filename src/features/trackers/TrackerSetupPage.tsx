@@ -629,8 +629,10 @@ export function TrackerSetupPage() {
       const persistScheduling = wantsMilestoneV9 || wantsStreakRuleV8 || isSchemaV6WriteEnabled() && (schedulingTouched || (existing?.schemaVersion ?? 0) >= 6 || wantsV7)
       const targetSchemaVersion: TrackerDefinition['schemaVersion'] = wantsMilestoneV9 ? 9 : wantsStreakRuleV8 ? 8 : wantsV7 && persistScheduling ? 7 : persistScheduling ? 6 : legacySchemaVersion
       const schemaVersion = Math.max(existing?.schemaVersion ?? 1, targetSchemaVersion) as TrackerDefinition['schemaVersion']
+      const candidateBase: Partial<TrackerDefinition> = existing ? { ...existing } : {}
+      if (configuration.streakRuleMode !== 'custom') delete candidateBase.streakRule
       const candidate: TrackerDefinition = {
-        ...(existing ?? {} as TrackerDefinition),
+        ...candidateBase,
         schemaVersion, id, name: form.name, description: form.description.trim(), kind,
         status: existing?.status === 'archived' && archivedStatusAfterSave === 'active' ? 'active' : existing?.status ?? 'active', categoryId: existing?.categoryId ?? null,
         tags: existing?.tags ?? [], icon: existing?.icon ?? '', accent: existing?.accent ?? '#315e46',
