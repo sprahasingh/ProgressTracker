@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProgressTrackerDatabase } from '../../db/database'
 import { openDatabase } from '../../db/database'
+import { migrateLegacyRejectedConflicts } from '../../db/legacySyncRejections'
 import { localRepository } from '../../db/localRepository'
 import { publishPermanentDeletionNotification } from '../permanentDeletionNotifications'
 import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
@@ -90,6 +91,18 @@ async function markFailure(database: ProgressTrackerDatabase, operation: SyncOpe
   if (latest) await database.syncOperations.put({ ...latest, attempts: latest.attempts + 1, lastError: message })
 }
 
+async function markPermanentlyBlocked(database: ProgressTrackerDatabase, operation: SyncOperation, code: string, message: string) {
+  const latest = await database.syncOperations.get(operation.id)
+  if (latest) await database.syncOperations.put({
+    ...latest,
+    status: 'blocked',
+    attempts: latest.attempts + 1,
+    lastError: `The server rejected this saved change (${code}). ${message}`,
+    failureCode: code,
+    blockedAt: new Date().toISOString(),
+  })
+}
+
 async function markInFlight(database: ProgressTrackerDatabase, operationId: string): Promise<SyncOperation | undefined> {
   return database.transaction('rw', [database.syncOperations], async () => {
     const latest = await database.syncOperations.get(operationId)
@@ -109,7 +122,9 @@ async function recordQueuedConflict(database: ProgressTrackerDatabase, operation
   else if (operation.entity === 'tracker_entry') localPayload = await database.trackerEntries.get(operation.entityId) ?? localPayload
   else if (operation.entity === 'account_holiday') localPayload = await database.accountHolidays.get(operation.entityId) ?? localPayload
   const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray()
-  for (const sibling of queued) if (sibling.id !== operation.id) await database.syncOperations.delete(sibling.id)
+  for (const sibling of queued) {
+    if (sibling.id !== operation.id && sibling.status !== 'blocked' && sibling.status !== 'superseded') await database.syncOperations.delete(sibling.id)
+  }
   const latest = await database.syncOperations.get(operation.id)
   if (latest) await database.syncOperations.put({ ...latest, payload: localPayload, status: 'conflict', attempts: latest.attempts + 1, lastError: reason })
   await database.syncConflicts.put({ id: operation.id, ownerUserId, entity, entityId: operation.entityId, localPayload: localPayload!, remoteRecord, detectedAt: new Date().toISOString(), reason })
@@ -140,7 +155,7 @@ async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOpe
     const queued = (await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray())
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     const index = queued.findIndex((candidate) => candidate.id === operation.id)
-    const next = index >= 0 ? queued[index + 1] : undefined
+    const next = index >= 0 ? queued.slice(index + 1).find((candidate) => candidate.status !== 'conflict' && candidate.status !== 'blocked' && candidate.status !== 'superseded') : undefined
     const isLatest = index >= 0 && index === queued.length - 1
     if (operation.entity === 'tracker' && isLatest) {
       const current = await database.trackers.get(operation.entityId)
@@ -155,6 +170,9 @@ async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOpe
       }
     }
     if (index >= 0) await database.syncOperations.delete(operation.id)
+    for (const earlier of (index >= 0 ? queued.slice(0, index) : [])) {
+      if (earlier.status === 'blocked') await database.syncOperations.put({ ...earlier, status: 'superseded', supersededAt: new Date().toISOString(), supersededByRevision: record.server_revision })
+    }
     if (next && next.status !== 'conflict') await database.syncOperations.put({ ...next, expectedRevision: record.server_revision })
   })
 }
@@ -329,7 +347,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
 
 async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
   const operations = (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
-    .filter((operation) => operation.entity === entity && operation.status !== 'conflict')
+    .filter((operation) => operation.entity === entity && operation.status !== 'conflict' && operation.status !== 'blocked' && operation.status !== 'superseded')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
   let uploaded = 0
   let conflicts = 0
@@ -339,54 +357,54 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
     let phase: 'workspace-preflight' | 'payload-validation' | 'server-request' | 'server-acknowledgement' = 'workspace-preflight'
     try {
       operation = await database.syncOperations.get(queued.id)
-      if (!operation || operation.status === 'conflict') continue
+      if (!operation || operation.status === 'conflict' || operation.status === 'blocked' || operation.status === 'superseded') continue
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 7 && !isSchemaV7WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
@@ -396,51 +414,51 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       // server commits but its response is interrupted, a retry replays its receipt.
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 9 && !isSchemaV9WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v9 typed milestone cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 8 && !isSchemaV8WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v8 streak-rule cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 3 && !isSchemaV3WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v3 cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 4 && !isSchemaV4WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v4 precision cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 5 && !isSchemaV5WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v5 manual goal allocation cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 7 && !isSchemaV7WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v7 Effective Days counting cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 6 && !isSchemaV6WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
-        await markFailure(database, operation, 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
+        await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v6 scheduling cloud writes are disabled until the hosted migration is applied and verified.')
         failed += 1
-        break
+        continue
       }
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
@@ -484,9 +502,13 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
             entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday',
             serverCode: error.code,
           })
-          await markConflict(database, operation, null, `The server rejected this saved change (${error.code}). Review the local record and resolve the sync issue before retrying.`)
-          conflicts += 1
-          break
+          // A validation rejection is not evidence of a concurrent cloud edit.
+          // Keep the operation and local payload as a blocked diagnostic record.
+          // It will not be retried automatically; a later corrected operation
+          // can proceed and will mark this record superseded after server ack.
+          await markPermanentlyBlocked(database, operation, error.code!, 'Your saved payload and diagnostic are retained. Correct the record or retry after the server issue is fixed.')
+          failed += 1
+          continue
         }
         throw new Error(error.message)
       }
@@ -541,6 +563,11 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
         ...(operation?.entity === 'tracker' ? { schemaVersion: (operation.payload as StoredTrackerDefinition | undefined)?.schemaVersion } : {}),
         ...(operation ? { entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' } : {}),
       })
+      if (operation && invalidDefinition) {
+        await markPermanentlyBlocked(database, operation, 'LOCAL_INVALID_DEFINITION', errorMessage(cause))
+        failed += 1
+        continue
+      }
       if (operation) await markFailure(database, operation, errorMessage(cause))
       failed += 1
       // Entry writes depend on tracker writes; stop this entity queue on first failure.
@@ -555,11 +582,12 @@ async function applyRemoteTracker(database: ProgressTrackerDatabase, userId: str
   const remote = trackerFromServer(row)
   const stateKey = keyFor('tracker', row.id)
   return database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
-    const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker', row.id]).first()
+    const operations = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker', row.id]).toArray()
+    const queued = operations.find((operation) => operation.status === 'pending' || operation.status === 'in-flight') ?? operations.find((operation) => operation.status === 'conflict' || operation.status === 'blocked')
     const state = await database.syncRecords.get(stateKey)
     const local = await database.trackers.get(row.id)
     if (queued) {
-      if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
+      if ((queued.status === 'pending' || queued.status === 'in-flight') && queued.expectedRevision !== row.server_revision) {
         await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud record changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
@@ -593,11 +621,12 @@ async function applyRemoteEntry(database: ProgressTrackerDatabase, userId: strin
   const remote = entryFromServer(row)
   const stateKey = keyFor('tracker_entry', row.id)
   return database.transaction('rw', [database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
-    const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', row.id]).first()
+    const operations = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', row.id]).toArray()
+    const queued = operations.find((operation) => operation.status === 'pending' || operation.status === 'in-flight') ?? operations.find((operation) => operation.status === 'conflict' || operation.status === 'blocked')
     const state = await database.syncRecords.get(stateKey)
     const local = await database.trackerEntries.get(row.id)
     if (queued) {
-      if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
+      if ((queued.status === 'pending' || queued.status === 'in-flight') && queued.expectedRevision !== row.server_revision) {
         await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud record changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
@@ -622,11 +651,12 @@ async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: str
   if (remote.reason !== null && !['travel', 'exam', 'personal', 'other'].includes(remote.reason)) throw new Error('Cloud holiday has an unsupported reason.')
   const stateKey = keyFor('account_holiday', row.id)
   return database.transaction('rw', [database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
-    const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'account_holiday', row.id]).first()
+    const operations = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'account_holiday', row.id]).toArray()
+    const queued = operations.find((operation) => operation.status === 'pending' || operation.status === 'in-flight') ?? operations.find((operation) => operation.status === 'conflict' || operation.status === 'blocked')
     const state = await database.syncRecords.get(stateKey)
     const local = await database.accountHolidays.get(row.id)
     if (queued) {
-      if (queued.status === 'pending' && queued.expectedRevision !== row.server_revision) {
+      if ((queued.status === 'pending' || queued.status === 'in-flight') && queued.expectedRevision !== row.server_revision) {
         await recordQueuedConflict(database, queued, row as unknown as Record<string, unknown>, 'The cloud holiday changed since this device last read it.')
         return { downloaded: 0, conflicts: 1 }
       }
@@ -685,6 +715,7 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   if (!client) throw new Error('Supabase is not configured; local changes remain saved on this device.')
   const database = await openDatabase()
   await accountState(database, userId)
+  await database.transaction('rw', [database.workspaceMetadata, database.syncOperations, database.syncConflicts], () => migrateLegacyRejectedConflicts(database, userId))
   await assertUser(client, userId)
   const localSettings = await localRepository.getAppSettings(userId)
   const accountTimeZone = await ensureAccountWorkspaceTimeZone(userId, localSettings.timezone, client as unknown as SupabaseClient)

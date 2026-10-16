@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { activateWorkspace, db, queueSyncMutation } from '../../db/database'
+import { activateWorkspace, db, openDatabase, queueSyncMutation } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
 import { subscribeToWorkspaceDataChanges } from '../../db/workspaceMutationEvents'
 import { subscribeToPermanentDeletionNotifications } from '../permanentDeletionNotifications'
 import { subscribeToHolidayDeletionNotifications } from '../holidayDeletionNotifications'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
+import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
 
 const tracker = (id = 'sync-tracker'): StoredTrackerDefinition => ({
   schemaVersion: 1, id, name: 'Sync tracker', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -410,6 +411,30 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get(v7.id)).resolves.toMatchObject({ schemaVersion: 7, scheduling: v7.scheduling })
   })
 
+  it('round-trips schema v9 and v10 definitions without changing versioned evaluation history', async () => {
+    await activateWorkspace('sync-user')
+    const v9: StoredTrackerDefinition = { ...tracker('historical-v9'), schemaVersion: 9, scheduling: { mode: 'ongoing' }, streakRuleMode: 'same-as-success' }
+    const v10: StoredTrackerDefinition = {
+      ...tracker('historical-v10'), schemaVersion: 10, scheduling: { mode: 'ongoing' }, streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'baseline-v10', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: trackerEvaluationSnapshot({ ...tracker('historical-v10'), schemaVersion: 9, scheduling: { mode: 'ongoing' }, streakRuleMode: 'same-as-success' }) }],
+    }
+    await localRepository.saveTracker(v9)
+    await localRepository.saveTracker(v10)
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      const payload = args.p_record as Record<string, unknown>
+      const definition = payload.definition as StoredTrackerDefinition
+      return { data: { status: 'applied', record: serverTracker(definition, 'sync-user', 1) }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, conflicts: 0, failed: 0 })
+    const sent = rpc.mock.calls.map(([, args]) => (args.p_record as Record<string, unknown>).definition as StoredTrackerDefinition)
+    expect(sent.map(({ schemaVersion }) => schemaVersion)).toEqual([9, 10])
+    expect(sent[1]?.ruleVersions).toEqual(v10.ruleVersions)
+    await expect(db.syncRecords.get(`tracker:${v9.id}`)).resolves.toMatchObject({ serverRevision: 1 })
+    await expect(db.syncRecords.get(`tracker:${v10.id}`)).resolves.toMatchObject({ serverRevision: 1 })
+  })
+
   it('preserves every non-empty Custom Days combination through IndexedDB edits and schema v6 sync', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V5', 'true')
@@ -449,7 +474,7 @@ describe('account-scoped sync engine', () => {
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
     expect(rpc).not.toHaveBeenCalled()
     await expect(db.trackers.get(v3.id)).resolves.toMatchObject({ schemaVersion: 3, goalPlanning: v3.goalPlanning })
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('disabled until the hosted migration') })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'blocked', failureCode: 'UNSUPPORTED_SCHEMA_VERSION', lastError: expect.stringContaining('disabled until the hosted migration') })
   })
 
   it('holds schema-v8 tracker uploads until the streak-rule migration readiness flag is enabled', async () => {
@@ -464,7 +489,7 @@ describe('account-scoped sync engine', () => {
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
     expect(rpc).not.toHaveBeenCalled()
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'pending', lastError: expect.stringContaining('Schema v8') })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'blocked', failureCode: 'UNSUPPORTED_SCHEMA_VERSION', lastError: expect.stringContaining('Schema v8') })
   })
 
   it('uploads only the active owner’s queued tracker and records the server revision', async () => {
@@ -721,19 +746,47 @@ describe('account-scoped sync engine', () => {
     })
   })
 
-  it('stops presenting XP as pending after a permanent server write rejection and retains a resolvable error', async () => {
+  it('blocks permanent validation failures without retrying, then syncs and supersedes one after correction', async () => {
     await activateWorkspace('sync-user')
-    const definition = tracker('rejected-checkin-parent')
+    const definition = tracker('rejected-definition')
     await localRepository.saveTracker(definition)
     await db.syncOperations.clear()
     await db.syncRecords.put({ key: `tracker:${definition.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: definition.id, serverRevision: 1 })
-    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: '' })
-    const { client } = fakeClient({ rpcError: { message: 'constraint rejected the record', code: '23514' } })
+    const rejected = { ...definition, name: 'Rejected local plan' }
+    await localRepository.saveTracker(rejected)
+    const rejectedOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', definition.id]).first()
+    if (!rejectedOperation) throw new Error('Expected a queued tracker write')
+    const { client, rpc } = fakeClient({ rpcError: { message: 'check constraint rejected the record', code: '23514' } })
 
-    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 1, failed: 0 })
-    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ status: 'conflict', lastError: expect.stringContaining('server rejected') })
-    await expect(db.syncConflicts.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ reason: expect.stringContaining('23514'), remoteRecord: null })
-    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').filter((operation) => operation.status === 'pending').count()).resolves.toBe(0)
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 0, failed: 1 })
+    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23514', payload: { name: 'Rejected local plan' }, lastError: expect.stringContaining('23514') })
+    await expect(db.syncConflicts.where('ownerUserId').equals('sync-user').count()).resolves.toBe(0)
+    const independent = tracker('independent-queued-tracker')
+    await localRepository.saveTracker(independent)
+    rpc.mockImplementationOnce(async (_name: string, args: Record<string, unknown>) => {
+      const payload = args.p_record as Record<string, unknown>
+      const record = payload.definition as StoredTrackerDefinition
+      return { data: { status: 'applied', record: serverTracker(record, 'sync-user', 1) }, error: null }
+    })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, conflicts: 0, failed: 0 })
+    expect(rpc).toHaveBeenCalledTimes(2)
+    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23514' })
+
+    db.close()
+    await openDatabase()
+    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23514', payload: { name: 'Rejected local plan' } })
+
+    const corrected = { ...rejected, name: 'Corrected plan' }
+    await expect(localRepository.saveTracker(corrected)).resolves.toMatchObject({ name: 'Corrected plan' })
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      const payload = args.p_record as Record<string, unknown>
+      const record = payload.definition as StoredTrackerDefinition
+      return { data: { status: 'applied', record: serverTracker(record, 'sync-user', 2) }, error: null }
+    })
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, conflicts: 0, failed: 0 })
+    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'superseded', failureCode: '23514', payload: { name: 'Rejected local plan' }, supersededByRevision: 2 })
+    await expect(db.syncRecords.get(`tracker:${definition.id}`)).resolves.toMatchObject({ serverRevision: 2 })
+    await expect(db.trackers.get(definition.id)).resolves.toMatchObject({ name: 'Corrected plan' })
   })
 
   it('does not upload child entries when their parent has a revision conflict', async () => {
@@ -841,6 +894,7 @@ describe('account-scoped sync engine', () => {
   it('retains the local version and records a server revision conflict', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())
+    await db.syncOperations.add({ id: 'older-blocked-diagnostic', ownerUserId: 'sync-user', entity: 'tracker', entityId: 'sync-tracker', operation: 'upsert', expectedRevision: 0, payload: { ...tracker(), name: 'Earlier rejected data' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'rejected (23514)', failureCode: '23514', blockedAt: '2026-01-01T00:00:01.000Z' })
     const remote = { ...serverTracker({ ...tracker(), name: 'Remote title' }, 'sync-user', 4) }
     const { client } = fakeClient({ rpcResult: { status: 'conflict', record: remote } })
 
@@ -848,6 +902,7 @@ describe('account-scoped sync engine', () => {
     await expect(db.trackers.get('sync-tracker')).resolves.toMatchObject({ name: 'Sync tracker' })
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'conflict' })
     await expect(db.syncConflicts.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ remoteRecord: expect.objectContaining({ name: 'Remote title', server_revision: 4 }) })
+    await expect(db.syncOperations.get('older-blocked-diagnostic')).resolves.toMatchObject({ status: 'blocked', payload: { name: 'Earlier rejected data' }, failureCode: '23514' })
     await expect(db.syncRecords.get('tracker:sync-tracker')).resolves.toBeUndefined()
   })
 
