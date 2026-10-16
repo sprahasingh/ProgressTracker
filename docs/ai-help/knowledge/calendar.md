@@ -96,7 +96,7 @@ Yes. The selected-day details and History retain saved check-ins. Standard Mode�
 - src/domain/trackers/activityHeatmap.ts
 - src/features/dashboard/DashboardPage.tsx
 **Answer:**
-For each date, the heatmap compares qualifying check-ins with eligible opportunities and colors the result by that day’s percentage. In an all-tracker view, it combines opportunity counts across active trackers while applying each tracker’s Standard or Strict Mode rules.
+For each date, the heatmap compares check-ins meeting each tracker’s Streak Rule with eligible opportunities and colors the result by that day’s percentage. It describes streak qualification, not success rate. In an all-tracker view, it combines opportunity counts across active trackers while applying each tracker’s Standard or Strict Mode rules.
 
 ### ID: calendar-versus-history
 **Category:** calendar

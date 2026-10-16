@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from './types'
 import { assertDateRange } from '../../db/calendarDate'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
-import { qualifiesForStreak } from './progression'
+import { calculateStreak, qualifiesForStreak } from './progression'
 
 export type MetricObservation = { date: string; value: number }
 export type MetricAnalytics = {
@@ -18,9 +18,12 @@ export type TrackerAnalytics = {
   recordedCount: number
   skippedCount: number
   qualifiedCount: number
+  streakQualifiedCount: number
   scheduledCount: number | null
   scheduledQualifiedCount: number | null
   consistencyPercent: number | null
+  currentStreak: number
+  longestStreak: number
   metrics: MetricAnalytics[]
 }
 
@@ -50,6 +53,7 @@ export function calculateTrackerAnalytics(
   endDate: string,
   holidays: ReadonlySet<string> = new Set(),
   timeZone?: string,
+  historicalEntries: readonly TrackerEntry[] = entries,
 ): TrackerAnalytics {
   assertDateRange(startDate, endDate)
   const latestByDate = new Map<string, TrackerEntry>()
@@ -68,6 +72,7 @@ export function calculateTrackerAnalytics(
   const activeSchedule = tracker.status === 'active' && tracker.deletedAt === null
   let scheduledCount = 0
   let scheduledQualifiedCount = 0
+  let streakQualifiedCount = 0
   if (activeSchedule) {
     const trackerFirst = trackerActiveStartDate(tracker, timeZone)
     const firstDate = trackerFirst > startDate ? trackerFirst : startDate
@@ -81,7 +86,8 @@ export function calculateTrackerAnalytics(
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.
       if (date === endDate && !entry) continue
       scheduledCount += 1
-      if (entry && (tracker.strictMode ? qualifiesForStreak(tracker, entry) : entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified)) scheduledQualifiedCount += 1
+      if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) scheduledQualifiedCount += 1
+      if (entry && qualifiesForStreak(tracker, entry)) streakQualifiedCount += 1
     }
   }
   const metrics = tracker.metrics.map((metric): MetricAnalytics => {
@@ -92,6 +98,13 @@ export function calculateTrackerAnalytics(
     const averageValue = observations.length ? observations.reduce((total, item) => total + item.value, 0) / observations.length : null
     return { metric, observationCount: observations.length, averageValue, latestValue: observations.at(-1)?.value ?? null, observations }
   })
+  const latestHistoryByDate = new Map<string, TrackerEntry>()
+  for (const entry of historicalEntries) {
+    if (entry.trackerId !== tracker.id) continue
+    const current = latestHistoryByDate.get(entry.date)
+    if (!current || entry.updatedAt > current.updatedAt || (entry.updatedAt === current.updatedAt && entry.id > current.id)) latestHistoryByDate.set(entry.date, entry)
+  }
+  const streak = calculateStreak(tracker, [...latestHistoryByDate.values()].filter((entry) => entry.deletedAt === null), endDate, holidays, timeZone)
   return {
     tracker,
     entryCount: trackerEntries.length,
@@ -99,9 +112,12 @@ export function calculateTrackerAnalytics(
     recordedCount: recorded.length,
     skippedCount: trackerEntries.filter((entry) => entry.outcome === 'skipped').length,
     qualifiedCount: qualifiedEntries.length,
+    streakQualifiedCount,
     scheduledCount: activeSchedule ? scheduledCount : null,
     scheduledQualifiedCount: activeSchedule ? scheduledQualifiedCount : null,
     consistencyPercent: activeSchedule && scheduledCount > 0 ? Math.round(scheduledQualifiedCount / scheduledCount * 100) : null,
+    currentStreak: streak.current,
+    longestStreak: streak.longest,
     metrics,
   }
 }

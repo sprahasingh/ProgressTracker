@@ -108,9 +108,9 @@ describe('AI Help retrieval evaluation', () => {
     expect(rankKnowledgeDocuments(question, history, knowledgeDocuments).map((doc) => doc.slug)).toContain(guide)
   })
 
-  it('uses context to rank a follow-up about legacy checkbox behavior', () => {
+  it('uses context to rank a follow-up about checkbox measures', () => {
     const selected = rankKnowledgeDocuments('What about checkbox measures?', measureHistory, knowledgeDocuments)
     expect(selected[0]?.slug).toBe('measures-and-success-rules')
-    expect(selected[0]?.content).toContain('legacy Checklist')
+    expect(selected[0]?.content).toContain('checkbox list')
   })
 })

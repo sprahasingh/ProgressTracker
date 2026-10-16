@@ -63,6 +63,38 @@ describe('tracker analytics', () => {
     expect(standardHolidayProgress).toMatchObject({ scheduledCount: 0, scheduledQualifiedCount: 0, consistencyPercent: null, qualifiedCount: 1 })
   })
 
+  it('reports Success Rule and Streak Rule matches as separate Insights counts', () => {
+    const independent: TrackerDefinition = {
+      ...tracker,
+      schemaVersion: 8,
+      id: 'independent-rules',
+      schedule: { kind: 'every-day' },
+      startDate: '2026-10-05',
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', thresholds: { direction: 'increase', minimum: 1, streakQualification: 'minimum' } },
+        { id: 'done', name: 'Done', valueType: 'boolean' },
+      ],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 5 },
+    }
+    const result = calculateTrackerAnalytics(independent, [
+      entry('2026-10-05', { pages: 4, done: false }, undefined, { trackerId: independent.id }),
+      entry('2026-10-06', { pages: 5, done: false }, undefined, { trackerId: independent.id }),
+      entry('2026-10-07', { pages: 4, done: true }, undefined, { trackerId: independent.id }),
+    ], '2026-10-05', '2026-10-08')
+
+    expect(result).toMatchObject({
+      qualifiedCount: 1,
+      streakQualifiedCount: 1,
+      scheduledCount: 3,
+      scheduledQualifiedCount: 1,
+      consistencyPercent: 33,
+      currentStreak: 0,
+      longestStreak: 1,
+    })
+  })
+
   it('preserves but excludes entries outside the current tracker period from Insights totals and trends', () => {
     const bounded = { ...tracker, startDate: '2026-10-06', deadline: '2026-10-07' }
     const result = calculateTrackerAnalytics(bounded, [

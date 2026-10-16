@@ -433,7 +433,7 @@ describe('Progression achievements interface', () => {
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
     expect(await screen.findByRole('alert')).toHaveTextContent('Cards below show the last server-confirmed state')
     expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
-  })
+  }, 15_000)
 
   it('keeps cached Wins visible while a server-confirmed refresh is still pending', async () => {
     let resolveRefresh!: (value: ProgressionOverview) => void

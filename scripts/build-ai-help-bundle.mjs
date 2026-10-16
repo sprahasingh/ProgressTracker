@@ -118,6 +118,7 @@ const sources = [
   'supabase/migrations/20261104001500_guard_tracker_deletion_with_progression_history.sql',
   'supabase/migrations/20261104002100_reconcile_delete_wins_progression.sql',
   'supabase/migrations/20261104002200_preserve_deleted_tracker_reward_context.sql',
+  'supabase/migrations/20261111000100_tracker_streak_rules_v8.sql',
   'supabase/migrations/20261011000100_global_holidays.sql',
   'supabase/migrations/20261012000100_tracker_numeric_precision_v4.sql',
   'supabase/migrations/20261016000100_validate_owner_references_immediately.sql',

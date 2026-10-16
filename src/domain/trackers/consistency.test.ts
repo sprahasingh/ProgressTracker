@@ -67,4 +67,21 @@ describe('calculateConsistency', () => {
     const result = calculateConsistency({ trackers: [archived], entries: [], today: '2026-01-05' })
     expect(result.days.map((day) => day.date)).toEqual(['2026-01-02', '2026-01-01'])
   })
+
+  it('uses the Success Rule for consistency even when a custom Streak Rule qualifies', () => {
+    const independentRules = tracker({
+      schemaVersion: 8,
+      startDate: '2026-01-02',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' }],
+      qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 5 },
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 },
+    })
+    const result = calculateConsistency({
+      trackers: [independentRules], today: '2026-01-03',
+      entries: [entry('2026-01-02', { values: { pages: 1 } })],
+    })
+    expect(result.days).toMatchObject([{ date: '2026-01-02', completed: 0, eligible: 1, adherence: 0 }])
+    expect(result.score).toBe(0)
+  })
 })

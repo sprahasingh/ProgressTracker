@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_TRACKER_SCHEMA_V6?: string
   /** Enable explicit Effective Days counting writes after the v7 migration is verified. */
   readonly VITE_ENABLE_TRACKER_SCHEMA_V7?: string
+  /** Enable explicit streak-rule writes after the v8 migration and prerequisites are verified. */
+  readonly VITE_ENABLE_TRACKER_SCHEMA_V8?: string
   readonly VITE_ENABLE_PERMANENT_DELETION?: string
   readonly VITE_ENABLE_AUTOMATIC_BIN_CLEANUP?: string
   readonly VITE_ENABLE_HOLIDAY_PERMANENT_DELETION?: string

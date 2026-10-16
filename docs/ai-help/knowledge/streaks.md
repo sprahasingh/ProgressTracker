@@ -28,8 +28,9 @@ Standard Mode counts the tracker’s scheduled dates as opportunities and pauses
 - src/domain/trackers/progression.ts
 - src/domain/trackers/planning.ts
 - src/domain/trackers/progression.test.ts
+- supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Your current streak is the run of recent tracking opportunities you have met. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays.
+Your current streak is the run of recent tracking opportunities whose entries meet the tracker’s Streak Rule. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays. Success rates and normal daily success XP use the separate Success Rule.
 
 ### ID: all-trackers-streak
 **Category:** streaks
@@ -44,7 +45,7 @@ Your current streak is the run of recent tracking opportunities you have met. Yo
 - src/features/dashboard/DashboardPage.tsx
 - src/domain/trackers/progression.test.ts
 **Answer:**
-It counts consecutive dates when at least one tracker has a required opportunity and every required tracker qualifies. It is separate from each tracker’s own streak. Standard Mode holidays and rest days are neutral; Strict Mode requires active-period dates. A known failed opportunity ends the run, while a neutral or still-pending date does not add a day or prematurely break the confirmed run.
+It counts consecutive dates when at least one tracker has a required opportunity and every required tracker meets its own Streak Rule. It is separate from each tracker’s own streak. Standard Mode holidays and rest days are neutral; Strict Mode requires active-period dates. A known failed opportunity ends the run, while a neutral or still-pending date does not add a day or prematurely break the confirmed run.
 
 ### ID: rest-days-streaks
 **Category:** streaks
@@ -71,6 +72,7 @@ In Standard Mode, only scheduled check-in dates are opportunities, so unschedule
 **Sources:**
 - src/domain/trackers/progression.ts
 - src/domain/trackers/progression.test.ts
+- supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
 Your current streak describes your ongoing qualifying run. Your longest streak is the best qualifying run found in the tracker’s history, so a current streak ending does not erase that record.
 
@@ -101,4 +103,4 @@ No. A Skipped entry is a saved intentional outcome, not a derived Missed date or
 - src/domain/trackers/progression.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-A numeric zero does not qualify through the default streak rule, which requires a finite value greater than zero. A tracker with an explicit streak qualification uses that configured rule instead, so check its settings when the result is unexpected.
+A numeric zero qualifies only if the tracker’s configured Streak Rule allows it. New v8 trackers can use the Success Rule or a separate custom rule; older trackers retain their original behavior until explicitly changed. Check the rule and schedule if the result is unexpected.

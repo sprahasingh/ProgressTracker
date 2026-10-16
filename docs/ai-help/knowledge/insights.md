@@ -26,7 +26,7 @@ Each active tracker card is a snapshot for the workspace-local current date. It 
 - src/features/dashboard/DashboardPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-It is the consecutive run of account days on which every required tracker qualifies, with at least one required tracker that day. It is not a sum of separate tracker streaks. Standard Mode holidays and rest days are neutral; Strict Mode dates within a tracker’s active period require a qualifying check-in. A pending current day does not prematurely break the confirmed run.
+It is the consecutive run of account days on which every required tracker meets its own Streak Rule, with at least one required tracker that day. It is not a sum of separate tracker streaks. Standard Mode holidays and rest days are neutral; Strict Mode dates within a tracker’s active period require a qualifying check-in. A pending current day does not prematurely break the confirmed run.
 
 ### ID: insight-current-status
 **Category:** insights
@@ -83,7 +83,24 @@ There is no active saved check-in for that tracker. Today’s status is shown se
 - src/domain/trackers/progression.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-Current streak is the qualifying run through today under the tracker’s mode. Personal best is the longest qualifying run in its saved history. Standard Mode lets holidays and rest days preserve continuity without adding to the count; Strict Mode requires a qualifying entry on every active calendar date, including holidays and rest days.
+Current streak is the qualifying run through today under the tracker’s Streak Rule and scheduling policy. Personal best is the longest qualifying run in its saved history. Standard Mode lets holidays and rest days preserve continuity without adding to the count; Strict Mode requires a qualifying entry on every active calendar date, including holidays and rest days.
+
+### ID: insight-success-streak-xp
+**Category:** insights
+**Question:** How do success rate, streaks, and XP differ for a selected tracker?
+**Aliases:**
+- Does a streak-qualified day count as successful?
+- Why did my tracker earn streak progress without daily XP?
+- Does tracker XP include account-wide rewards?
+**Keywords:** Insights, Success Rule, Streak Rule, tracker XP, success rate, streak-qualified days
+**Suggestible:** true
+**Sources:**
+- src/features/analytics/AnalyticsPage.tsx
+- src/domain/trackers/analytics.ts
+- src/domain/trackers/progression.ts
+- supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
+**Answer:**
+Success rate and successful days use the selected tracker’s Success Rule. Streak-qualified days and streak lengths use its Streak Rule plus the schedule and holiday policy. A day can advance a streak without earning normal daily success XP, or earn normal daily success XP without advancing the streak. Tracker XP includes only rewards linked to that tracker; account-wide and older unattributed rewards are not assigned to it. With All Trackers selected, account XP remains separate from tracker-attributed XP.
 
 ### ID: insight-holiday-status
 **Category:** insights

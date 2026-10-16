@@ -1,6 +1,6 @@
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
-import { qualifiesForStreak } from './progression'
+import { evaluateTrackerEntry } from './planning'
 
 export const PROGRESSION_SCORING_VERSION = 2
 
@@ -33,7 +33,7 @@ export function estimateProvisionalCheckInReward(input: {
   if (tracker.id !== entry.trackerId || tracker.deletedAt !== null || tracker.status !== 'active') return null
   if (!isTrackerInActivePeriod(tracker, entry.date, input.timeZone)) return null
   if (tracker.strictMode !== true && (input.holidays?.has(entry.date) || !isTrackerScheduledOccurrence(tracker, entry.date, input.timeZone))) return null
-  if (!qualifiesForStreak(tracker, entry)) return null
+  if (!evaluateTrackerEntry(tracker, entry).qualified) return null
   return { id: `check-in:${entry.id}`, effectiveDate: entry.date, xpDelta: PROGRESSION_REWARDS.checkIn }
 }
 

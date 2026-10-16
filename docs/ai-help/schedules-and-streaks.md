@@ -24,7 +24,7 @@ Changing modes recalculates the tracker’s streak interpretation but does not d
 
 ## What counts as a streak day
 
-A check-in must be recorded and meet the tracker’s success rule to qualify. For a Yes/No measure, the rule can require true. Quantity and legacy measures can use a configured qualification level or their supported recorded-value behavior. A value may be saved and visible in History even if it does not qualify for the streak.
+A check-in must be recorded and meet the tracker’s Streak Rule to advance its streak. The Streak Rule can use any configured measure and type-aware comparisons. For a v8 tracker, choose whether it follows the Success Rule or uses a custom rule. Existing v1–v7 trackers retain their original streak behavior until explicitly changed. A value may be saved and visible in History even if it does not qualify for the streak.
 
 A required day in the past without a qualifying entry breaks the current run. In Standard Mode, an unscheduled rest day and a holiday are neutral. A deliberately skipped required opportunity fails for streak and Perfect Day purposes, but it is not treated as a completed check-in. The current date remains pending while an outcome is unresolved; a known failure can make the day fail before it closes. Dates after the as-of date are future, not missed.
 
@@ -40,7 +40,7 @@ Holidays are date-only workspace records. In Standard Mode they remove that date
 
 - **A Sunday did not break my streak:** confirm Sunday is not scheduled and the tracker uses Standard Mode.
 - **A rest day did break my streak:** Strict Mode treats active calendar days as opportunities; switch modes only if that matches the intended rule.
-- **A recorded day did not extend the streak:** inspect the success rule and the values in that check-in; a recorded entry can be partial.
+- **A recorded day did not extend the streak:** inspect the Streak Rule and the values in that check-in; a recorded entry can be partial. Success Rule qualification is separate and controls success rates and normal daily success XP.
 - **Today appears pending:** that is expected until today’s check-in is submitted. Past unfilled scheduled dates can become missed.
 - **A schedule edit changed the consistency percentage:** the denominator is the set of opportunities under the current schedule and mode; saved check-ins remain intact.
 
