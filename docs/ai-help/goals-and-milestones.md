@@ -34,7 +34,20 @@ If Manual allocations exceed the remaining work, the plan reports the over-alloc
 
 ## Milestones
 
-A milestone is a named checkpoint associated with a tracker and, when configured, a measure and value. It marks progress toward an outcome; it does not create another check-in or add separate progress. Boolean observations can be interpreted as 0/1, numeric observations use their nonnegative value, and a valid legacy Checklist observation uses the number of checked items. The comparison follows the configured milestone interpretation.
+A milestone is a small goal inside a tracker. Each typed milestone states what it measures, which target counts, and how progress is calculated. Progress is derived from the tracker's saved check-ins and is recalculated when historical entries change; milestones do not create extra check-ins.
+
+Milestone types are:
+
+- **Total quantity recorded:** sums nonnegative values for one Quantity or Duration measure over the active tracker period. The measure's unit is shown, and zero is a valid recorded value.
+- **Quantity in a single day:** shows the best recorded day for one numeric measure. Values from different dates are never added together. For a measure configured to decrease, reaching the target means recording that value or less.
+- **Successful activity days:** counts distinct eligible dates that pass the tracker's Success Rule. Rest days and holidays are neutral.
+- **Longest streak:** shows the longest streak ever achieved using the tracker's separate Streak Rule. The current streak is shown separately; a later missed day does not remove the best streak.
+- **Challenge day reached:** follows the challenge's fixed Calendar Days or Effective Days numbering. Effective Days follow the configured planned-activity or all-non-holiday counting method. This is time progression, not successful activity.
+- **Measure completion count:** counts dates matching a Yes/No or Checklist condition, such as a Yes day, one selected checklist item, or the full saved checklist.
+
+The editor only offers types supported by the tracker and its measures. It shows a type-specific target label and a live sentence preview. Progress cards show the unit or day meaning, a capped progress bar, completion state, and the date the threshold was first reached when it can be derived. A measure that changes incompatibly, a missing measure, or a changed checklist is flagged for review; it is not silently replaced.
+
+Older milestones without a saved type keep their original best-single-observation comparison. Their saved meaning is shown explicitly until the user chooses a conversion. A typed milestone saves its stable measure ID and relevant type, unit, or checklist snapshots; its progress and threshold date remain derived from current authoritative entries. Existing goal-milestone rewards continue to use the same reward policy and stable award identity, so edits can reverse and re-reach a milestone without duplicate awards. Ordinary milestones do not add a new reward amount.
 
 If a milestone refers to a measure, resolve that dependency before removing or retiring the measure. Retired measure definitions remain available for historical display, but they should not remain a dependency of an active plan that needs future inputs.
 
@@ -42,9 +55,9 @@ If a milestone refers to a measure, resolve that dependency before removing or r
 
 - **Repeated practice:** “Exercise 20 minutes on each scheduled day” is a daily recurring target.
 - **Finish a deliverable:** “Write 12,000 words by a deadline” is cumulative only if each entry records newly written words (incremental), not a running lifetime total (snapshot).
-- **Checkpoint:** “Draft complete at 5,000 words” can be a milestone on the relevant measure; it is not another daily target.
+- **Checkpoint:** “Draft complete at 5,000 words” can be a total-quantity milestone on the relevant measure; it is not another daily target.
 - A per-check-in Target does not automatically become a daily or cumulative planning target.
 - Missing a daily target can lower plan consistency without deleting the recorded value.
 - If a cumulative plan appears behind, check the progress semantics, selected measure, schedule, active dates, deadline, holidays, and whether today’s entry has already closed the current opportunity.
 
-Source references: `src/domain/trackers/planning.ts`, `src/domain/trackers/allocationPreview.ts`, `src/domain/trackers/goalPlanning.test.ts`, `src/domain/trackers/planning.test.ts`, `src/features/trackers/GoalPlanningEditor.tsx`, `src/features/trackers/GoalPlanningEditor.test.tsx`, `src/features/goals/GoalsPage.tsx`, `src/features/goals/GoalsPage.test.tsx`.
+Source references: `src/domain/trackers/milestones.ts`, `src/domain/trackers/types.ts`, `src/domain/trackers/schema.ts`, `src/domain/trackers/progression.ts`, `src/domain/trackers/planning.ts`, `src/features/trackers/TrackerConfigurationEditor.tsx`, `src/features/trackers/MilestoneProgressList.tsx`, `src/features/trackers/TrackerSetupPage.tsx`, `src/features/goals/GoalsPage.tsx`, `src/features/history/HistoryPage.tsx`, `src/features/calendar/CalendarPage.tsx`, `src/services/supabase/syncEngine.ts`, `supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql`.

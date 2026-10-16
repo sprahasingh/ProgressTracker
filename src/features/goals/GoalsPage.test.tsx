@@ -60,7 +60,7 @@ describe('Goals page allocation preview', () => {
     await user.click(await screen.findByRole('button', { name: /Mixed measure goal/ }))
     await user.click(screen.getByText('Milestones'))
 
-    const milestoneList = screen.getByRole('region', { name: 'Mixed measure goal milestones' })
+    const milestoneList = screen.getByRole('region', { name: 'Mixed measure goal milestone progress' })
     expect(within(milestoneList).getByText('Boolean reaches one').parentElement).toHaveTextContent('Reached · best 1 of 1')
     expect(within(milestoneList).getByText('Boolean false misses one').parentElement).toHaveTextContent('1 of 1')
     expect(within(milestoneList).getByText('Checklist reaches two').parentElement).toHaveTextContent('Reached · best 2 items of 2')

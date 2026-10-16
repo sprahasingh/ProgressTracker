@@ -27,7 +27,13 @@ export function isSchemaV8WriteEnabled(): boolean {
   return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V8 === 'true' && isSchemaV7WriteEnabled())
 }
 
+/** Typed milestone definitions require the v9 server constraint and downgrade guard. */
+export function isSchemaV9WriteEnabled(): boolean {
+  return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V9 === 'true' && isSchemaV8WriteEnabled())
+}
+
 export function isTrackerSchemaWriteEnabled(version: number): boolean {
+  if (version >= 9) return isSchemaV9WriteEnabled()
   if (version >= 8) return isSchemaV8WriteEnabled()
   if (version >= 7) return isSchemaV7WriteEnabled()
   if (version >= 6) return isSchemaV6WriteEnabled()

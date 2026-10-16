@@ -13,7 +13,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, metricObservationForMilestone, trackerActiveStartDate, type GoalPlanDayState } from '../../domain/trackers/planning'
+import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
@@ -21,6 +21,7 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { CumulativeAllocationPreview } from './CumulativeAllocationPreview'
 import { countScheduledActivityDays, effectiveDayNumber, nextEligibleDate, schedulingMode } from '../../domain/trackers/scheduling'
+import { MilestoneProgressList } from '../trackers/MilestoneProgressList'
 
 type GoalCard = { tracker: StoredTrackerDefinition; entries: StoredTrackerEntry[] }
 type Snapshot = { workspaceKey: string; goals: GoalCard[]; holidays: string[] }
@@ -231,31 +232,7 @@ export function GoalsPage() {
                     </div>
                   })}</div>}
             </section></LazyDisclosure>}
-            {tracker.milestones.length > 0 && <details className="goal-milestone-disclosure"><summary>Milestones <span>{tracker.milestones.length}</span></summary><section className="goal-milestones" aria-label={`${tracker.name} milestones`}>
-              <ul>
-                {tracker.milestones.map((milestone) => {
-                  const metric = tracker.metrics.find((item) => item.id === milestone.metricId)
-                  const observed = metric && milestone.targetValue !== undefined
-                    ? goalEntries.flatMap((entry) => {
-                      const value = metricObservationForMilestone(metric, entry.values[metric.id])
-                      return entry.outcome === 'recorded' && value !== undefined ? [value] : []
-                    })
-                    : []
-                  const bestValue = observed.length === 0 ? undefined : metric?.thresholds?.direction === 'decrease'
-                    ? observed.reduce((best, value) => Math.min(best, value), Number.POSITIVE_INFINITY)
-                    : observed.reduce((best, value) => Math.max(best, value), Number.NEGATIVE_INFINITY)
-                  const reached = bestValue !== undefined && milestone.targetValue !== undefined &&
-                    (metric?.thresholds?.direction === 'decrease' ? bestValue <= milestone.targetValue : bestValue >= milestone.targetValue)
-                  const metricUnit = metric?.unit ? ` ${metric.unit}` : metric?.valueType === 'checklist' ? ' items' : ''
-                  const checkpoint = bestValue === undefined ? 'Not started' : `${formatTrackerNumber(bestValue)}${metricUnit} of ${milestone.targetValue === undefined ? 'target' : formatTrackerNumber(milestone.targetValue)}`
-                  const due = milestone.dueDate ? ` · Due ${calendarDateLabel(milestone.dueDate)}` : ''
-                  return <li key={milestone.id}>
-                    <span className={`goal-milestone-marker${reached ? ' reached' : ''}`} aria-hidden="true"><ActivityStatusIcon status={reached ? 'completed' : 'pending'} /></span>
-                    <div><strong>{milestone.title || 'Untitled milestone'}</strong>{milestone.description && <small>{milestone.description}</small>}<small>{reached ? `Reached · best ${checkpoint}` : `${checkpoint}${due}`}</small></div>
-                  </li>
-                })}
-              </ul>
-            </section></details>}
+            {tracker.milestones.length > 0 && <details className="goal-milestone-disclosure"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={goalEntries} asOfDate={planningToday} holidays={holidayDates} timeZone={timeZone} /></details>}
             <LazyDisclosure className="goal-history-disclosure" summary="History and activity"><div className="goal-card-summary">
               <span>{recorded.length} recorded {recorded.length === 1 ? 'check-in' : 'check-ins'}{historicalEntryCount ? ` · ${historicalEntryCount} outside current period` : ''}</span>
               <span>{latest ? `${latestInPeriod ? latestQualified ? 'Latest check-in met its rule · ' : 'Latest check-in · ' : 'Latest historical check-in · '}${calendarDateLabel(latest.date)}` : 'No check-ins yet'}</span>

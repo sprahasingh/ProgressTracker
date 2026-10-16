@@ -41,14 +41,22 @@ The plan calculates remaining work from the goal target minus active saved incre
 **Aliases:**
 - When is a milestone reached?
 - What does a linked milestone mean?
-**Keywords:** goal, milestone, target, progress, linked measure
+**Keywords:** goal, milestone, target, progress, linked measure, total quantity, single day, successful days, streak, challenge day, checklist
 **Suggestible:** true
 **Sources:**
-- src/domain/trackers/planning.ts
-- src/domain/trackers/allocationPreview.ts
+- src/domain/trackers/milestones.ts
+- src/domain/trackers/types.ts
+- src/domain/trackers/schema.ts
+- src/domain/trackers/progression.ts
+- src/features/trackers/TrackerConfigurationEditor.tsx
+- src/features/trackers/MilestoneProgressList.tsx
 - src/features/goals/GoalsPage.tsx
+- src/features/history/HistoryPage.tsx
+- src/features/calendar/CalendarPage.tsx
+- src/services/supabase/syncEngine.ts
+- supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql
 **Answer:**
-A milestone is reached when the progress used by its linked goal plan meets the milestone target. The exact progress comes from that goal’s daily or cumulative plan and its eligible recorded values.
+A milestone's saved type defines what its target measures. Total quantity sums one numeric measure over eligible active-period check-ins; single-day quantity compares the best day; successful days use the tracker's Success Rule; longest streak uses its separate Streak Rule; challenge day follows the configured Calendar Days or Effective Days count; and a measure completion count matches a Yes/No or Checklist condition. Progress is recalculated from saved entries, so historical edits and deletions update it. Older milestones without a type retain their original best-single-observation meaning until the user converts them. A reached date is shown when it can be derived reliably, and reaching a milestone does not by itself complete the overall goal.
 
 ### ID: goal-deadline
 **Category:** goals

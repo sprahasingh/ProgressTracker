@@ -66,6 +66,23 @@ const metricSchema = z.object({
   }
 })
 
+const milestoneSchema = z.object({
+  id,
+  title: z.string().trim().min(1),
+  description: z.string(),
+  type: z.enum(['cumulative-quantity', 'single-day-quantity', 'successful-days', 'streak-length', 'challenge-day', 'measure-completion-count']).optional(),
+  metricId: id.optional(),
+  targetValue: z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  measureTypeSnapshot: z.enum(['boolean', 'quantity', 'duration', 'checklist']).optional(),
+  unitSnapshot: z.string().optional(),
+  completionCondition: z.enum(['true-day', 'checklist-item-day', 'checklist-complete-day']).optional(),
+  checklistItemId: id.optional(),
+  checklistItemLabelSnapshot: z.string().optional(),
+  checklistItemsSnapshot: z.array(id).optional(),
+  dueDate: calendarDate.optional(),
+  position: z.number().int().nonnegative(),
+})
+
 const ruleSchema: z.ZodType<unknown> = z.lazy(() => z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('threshold'), metricId: id, level: z.enum(['minimum', 'target', 'stretch']) }),
   z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite().min(0, 'Target must be zero or greater.')]) }),
@@ -136,7 +153,7 @@ const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof met
 }
 
 export const trackerDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9)]),
   id,
   name: z.string().trim().min(1),
   description: z.string(),
@@ -155,7 +172,7 @@ export const trackerDefinitionSchema = z.object({
   streakRuleMode: z.enum(['same-as-success', 'custom']).optional(),
   streakRule: ruleSchema.optional(),
   customFields: z.array(customFieldSchema),
-  milestones: z.array(z.object({ id, title: z.string().trim().min(1), description: z.string(), metricId: id.optional(), targetValue: z.number().finite().min(0).optional(), dueDate: calendarDate.optional(), position: z.number().int().nonnegative() })),
+  milestones: z.array(milestoneSchema),
   goalPlanning: goalPlanningSchema.optional(),
   strictMode: z.boolean().optional(),
   createdAt: z.iso.datetime(),
@@ -168,15 +185,15 @@ export const trackerDefinitionSchema = z.object({
   if (tracker.schemaVersion < 3 && (tracker.goalPlanning?.planningTimeZone !== undefined || tracker.goalPlanning?.allocations !== undefined || tracker.goalPlanning?.manualAllocations !== undefined)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Persistent allocations require tracker schema version 3.' })
   if (tracker.schemaVersion < 4 && tracker.metrics.some((metric) => metric.precision !== undefined)) context.addIssue({ code: 'custom', path: ['metrics'], message: 'Saved numeric precision settings require tracker schema version 4.' })
   if (tracker.schemaVersion === 3 && (!tracker.goalPlanning?.planningTimeZone || !tracker.goalPlanning.allocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 3 requires a planning time zone and allocation map.' })
-  if ([3, 4, 5, 6, 7, 8].includes(tracker.schemaVersion) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
-  if ([6, 7, 8].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
+  if ([3, 4, 5, 6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.goalPlanning?.planningTimeZone && !isIanaTimeZone(tracker.goalPlanning.planningTimeZone)) context.addIssue({ code: 'custom', path: ['goalPlanning', 'planningTimeZone'], message: 'Planning time zone must be a valid IANA time zone.' })
+  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && tracker.scheduling.planningTimeZone && !isIanaTimeZone(tracker.scheduling.planningTimeZone)) context.addIssue({ code: 'custom', path: ['scheduling', 'planningTimeZone'], message: 'Scheduling time zone must be a valid IANA time zone.' })
   if (tracker.schemaVersion === 5 && (tracker.kind !== 'goal' || tracker.goalPlanning?.mode !== 'cumulative-deadline' || !tracker.goalPlanning.planningTimeZone || !tracker.goalPlanning.allocations || !tracker.goalPlanning.manualAllocations)) context.addIssue({ code: 'custom', path: ['goalPlanning'], message: 'Schema version 5 requires a timezone-aware cumulative goal with separate manual allocations.' })
-  if ([6, 7, 8].includes(tracker.schemaVersion) && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema v6 and newer require an explicit scheduling mode.' })
+  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && !tracker.scheduling) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Schema v6 and newer require an explicit scheduling mode.' })
   if (tracker.schemaVersion < 6 && tracker.scheduling !== undefined) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Explicit scheduling modes require tracker schema version 6.' })
-  if ([6, 7, 8].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
-  if ([6, 7, 8].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
-  if ([6, 7, 8].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
-  if ([7, 8].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 and newer Effective Days require an explicit counting method.' })
+  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'calendar' && !tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Calendar scheduling requires a deadline.' })
+  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && (!tracker.scheduling.effectiveDays || !tracker.deadline)) context.addIssue({ code: 'custom', path: ['scheduling'], message: 'Effective scheduling requires a positive day target and a calculated deadline.' })
+  if ([6, 7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'ongoing' && tracker.deadline) context.addIssue({ code: 'custom', path: ['deadline'], message: 'Ongoing scheduling cannot have a deadline.' })
+  if ([7, 8, 9].includes(tracker.schemaVersion) && tracker.scheduling?.mode === 'effective' && !tracker.scheduling.effectiveDayCounting) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Schema version 7 and newer Effective Days require an explicit counting method.' })
   if (tracker.scheduling && tracker.scheduling.mode !== 'effective' && 'effectiveDayCounting' in tracker.scheduling && tracker.scheduling.effectiveDayCounting !== undefined) context.addIssue({ code: 'custom', path: ['scheduling', 'effectiveDayCounting'], message: 'Effective day counting applies only to Effective Days scheduling.' })
   if (tracker.schemaVersion < 5 && tracker.goalPlanning?.manualAllocations !== undefined) context.addIssue({ code: 'custom', path: ['goalPlanning', 'manualAllocations'], message: 'Separate manual allocations require tracker schema version 5.' })
   if (tracker.schemaVersion < 8 && (tracker.streakRuleMode !== undefined || tracker.streakRule !== undefined)) context.addIssue({ code: 'custom', path: ['streakRuleMode'], message: 'Separate streak rules require tracker schema version 8.' })
@@ -197,11 +214,51 @@ export const trackerDefinitionSchema = z.object({
   const customIds = tracker.customFields.map((field) => field.id)
   if (!unique(customIds)) context.addIssue({ code: 'custom', path: ['customFields'], message: 'Custom field IDs must be unique.' })
   tracker.milestones.forEach((milestone, index) => {
+    if (milestone.type !== undefined && tracker.schemaVersion < 9) context.addIssue({ code: 'custom', path: ['milestones', index, 'type'], message: 'Typed milestones require tracker schema version 9.' })
     if (milestone.metricId) {
       const metric = metrics.get(milestone.metricId)
       if (!metric) context.addIssue({ code: 'custom', path: ['milestones', index, 'metricId'], message: 'Milestone references an unknown metric.' })
-      else if (milestone.targetValue !== undefined && metric.valueType === 'boolean' && ![0, 1].includes(milestone.targetValue)) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Boolean milestones use checkpoint 1 (true) or 0 (false).' })
-      else if (milestone.targetValue !== undefined && metric.valueType === 'checklist' && (!Number.isInteger(milestone.targetValue) || milestone.targetValue > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Checklist milestones use a whole checked-item count within the checklist size.' })
+      else if (milestone.type === undefined && milestone.targetValue !== undefined && metric.valueType === 'boolean' && ![0, 1].includes(milestone.targetValue)) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Legacy Boolean checkpoints use 1 (true) or 0 (false).' })
+      else if (milestone.type === undefined && milestone.targetValue !== undefined && metric.valueType === 'checklist' && (!Number.isInteger(milestone.targetValue) || milestone.targetValue > (metric.checklistItems?.length ?? 0))) context.addIssue({ code: 'custom', path: ['milestones', index, 'targetValue'], message: 'Legacy checklist checkpoints use a whole checked-item count within the checklist size.' })
+    }
+    if (milestone.type === undefined) return
+    const path = ['milestones', index] as const
+    const target = milestone.targetValue
+    if (target === undefined || target <= 0) context.addIssue({ code: 'custom', path: [...path, 'targetValue'], message: 'Enter a target greater than zero.' })
+    const measureBased = milestone.type === 'cumulative-quantity' || milestone.type === 'single-day-quantity' || milestone.type === 'measure-completion-count'
+    if (measureBased && !milestone.metricId) context.addIssue({ code: 'custom', path: [...path, 'metricId'], message: 'Choose a measure for this milestone.' })
+    if (!measureBased && milestone.metricId) context.addIssue({ code: 'custom', path: [...path, 'metricId'], message: 'This milestone type does not use a measure.' })
+    const metric = milestone.metricId ? metrics.get(milestone.metricId) : undefined
+    if (measureBased && !metric) context.addIssue({ code: 'custom', path: [...path, 'metricId'], message: 'Choose an available measure for this milestone.' })
+    if (milestone.type === 'cumulative-quantity' || milestone.type === 'single-day-quantity') {
+      if (milestone.measureTypeSnapshot !== 'quantity' && milestone.measureTypeSnapshot !== 'duration') context.addIssue({ code: 'custom', path: [...path, 'measureTypeSnapshot'], message: 'Choose a quantity or duration measure for this milestone.' })
+      if (milestone.unitSnapshot === undefined) context.addIssue({ code: 'custom', path: [...path, 'unitSnapshot'], message: 'Save the measure unit used by this milestone.' })
+      if (metric?.precision && target !== undefined && !isAllowedIncrement(target, metric.precision.increment)) context.addIssue({ code: 'custom', path: [...path, 'targetValue'], message: `Target must use increments of ${metric.precision.increment}.` })
+    }
+    if (milestone.type === 'measure-completion-count') {
+      if (milestone.measureTypeSnapshot === 'boolean') {
+        if (milestone.completionCondition !== 'true-day') context.addIssue({ code: 'custom', path: [...path, 'completionCondition'], message: 'Yes/No measures count dates where the value is Yes.' })
+      } else if (milestone.measureTypeSnapshot === 'checklist') {
+        if (milestone.completionCondition === 'checklist-item-day') {
+          if (!milestone.checklistItemId) context.addIssue({ code: 'custom', path: [...path, 'checklistItemId'], message: 'Choose a checklist item.' })
+        } else if (milestone.completionCondition === 'checklist-complete-day') {
+          if (!milestone.checklistItemsSnapshot?.length) context.addIssue({ code: 'custom', path: [...path, 'checklistItemsSnapshot'], message: 'Save the checklist items that define a fully completed day.' })
+          else if (!unique(milestone.checklistItemsSnapshot)) context.addIssue({ code: 'custom', path: [...path, 'checklistItemsSnapshot'], message: 'Checklist item references must be unique.' })
+        } else context.addIssue({ code: 'custom', path: [...path, 'completionCondition'], message: 'Choose a checklist completion condition.' })
+      } else context.addIssue({ code: 'custom', path: [...path, 'measureTypeSnapshot'], message: 'Completion counts support Yes/No and checklist measures only.' })
+    }
+    if (['successful-days', 'streak-length', 'challenge-day', 'measure-completion-count'].includes(milestone.type) && target !== undefined && !Number.isInteger(target)) context.addIssue({ code: 'custom', path: [...path, 'targetValue'], message: 'Enter a whole number of days.' })
+    if (milestone.type === 'successful-days' && tracker.metrics.every((item) => item.retiredAt !== undefined)) context.addIssue({ code: 'custom', path: [...path, 'type'], message: 'Successful-day milestones need an active measure and Success Rule.' })
+    if (milestone.type === 'streak-length' && tracker.metrics.every((item) => item.retiredAt !== undefined)) context.addIssue({ code: 'custom', path: [...path, 'type'], message: 'Streak milestones need an active measure and Streak Rule.' })
+    if (milestone.type === 'challenge-day') {
+      if (tracker.kind !== 'challenge') context.addIssue({ code: 'custom', path: [...path, 'type'], message: 'Challenge-day milestones are available only for challenges.' })
+      const mode = tracker.scheduling?.mode ?? (tracker.deadline ? 'calendar' : 'ongoing')
+      if (mode === 'ongoing') context.addIssue({ code: 'custom', path: [...path, 'type'], message: 'Challenge-day milestones need a fixed Calendar Days or Effective Days schedule.' })
+      const start = tracker.startDate ?? tracker.createdAt.slice(0, 10)
+      const totalDays = mode === 'effective' && tracker.scheduling?.mode === 'effective' ? tracker.scheduling.effectiveDays
+        : tracker.deadline ? (Date.parse(`${tracker.deadline}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1
+          : undefined
+      if (target !== undefined && totalDays !== undefined && target > totalDays) context.addIssue({ code: 'custom', path: [...path, 'targetValue'], message: `Challenge-day target cannot exceed the ${totalDays}-day challenge.` })
     }
   })
   if (tracker.goalPlanning) {

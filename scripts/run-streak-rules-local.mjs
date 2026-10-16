@@ -9,7 +9,7 @@ const excludes = 'studio,realtime,storage-api,imgproxy,mailpit,postgres-meta,edg
 const diagnosticLines = []
 
 function command(binary, args, timeout = 8_000) {
-  const result = spawnSync(binary, args, { encoding: 'utf8', timeout, env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: 'true' } })
+  const result = spawnSync(binary, args, { encoding: 'utf8', timeout, env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: '1' } })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error((result.stderr || result.stdout || `${binary} exited ${result.status}`).trim())
   return (result.stdout ?? '').trim()
@@ -121,7 +121,7 @@ function stopOwnStack() {
 async function main() {
   localResourceBudget()
   const started = spawnSync('supabase', ['start', '--workdir', workdir, '--exclude', excludes, '--ignore-health-check'], {
-    encoding: 'utf8', timeout: 90_000, env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: 'true' },
+    encoding: 'utf8', timeout: 90_000, env: { ...process.env, SUPABASE_TELEMETRY_DISABLED: '1' },
   })
   const startupOutput = `${started.stdout ?? ''}\n${started.stderr ?? ''}`
   if (started.error || started.status !== 0) throw new Error(`Isolated Supabase startup failed: ${started.error?.message ?? redacted(startupOutput).slice(-2500)}`)

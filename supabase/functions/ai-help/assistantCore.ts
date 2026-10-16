@@ -434,10 +434,12 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
       : ['src/features/trackers/TrackerBinPage.tsx']
     : /\b(?:sync|synchroni[sz]ation|two devices|conflict|offline)\b/.test(normalizedQuestion)
     ? ['syncEngine', 'syncConflictRepository']
-    : /\b(?:streak|miss(?:ed|ing)? day|rest day)\b/.test(normalizedQuestion)
-      ? ['progression', 'activityStatus']
-      : /\b(?:cumulative|goal pace|goal target|daily goal|milestone|allocation|deadline)\b/.test(normalizedQuestion)
-        ? ['GoalsPage', 'goalPlanning', 'planning', 'allocationPreview']
+    : /\bmilestone\b/.test(normalizedQuestion)
+      ? ['src/domain/trackers/milestones.ts', 'src/features/trackers/TrackerConfigurationEditor.tsx', 'src/features/trackers/MilestoneProgressList.tsx', '20261113000100_tracker_typed_milestones_v9.sql']
+      : /\b(?:streak|miss(?:ed|ing)? day|rest day)\b/.test(normalizedQuestion)
+        ? ['progression', 'activityStatus']
+        : /\b(?:cumulative|goal pace|goal target|daily goal|allocation|deadline)\b/.test(normalizedQuestion)
+          ? ['GoalsPage', 'goalPlanning', 'planning', 'allocationPreview']
         : /\b(?:measure|metric)\b/.test(normalizedQuestion) && /\b(?:saved|change|type|immutable|history)\b/.test(normalizedQuestion)
           ? ['invariants', 'schema', 'tracker_metric_integrity']
           : /\b(?:account|profile)\b/.test(normalizedQuestion) && /\b(?:delete|deletion|remove)\b/.test(normalizedQuestion)

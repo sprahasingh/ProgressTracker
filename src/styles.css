@@ -684,6 +684,36 @@ a { color: inherit; text-decoration: none; }
 .goal-milestones li > div { display: grid; gap: 3px; min-width: 0; }
 .goal-milestones li strong { color: var(--ink); font-size: 11px; font-weight: 650; }
 .goal-milestones li small { color: var(--ink-subtle); font-size: 10px; line-height: 1.45; }
+.milestone-live-preview { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-muted); color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.milestone-live-preview strong { color: var(--ink); }
+.milestone-configuration-issue { margin: 0; color: var(--warning); font-size: 11px; line-height: 1.45; }
+.milestone-progress-list { margin-top: 12px; }
+.milestone-progress-list > ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.milestone-progress-card { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.milestone-progress-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.milestone-progress-heading > div { display: grid; gap: 3px; min-width: 0; }
+.milestone-progress-heading strong { overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
+.milestone-progress-heading small, .milestone-secondary-progress, .milestone-reached-date, .milestone-due-date { color: var(--ink-subtle); font-size: 10px; line-height: 1.4; }
+.milestone-complete-badge { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 9px; font-weight: 750; }
+.milestone-progress-label { color: var(--ink); font-size: 11px; font-variant-numeric: tabular-nums; }
+.milestone-preview-text, .milestone-user-description { margin: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.milestone-progress-meter { overflow: hidden; height: 6px; border-radius: 999px; background: var(--surface-muted); }
+.milestone-progress-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .18s ease; }
+.milestone-progress-card.is-complete .milestone-progress-meter > span { background: var(--accent-strong); }
+.milestone-issue { color: var(--warning); font-size: 10px; line-height: 1.45; }
+.tracker-card-milestones { margin-top: 12px; border-top: 1px solid var(--line); }
+.tracker-card-milestones > summary { display: flex; min-height: 40px; align-items: center; justify-content: space-between; color: var(--ink-muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.tracker-card-milestones .milestone-progress-list { margin: 0 0 12px; }
+.calendar-milestone-reached { display: block; margin-top: 3px; color: var(--accent-strong); font-size: 10px; font-weight: 650; }
+.history-milestone-events { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.history-milestone-events h2 { margin: 0 0 10px; color: var(--ink); font-size: 13px; }
+.history-milestone-events ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.history-milestone-events li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.history-milestone-events li:first-child { padding-top: 0; border-top: 0; }
+.history-milestone-events li > div { display: grid; gap: 3px; min-width: 0; }
+.history-milestone-events li strong { color: var(--ink); font-size: 11px; overflow-wrap: anywhere; }
+.history-milestone-events li small, .history-milestone-events li a { color: var(--ink-subtle); font-size: 10px; }
+.history-milestone-events li a { flex: 0 0 auto; color: var(--accent-strong); }
 .goal-card-summary { display: grid; gap: 6px; margin-top: 15px; color: var(--ink-subtle); font-size: 10px; }
 .goal-plan-visualization { margin-top: 21px; padding-top: 16px; border-top: 1px solid var(--line); }
 .goal-plan-visualization > h3 { margin: 0 0 13px; color: var(--ink); font-family: var(--font-display); font-size: 19px; font-weight: 400; }

@@ -81,11 +81,28 @@ export type TrackerMilestoneDefinition = {
   id: string
   title: string
   description: string
+  /** Missing type preserves the original single-observation checkpoint behavior. */
+  type?: TrackerMilestoneType
   metricId?: string
   targetValue?: number
+  /** Snapshots keep a target's original measure semantics explicit across edits. */
+  measureTypeSnapshot?: TrackerMetricDefinition['valueType']
+  unitSnapshot?: string
+  completionCondition?: 'true-day' | 'checklist-item-day' | 'checklist-complete-day'
+  checklistItemId?: string
+  checklistItemLabelSnapshot?: string
+  checklistItemsSnapshot?: string[]
   dueDate?: string
   position: number
 }
+
+export type TrackerMilestoneType =
+  | 'cumulative-quantity'
+  | 'single-day-quantity'
+  | 'successful-days'
+  | 'streak-length'
+  | 'challenge-day'
+  | 'measure-completion-count'
 
 export type GoalPlanningMode = 'daily-recurring' | 'cumulative-deadline'
 export type TrackerSchedulingMode = 'calendar' | 'effective' | 'ongoing'
@@ -109,7 +126,7 @@ export type GoalPlanningConfiguration = {
 }
 
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
   id: string
   name: string
   description: string

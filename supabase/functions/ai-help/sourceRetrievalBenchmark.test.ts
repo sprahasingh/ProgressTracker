@@ -195,6 +195,11 @@ describe('AI Help source retrieval benchmark', () => {
     expect(selectedPaths('Why does the app remember my progress after I change the start date?')).toContain('src/features/trackers/TrackerSetupPage.tsx')
   })
 
+  it('retrieves the type-specific milestone calculations for user questions', () => {
+    const paths = selectedPaths('How is a cumulative quantity milestone different from successful days or a longest streak?')
+    expect(paths, `Milestone query selected: ${paths.join(', ')}`).toContain('src/domain/trackers/milestones.ts')
+  })
+
   it('selects behavior-bearing excerpts for the three observed unnecessary-refusal questions', () => {
     const offline = retrieveSourceExcerpts('What happens to offline changes when a tracker is moved to Bin?', [], sourceIndex, 4, 5200, 'other', [], sourceRelationships)
     expect(offline).toMatch(/src\/db\/localRepository\.ts|src\/services\/supabase\/syncEngine\.ts/)
