@@ -4,7 +4,7 @@ import { AppIcon } from '../../components/ui/AppIcon'
 import { IconButton } from '../../components/ui/IconButton'
 import { getSupabaseClient } from '../../services/supabase/client'
 import { useAuth } from '../auth/AuthProvider'
-import { askAssistant, classifyConversationIntent, getCatalogAnswer, getHelpRoute, selectCatalogSuggestions, submitAnswerFeedback, supportDraftFromConversation, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
+import { askAssistant, classifyConversationIntent, getCatalogAnswer, getHelpRoute, selectCatalogSuggestions, submitAnswerFeedback, supportDraftFromConversation, type CatalogSuggestion, type ChatMessage, type FeedbackCategory, type HelpFailure } from './aiHelpService'
 import { submitGeneralFeedback } from '../feedback/feedbackService'
 
 const AIHelpPanel = lazy(() => import('./AIHelpPanel').then((module) => ({ default: module.AIHelpPanel })))
@@ -56,8 +56,11 @@ export function AIHelpAssistant() {
   const [clock, setClock] = useState(Date.now())
   const [supportOpen, setSupportOpen] = useState(false)
   const [supportDraft, setSupportDraft] = useState('')
-  const [suggestions, setSuggestions] = useState(selectCatalogSuggestions)
+  const [suggestions, setSuggestions] = useState<CatalogSuggestion[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogError, setCatalogError] = useState('')
   const requestSequence = useRef(0)
+  const catalogRequestSequence = useRef(0)
   const sendingRef = useRef(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)
@@ -65,6 +68,27 @@ export function AIHelpAssistant() {
   const { isOnline, status } = useAuth()
   const route = useMemo(() => getHelpRoute(location.pathname), [location.pathname])
   const closePanel = useCallback(() => setOpen(false), [])
+  const refreshSuggestions = useCallback(async () => {
+    const sequence = ++catalogRequestSequence.current
+    setCatalogLoading(true)
+    setCatalogError('')
+    try {
+      const nextSuggestions = await selectCatalogSuggestions()
+      if (catalogRequestSequence.current === sequence) setSuggestions(nextSuggestions)
+    } catch {
+      if (catalogRequestSequence.current === sequence) {
+        setSuggestions([])
+        setCatalogError('Quick help topics could not load. You can still type a question, or close and reopen AI Help to try again.')
+      }
+    } finally {
+      if (catalogRequestSequence.current === sequence) setCatalogLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open) void refreshSuggestions()
+    else catalogRequestSequence.current += 1
+  }, [open, refreshSuggestions])
 
   useEffect(() => { try { sessionStorage.setItem(storageKey, JSON.stringify(session)) } catch { /* Session persistence is best effort. */ } }, [session])
   useEffect(() => {
@@ -80,7 +104,7 @@ export function AIHelpAssistant() {
   const send = useCallback(async (question: string, appendUser = true, questionId?: string) => {
     const content = question.trim()
     if (!content || loading || sendingRef.current) return
-    const catalogAnswer = questionId ? getCatalogAnswer(questionId) : null
+    const catalogAnswer = questionId ? await getCatalogAnswer(questionId).catch(() => null) : null
     if (catalogAnswer && catalogAnswer.question === content) {
       const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: catalogAnswer.question }
       const topic = ({ 'getting-started': 'trackers', 'check-ins': 'history', streaks: 'schedules', 'accounts-sync': 'sync', 'settings-privacy': 'settings', 'ai-help': 'privacy' } as Record<string, string>)[catalogAnswer.category] ?? catalogAnswer.category
@@ -146,7 +170,7 @@ export function AIHelpAssistant() {
     sendingRef.current = false
     setLoading(false)
     setSession({ messages: [], draft: '' })
-    setSuggestions(selectCatalogSuggestions())
+    void refreshSuggestions()
     setSupportOpen(false)
     setSupportDraft('')
     setLiveText('New conversation started.')
@@ -157,7 +181,7 @@ export function AIHelpAssistant() {
       <AppIcon name="spark" />
     </IconButton>
     {open && <Suspense fallback={null}><AIHelpPanel
-      messages={session.messages} suggestions={suggestions} draft={session.draft} loading={loading} liveText={liveText} nearBottom={nearBottom} now={clock}
+      messages={session.messages} suggestions={suggestions} catalogLoading={catalogLoading} catalogError={catalogError} draft={session.draft} loading={loading} liveText={liveText} nearBottom={nearBottom} now={clock}
       onClose={closePanel} onSend={(question, questionId) => { setNearBottom(true); void send(question, true, questionId) }} onDraftChange={(draft) => setSession((current) => ({ ...current, draft }))}
       onRetry={retry} onNewConversation={() => { setNearBottom(true); newConversation() }} onScrollPositionChange={setNearBottom} triggerRef={triggerRef}
       onFeedback={sendFeedback}

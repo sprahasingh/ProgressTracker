@@ -4,24 +4,25 @@ import { capabilityVersion } from './capabilityVersion'
 import { verifiedQuestionCatalog } from './_generated/verifiedQuestionCatalog'
 
 describe('AI Help knowledge helpers', () => {
-  it('selects three diverse catalog suggestions and resolves every one to a versioned answer', () => {
+  it('selects three diverse catalog suggestions and resolves every one to a versioned answer', async () => {
     localStorage.clear()
-    const first = selectCatalogSuggestions()
+    const first = await selectCatalogSuggestions()
     expect(first).toHaveLength(3)
     expect(new Set(first.map(({ id }) => id)).size).toBe(3)
-    expect(new Set(first.map(({ id }) => getCatalogAnswer(id)?.category)).size).toBe(3)
-    expect(first.every(({ id }) => getCatalogAnswer(id)?.answer.length)).toBe(true)
-    const next = selectCatalogSuggestions()
+    const firstAnswers = await Promise.all(first.map(({ id }) => getCatalogAnswer(id)))
+    expect(new Set(firstAnswers.map((answer) => answer?.category)).size).toBe(3)
+    expect(firstAnswers.every((answer) => answer?.answer.length)).toBe(true)
+    const next = await selectCatalogSuggestions()
     expect(next.some(({ id }) => first.some((entry) => entry.id === id))).toBe(false)
   })
-  it('resolves every catalog ID to its matching canonical answer and version', () => {
+  it('resolves every catalog ID to its matching canonical answer and version', async () => {
     expect(verifiedQuestionCatalog).toHaveLength(107)
     expect(new Set(verifiedQuestionCatalog.map(({ id }) => id)).size).toBe(verifiedQuestionCatalog.length)
     expect(verifiedQuestionCatalog.filter(({ suggestible }) => suggestible)).toHaveLength(105)
     for (const entry of verifiedQuestionCatalog) {
-      expect(getCatalogAnswer(entry.id)).toMatchObject({ id: entry.id, question: entry.question, answer: entry.answer, knowledgeVersion: capabilityVersion })
+      await expect(getCatalogAnswer(entry.id)).resolves.toMatchObject({ id: entry.id, question: entry.question, answer: entry.answer, knowledgeVersion: capabilityVersion })
     }
-    expect(getCatalogAnswer('unknown-catalog-entry')).toBeNull()
+    await expect(getCatalogAnswer('unknown-catalog-entry')).resolves.toBeNull()
   })
   it('handles common social messages locally without invoking the assistant service', async () => {
     expect(classifyConversationIntent('Helo!')).toBe('greeting')

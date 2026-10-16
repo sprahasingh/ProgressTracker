@@ -47,16 +47,16 @@
     "src/features/settings/UnifiedSettings.test.tsx": "242754579e36b6e9342921d4fc1eb51c76194234c5fa905c6c7917eead708e1a"
   },
   "ai-help-private-data": {
-    "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
+    "src/features/ai-help/aiHelpService.ts": "0fa45f8d217350b13a09d4e3411fb9a50c02347523be3218e8af86da34fda6cc",
     "supabase/functions/ai-help/index.ts": "9ad08ed9c364c10515badafba58b910b95002c133f580d66602776898513a297",
     "supabase/functions/ai-help/assistantCore.ts": "4ae6dfca90428c5cd082a845587dea26bfe57e0cd83867e9ea21c511a02735c6"
   },
   "ai-help-suggested-offline": {
-    "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
-    "src/features/ai-help/AIHelpAssistant.tsx": "6bea613f3e238f011e4c911168b929a4348dde0dbb7a4e393c8488255c4fdb30"
+    "src/features/ai-help/aiHelpService.ts": "0fa45f8d217350b13a09d4e3411fb9a50c02347523be3218e8af86da34fda6cc",
+    "src/features/ai-help/AIHelpAssistant.tsx": "f012ddb4bb7f1a0b70d97399561a7c83821240fea15b7fe57d2c052d3820aaa0"
   },
   "ai-help-typed-retrieval": {
-    "src/features/ai-help/aiHelpService.ts": "4841806ebcb97fae7344c53df24442e11aa3f958f76ebe72fcd260bbd2f32e04",
+    "src/features/ai-help/aiHelpService.ts": "0fa45f8d217350b13a09d4e3411fb9a50c02347523be3218e8af86da34fda6cc",
     "supabase/functions/ai-help/index.ts": "9ad08ed9c364c10515badafba58b910b95002c133f580d66602776898513a297",
     "supabase/functions/ai-help/assistantCore.ts": "4ae6dfca90428c5cd082a845587dea26bfe57e0cd83867e9ea21c511a02735c6"
   },

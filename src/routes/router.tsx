@@ -1,20 +1,9 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '../app/AppShell'
 import { TodayPage } from '../features/today/TodayPage'
-import { AuthPage } from '../features/auth/AuthPage'
-import { GoalsPage } from '../features/goals/GoalsPage'
-import { TrackerLibraryPage } from '../features/trackers/TrackerLibraryPage'
-import { TrackerSetupPage } from '../features/trackers/TrackerSetupPage'
-import { DashboardPage } from '../features/dashboard/DashboardPage'
-import { HistoryPage } from '../features/history/HistoryPage'
-import { SettingsPage } from '../features/settings/WorkspaceTimeZone'
-import { AchievementsPage } from '../features/dashboard/AchievementsPage'
-import { AnalyticsPage } from '../features/analytics/AnalyticsPage'
-import { TrackerBinPage } from '../features/trackers/TrackerBinPage'
-import { HolidaysPage } from '../features/holidays/HolidaysPage'
-import { CalendarPage } from '../features/calendar/CalendarPage'
-import { AIKnowledgePage } from '../features/ai-knowledge/AIKnowledgePage'
 import { RouteErrorFallback, RouteNotFound } from './RouteFallback'
+
+const loadTrackerSetup = async () => ({ Component: (await import('../features/trackers/TrackerSetupPage')).TrackerSetupPage })
 
 export const router = createHashRouter([
   {
@@ -23,20 +12,23 @@ export const router = createHashRouter([
     errorElement: <RouteErrorFallback />,
     children: [
       { index: true, element: <TodayPage /> },
-      { path: 'dashboard', element: <DashboardPage /> },
-      { path: 'calendar', element: <CalendarPage /> },
-      { path: 'history', element: <HistoryPage /> },
-      { path: 'analytics', element: <AnalyticsPage /> },
-      { path: 'goals', element: <GoalsPage /> },
-      { path: 'trackers', element: <TrackerLibraryPage /> },
-      { path: 'bin', element: <TrackerBinPage /> },
-      { path: 'holidays', element: <HolidaysPage /> },
-      { path: 'trackers/new', element: <TrackerSetupPage /> },
-      { path: 'trackers/:trackerId/edit', element: <TrackerSetupPage /> },
-      { path: 'achievements', element: <AchievementsPage /> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'ai-knowledge', element: <AIKnowledgePage /> },
-      { path: 'auth', element: <AuthPage redirectSignedIn /> },
+      { path: 'dashboard', lazy: async () => ({ Component: (await import('../features/dashboard/DashboardPage')).DashboardPage }) },
+      { path: 'calendar', lazy: async () => ({ Component: (await import('../features/calendar/CalendarPage')).CalendarPage }) },
+      { path: 'history', lazy: async () => ({ Component: (await import('../features/history/HistoryPage')).HistoryPage }) },
+      { path: 'analytics', lazy: async () => ({ Component: (await import('../features/analytics/AnalyticsPage')).AnalyticsPage }) },
+      { path: 'goals', lazy: async () => ({ Component: (await import('../features/goals/GoalsPage')).GoalsPage }) },
+      { path: 'trackers', lazy: async () => ({ Component: (await import('../features/trackers/TrackerLibraryPage')).TrackerLibraryPage }) },
+      { path: 'bin', lazy: async () => ({ Component: (await import('../features/trackers/TrackerBinPage')).TrackerBinPage }) },
+      { path: 'holidays', lazy: async () => ({ Component: (await import('../features/holidays/HolidaysPage')).HolidaysPage }) },
+      { path: 'trackers/new', lazy: loadTrackerSetup },
+      { path: 'trackers/:trackerId/edit', lazy: loadTrackerSetup },
+      { path: 'achievements', lazy: async () => ({ Component: (await import('../features/dashboard/AchievementsPage')).AchievementsPage }) },
+      { path: 'settings', lazy: async () => ({ Component: (await import('../features/settings/WorkspaceTimeZone')).SettingsPage }) },
+      { path: 'ai-knowledge', lazy: async () => ({ Component: (await import('../features/ai-knowledge/AIKnowledgePage')).AIKnowledgePage }) },
+      { path: 'auth', lazy: async () => {
+        const { AuthPage } = await import('../features/auth/AuthPage')
+        return { Component: () => <AuthPage redirectSignedIn /> }
+      } },
       { path: '*', element: <RouteNotFound /> },
     ],
   },
