@@ -7,6 +7,7 @@ const authMocks = vi.hoisted(() => ({
   sendSignInLink: vi.fn(), signInWithPassword: vi.fn(), signUpWithPassword: vi.fn(),
   sendPasswordReset: vi.fn(), updateAccountPassword: vi.fn(), useAuth: vi.fn(),
   listSyncConflicts: vi.fn(), resolveSyncConflict: vi.fn(),
+  listBlockedSyncOperations: vi.fn(), retryBlockedSyncOperation: vi.fn(),
 }))
 
 vi.mock('./authService', () => ({
@@ -17,6 +18,7 @@ vi.mock('./authService', () => ({
 vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
+vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
 
 describe('AuthPage', () => {
@@ -24,6 +26,7 @@ describe('AuthPage', () => {
   beforeEach(() => {
     Object.values(authMocks).forEach((mock) => mock.mockReset())
     authMocks.listSyncConflicts.mockResolvedValue([])
+    authMocks.listBlockedSyncOperations.mockResolvedValue([])
     authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
   })
 
@@ -204,6 +207,22 @@ describe('AuthPage', () => {
     const holidayCard = await screen.findByText('Holiday conflict · holiday-1')
     expect(holidayCard.closest('article')).toHaveTextContent('The cloud holiday is unavailable to review.')
     expect(within(holidayCard.closest('article')!).queryByRole('button', { name: 'Save local copy as new' })).not.toBeInTheDocument()
+  })
+
+  it('exposes blocked payloads and retries them only after an explicit action', async () => {
+    const user = userEvent.setup()
+    const syncNow = vi.fn().mockResolvedValue(undefined)
+    const blocked = { id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: 'Saved version' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'The server rejected this saved change (23514).', failureCode: '23514' }
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle', syncNow })
+    authMocks.listBlockedSyncOperations.mockResolvedValue([blocked])
+    authMocks.retryBlockedSyncOperation.mockResolvedValue(undefined)
+    render(<AuthPage />)
+    const card = await screen.findByText('tracker · tracker-1')
+    expect(card.closest('article')).toHaveTextContent('23514')
+    expect(card.closest('article')).toHaveTextContent('Saved version')
+    await user.click(within(card.closest('article')!).getByRole('button', { name: 'Retry saved change' }))
+    expect(authMocks.retryBlockedSyncOperation).toHaveBeenCalledWith('account-1', 'blocked-1')
+    expect(syncNow).toHaveBeenCalledOnce()
   })
 
   it('hides prior account conflict details immediately when the signed-in account changes', async () => {

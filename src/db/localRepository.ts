@@ -3,6 +3,7 @@ import { assertCalendarDate, assertDateRange } from './calendarDate'
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
+import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
 import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
@@ -404,6 +405,8 @@ export const localRepository = {
       const conflict = conflictById.get(marker.trackerId)
       if (conflict || operation?.status === 'conflict') {
         pending.push({ tracker, status: 'attention', message: conflict?.reason ?? operation?.lastError ?? 'The server could not confirm this restoration. Review the sync conflict in Account.' })
+      } else if (operation?.status === 'blocked') {
+        pending.push({ tracker, status: 'attention', message: operation.lastError ?? 'The server rejected this restoration. Review the blocked sync operation in Account.' })
       } else if (operation?.lastError) {
         pending.push({ tracker, status: 'pending', message: `Restoration is saved on this device and will retry when sync is available. ${operation.lastError}` })
       } else {
@@ -461,6 +464,7 @@ export const localRepository = {
         }
       }
       if (activeOwner) {
+        await migrateLegacyRejectedConflicts(database, activeOwner)
         const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([activeOwner, 'tracker', draft.id]).first()
         if (conflict) throw new Error('Resolve this tracker’s cloud conflict before saving a plan. Both versions are preserved.')
       }

@@ -4,6 +4,7 @@ import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/
 import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from '../services/supabase/syncTimestamps'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
+import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 
 function parseTracker(value: unknown): StoredTrackerDefinition {
   return trackerDefinitionSchema.parse(normalizeTrackerTimestamps(value)) as StoredTrackerDefinition
@@ -15,7 +16,8 @@ function parseEntry(value: unknown): StoredTrackerEntry {
 
 async function clearQueuedOperations(database: Awaited<ReturnType<typeof openDatabase>>, userId: string, entity: SyncOperation['entity'], entityId: string) {
   const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, entity, entityId]).toArray()
-  if (queued.length) await database.syncOperations.bulkDelete(queued.map(({ id }) => id))
+  const replaceable = queued.filter((operation) => operation.status !== 'blocked' && operation.status !== 'superseded')
+  if (replaceable.length) await database.syncOperations.bulkDelete(replaceable.map(({ id }) => id))
 }
 
 function trackerFromRemote(row: Record<string, unknown>): StoredTrackerDefinition {
@@ -37,8 +39,7 @@ function entryFromRemote(row: Record<string, unknown>): StoredTrackerEntry {
 /** Lists only conflicts attached to the currently opened account workspace. */
 export async function listSyncConflicts(userId: string): Promise<SyncConflict[]> {
   const database = await openDatabase()
-  const metadata = await database.workspaceMetadata.get('workspace')
-  if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
+  await database.transaction('rw', [database.workspaceMetadata, database.syncOperations, database.syncConflicts], () => migrateLegacyRejectedConflicts(database, userId))
   return database.syncConflicts.where('ownerUserId').equals(userId).sortBy('detectedAt')
 }
 
@@ -182,7 +183,8 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     await queueSyncMutation(database, userId, conflict.entity, payload)
     queuedLocalChanges = true
     // Ensure the newly queued operation always targets the revision the user reviewed.
-    const replacement = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, conflict.entity, conflict.entityId]).first()
+    const replacement = (await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, conflict.entity, conflict.entityId]).toArray())
+      .find((operation) => operation.status === 'pending' || operation.status === 'in-flight')
     if (replacement) await database.syncOperations.put({ ...replacement, expectedRevision: revision, status: 'pending', attempts: 0, lastError: null } satisfies SyncOperation)
     await database.syncConflicts.delete(conflict.id)
     if (deletionRequest) await database.permanentDeletionRequests.put({ ...deletionRequest, status: 'pending', lastError: null })

@@ -130,8 +130,12 @@ export type SyncOperation = {
   payload?: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday
   createdAt: string
   attempts: number
-  status: 'pending' | 'in-flight' | 'conflict'
+  status: 'pending' | 'in-flight' | 'conflict' | 'blocked' | 'superseded'
   lastError: string | null
+  failureCode?: string
+  blockedAt?: string
+  supersededAt?: string
+  supersededByRevision?: number
 }
 
 export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; serverRevision: number }

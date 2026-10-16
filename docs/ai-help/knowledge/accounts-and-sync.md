@@ -43,7 +43,7 @@ Cross-device synchronization is available when you sign in to the same account a
 - src/db/syncConflictRepository.ts
 - src/db/syncConflictRepository.test.ts
 **Answer:**
-When edits cannot be reconciled safely, sync records a conflict for you to resolve instead of silently combining incompatible versions. Review the conflict in the app’s sync/conflict flow; do not assume both edits were merged.
+When two saved versions have different cloud revisions, sync preserves the local and cloud copies and asks you to review them under Account → Sync conflicts. Choose which version to keep, or save the local record under a new ID when no cloud record is readable. A permanent server validation rejection is kept as a blocked local payload and diagnostic, is not retried automatically, and appears under Account → Blocked sync changes. Correct and save a newer version, or explicitly retry the original after the server issue is fixed. A successful newer version supersedes the blocked operation without deleting its saved payload.
 
 ### ID: account-signin
 **Category:** accounts-sync
@@ -131,7 +131,7 @@ For a signed-in account, clearing queues a deletion update for synchronization. 
 - src/db/syncConflictRepository.ts
 - src/db/syncConflictRepository.test.ts
 **Answer:**
-When a revision conflict cannot be reconciled safely, the sync flow records the conflicting local and remote data for you to resolve. It does not silently blend incompatible changes. Review the conflict before choosing which version to keep.
+When a revision conflict cannot be reconciled safely, the sync flow records the conflicting local and remote data for you to resolve. It does not silently blend incompatible changes. Review the conflict under Account → Sync conflicts before choosing which version to keep. If the server permanently rejects a write for validation, the local payload is retained as a blocked operation instead of being retried automatically or presented as a competing cloud version.
 
 ### ID: sync-preference-scope
 **Category:** accounts-sync
