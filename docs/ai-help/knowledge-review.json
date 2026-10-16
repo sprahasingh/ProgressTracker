@@ -318,7 +318,7 @@
     "src/domain/trackers/progression.test.ts": "d7e97dd3b85be8e637695f6430a6d6d882727eb41bdb819e264b022f114cabb7"
   },
   "insight-success-streak-xp": {
-    "src/features/analytics/AnalyticsPage.tsx": "1b8d6401dbf61649f4810f4e0fde2668ddbfa073f145a27da7e3ab9ffd7f70c5",
+    "src/features/analytics/AnalyticsPage.tsx": "d70c6c148d52a6cedd6552addb5aff51f11cc2eb7d7112265cb9878e2df322fc",
     "src/domain/trackers/analytics.ts": "40bf1419c569c7caed2c2d87fcaa2907ae9bb8ffcbd041bd8da6cd834c75c6f5",
     "src/domain/trackers/progression.ts": "a90c3684451075cad153657bccb7a2fde23c3a1fa225cea41affca0a14cb3bba",
     "supabase/migrations/20261111000100_tracker_streak_rules_v8.sql": "66f55b5687d36fa63c4d9dfb8ffc3dd089d4304477cf61a40dd76189cce6e730"
@@ -401,10 +401,10 @@
     "src/services/supabase/progressionRepository.ts": "613d4c01caf87741c03d39e420098056aa07baa394ccf19512afdf053a702195",
     "supabase/migrations/20261111000100_tracker_streak_rules_v8.sql": "66f55b5687d36fa63c4d9dfb8ffc3dd089d4304477cf61a40dd76189cce6e730",
     "src/features/dashboard/AchievementsPage.tsx": "262c9621755d4c65b4c6d4e0b1b6dc63e6d95878392ac354de7777d44735e8c3",
-    "src/features/dashboard/ProgressionAchievementsPage.tsx": "90b12b8ca7540f33033755534ab6b9f5ab48fdc290da7b707c9148bc249fd6e1",
+    "src/features/dashboard/ProgressionAchievementsPage.tsx": "64960852336cc5b45e250637c69766986f12a9560c502ae2c78c5b8249b72fec",
     "src/features/dashboard/achievementCatalog.ts": "9a8f4b17427bc598ab9a2b073cb963f46268a289c3bf7363e77f054374ff3200",
     "src/features/dashboard/BadgeCelebrationDialog.tsx": "1cd78d58d8ad26e12b519e896b7e7b3cdc34c53611cb1cfc712e9c1dba4d1a76",
-    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "2efe362ac3dbbe1fe634c9239821ce3c0a727ae6207fe6704c96105a868c63ff",
+    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "780be661ad81e0e620a2249401e1b9000d78bd847d18a3fab6d674c1b4eec61f",
     "src/features/dashboard/BadgeCelebrationDialog.test.tsx": "55694d68a03b43f3f06a77a3b22547e893f38946999161b3f0b939c3ac9db7d5",
     "supabase/tests/progression_achievements.test.sql": "36e29787399585b80dcac096b56dd4f87d39ee03968382df2cd5459e8d2f4ce2",
     "src/features/dashboard/LegacyAchievementsPage.tsx": "5bba2d102c1a019f0389e13a0900c75bc48d64fc33f24de5abb1afbda2aa335a",
@@ -443,7 +443,7 @@
   },
   "analytics-metric-units": {
     "src/domain/trackers/analytics.ts": "40bf1419c569c7caed2c2d87fcaa2907ae9bb8ffcbd041bd8da6cd834c75c6f5",
-    "src/features/analytics/AnalyticsPage.tsx": "1b8d6401dbf61649f4810f4e0fde2668ddbfa073f145a27da7e3ab9ffd7f70c5"
+    "src/features/analytics/AnalyticsPage.tsx": "d70c6c148d52a6cedd6552addb5aff51f11cc2eb7d7112265cb9878e2df322fc"
   },
   "completion-holiday-entry": {
     "src/domain/trackers/analytics.ts": "40bf1419c569c7caed2c2d87fcaa2907ae9bb8ffcbd041bd8da6cd834c75c6f5",

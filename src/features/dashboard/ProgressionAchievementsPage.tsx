@@ -403,15 +403,15 @@ export function ProgressionAchievementsPage() {
   useWorkspaceDataChanges(owner, workspaceReady, refreshLocalSnapshot, true, refreshConfirmedSnapshot)
 
   if (status === 'loading' || sessionTransitionPending || loading && workspaceReady) {
-    return <section className="tracker-page progression-page" aria-labelledby="achievements-title"><PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" /><SectionTabs label="Insights sections" items={insightsSectionTabs} /><p role="status" className="tracker-loading">Loading your confirmed progress…</p></section>
+    return <section className="tracker-page progression-page" aria-labelledby="achievements-title"><PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Wins" /><SectionTabs label="Insights sections" items={insightsSectionTabs} /><p role="status" className="tracker-loading">Loading your confirmed progress…</p></section>
   }
 
   if (!owner) {
-    return <section className="tracker-page progression-page" aria-labelledby="achievements-title"><PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" description="Your rewards and achievements are tied to your account." /><SectionTabs label="Insights sections" items={insightsSectionTabs} /><Surface><EmptyState title="Sign in to view your rewards" description="Confirmed XP and achievement unlocks are securely stored with your account." action={<Link className="button button-primary button-medium" to="/auth">Open account</Link>} /></Surface></section>
+    return <section className="tracker-page progression-page" aria-labelledby="achievements-title"><PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Wins" description="Your lifetime progression, rewards, and achievements." /><SectionTabs label="Insights sections" items={insightsSectionTabs} /><Surface><EmptyState title="Sign in to view your rewards" description="Confirmed XP and achievement unlocks are securely stored with your account." action={<Link className="button button-primary button-medium" to="/auth">Open account</Link>} /></Surface></section>
   }
 
   return <section className="tracker-page progression-page" aria-labelledby="achievements-title">
-    <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Achievements" description="Your confirmed rewards, steady progress, and milestones." />
+    <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Wins" description="Your lifetime progression, rewards, and achievements." />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
     {error && <div role="alert" className="form-alert progression-error"><div><span>{pageData ? `Could not refresh progression data. Cards below show the last server-confirmed state. ${progressionFailureMessage(error).summary}` : progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh(true)}>Try again</Button></div>}
     {refreshing && <p role="status" className="progression-refresh-indicator">Refreshing confirmed Wins…</p>}
@@ -440,24 +440,13 @@ export function ProgressionAchievementsPage() {
             {(pageData.overview.provisionalXp > 0 && (!isOnline || syncStatus === 'offline' || syncStatus === 'waiting')) && <span className="progression-pending-note">Saved on this device; confirmation will follow when synchronization completes.</span>}
           </button>
           </section>
-          <button type="button" className="progression-summary-card" onClick={() => setDetail('consistency')} aria-label={`Consistency score ${pageData.overview.consistency.score ?? 'not available'}, view consistency details`}>
-            <span className="progression-card-label">CONSISTENCY</span><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}`}<small>{pageData.overview.consistency.score === null ? '' : ' / 100'}</small></strong>
+          <button type="button" className="progression-summary-card progression-consistency-summary" onClick={() => setDetail('consistency')} aria-label={`30-day account consistency ${pageData.overview.consistency.score ?? 'not available'}, view consistency details`}>
+            <span className="progression-card-label">30-DAY ACCOUNT CONSISTENCY</span><strong>{pageData.overview.consistency.score === null ? '—' : `${pageData.overview.consistency.score}`}<small>{pageData.overview.consistency.score === null ? '' : ' / 100'}</small></strong>
             <span>{consistencyContext}</span>
             <span className="progression-card-action">View 30-day details <AppIcon name="chevron-down" /></span>
           </button>
-          <button type="button" className="progression-summary-card" onClick={openHistory} aria-label={`${weeklyXp >= 0 ? 'Plus' : 'Minus'} ${Math.abs(weeklyXp)} XP this week, open score history`}>
-            <span className="progression-card-label">XP THIS WEEK</span><strong className={weeklyXp < 0 ? 'is-negative' : ''}>{weeklyXp > 0 ? '+' : ''}{weeklyXp.toLocaleString()}<small> XP</small></strong>
-            <span>Net confirmed rewards in the last 7 days</span><span className="progression-card-action">Open score history <AppIcon name="chevron-down" /></span>
-          </button>
-          <button type="button" className="progression-summary-card" onClick={() => setDetail('streaks')} aria-label={`${activeStreakCount} active streaks, view streak details`}>
-            <span className="progression-card-label">ACTIVE STREAKS</span><strong>{activeStreakCount}</strong>
-            <span>{activeTrackers.length ? `Across ${activeTrackers.length} active trackers` : 'Create or restore a tracker to begin'}</span><span className="progression-card-action">View streaks <AppIcon name="chevron-down" /></span>
-          </button>
-          <button type="button" className="progression-summary-card progression-badges-summary" aria-label={`${distinctBadgesUnlocked} distinct badge types unlocked. Show all badges`} onClick={() => setAllBadgesOpen(true)}>
-            <span className="progression-card-label">BADGES</span><strong>{distinctBadgesUnlocked}<small> unlocked</small></strong>
-            <span>Distinct badge types</span><span className="progression-card-action">Show all badges <AppIcon name="chevron-down" /></span>
-          </button>
         </div>
+        <p className="progression-insights-link">See period activity and tracker statistics in <Link to="/analytics">Insights</Link>.</p>
         <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
           <strong>Recently unlocked</strong>
           {recentUnlocks.length ? recentUnlocks.map((badge) => {
@@ -471,20 +460,20 @@ export function ProgressionAchievementsPage() {
       </section>
 
       <section className="progression-section" aria-labelledby="progression-history-heading">
-        <div className="progression-section-heading"><div><span className="eyebrow">RECENT ACTIVITY</span><h2 id="progression-history-heading">Score history</h2></div><button type="button" className="progression-text-button" onClick={openHistory}>View all <AppIcon name="chevron-down" /></button></div>
+        <div className="progression-section-heading"><div><span className="eyebrow">RECENT ACTIVITY</span><h2 id="progression-history-heading">Score history</h2><p className="progression-weekly-xp">{weeklyXp > 0 ? '+' : ''}{weeklyXp} confirmed XP · past 7 days</p></div><button type="button" className="progression-text-button" onClick={openHistory}>View all <AppIcon name="chevron-down" /></button></div>
         {pageData.overview.scoreHistory.length === 0 && pageData.overview.provisionalRewards.length === 0 ? <p className="progression-empty-inline">Confirmed rewards will appear here as eligible activity syncs.</p> : <ul className="progression-event-list progression-recent-list">{recentEvents(pageData).slice(0, 4).map((item) => <HistoryRow key={item.id} item={item} />)}</ul>}
       </section>
 
       <section className="progression-section" aria-labelledby="progression-streak-heading">
-        <div className="progression-section-heading"><div><span className="eyebrow">STEADY PROGRESS</span><h2 id="progression-streak-heading">Streaks &amp; milestones</h2></div></div>
+        <div className="progression-section-heading"><div><span className="eyebrow">STEADY PROGRESS</span><h2 id="progression-streak-heading">Streaks &amp; milestones</h2></div><p className="progression-section-context">Tracker streak details and confirmed milestone rewards</p></div>
         <div className="progression-detail-cards">
-          <button type="button" className="progression-detail-card" onClick={() => setDetail('streaks')}><span className="progression-detail-symbol"><AppIcon name="habit" /></span><span><strong>{activeStreakCount} active streaks</strong><small>Recent activity, skips, and exempt days</small></span><AppIcon className="progression-detail-chevron" name="chevron-down" /></button>
+          <button type="button" className="progression-detail-card" onClick={() => setDetail('streaks')}><span className="progression-detail-symbol"><AppIcon name="habit" /></span><span><strong>Tracker streak history</strong><small>Current streaks, recent activity, skips, and exempt days</small></span><AppIcon className="progression-detail-chevron" name="chevron-down" /></button>
           <button type="button" className="progression-detail-card" onClick={() => setDetail('milestones')}><span className="progression-detail-symbol is-gold"><AppIcon name="spark" /></span><span><strong>{milestones.length} milestone rewards</strong><small>Streak and goal awards from your ledger</small></span><AppIcon className="progression-detail-chevron" name="chevron-down" /></button>
         </div>
       </section>
 
       <section className="progression-section" aria-labelledby="progression-badges-heading">
-        <div className="progression-section-heading"><div><span className="eyebrow">COLLECTION</span><h2 id="progression-badges-heading">Achievement badges</h2></div><span className="progression-collection-count">{distinctBadgesUnlocked} of {pageData.overview.achievements.length} earned</span></div>
+        <div className="progression-section-heading"><div><span className="eyebrow">COLLECTION</span><h2 id="progression-badges-heading">Achievement badges</h2></div><button type="button" className="progression-text-button progression-collection-count" aria-label={`${distinctBadgesUnlocked} of ${pageData.overview.achievements.length} earned, show all badges`} onClick={() => setAllBadgesOpen(true)}>{distinctBadgesUnlocked} of {pageData.overview.achievements.length} earned · Show all</button></div>
         {pageData.overview.achievements.length === 0 ? <p className="progression-empty-inline">Achievement progress will appear after the account’s progression data is available.</p> : <div className="progression-badge-grid">{pageData.overview.achievements.map((badge) => <BadgeCard key={badge.achievementId} badge={badge} onOpen={() => setSelectedBadge(badge)} />)}</div>}
       </section>
     </>}

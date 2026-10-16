@@ -100,7 +100,7 @@ Current streak is the qualifying run through today under the tracker’s Streak 
 - src/domain/trackers/progression.ts
 - supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Success rate and successful days use the selected tracker’s Success Rule. Streak-qualified days and streak lengths use its Streak Rule plus the schedule and holiday policy. A day can advance a streak without earning normal daily success XP, or earn normal daily success XP without advancing the streak. Tracker XP includes only rewards linked to that tracker; account-wide and older unattributed rewards are not assigned to it. With All Trackers selected, account XP remains separate from tracker-attributed XP.
+Success rate counts recorded entries that meet the tracker’s Success Rule. Streak-qualified days and streak lengths use the Streak Rule effective for each date plus the schedule and holiday policy. In All Trackers, comparable counts are summed per tracker, so one calendar date can count once for each tracker. Insights XP is net for the selected 7-, 30-, or 90-day period and includes confirmed and pending rewards; selected-tracker XP includes only rewards linked to that tracker, while Account XP stays account-wide. Badge counts are lifetime scoped: All Trackers counts distinct earned badge types, while a selected tracker counts active unlock occurrences linked to its rewards.
 
 ### ID: insight-holiday-status
 **Category:** insights

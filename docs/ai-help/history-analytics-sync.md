@@ -12,9 +12,13 @@ To troubleshoot a missing value, confirm the tracker and date filters, whether t
 
 Analytics can summarize **All Trackers** or an individual tracker over the selected 7-, 30-, or 90-day window. Aggregate counts such as check-ins and eligible opportunities can be compared across trackers; values with different units are not combined. Each measure gets its own observation count, average, latest value, and dated trend. Boolean values are represented as yes/no observations; a Checklist is represented by the number of checked items.
 
+The summary is grouped into Activity (saved check-ins, Success Rule matches, and their rate), Consistency (eligible opportunities, successful opportunities, and Streak Rule-qualified tracker dates), and XP & rewards. In All Trackers, comparable counts are summed across trackers, so a calendar date can contribute once for each tracker. Account XP, tracker-attributed XP, and the remaining account XP use the selected period; pending local rewards are included. The badge count is lifetime scoped: All Trackers counts distinct earned badge types, while an individual tracker counts active badge unlocks linked to that tracker. Holidays remain an account-wide count for the selected period. When the period has no check-ins or eligible opportunities, a single contextual message explains the empty state; an undefined rate is shown as unavailable rather than 0%.
+
 Consistency is qualified eligible opportunities divided by elapsed opportunities. The current unlogged day remains open and is not included as a missed opportunity. Standard Mode counts scheduled non-holiday dates; Strict Mode counts every active calendar day. Rest days and holidays are excluded in Standard Mode and required in Strict Mode. The tracker’s active date range and schedule constrain opportunities. A recorded value may be present in the metric trend without qualifying toward consistency if it fails the success rule.
 
 Retired measures remain part of historical metric summaries because their definitions are retained. Analytics does not combine their observations with another measure or unit.
+
+Wins emphasizes lifetime confirmed XP, level progress, achievements, badges, milestones, and reward history. A compact seven-day confirmed XP total appears with Score history; unlike the period XP in Analytics, it excludes pending rewards. Its account consistency score is a separate rolling measure: it averages the per-day share of successful eligible trackers across up to 30 closed eligible days, and does not include the still-open current day. Period activity and tracker statistics link back to Analytics.
 
 ## Local storage and cloud synchronization
 
