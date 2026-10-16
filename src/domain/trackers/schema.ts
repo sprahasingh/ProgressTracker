@@ -85,7 +85,7 @@ const milestoneSchema = z.object({
 
 const ruleSchema: z.ZodType<unknown> = z.lazy(() => z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('threshold'), metricId: id, level: z.enum(['minimum', 'target', 'stretch']) }),
-  z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite().min(0, 'Target must be zero or greater.')]) }),
+  z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'greater-than', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite().min(0, 'Target must be zero or greater.')]) }),
   z.object({ kind: z.enum(['all', 'any']), operands: z.array(ruleSchema).min(2) }),
   z.object({ kind: z.literal('at-least'), required: z.number().int().positive(), operands: z.array(ruleSchema).min(1) }).superRefine((rule, context) => {
     if (rule.required > rule.operands.length) context.addIssue({ code: 'custom', path: ['required'], message: 'Required count cannot exceed the number of operands.' })

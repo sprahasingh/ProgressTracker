@@ -86,6 +86,36 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...checklistV8, streakRule: { ...checklistV8.streakRule, value: 1.5 } }).success).toBe(false)
   })
 
+  it('accepts strict-positive custom Streak Rules for quantity, duration, and checklist measures', () => {
+    const v8 = { ...tracker, schemaVersion: 8 as const, scheduling: { mode: 'calendar' as const }, streakRuleMode: 'custom' as const }
+    const positive = { kind: 'comparison' as const, operator: 'greater-than' as const, value: 0 }
+    expect(trackerDefinitionSchema.safeParse({ ...v8, streakRule: { ...positive, metricId: 'pages' } }).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...v8, streakRule: { ...positive, metricId: 'minutes' } }).success).toBe(true)
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [
+      { id: 'one', label: 'One', position: 0 }, { id: 'two', label: 'Two', position: 1 },
+    ] }
+    expect(trackerDefinitionSchema.safeParse({ ...v8, metrics: [checklist], milestones: [], qualificationRule: undefined, streakRule: { ...positive, metricId: 'steps' } }).success).toBe(true)
+    const yesNo = { id: 'done', name: 'Done', valueType: 'boolean' as const }
+    expect(trackerDefinitionSchema.safeParse({ ...v8, metrics: [yesNo], milestones: [], qualificationRule: undefined, streakRule: { ...positive, metricId: 'done' } }).success).toBe(false)
+    const atLeastZero = trackerDefinitionSchema.safeParse({ ...v8, streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 0 } })
+    expect(atLeastZero.success).toBe(false)
+    if (!atLeastZero.success) expect(atLeastZero.error.issues.map((issue) => issue.message)).toContain('A comparison of at least zero always qualifies. Choose a positive value or a different condition.')
+  })
+
+  it('keeps checklist values tied to the current checklist definition and permits positive decimal observations', () => {
+    const changedChecklist = {
+      ...tracker,
+      metrics: [{ id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [{ id: 'new-item', label: 'New item', position: 0 }] }],
+      qualificationRule: undefined,
+      milestones: [],
+    }
+    expect(validateTrackerEntryValues(changedChecklist, { steps: { 'new-item': true } })).toBeUndefined()
+    expect(validateTrackerEntryValues(changedChecklist, { steps: { 'old-item': true } })).toBe('Checklist progress is invalid.')
+    expect(validateTrackerEntryValues({ ...tracker, metrics: [{ ...tracker.metrics[0]!, precision: { decimalPlaces: 2, increment: 0.01 } }] }, { pages: 0.01 })).toBeUndefined()
+    expect(validateTrackerEntryValues({ ...tracker, metrics: [{ ...tracker.metrics[1]!, valueType: 'duration', precision: { decimalPlaces: 2, increment: 0.01 } }] }, { minutes: 0.25 })).toBeUndefined()
+    expect(validateTrackerEntryValues({ ...tracker, metrics: [{ ...tracker.metrics[0]!, valueType: 'quantity' }] }, { pages: -0.01 })).toBe('Numeric measures must be finite, nonnegative numbers.')
+  })
+
   it('retains future Manual overrides outside a revised v6 goal window for explicit review', () => {
     const effectiveGoal = {
       ...tracker, schemaVersion: 6 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const }, deadline: '2026-01-07',

@@ -103,4 +103,4 @@ No. A Skipped entry is a saved intentional outcome, not a derived Missed date or
 - src/domain/trackers/progression.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-A numeric zero qualifies only if the tracker’s configured Streak Rule allows it. New v8 trackers can use the Success Rule or a separate custom rule; older trackers retain their original behavior until explicitly changed. Check the rule and schedule if the result is unexpected.
+A numeric zero does not qualify when a custom Streak Rule uses **Any positive value (> 0)**; any value above zero does. For a Checklist, at least one checked item qualifies. Blank or missing values do not qualify, and negative numeric values are not valid recorded progress. Other Streak Rules may treat zero differently. New v8 trackers can use the Success Rule or a separate custom rule; older trackers retain their original behavior until explicitly changed. Check the rule and schedule if the result is unexpected.

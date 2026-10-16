@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerMilestoneType, TrackerRule, TrackerStreakRuleMode, ThresholdConfiguration } from '../../domain/trackers/types'
 import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
@@ -34,6 +35,11 @@ function replaceRuleMetric(rule: TrackerRule | undefined, metricId: string, metr
 type RuleNodeProps = { rule: TrackerRule; metrics: TrackerMetricDefinition[]; path: number[]; onChange: (path: number[], rule: TrackerRule) => void; onRemove?: (path: number[]) => void; ruleName: 'Success' | 'Streak'; pathRoot: 'qualificationRule' | 'streakRule' }
 
 function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot }: RuleNodeProps) {
+  // A saved greater-than-zero comparison gets the friendly preset label when
+  // reopened. Keep an in-session choice of the generic operator visible while
+  // its boundary is still zero so the user can edit it without the select
+  // snapping back to the preset.
+  const [customGreaterThan, setCustomGreaterThan] = useState(false)
   const validationPath = `${pathRoot}${path.map((index) => `.operands.${index}`).join('')}`
   const firstMetric = metrics[0]
   const metricId = rule.kind === 'threshold' || rule.kind === 'comparison' ? rule.metricId : firstMetric?.id
@@ -89,9 +95,24 @@ function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot 
             </select>
           </label>}
           {rule.kind === 'comparison' && <>
-            <label className="form-field"><span>Condition <InfoButton title="Comparison" summary="Choose the numeric or yes/no comparison to evaluate." description="At least and at most compare numeric values to the value below. Equals checks exact equality. For boolean values, choose whether completion should be true or false." /></span>
-              <select aria-label="Condition" className="auth-input" value={rule.operator} onChange={(event) => onChange(path, { ...rule, operator: event.target.value as 'equals' | 'at-least' | 'at-most' })}>
-                {(metric?.valueType === 'boolean' ? ['equals'] : ['at-least', 'at-most', 'equals']).map((operator) => <option key={operator} value={operator}>{operator === 'at-least' ? 'At least' : operator === 'at-most' ? 'At most' : 'Equals'}</option>)}
+            <label className="form-field"><span>Condition <InfoButton title="Comparison" summary="Choose the numeric, checklist-count, or yes/no comparison to evaluate." description="Greater than, at least, and at most compare a quantity or duration value, or the number of checked checklist items, with the value below. Any positive value means a quantity or duration above zero or at least one checked checklist item. Equals checks exact equality. For boolean values, choose whether completion should be true or false." /></span>
+              <select aria-label="Condition" className="auth-input" value={pathRoot === 'streakRule' && !customGreaterThan && rule.operator === 'greater-than' && rule.value === 0 ? 'positive-value' : rule.operator} onChange={(event) => {
+                const selected = event.target.value
+                if (selected === 'positive-value') {
+                  setCustomGreaterThan(false)
+                  onChange(path, { ...rule, operator: 'greater-than', value: 0 })
+                } else {
+                  setCustomGreaterThan(selected === 'greater-than')
+                  onChange(path, { ...rule, operator: selected as 'equals' | 'greater-than' | 'at-least' | 'at-most' })
+                }
+              }}>
+                {metric?.valueType === 'boolean'
+                  ? <option value="equals">Equals</option>
+                  : <>
+                    {pathRoot === 'streakRule' && <option value="positive-value">Any positive value (&gt; 0)</option>}
+                    {pathRoot === 'streakRule' && <option value="greater-than">Greater than</option>}
+                    <option value="at-least">At least</option><option value="at-most">At most</option><option value="equals">Equals</option>
+                  </>}
               </select>
             </label>
             {metric?.valueType === 'boolean' ? <label className="form-field"><span>Value <InfoButton title="Comparison value" summary="Choose the value that makes this rule pass." description="For yes/no metrics select Completed or Not completed. For numeric metrics, enter the comparison boundary in that metric’s unit." /></span><select aria-label="Value" className="auth-input" value={String(rule.value)} onChange={(event) => onChange(path, { ...rule, value: event.target.value === 'true' })}><option value="true">Completed</option><option value="false">Not completed</option></select></label>
@@ -144,7 +165,8 @@ function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinitio
   if (rule.kind === 'threshold') return `${metricName(rule.metricId)} meets its ${rule.level} threshold`
   if (rule.kind === 'comparison') {
     const metric = metrics.find((item) => item.id === rule.metricId)
-    const operator = rule.operator === 'at-least' ? '≥' : rule.operator === 'at-most' ? '≤' : '='
+    if (rule.operator === 'greater-than' && rule.value === 0) return `${metricName(rule.metricId)} has any positive value`
+    const operator = rule.operator === 'greater-than' ? '>' : rule.operator === 'at-least' ? '≥' : rule.operator === 'at-most' ? '≤' : '='
     const value = typeof rule.value === 'boolean' ? rule.value ? 'Yes' : 'No' : `${rule.value}${metric?.unit ? ` ${metric.unit}` : ''}`
     return `${metricName(rule.metricId)} ${operator} ${value}`
   }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { TrackerMetricDefinition, TrackerMilestoneDefinition } from '../../domain/trackers/types'
+import type { TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule } from '../../domain/trackers/types'
 import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -100,5 +100,81 @@ describe('Tracker configuration explanations', () => {
     await user.selectOptions(type, 'cumulative-quantity')
     expect(changeMilestones).toHaveBeenCalledWith([expect.objectContaining({ type: 'cumulative-quantity', targetValue: undefined, measureTypeSnapshot: 'quantity' })])
     vi.restoreAllMocks()
+  })
+
+  it('saves the positive preset as greater-than zero, supports a custom comparison, and reopens with the friendly label', async () => {
+    const user = userEvent.setup()
+    const duration: TrackerMetricDefinition = { id: 'minutes', name: 'Minutes', valueType: 'duration', unit: 'minutes' }
+    const initialRule = { kind: 'comparison' as const, metricId: 'pages', operator: 'greater-than' as const, value: 0 }
+    let latestRule: TrackerRule = initialRule
+    function StreakRuleHarness({ initial = initialRule }: { initial?: TrackerRule }) {
+      const [streakRule, setStreakRule] = useState<TrackerRule>(initial)
+      return <TrackerConfigurationEditor
+        section="streak-rules" metrics={[metric, duration]} onMetricsChange={vi.fn()} rule={undefined} onRuleChange={vi.fn()}
+        customFields={[]} onCustomFieldsChange={vi.fn()} milestones={[]} onMilestonesChange={vi.fn()}
+        streakRuleMode="custom" streakRule={streakRule} onStreakRuleChange={(next) => { if (next) { latestRule = next; setStreakRule(next) } }}
+      />
+    }
+
+    const rendered = render(<StreakRuleHarness />)
+    const condition = screen.getByRole('combobox', { name: 'Condition' })
+    expect(condition).toHaveValue('positive-value')
+    expect(screen.getByText('Streak summary: Pages has any positive value')).toBeInTheDocument()
+    await user.selectOptions(condition, 'greater-than')
+    expect(condition).toHaveValue('greater-than')
+    expect(screen.getByRole('spinbutton', { name: 'Value' })).toHaveValue(0)
+    await user.clear(screen.getByRole('spinbutton', { name: 'Value' }))
+    await user.type(screen.getByRole('spinbutton', { name: 'Value' }), '0.25')
+    expect(condition).toHaveValue('greater-than')
+    expect(latestRule).toMatchObject({ operator: 'greater-than', value: 0.25 })
+    await user.selectOptions(condition, 'positive-value')
+    expect(latestRule).toMatchObject({ operator: 'greater-than', value: 0 })
+    rendered.unmount()
+
+    render(<StreakRuleHarness initial={latestRule} />)
+    expect(screen.getByRole('combobox', { name: 'Condition' })).toHaveValue('positive-value')
+    expect(screen.getByText('Streak summary: Pages has any positive value')).toBeInTheDocument()
+  })
+
+  it('offers the preset to quantity, duration, and checklist measures, then resets it for Yes/No', async () => {
+    const user = userEvent.setup()
+    const duration: TrackerMetricDefinition = { id: 'minutes', name: 'Minutes', valueType: 'duration' }
+    const checklist: TrackerMetricDefinition = { id: 'steps', name: 'Steps', valueType: 'checklist', checklistItems: [{ id: 'one', label: 'One', position: 0 }, { id: 'two', label: 'Two', position: 1 }] }
+    const yesNo: TrackerMetricDefinition = { id: 'done', name: 'Done', valueType: 'boolean' }
+    function StreakRuleHarness() {
+      const [streakRule, setStreakRule] = useState<{ kind: 'comparison'; metricId: string; operator: 'equals' | 'greater-than' | 'at-least' | 'at-most'; value: boolean | number }>({ kind: 'comparison', metricId: 'pages', operator: 'greater-than', value: 0 })
+      return <TrackerConfigurationEditor
+        section="streak-rules" metrics={[metric, duration, checklist, yesNo]} onMetricsChange={vi.fn()} rule={undefined} onRuleChange={vi.fn()}
+        customFields={[]} onCustomFieldsChange={vi.fn()} milestones={[]} onMilestonesChange={vi.fn()}
+        streakRuleMode="custom" streakRule={streakRule} onStreakRuleChange={(next) => next?.kind === 'comparison' && setStreakRule(next)}
+      />
+    }
+    render(<StreakRuleHarness />)
+    const condition = screen.getByRole('combobox', { name: 'Condition' })
+    const measureSelect = screen.getByRole('combobox', { name: 'Measure' })
+    expect(screen.getByRole('option', { name: 'Any positive value (> 0)' })).toBeInTheDocument()
+    await user.selectOptions(measureSelect, 'minutes')
+    expect(condition).toHaveValue('at-least')
+    expect(screen.getByRole('option', { name: 'Any positive value (> 0)' })).toBeInTheDocument()
+    await user.selectOptions(measureSelect, 'steps')
+    expect(condition).toHaveValue('at-least')
+    expect(screen.getByRole('option', { name: 'Any positive value (> 0)' })).toBeInTheDocument()
+    await user.selectOptions(condition, 'positive-value')
+    expect(condition).toHaveValue('positive-value')
+    await user.selectOptions(measureSelect, 'done')
+    expect(condition).toHaveValue('equals')
+    expect(screen.queryByRole('option', { name: 'Any positive value (> 0)' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Greater than' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Value' })).toHaveValue('true')
+  })
+
+  it('keeps the generic greater-than option out of the Success Rule editor', () => {
+    render(<TrackerConfigurationEditor
+      section="rules" metrics={[metric]} onMetricsChange={vi.fn()} rule={{ kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 }} onRuleChange={vi.fn()}
+      customFields={[]} onCustomFieldsChange={vi.fn()} milestones={[]} onMilestonesChange={vi.fn()}
+    />)
+    expect(screen.queryByRole('option', { name: 'Any positive value (> 0)' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Greater than' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Condition' })).toHaveAccessibleName('Condition')
   })
 })

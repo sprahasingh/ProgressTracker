@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, evaluatePerfectPeriod, evaluateTrackerProgressionDay } from './progression'
+import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, evaluatePerfectPeriod, evaluateTrackerProgressionDay, qualifiesForStreak } from './progression'
 import { evaluateTrackerEntry } from './planning'
 import type { TrackerDefinition, TrackerEntry } from './types'
 
@@ -88,6 +88,39 @@ describe('streak calculation', () => {
     expect(evaluateTrackerProgressionDay({ tracker: followsSuccess, entries: [streakOnlyEntry], date: '2026-01-01', today: '2026-01-02' }).state).toBe('failed')
     const legacy = tracker({ qualificationRule: undefined })
     expect(evaluateTrackerProgressionDay({ tracker: legacy, entries: [entry('2026-01-01', { pages: 2 })], date: '2026-01-01', today: '2026-01-01' }).state).toBe('qualified')
+  })
+
+  it('uses Any positive value independently for success, streak continuity, and backdated history', () => {
+    const separateMeasures = tracker({
+      schemaVersion: 8,
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity' },
+        { id: 'minutes', name: 'Minutes', valueType: 'duration' },
+      ],
+      qualificationRule: { kind: 'comparison', metricId: 'minutes', operator: 'at-least', value: 5 },
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'comparison', metricId: 'pages', operator: 'greater-than', value: 0 },
+    })
+    const cases = [
+      { pages: 0, minutes: 0, success: false, streak: false },
+      { pages: 0, minutes: 5, success: true, streak: false },
+      { pages: 0.25, minutes: 0, success: false, streak: true },
+      { pages: 0.25, minutes: 5, success: true, streak: true },
+    ]
+    for (const [index, result] of cases.entries()) {
+      const observation = entry(`2026-01-0${index + 1}`, { pages: result.pages, minutes: result.minutes })
+      expect(evaluateTrackerEntry(separateMeasures, observation).qualified).toBe(result.success)
+      expect(qualifiesForStreak(separateMeasures, observation)).toBe(result.streak)
+    }
+
+    const history = ['2026-01-01', '2026-01-02', '2026-01-03'].map((date, index) => entry(date, { pages: [0.25, 2, 0.5][index]! }))
+    expect(calculateStreak(separateMeasures, history, '2026-01-03')).toMatchObject({ current: 3, longest: 3, qualifyingCount: 3 })
+    const edited = history.map((item) => item.date === '2026-01-02' ? { ...item, values: { pages: 0 } } : item)
+    expect(calculateStreak(separateMeasures, edited, '2026-01-03')).toMatchObject({ current: 1, longest: 1, qualifyingCount: 2, missedCount: 1 })
+    const deleted = history.map((item) => item.date === '2026-01-02' ? { ...item, deletedAt: '2026-01-04T00:00:00.000Z' } : item)
+    expect(calculateStreak(separateMeasures, deleted, '2026-01-03')).toMatchObject({ current: 1, longest: 1, qualifyingCount: 2, missedCount: 1 })
+    const missingToday = calculateStreak(separateMeasures, history.slice(0, 2), '2026-01-03')
+    expect(missingToday).toMatchObject({ current: 2, longest: 2, qualifyingCount: 2, missedCount: 0 })
   })
 
   it('requires the configured minimum, preserves today while progress is still open, and breaks past below-minimum runs', () => {

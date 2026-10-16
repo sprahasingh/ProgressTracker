@@ -446,7 +446,11 @@ export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly T
       if (node.operator === 'equals') result = value === node.value
       else {
         const progress = metricNumber(metric, value)
-        if (progress !== undefined && typeof node.value === 'number') result = node.operator === 'at-least' ? progress >= node.value : progress <= node.value
+        if (progress !== undefined && typeof node.value === 'number') {
+          result = node.operator === 'greater-than' ? progress > node.value
+            : node.operator === 'at-least' ? progress >= node.value
+              : progress <= node.value
+        }
       }
     }
     ;(result ? achieved : failed).add(metricId)
