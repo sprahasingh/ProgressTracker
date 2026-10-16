@@ -1,6 +1,7 @@
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerEvaluationHistoryStartDate } from './planning'
 import { calendarDateInTimeZone } from '../../db/calendarDate'
+import { trackerStrictModeForDate } from './ruleVersions'
 
 export type ConsistencyDay = {
   date: CalendarDate
@@ -46,7 +47,7 @@ export function calculateConsistency(input: {
   }
 
   const earliest = trackers.reduce((date, tracker) => {
-    const start = trackerActiveStartDate(tracker, input.timeZone) as CalendarDate
+    const start = trackerEvaluationHistoryStartDate(tracker, input.timeZone) as CalendarDate
     return start < date ? start : date
   }, input.today)
   const days: ConsistencyDay[] = []
@@ -63,7 +64,7 @@ export function calculateConsistency(input: {
         }
       }
       if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) continue
-      if (tracker.strictMode !== true && (input.holidays?.has(date) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))) continue
+      if (!trackerStrictModeForDate(tracker, date) && (input.holidays?.has(date) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))) continue
       eligible += 1
       const entry = entryByTrackerDate.get(`${tracker.id}:${date}`)
       if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) completed += 1

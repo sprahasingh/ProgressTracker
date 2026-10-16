@@ -37,6 +37,29 @@ describe('streak calculation', () => {
     expect(calculateStreak(tracker(), [entry('2026-01-01'), entry('2026-01-02'), skipped], '2026-01-03')).toMatchObject({ current: 0, longest: 2, missedCount: 1 })
   })
 
+  it('keeps older streak history when the current rule version has a shorter deadline', () => {
+    const previous = tracker({ deadline: '2026-10-31' })
+    const current = tracker({ deadline: '2026-09-15' })
+    const versioned = {
+      ...current,
+      schemaVersion: 10 as const,
+      ruleVersions: [
+        { id: 'baseline', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline' as const, recordedAt: previous.createdAt, evaluation: {
+          schedule: previous.schedule, startDate: previous.startDate, deadline: previous.deadline, scheduling: previous.scheduling ?? null,
+          metrics: previous.metrics, qualificationRule: previous.qualificationRule ?? null, streakRuleMode: previous.streakRuleMode ?? null,
+          streakRule: previous.streakRule ?? null, strictMode: previous.strictMode ?? false,
+        } },
+        { id: 'prospective', effectiveFrom: '2026-10-16', revision: 2, application: 'apply-from-today' as const, recordedAt: '2026-10-16T00:00:00.000Z', evaluation: {
+          schedule: current.schedule, startDate: current.startDate, deadline: current.deadline, scheduling: current.scheduling ?? null,
+          metrics: current.metrics, qualificationRule: current.qualificationRule ?? null, streakRuleMode: current.streakRuleMode ?? null,
+          streakRule: current.streakRule ?? null, strictMode: current.strictMode ?? false,
+        } },
+      ],
+    }
+    const result = calculateStreak(versioned, [entry('2026-10-10'), entry('2026-10-11')], '2026-10-20')
+    expect(result).toMatchObject({ current: 0, longest: 2, qualifyingCount: 2 })
+  })
+
   it('derives an elapsed missing opportunity while keeping the current date open, then recalculates a backdated correction', () => {
     const successful = ['2026-10-08', '2026-10-09', '2026-10-10'].map((date) => entry(date))
     const overdue = calculateStreak(tracker({ startDate: '2026-10-08' }), successful, '2026-10-12')

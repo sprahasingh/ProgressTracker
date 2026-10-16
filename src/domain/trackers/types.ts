@@ -127,8 +127,33 @@ export type GoalPlanningConfiguration = {
   manualAllocations?: Record<string, Record<string, number>>
 }
 
+/** The settings that determine how a saved date is interpreted. Metric definitions
+ * are captured with the rules so thresholds and checklist meaning stay stable. */
+export type TrackerEvaluationSnapshot = {
+  schedule: TrackerSchedule
+  startDate?: string | null
+  deadline?: string | null
+  scheduling?: TrackerScheduling | null
+  metrics: TrackerMetricDefinition[]
+  qualificationRule?: TrackerRule | null
+  streakRuleMode?: TrackerStreakRuleMode | null
+  streakRule?: TrackerRule | null
+  strictMode?: boolean | null
+}
+
+/** A rule version is nested in its tracker record, so tracker ownership and the
+ * tracker ID are inherited from the containing owner-scoped row. */
+export type TrackerRuleVersion = {
+  id: string
+  effectiveFrom: string
+  revision: number
+  application: 'baseline' | 'apply-from-today' | 'recalculate-all-history'
+  recordedAt: string
+  evaluation: TrackerEvaluationSnapshot
+}
+
 export type TrackerDefinition = {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   id: string
   name: string
   description: string
@@ -154,6 +179,8 @@ export type TrackerDefinition = {
   goalPlanning?: GoalPlanningConfiguration
   /** When true, each calendar date through the active period is a streak opportunity. */
   strictMode?: boolean
+  /** v10: ordered inclusive start dates; the next version implicitly closes the previous one. */
+  ruleVersions?: TrackerRuleVersion[]
   createdAt: string
   updatedAt: string
   archivedAt: string | null

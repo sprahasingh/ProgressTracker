@@ -48,6 +48,7 @@ The plan calculates remaining work from the goal target minus active saved incre
 - src/domain/trackers/types.ts
 - src/domain/trackers/schema.ts
 - src/domain/trackers/progression.ts
+- src/domain/trackers/ruleVersions.ts
 - src/features/trackers/TrackerConfigurationEditor.tsx
 - src/features/trackers/MilestoneProgressList.tsx
 - src/features/goals/GoalsPage.tsx
@@ -56,7 +57,7 @@ The plan calculates remaining work from the goal target minus active saved incre
 - src/services/supabase/syncEngine.ts
 - supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql
 **Answer:**
-A milestone's saved type defines what its target measures. Total quantity sums one numeric measure over eligible active-period check-ins; single-day quantity compares the best day; successful days use the tracker's Success Rule; longest streak uses its separate Streak Rule; challenge day follows the configured Calendar Days or Effective Days count; and a measure completion count matches a Yes/No or Checklist condition. Progress is recalculated from saved entries, so historical edits and deletions update it. Older milestones without a type retain their original best-single-observation meaning until the user converts them. Displayed completion uses saved activity and current rules; confirmed milestone XP separately requires individually eligible check-ins after the progression cutover. A reached date is shown when it can be derived reliably, and reaching a milestone does not by itself complete the overall goal.
+A milestone's saved type defines what its target measures. Total quantity sums one numeric measure over eligible active-period check-ins; single-day quantity compares the best day; successful days use the Success Rule effective on each date; longest streak uses the Streak Rule effective on each date; challenge day follows the configured Calendar Days or Effective Days count; and a measure completion count matches a Yes/No or Checklist condition. Progress is recalculated from saved entries, so historical edits and deletions update it. Older milestones without a type retain their original best-single-observation meaning until the user converts them. Displayed completion follows saved activity and its applicable rules; confirmed milestone XP separately requires individually eligible check-ins after the progression cutover. A reached date is shown when it can be derived reliably, and reaching a milestone does not by itself complete the overall goal.
 
 ### ID: goal-deadline
 **Category:** goals

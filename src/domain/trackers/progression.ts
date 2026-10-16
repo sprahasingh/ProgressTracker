@@ -1,6 +1,7 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
 import { activeTrackerMetrics } from './types'
-import { classifyAchievement, evaluateQualificationRule, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerCreationDate } from './planning'
+import { classifyAchievement, evaluateQualificationRule, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerCreationDate, trackerEvaluationHistoryStartDate } from './planning'
+import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersions'
 
 export type StreakResult = {
   asOfDate: string
@@ -49,7 +50,7 @@ export function evaluateAllTrackersPerfectDay(input: {
     if (tracker.deletedAt !== null || !['active', 'archived', 'completed'].includes(tracker.status)) return false
     if (tracker.status === 'archived' && tracker.archivedAt && input.date > tracker.archivedAt.slice(0, 10)) return false
     if (!isTrackerInActivePeriod(tracker, input.date, input.timeZone)) return false
-    return tracker.strictMode === true || (!input.holidays?.has(input.date) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
+    return trackerStrictModeForDate(tracker, input.date) || (!input.holidays?.has(input.date) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
   })
   const reliableFrom = input.trackers.filter((tracker) => tracker.deletedAt === null && ['active', 'archived', 'completed'].includes(tracker.status))
     .map((tracker) => {
@@ -106,7 +107,7 @@ export function evaluateTrackerProgressionDay(input: {
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) return { trackerId: tracker.id, date, state: 'outside-period', required: false }
   if (tracker.status !== 'active' && tracker.status !== 'archived' && tracker.status !== 'completed') return { trackerId: tracker.id, date, state: 'inactive', required: false }
 
-  const strict = tracker.strictMode === true
+  const strict = trackerStrictModeForDate(tracker, date)
   const neutral = !strict && (input.holidays?.has(date) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))
   // Existing saved activity remains visible, but an ineligible date never earns progression.
   if (neutral) return { trackerId: tracker.id, date, state: 'neutral', required: false }
@@ -164,8 +165,10 @@ export function calculateAllTrackersStreak(input: {
 }): AccountStreakResult {
   const relevant = input.trackers.filter((tracker) => (tracker.status === 'active' || tracker.status === 'archived' || tracker.status === 'completed') && tracker.deletedAt === null)
   if (!relevant.length) return { current: 0, longest: 0, lastPerfectDate: null, state: 'neutral' }
-  // Current definitions cannot reconstruct earlier membership or schedules. Start at the latest known definition boundary.
+  // A versioned tracker can safely reconstruct edits across its saved timeline.
+  // Legacy definitions keep the established conservative boundary.
   const startDates = relevant.map((tracker) => {
+    if (tracker.ruleVersions?.length) return trackerEvaluationHistoryStartDate(tracker, input.timeZone)
     const created = trackerCreationDate(tracker, input.timeZone)
     const changed = tracker.updatedAt.slice(0, 10)
     return [trackerActiveStartDate(tracker, input.timeZone), changed > created ? changed : created].sort().at(-1)!
@@ -285,6 +288,7 @@ function qualifiesForLegacyStreak(tracker: TrackerDefinition, entry: TrackerEntr
 /** Daily success and streak qualification are independent for schema-v8 trackers. */
 export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
   if (entry.outcome !== 'recorded') return false
+  tracker = trackerDefinitionForDate(tracker, entry.date)
   if (tracker.streakRuleMode === 'same-as-success') return evaluateTrackerEntry(tracker, entry).qualified
   if (tracker.streakRuleMode === 'custom') {
     return tracker.streakRule !== undefined && evaluateQualificationRule(tracker.streakRule, activeTrackerMetrics(tracker.metrics), entry.values).qualified
@@ -294,18 +298,17 @@ export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEnt
 }
 
 function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string): Array<{ date: string; state: ProgressionOpportunityState }> {
-  const boundedEnd = tracker.deadline && tracker.deadline < asOfDate ? tracker.deadline : asOfDate
-  const end = parseDate(boundedEnd)
+  const end = parseDate(asOfDate)
   const byDate = new Map<string, TrackerEntry>()
   for (const entry of entries) {
     parseDate(entry.date)
     if (entry.trackerId !== tracker.id) throw new RangeError(`Entry ${entry.id} belongs to a different tracker.`)
-    if (entry.date > boundedEnd || entry.deletedAt !== null) continue
+    if (entry.date > asOfDate || entry.deletedAt !== null) continue
     if (byDate.has(entry.date)) throw new RangeError(`More than one live entry exists for ${entry.date}.`)
     byDate.set(entry.date, entry)
   }
 
-  const anchor = trackerActiveStartDate(tracker, timeZone)
+  const anchor = trackerEvaluationHistoryStartDate(tracker, timeZone)
   const start = parseDate(anchor)
   const occurrences: Array<{ date: string; state: ProgressionOpportunityState }> = []
   for (let time = start; time <= end; time += DAY_MS) {

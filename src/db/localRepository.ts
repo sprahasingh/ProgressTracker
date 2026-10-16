@@ -4,7 +4,7 @@ import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Catego
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { measureDevPerformance } from '../utils/devPerformance'
-import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalCustomFieldMeaningChange, historicalMetricMeaningChange, retiredCustomFieldMeaningChange, retiredMetricMeaningChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
@@ -414,6 +414,7 @@ export const localRepository = {
   },
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
+    if (draft.schemaVersion === 10 && !isSchemaV10WriteEnabled()) throw new Error('Versioned tracker rules need schema v10. Apply and verify the tracker rule history migration, then enable VITE_ENABLE_TRACKER_SCHEMA_V10 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 8 && !isSchemaV8WriteEnabled()) throw new Error('Custom streak rules need schema v8. Apply and verify migration 20261111000100_tracker_streak_rules_v8.sql, then enable VITE_ENABLE_TRACKER_SCHEMA_V8 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 9 && !isSchemaV9WriteEnabled()) throw new Error('Typed milestones need schema v9. Apply and verify the tracker milestone migration, then enable VITE_ENABLE_TRACKER_SCHEMA_V9 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 7 && !isSchemaV7WriteEnabled()) throw new Error('Effective Days counting needs schema v7. Apply and verify migration 20261109000100_tracker_effective_day_counting_v7.sql, then enable VITE_ENABLE_TRACKER_SCHEMA_V7 for the production build. No tracker changes were saved.')

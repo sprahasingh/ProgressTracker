@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { TrackerLibraryPage } from './TrackerLibraryPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
+import { localCalendarDate } from '../shared/localDates'
 import type { StoredTrackerDefinition } from '../../db/models'
 
 const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), listTrackerEntriesForTracker: vi.fn().mockResolvedValue([]), listAccountHolidays: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
@@ -165,7 +166,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
       createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
     }
     libraryMocks.listTrackers.mockResolvedValue([tracker])
-    libraryMocks.listTrackerEntriesForTracker.mockResolvedValue([{ trackerId: tracker.id, date: new Date().toISOString().slice(0, 10), deletedAt: null }])
+    libraryMocks.listTrackerEntriesForTracker.mockResolvedValue([{ trackerId: tracker.id, date: localCalendarDate(), deletedAt: null }])
     render(<MemoryRouter><TrackerLibraryPage /></MemoryRouter>)
 
     expect(await screen.findByRole('link', { name: "Edit today's check-in" })).toHaveAttribute('href', '/')

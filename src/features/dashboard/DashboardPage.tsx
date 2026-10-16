@@ -19,6 +19,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateActivityHeatmap } from '../../domain/trackers/activityHeatmap'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 import { ActivityHeatmap } from './ActivityHeatmap'
 import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { availableHeatmapYears, heatmapDateRange, type HeatmapDateRangeOption, type HeatmapRangeSelection, isHistoricalHeatmapYear } from './heatmapDateRange'
@@ -125,7 +126,7 @@ export function DashboardPage() {
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
   const weekEntries = visibleEntries.filter((entry) => entry.date >= weekStart && entry.date <= today)
-  const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string) => Boolean(tracker && (tracker.strictMode
+  const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string) => Boolean(tracker && (trackerStrictModeForDate(tracker, date)
     ? isTrackerInActivePeriod(tracker, date, timeZone)
     : !data.holidays.includes(date) && isScheduledDate(tracker, date, timeZone)))
   const successfulWeek = weekEntries.filter((entry) => {

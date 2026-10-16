@@ -4,7 +4,12 @@ import { expect, test, type Page } from '@playwright/test'
 
 const fixturePath = process.env.PROGRESSION_TEST_FIXTURE_PATH ?? '/private/tmp/progression-xp-history-playwright-auth.json'
 const fixtureEmail = 'browser-achievement-e2e@progress-tracker.invalid'
-const expectedContainer = 'supabase_db_progression-xp-history-e2e'
+const retrospectiveFixtureEmail = 'browser-rule-history-retrospective@progress-tracker.invalid'
+const legacyContainer = 'supabase_db_progression-xp-history-e2e'
+const ruleHistoryProject = process.env.PROGRESSION_RULE_HISTORY_PROJECT_ID
+const expectedContainer = ruleHistoryProject && /^[a-z0-9-]{1,40}$/.test(ruleHistoryProject)
+  ? `supabase_db_${ruleHistoryProject}`
+  : legacyContainer
 const initialConfirmedXp = 29
 const originalAwardName = 'XP History original reversed reward'
 const reversalName = 'XP History reversal transaction'
@@ -21,7 +26,7 @@ function readFixture(): Fixture {
 
 function runFixtureSql(query: string): string {
   const container = process.env.SUPABASE_DB_CONTAINER
-  if (container !== expectedContainer) throw new Error('XP History fixture SQL refused an unexpected database container.')
+  if (container !== expectedContainer || (ruleHistoryProject && expectedContainer === legacyContainer)) throw new Error('XP History fixture SQL refused an unexpected database container.')
   return execFileSync('docker', ['exec', container, 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres', '-c', query], {
     encoding: 'utf8',
     timeout: 15_000,
@@ -29,8 +34,11 @@ function runFixtureSql(query: string): string {
 }
 
 function isolationGuard(userId: string): string {
+  const allowedEmails = [fixtureEmail, ...(ruleHistoryProject ? [retrospectiveFixtureEmail] : [])]
+  const sqlEmails = allowedEmails.map((email) => `'${email}'`).join(', ')
   return `DO $$ BEGIN
-    IF (SELECT count(*) FROM auth.users WHERE email <> '${fixtureEmail}') <> 0 THEN
+    IF (SELECT count(*) FROM auth.users) <> ${allowedEmails.length}
+      OR (SELECT count(*) FROM auth.users WHERE email NOT IN (${sqlEmails})) <> 0 THEN
       RAISE EXCEPTION 'XP History fixture refuses a database with unrelated Auth users';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = '${userId}'::uuid AND email = '${fixtureEmail}') THEN

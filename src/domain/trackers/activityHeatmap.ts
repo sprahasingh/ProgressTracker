@@ -1,6 +1,7 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 import { qualifiesForStreak } from './progression'
+import { trackerStrictModeForDate } from './ruleVersions'
 
 export type HeatmapDay = { date: string; eligibleCount: number; qualifiedCount: number; percent: number | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; holiday: boolean; restCount: number }
 
@@ -18,7 +19,7 @@ export function calculateActivityHeatmap(input: {
       const inRange = isTrackerInActivePeriod(tracker, date, input.timeZone)
       const scheduled = inRange && isTrackerScheduledOccurrence(tracker, date, input.timeZone)
       if (inRange && !scheduled) restCount += 1
-      const opportunity = inRange && (tracker.strictMode === true || (!input.holidays?.has(date) && scheduled))
+      const opportunity = inRange && (trackerStrictModeForDate(tracker, date) || (!input.holidays?.has(date) && scheduled))
       if (!opportunity) continue
       eligibleCount += 1
       const entry = entriesByTrackerDate.get(`${tracker.id}:${date}`)
