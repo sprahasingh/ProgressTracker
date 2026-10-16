@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SUPPORT_EMAIL } from '../../config/supportContact'
 import { capabilityVersion } from './capabilityVersion'
-import { verifiedQuestionCatalog, verifiedQuestionCatalogVersion } from './_generated/verifiedQuestionCatalog'
 
 export type HelpRoute = 'today' | 'trackers' | 'analytics' | 'goals' | 'calendar' | 'history' | 'settings' | 'other'
 export type FeedbackCategory = 'helpful' | 'factually_incorrect' | 'outdated' | 'wrong_instructions' | 'wrong_contact' | 'other'
@@ -13,7 +12,8 @@ function randomIndex(max: number) {
   if (typeof crypto !== 'undefined' && 'getRandomValues' in crypto) { const value = new Uint32Array(1); crypto.getRandomValues(value); return value[0]! % max }
   return Math.floor(Math.random() * max)
 }
-export function selectCatalogSuggestions(): CatalogSuggestion[] {
+export async function selectCatalogSuggestions(): Promise<CatalogSuggestion[]> {
+  const { verifiedQuestionCatalog } = await import('./_generated/verifiedQuestionCatalog')
   const pool = verifiedQuestionCatalog.filter((entry) => entry.suggestible)
   let recent: string[] = []
   try { const parsed: unknown = JSON.parse(localStorage.getItem(recentSuggestionKey) ?? '[]'); recent = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string').slice(-12) : [] } catch { /* Suggestion history is optional. */ }
@@ -35,7 +35,8 @@ export function selectCatalogSuggestions(): CatalogSuggestion[] {
   try { localStorage.setItem(recentSuggestionKey, JSON.stringify([...recent, ...result.map(({ id }) => id)].slice(-12))) } catch { /* Suggestion history is optional. */ }
   return result
 }
-export function getCatalogAnswer(id: string) {
+export async function getCatalogAnswer(id: string) {
+  const { verifiedQuestionCatalog, verifiedQuestionCatalogVersion } = await import('./_generated/verifiedQuestionCatalog')
   const entry = verifiedQuestionCatalog.find((candidate) => candidate.id === id)
   return entry ? { ...entry, knowledgeVersion: verifiedQuestionCatalogVersion } : null
 }

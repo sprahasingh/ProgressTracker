@@ -18,4 +18,16 @@ describe('application route fallback', () => {
     expect(await screen.findByRole('heading', { name: 'This page couldn’t load' })).toBeInTheDocument()
     expect(screen.queryByText('private internal diagnostic')).not.toBeInTheDocument()
   })
+
+  it('shows the accessible recovery route when a lazy route chunk fails', async () => {
+    const router = createMemoryRouter([{
+      path: '/insights',
+      lazy: async () => { throw new TypeError('failed to fetch dynamically imported module') },
+      errorElement: <RouteErrorFallback />,
+    }], { initialEntries: ['/insights'] })
+    render(<RouterProvider router={router} />)
+    expect(await screen.findByRole('heading', { name: 'This page couldn’t load' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to Today' })).toHaveAttribute('href', '/')
+    expect(screen.queryByText(/dynamically imported module/)).not.toBeInTheDocument()
+  })
 })

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import * as aiHelpService from './aiHelpService'
 import { AIHelpAssistant } from './AIHelpAssistant'
 import { verifiedQuestionCatalog } from './_generated/verifiedQuestionCatalog'
 
@@ -13,6 +14,7 @@ afterEach(() => {
   cleanup()
   sessionStorage.clear()
   mocks.invoke.mockReset()
+  vi.restoreAllMocks()
   mocks.status = 'signed-in'
   mocks.isOnline = true
   vi.unstubAllGlobals()
@@ -28,6 +30,18 @@ function visibleAnswerText(answer: string) {
 }
 
 describe('AI Help Assistant', () => {
+  it('loads the verified topic catalog only when opened and reports a useful load failure', async () => {
+    const loadCatalog = vi.spyOn(aiHelpService, 'selectCatalogSuggestions').mockRejectedValueOnce(new Error('chunk unavailable'))
+    const user = userEvent.setup()
+    renderAssistant()
+    expect(loadCatalog).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
+    expect(await findAssistantPanel('region')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Quick help topics could not load. You can still type a question')
+    expect(loadCatalog).toHaveBeenCalledOnce()
+  })
+
   it('opens from the accessible header entry and submits a page-aware suggestion', async () => {
     mocks.invoke.mockResolvedValue({ data: { answer: 'A streak counts scheduled days.', links: [{ label: 'Insights', href: '/dashboard' }], followUps: ['How do holidays affect streaks?'] }, error: null })
     const user = userEvent.setup()

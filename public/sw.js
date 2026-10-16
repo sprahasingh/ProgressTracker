@@ -2,6 +2,7 @@ const CACHE_PREFIX = 'progress-tracker-shell-'
 const CACHE_NAME = `${CACHE_PREFIX}v1`
 const APP_ROOT = new URL('./', self.location.href)
 const SHELL_URL = APP_ROOT.href
+const OFFLINE_ASSET_MANIFEST_URL = new URL('offline-assets.json', APP_ROOT).href
 const PUSH_CHANGE_DB = 'progress-tracker-push-subscription-changes'
 
 function openPushChangeDb() {
@@ -80,7 +81,17 @@ async function acknowledgePushSubscriptionChange(id) {
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME)
-    await cache.addAll([SHELL_URL, new URL('manifest.webmanifest', APP_ROOT).href, new URL('icons/progress-tracker.svg', APP_ROOT).href])
+    const shellAssets = [SHELL_URL, OFFLINE_ASSET_MANIFEST_URL, new URL('manifest.webmanifest', APP_ROOT).href, new URL('icons/progress-tracker.svg', APP_ROOT).href]
+    await cache.addAll(shellAssets)
+    const manifestResponse = await cache.match(OFFLINE_ASSET_MANIFEST_URL)
+    const manifest = await manifestResponse?.json()
+    if (!manifest || !Array.isArray(manifest.assets)) throw new Error('Offline asset manifest is missing or invalid.')
+    const assetUrls = manifest.assets.flatMap((path) => {
+      if (typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..')) return []
+      const url = new URL(path, APP_ROOT)
+      return url.origin === self.location.origin && url.pathname.startsWith(APP_ROOT.pathname) ? [url.href] : []
+    })
+    await cache.addAll(assetUrls)
     await self.skipWaiting()
   })())
 })
@@ -109,8 +120,9 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Cache only build assets and public app metadata. API responses, auth data,
-  // IndexedDB contents, and arbitrary same-origin requests are never cached.
+  // API responses, auth data, IndexedDB contents, and arbitrary same-origin
+  // requests are never cached. Built assets are pre-cached during installation
+  // so unvisited lazy routes remain available after the first online visit.
   if (!/\.(?:js|css|svg|png|ico|webmanifest|woff2?)$/i.test(url.pathname)) return
   event.respondWith((async () => {
     const cached = await caches.match(request)
