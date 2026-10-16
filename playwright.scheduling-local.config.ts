@@ -52,6 +52,7 @@ export default defineConfig({
       VITE_SUPABASE_PUBLISHABLE_KEY: status.ANON_KEY,
       VITE_ENABLE_TRACKER_SCHEMA_V6: 'true',
       VITE_ENABLE_TRACKER_SCHEMA_V7: 'true',
+      VITE_ENABLE_TRACKER_SCHEMA_V8: 'true',
     },
   },
 })

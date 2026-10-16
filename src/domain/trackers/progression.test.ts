@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, evaluatePerfectPeriod, evaluateTrackerProgressionDay } from './progression'
+import { evaluateTrackerEntry } from './planning'
 import type { TrackerDefinition, TrackerEntry } from './types'
 
 const tracker = (overrides: Partial<TrackerDefinition> = {}): TrackerDefinition => ({
@@ -61,6 +62,32 @@ describe('streak calculation', () => {
       { ...entry('2026-01-03'), deletedAt: '2026-01-04T00:00:00.000Z' },
     ], '2026-01-03')
     expect(result).toMatchObject({ current: 0, longest: 1, qualifyingCount: 1, missedCount: 1 })
+  })
+
+  it('evaluates v8 Success and Streak Rules independently and leaves legacy rules unchanged', () => {
+    const successRule = { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 5 }
+    const streakRule = { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 1 }
+    const streakOnlyTracker = tracker({ schemaVersion: 8, qualificationRule: successRule, streakRuleMode: 'custom', streakRule })
+    const streakOnlyEntry = entry('2026-01-01', { pages: 1 })
+    expect(evaluateTrackerEntry(streakOnlyTracker, streakOnlyEntry).qualified).toBe(false)
+    expect(evaluateTrackerProgressionDay({ tracker: streakOnlyTracker, entries: [streakOnlyEntry], date: '2026-01-01', today: '2026-01-01' }).state).toBe('qualified')
+    expect(calculateStreak(streakOnlyTracker, [streakOnlyEntry], '2026-01-01')).toMatchObject({ current: 1, longest: 1 })
+
+    const successOnlyTracker = tracker({
+      schemaVersion: 8,
+      qualificationRule: streakRule,
+      streakRuleMode: 'custom',
+      streakRule: successRule,
+    })
+    const successOnlyEntry = entry('2026-01-01', { pages: 1 })
+    expect(evaluateTrackerEntry(successOnlyTracker, successOnlyEntry).qualified).toBe(true)
+    expect(evaluateTrackerProgressionDay({ tracker: successOnlyTracker, entries: [successOnlyEntry], date: '2026-01-01', today: '2026-01-02' }).state).toBe('failed')
+    expect(calculateStreak(successOnlyTracker, [successOnlyEntry], '2026-01-02')).toMatchObject({ current: 0, longest: 0 })
+
+    const followsSuccess = tracker({ schemaVersion: 8, qualificationRule: successRule, streakRuleMode: 'same-as-success' })
+    expect(evaluateTrackerProgressionDay({ tracker: followsSuccess, entries: [streakOnlyEntry], date: '2026-01-01', today: '2026-01-02' }).state).toBe('failed')
+    const legacy = tracker({ qualificationRule: undefined })
+    expect(evaluateTrackerProgressionDay({ tracker: legacy, entries: [entry('2026-01-01', { pages: 2 })], date: '2026-01-01', today: '2026-01-01' }).state).toBe('qualified')
   })
 
   it('requires the configured minimum, preserves today while progress is still open, and breaks past below-minimum runs', () => {

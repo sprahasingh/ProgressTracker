@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { activeAchievementOccurrences, calculateConsistencySummary, makeAchievementStates, type AchievementHistoryEvent } from './progressionRepository'
+import { activeAchievementOccurrences, calculateConsistencySummary, makeAchievementStates, mapEvent, type AchievementHistoryEvent } from './progressionRepository'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'consistency-tracker', name: 'Daily reading', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -14,6 +14,16 @@ function entry(id: string, date: string, outcome: StoredTrackerEntry['outcome'] 
 }
 
 describe('progression data contract calculations', () => {
+  it('maps tracker sources from PostgREST object and array relationship shapes', () => {
+    const source = { source_id: 'entry-1', tracker_id: 'tracker-1', goal_id: null, display_name: 'Daily reading' }
+    const row = {
+      id: 'event-1', effective_date: '2026-10-13', recorded_at: '2026-10-13T12:00:00.000Z', xp_delta: 10,
+      event_category: 'score', reason_code: 'DAILY_CHECK_IN_COMPLETED', reverses_event_id: null,
+    }
+    expect(mapEvent({ ...row, progression_event_sources: source })).toMatchObject({ sourceId: 'entry-1', trackerId: 'tracker-1', displayName: 'Daily reading' })
+    expect(mapEvent({ ...row, progression_event_sources: [source] })).toMatchObject({ sourceId: 'entry-1', trackerId: 'tracker-1', displayName: 'Daily reading' })
+  })
+
   it('uses occurrence identities and exact reversals to derive the same live state for every badge surface', () => {
     const unlock = (id: string, date: string, tier: number): AchievementHistoryEvent => ({
       id, achievementId: 'perfect-week', tier, generation: 1, eventType: 'unlocked', recordedAt: `${date}T12:00:00.000Z`,
@@ -82,6 +92,26 @@ describe('progression data contract calculations', () => {
   it('does not count a recorded entry that fails the tracker qualification rule', () => {
     const oneDayTracker = { ...tracker, startDate: '2026-10-12', createdAt: '2026-10-12T00:00:00.000Z', updatedAt: '2026-10-12T00:00:00.000Z' }
     const result = calculateConsistencySummary({ trackers: [oneDayTracker], entries: [entry('failed-rule', '2026-10-12', 'recorded', false)], today: '2026-10-13', timeZone: 'UTC' })
+    expect(result).toMatchObject({ score: 0, eligibleDays: 1, dailyAdherence: [{ date: '2026-10-12', completed: 0, eligible: 1 }] })
+  })
+
+  it('keeps success-based consistency separate from custom streak-only activity', () => {
+    const independentRules = {
+      ...tracker,
+      schemaVersion: 8 as const,
+      startDate: '2026-10-12',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      updatedAt: '2026-10-12T00:00:00.000Z',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const }],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 5 },
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 1 },
+    }
+    const result = calculateConsistencySummary({
+      trackers: [independentRules],
+      entries: [{ ...entry('streak-only', '2026-10-12'), values: { pages: 1 } }],
+      today: '2026-10-13', timeZone: 'UTC',
+    })
     expect(result).toMatchObject({ score: 0, eligibleDays: 1, dailyAdherence: [{ date: '2026-10-12', completed: 0, eligible: 1 }] })
   })
 })

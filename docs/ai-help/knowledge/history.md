@@ -86,7 +86,7 @@ The missing-check-in review looks for past opportunities without an active saved
 - src/features/history/HistoryPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-Yes, streaks are calculated from active saved entries, so clearing one can change the current or longest streak. The result depends on whether that date is a counted opportunity under Standard or Strict Mode and the tracker’s schedule and holiday rules.
+Yes, streaks are calculated from active saved entries that meet the tracker’s Streak Rule, so clearing one can change the current or longest streak. The result depends on whether that date is a counted opportunity under Standard or Strict Mode and the tracker’s schedule and holiday rules.
 
 ### ID: history-outside-period
 **Category:** history

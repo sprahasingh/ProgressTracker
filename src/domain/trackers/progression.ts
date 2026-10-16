@@ -1,6 +1,6 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerRule, TrackerValue } from './types'
 import { activeTrackerMetrics } from './types'
-import { classifyAchievement, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerCreationDate } from './planning'
+import { classifyAchievement, evaluateQualificationRule, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerCreationDate } from './planning'
 
 export type StreakResult = {
   asOfDate: string
@@ -246,7 +246,7 @@ function metricHasQualifyingValue(metric: TrackerMetricDefinition, value: Tracke
   return false
 }
 
-export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
+function qualifiesForLegacyStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
   if (entry.outcome !== 'recorded') return false
   const metricQualifies = (metric: TrackerMetricDefinition): boolean => {
     const value = entry.values[metric.id]
@@ -282,6 +282,17 @@ export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEnt
   return evaluate(tracker.qualificationRule)
 }
 
+/** Daily success and streak qualification are independent for schema-v8 trackers. */
+export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
+  if (entry.outcome !== 'recorded') return false
+  if (tracker.streakRuleMode === 'same-as-success') return evaluateTrackerEntry(tracker, entry).qualified
+  if (tracker.streakRuleMode === 'custom') {
+    return tracker.streakRule !== undefined && evaluateQualificationRule(tracker.streakRule, activeTrackerMetrics(tracker.metrics), entry.values).qualified
+  }
+  // Definitions through v7 keep their original, implicit streak interpretation.
+  return qualifiesForLegacyStreak(tracker, entry)
+}
+
 function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string): Array<{ date: string; state: ProgressionOpportunityState }> {
   const boundedEnd = tracker.deadline && tracker.deadline < asOfDate ? tracker.deadline : asOfDate
   const end = parseDate(boundedEnd)
@@ -299,7 +310,8 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
   const occurrences: Array<{ date: string; state: ProgressionOpportunityState }> = []
   for (let time = start; time <= end; time += DAY_MS) {
     const date = dateText(time)
-    const result = evaluateTrackerProgressionDay({ tracker, entries: [...byDate.values()], date, today: asOfDate, holidays, timeZone })
+    const entry = byDate.get(date)
+    const result = evaluateTrackerProgressionDay({ tracker, entries: entry ? [entry] : [], date, today: asOfDate, holidays, timeZone })
     occurrences.push({ date, state: result.state })
   }
   return occurrences

@@ -17,6 +17,7 @@
     "test:e2e:xp-popup": "playwright test --config playwright.xp-popup.config.ts",
     "test:e2e:goals-local": "playwright test --config playwright.goals-local.config.ts",
     "test:e2e:scheduling-pre-release": "playwright test --config playwright.scheduling-local.config.ts",
+    "test:e2e:streak-rules-local": "node scripts/run-streak-rules-local.mjs",
     "test:progression:integration": "bash scripts/test-progression-live.sh",
     "test:lifecycle-stress": "VITE_TRACKER_LIFECYCLE_STRESS=true vitest run src/db/trackerLifecycleStateMachine.test.ts",
     "test:watch": "vitest",

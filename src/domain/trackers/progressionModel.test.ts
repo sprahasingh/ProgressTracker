@@ -33,6 +33,27 @@ describe('progression policy and summaries', () => {
     expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: { ...provisionalEntry, date: '2026-10-14' }, pendingSync: true, today: '2026-10-13' })).toBeNull()
   })
 
+  it('estimates daily success XP from the Success Rule and ignores streak-only qualification', () => {
+    const mixed: StoredTrackerDefinition = {
+      ...provisionalTracker,
+      schemaVersion: 8,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', thresholds: { direction: 'increase', minimum: 1, streakQualification: 'minimum' } }],
+      qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 5 },
+      streakRuleMode: 'custom',
+      streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 },
+    }
+    const partial = { ...provisionalEntry, trackerId: mixed.id, values: { pages: 1 } }
+    expect(estimateProvisionalCheckInReward({ tracker: mixed, entry: partial, pendingSync: true, today: '2026-10-13' })).toBeNull()
+
+    const successOnly: StoredTrackerDefinition = {
+      ...mixed,
+      qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 },
+      streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 5 },
+    }
+    expect(estimateProvisionalCheckInReward({ tracker: successOnly, entry: partial, pendingSync: true, today: '2026-10-13' }))
+      .toMatchObject({ id: 'check-in:pending-entry', xpDelta: 10 })
+  })
+
   it('deduplicates pending entries and excludes missing tracker references', () => {
     expect(selectProvisionalRewards({
       trackers: [provisionalTracker], entries: [provisionalEntry, provisionalEntry, { ...provisionalEntry, id: 'orphan', trackerId: 'missing' }],

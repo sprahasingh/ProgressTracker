@@ -2,8 +2,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { openDatabase } from '../../db/database'
 import { getSupabaseClient } from './client'
 import { localCalendarDate } from '../../features/shared/localDates'
-import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { qualifiesForStreak } from '../../domain/trackers/progression'
+import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { calculateProgressionLevel, selectProvisionalRewards, summarizeProgression, type ProvisionalReward } from '../../domain/trackers/progressionModel'
 import { subscribeToWorkspaceDataChanges, subscribeToWorkspaceSyncPreparation } from '../../db/workspaceMutationEvents'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
@@ -13,6 +12,7 @@ const pageSize = 500
 type ConfirmedOverview = Pick<ProgressionOverview, 'legacyXpStatus' | 'confirmedXp' | 'officialLevel' | 'scoreHistory' | 'streakHistory' | 'achievements'>
 const confirmedOverviewCache = new Map<string, ConfirmedOverview>()
 const overviewRequests = new Map<string, { version: number; promise: Promise<ConfirmedOverview> }>()
+const qualificationRefreshRequests = new Map<string, Promise<void>>()
 const overviewVersions = new Map<string, number>()
 
 export type ProgressionEvent = {
@@ -128,7 +128,8 @@ export type ProgressionOverview = {
 type RawEvent = {
   id: string; effective_date: string; recorded_at: string; xp_delta: number; event_category: string; reason_code: string
   reverses_event_id: string | null
-  progression_event_sources?: Array<{ source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string }> | null
+  progression_event_sources?: Array<{ source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string }>
+    | { source_id: string | null; tracker_id: string | null; goal_id: string | null; display_name: string } | null
 }
 
 type RetainedRewardContext = {
@@ -152,8 +153,9 @@ type LocalSnapshot = {
   timeZone: string
 }
 
-function mapEvent(row: RawEvent, retained?: RetainedRewardContext): ProgressionEvent {
-  const source = row.progression_event_sources?.[0]
+export function mapEvent(row: RawEvent, retained?: RetainedRewardContext): ProgressionEvent {
+  const relation = row.progression_event_sources
+  const source = Array.isArray(relation) ? relation[0] : relation
   return {
     id: row.id,
     effectiveDate: row.effective_date,
@@ -230,7 +232,7 @@ async function getLocalSnapshot(userId: string): Promise<LocalSnapshot> {
   }
 }
 
-function eligibleAndCompleted(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string, requireQualifyingEntry = true) {
+function eligibleAndSuccessful(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string) {
   const byTracker = new Map(entries.filter((entry) => entry.date === date).map((entry) => [entry.trackerId, entry]))
   let eligible = 0
   let completed = 0
@@ -240,7 +242,7 @@ function eligibleAndCompleted(trackers: readonly StoredTrackerDefinition[], entr
     if (tracker.strictMode !== true && (holidays.has(date) || !isTrackerScheduledOccurrence(tracker, date, timeZone))) continue
     eligible += 1
     const entry = byTracker.get(tracker.id)
-    if (entry && (requireQualifyingEntry ? qualifiesForStreak(tracker, entry) : entry.outcome === 'recorded')) completed += 1
+    if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) completed += 1
   }
   return { eligible, completed }
 }
@@ -274,7 +276,7 @@ export function calculateConsistencySummary(input: {
   const dailyAdherence: ConsistencySummary['dailyAdherence'] = []
   for (let day = dateValue(lastCompletedDate); day >= dateValue(start) && dailyAdherence.length < 30; day -= 86_400_000) {
     const date = dateText(day)
-    const counts = eligibleAndCompleted(eligibleTrackers, input.entries, input.holidays ?? new Set(), date, input.timeZone)
+    const counts = eligibleAndSuccessful(eligibleTrackers, input.entries, input.holidays ?? new Set(), date, input.timeZone)
     if (counts.eligible > 0) dailyAdherence.push({ date, completed: counts.completed, eligible: counts.eligible })
   }
   return {
@@ -361,7 +363,7 @@ function localProvisional(snapshot: LocalSnapshot, today: string, confirmedEvent
   })
   const dates = new Set(snapshot.entries.filter((entry) => entry.date <= today && pendingEntryIds.has(entry.id)).map((entry) => entry.date))
   for (const date of dates) {
-    const counts = eligibleAndCompleted(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone, true)
+    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
     const confirmedNet = confirmedEvents.filter((event) => event.reasonCode === 'PERFECT_DAY_BONUS' && event.effectiveDate === date).reduce((sum, event) => sum + event.xpDelta, 0)
     if (counts.eligible > 0 && counts.completed === counts.eligible && confirmedNet <= 0) {
       rewards.push({ id: `perfect-day:${date}`, effectiveDate: date, xpDelta: 20 })
@@ -414,9 +416,22 @@ export async function getAchievementProgress(userId: string): Promise<Achievemen
 }
 
 async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof getSupabaseClient>>, userId: string): Promise<AchievementState[]> {
-  countDevPerformance('supabase.achievement-refresh-rpc')
-  const { error: refreshError } = await client.rpc('refresh_my_progression_qualification_progress')
-  if (refreshError) throw progressionReadError('refresh_my_progression_qualification_progress', refreshError)
+  let refreshRequest = qualificationRefreshRequests.get(userId)
+  if (refreshRequest) {
+    countDevPerformance('supabase.achievement-refresh-deduplicated')
+    await refreshRequest
+  } else {
+    countDevPerformance('supabase.achievement-refresh-rpc')
+    const request: Promise<void> = Promise.resolve(client.rpc('refresh_my_progression_qualification_progress')).then(({ error }) => {
+      if (error) throw progressionReadError('refresh_my_progression_qualification_progress', error)
+    })
+    const trackedRequest = request.finally(() => {
+      if (qualificationRefreshRequests.get(userId) === refreshRequest) qualificationRefreshRequests.delete(userId)
+    })
+    refreshRequest = trackedRequest
+    qualificationRefreshRequests.set(userId, trackedRequest)
+    await trackedRequest
+  }
   countDevPerformance('supabase.achievement-progress-request')
   countDevPerformance('supabase.achievement-history-request')
   countDevPerformance('supabase.retained-achievement-request')
@@ -482,7 +497,7 @@ export async function getNewlyConfirmedRewards(userId: string, since: string): P
 
 export async function getPerfectDayCompletion(userId: string, date: string): Promise<PerfectDayState> {
   const snapshot = await getLocalSnapshot(userId)
-  const counts = eligibleAndCompleted(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone, true)
+  const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
   const today = localCalendarDate(new Date(), snapshot.timeZone)
   const entryIds = new Set(snapshot.entries.filter((entry) => entry.date === date).map((entry) => entry.id))
   const provisional = date <= today && counts.eligible > 0 && counts.eligible === counts.completed && snapshot.entries.some((entry) => entry.date === date && entryIds.has(entry.id) && snapshot.pendingEntryIds.has(entry.id))
@@ -502,7 +517,7 @@ export async function getWeeklyProgressSummary(userId: string, today?: string): 
   const currentDate = today ?? localCalendarDate(new Date(), snapshot.timeZone)
   return Array.from({ length: 7 }, (_, index) => {
     const date = dateText(dateValue(currentDate) - (6 - index) * 86_400_000)
-    const counts = eligibleAndCompleted(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
+    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
     return { date, completed: counts.completed, eligible: counts.eligible, adherence: counts.eligible ? Math.round(counts.completed / counts.eligible * 100) : null, isOpen: date === currentDate }
   })
 }

@@ -18,7 +18,6 @@ const storageKey = (userId: string) => `progress-tracker:achievement-seen:${user
 const pendingStorageKey = (userId: string) => `progress-tracker:achievement-pending:${userId}`
 const levelStateKey = (userId: string) => `progress-tracker:level-state:${userId}`
 const levelPendingKey = (userId: string) => `progress-tracker:level-pending:${userId}`
-const retryDelay = (attempt: number) => new Promise((resolve) => window.setTimeout(resolve, 250 * 2 ** attempt))
 const levelForXp = (xp: number) => calculateProgressionLevel(xp).level
 
 export function badgeCelebrationLevel(repeatable: boolean, occurrence: number): 'first' | 'repeat' | 'milestone' {
@@ -49,13 +48,11 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       } catch (error) {
         readError = error
         // Preserve badge celebrations if unrelated XP or score-history reads fail.
-        for (let attempt = 0; attempt < 3 && !badges; attempt += 1) {
-          try { badges = await getEarnedAndLockedBadges(userId) }
-          catch (badgeError) {
-            readError = badgeError
-            if (attempt < 2) await retryDelay(attempt)
-          }
-        }
+        // The fallback performs the same full-history qualification refresh.
+        // Retry it at most once; repeated retries can queue expensive reconciles
+        // while the next progression notification will request a fresh read.
+        try { badges = await getEarnedAndLockedBadges(userId) }
+        catch (badgeError) { readError = badgeError }
       }
       if (!badges) throw readError
       if (requestId !== refreshSequence.current) return

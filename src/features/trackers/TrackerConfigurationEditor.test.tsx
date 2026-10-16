@@ -19,7 +19,7 @@ describe('Tracker configuration explanations', () => {
 
     await user.click(screen.getByRole('button', { name: 'More about Streak qualification' }))
     const dialog = screen.getByRole('dialog', { name: 'Streak qualification' })
-    expect(dialog).toHaveTextContent('separate from the tracker’s success rule')
+    expect(dialog).toHaveTextContent('New explicit Streak Rules are configured separately below the Success Rule')
     expect(dialog).toHaveTextContent('Completed without qualifying for a streak')
     expect(dialog).toHaveTextContent('Standard Mode counts scheduled opportunities')
     expect(dialog).toHaveTextContent('Strict Mode requires qualifying activity on every active date')

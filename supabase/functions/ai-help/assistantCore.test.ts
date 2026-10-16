@@ -18,7 +18,7 @@ describe('AI Help retrieval and provider boundary', () => {
   it('retrieves verified answers for the three previously failing questions and their paraphrases', () => {
     const cases = [
       ['How do streak statistics work?', 'streak-statistics', /current streak|longest streak/i],
-      ['How is completion rate calculated?', 'completion-rate', /qualifying opportunities divided by the number of counted opportunities/i],
+      ['How is completion rate calculated?', 'completion-rate', /number of opportunities meeting the tracker’s Success Rule divided by the number of elapsed counted opportunities/i],
       ['What does History include?', 'history-includes', /saved check-ins.*holidays.*missing check-in/i],
     ] as const
     for (const [question, id, answer] of cases) {

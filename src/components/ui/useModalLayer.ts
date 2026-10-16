@@ -4,6 +4,8 @@ type Layer = {
   element: HTMLElement
   onEscape: () => void
   token: string
+  backdrop?: HTMLElement
+  previousZIndex?: string
   coveredLayer?: Layer
   previousInert?: boolean
   previousAriaHidden?: string | null
@@ -18,6 +20,12 @@ let originalRootOverflow = ''
 let lockedScrollY = 0
 let layerSequence = 0
 const historyKey = '__progressTrackerModalLayer'
+
+function syncBackdropOrder() {
+  layers.forEach((layer, index) => {
+    if (layer.backdrop) layer.backdrop.style.zIndex = String(10_000 + index)
+  })
+}
 
 /** True while another modal layer is above the supplied element (or is open
  * while a non-modal surface, such as the desktop AI Help panel, is underneath). */
@@ -78,6 +86,10 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
       element,
       onEscape: () => escapeRef.current(),
       token,
+      ...(element.closest<HTMLElement>('.modal-backdrop') ? {
+        backdrop: element.closest<HTMLElement>('.modal-backdrop')!,
+        previousZIndex: element.closest<HTMLElement>('.modal-backdrop')!.style.zIndex,
+      } : {}),
       ...(coveredLayer ? {
         coveredLayer,
         previousInert: coveredLayer.element.inert,
@@ -89,6 +101,7 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
       coveredLayer.element.setAttribute('aria-hidden', 'true')
     }
     layers.push(layer)
+    syncBackdropOrder()
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (layers.at(-1) !== layer) return
@@ -139,6 +152,8 @@ export function useModalLayer(open: boolean, elementRef: { current: HTMLElement 
       if (manageHistoryEntry) window.removeEventListener('popstate', onPopState)
       const index = layers.indexOf(layer)
       if (index >= 0) layers.splice(index, 1)
+      if (layer.backdrop) layer.backdrop.style.zIndex = layer.previousZIndex ?? ''
+      syncBackdropOrder()
       if (layer.coveredLayer && layers.includes(layer.coveredLayer)) {
         layer.coveredLayer.element.inert = layer.previousInert ?? false
         if (layer.previousAriaHidden === null || layer.previousAriaHidden === undefined) layer.coveredLayer.element.removeAttribute('aria-hidden')

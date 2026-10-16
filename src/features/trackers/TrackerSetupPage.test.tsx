@@ -320,7 +320,7 @@ describe('tracker setup flow', () => {
     const user = userEvent.setup()
     renderSetup()
     await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read pages')
-    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 1 value type' }), 'quantity')
     expect(screen.getByRole('region', { name: 'Numeric measure settings' })).toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'pages')
     await user.clear(screen.getByRole('spinbutton', { name: 'Per-check-in target' }))
@@ -329,32 +329,50 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
-    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 4, metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
+    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 8, streakRuleMode: 'same-as-success', metrics: [{ valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 5 } }] }])
   })
 
-  it('keeps the first type controlled by the main choice and lets unsaved secondary types change', async () => {
+  it.each([
+    ['boolean', 'Yes / no'],
+    ['quantity', 'Quantity'],
+    ['duration', 'Duration'],
+    ['checklist', 'Checklist'],
+  ] as const)('creates a tracker with %s as its primary measure type', async (valueType, _label) => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), `Primary ${valueType}`)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 1 value type' }), valueType)
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{ metrics: [{ valueType }] }])
+  })
+
+  it('offers all four primary types and keeps independent type choices available in advanced configuration', async () => {
     const user = userEvent.setup()
     renderSetup()
     await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read daily')
-    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    const primaryType = screen.getByRole('combobox', { name: 'Measure 1 value type' })
+    expect(within(primaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity', 'Duration', 'Checklist'])
+    await user.selectOptions(primaryType, 'quantity')
     await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'pages')
     await user.type(screen.getByRole('spinbutton', { name: 'Per-check-in target' }), '5')
-    await user.click(screen.getByRole('radio', { name: 'Done or not yet' }))
-    await user.click(screen.getByRole('radio', { name: 'Number or amount' }))
+    await user.selectOptions(primaryType, 'boolean')
+    await user.selectOptions(primaryType, 'quantity')
     expect(screen.getByRole('textbox', { name: 'Numeric measure unit' })).toHaveValue('pages')
     expect(screen.getByRole('spinbutton', { name: 'Per-check-in target' })).toHaveValue(5)
     await user.click(screen.getByText('More options'))
     await user.click(screen.getByText('Measures, precision & targets'))
-    expect(screen.queryByRole('combobox', { name: 'Measure 1 value type' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const secondaryType = screen.getByRole('combobox', { name: 'Measure 2 value type' })
-    expect(within(secondaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity'])
-    await user.selectOptions(secondaryType, 'boolean')
-    expect(secondaryType).toHaveValue('boolean')
-    expect(screen.getByRole('radio', { name: 'Number or amount' })).toBeChecked()
+    expect(within(secondaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity', 'Duration', 'Checklist'])
+    await user.selectOptions(secondaryType, 'checklist')
+    expect(secondaryType).toHaveValue('checklist')
+    expect(screen.getByLabelText('Checklist item 1')).toBeInTheDocument()
   })
 
-  it('locks persisted measure types while leaving newly added measures editable until saved', async () => {
+  it('preserves types with recorded values and allows type changes where no historical value exists', async () => {
     const existing = datedTracker('locked-measures', 'habit')
     existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } })
     await localRepository.saveTracker(existing)
@@ -362,15 +380,59 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     await user.click(await screen.findByText('More options'))
     await user.click(await screen.findByText('Measures, precision & targets'))
-    expect(screen.queryByRole('combobox', { name: 'Measure 1 value type' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: 'Measure 2 value type' })).not.toBeInTheDocument()
-    expect(screen.getAllByText("Measure types can't be changed after a tracker is created.")).toHaveLength(2)
+    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toBeInTheDocument()
+    const existingPageType = screen.getByRole('combobox', { name: 'Measure 2 value type' })
+    await user.selectOptions(existingPageType, 'duration')
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const newType = screen.getByRole('combobox', { name: 'Measure 3 value type' })
     await user.selectOptions(newType, 'boolean')
     expect(newType).toHaveValue('boolean')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'quantity' }, { valueType: 'boolean' }] }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'duration' }, { valueType: 'boolean' }] }))
+  })
+
+  it('saves a custom Streak Rule independently from the Success Rule', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Practice problems')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 1 value type' }), 'quantity')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Streak rule', { selector: 'summary' }))
+    const streakSection = screen.getByRole('region', { name: 'Streak rule' })
+    await user.selectOptions(within(streakSection).getByRole('combobox', { name: 'Streak rule mode' }), 'custom')
+    await user.clear(within(streakSection).getByRole('spinbutton'))
+    await user.type(within(streakSection).getByRole('spinbutton'), '1')
+
+    await user.click(screen.getByText('Success rule', { selector: 'summary' }))
+    const successSection = screen.getByRole('region', { name: 'Success rule' })
+    await user.clear(within(successSection).getByRole('spinbutton'))
+    await user.type(within(successSection).getByRole('spinbutton'), '5')
+    expect(within(streakSection).getByText(/Streak summary: Progress ≥ 1/)).toBeInTheDocument()
+    expect(within(successSection).getByText(/Success summary: Progress ≥ 5/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Create tracker' }))
+    expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
+    expect(await localRepository.listTrackers()).toMatchObject([{
+      schemaVersion: 8,
+      streakRuleMode: 'custom',
+      qualificationRule: { kind: 'comparison', value: 5 },
+      streakRule: { kind: 'comparison', value: 1 },
+    }])
+  })
+
+  it('keeps an existing v7 tracker on its legacy streak behavior until the user changes it', async () => {
+    const existing = {
+      ...datedTracker('legacy-streak-rule', 'habit'),
+      schemaVersion: 7 as const,
+      scheduling: { mode: 'ongoing' as const },
+      deadline: undefined,
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByRole('button', { name: 'Save changes' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 7 }))
+    expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('streakRuleMode')
   })
 
   it('retires a saved measure with history after confirmation and keeps its original definition', async () => {
@@ -412,7 +474,7 @@ describe('tracker setup flow', () => {
     window.dispatchEvent(new Event('resize'))
     renderSetup()
     expect(screen.getByRole('textbox', { name: 'What habit do you want to build?' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Done or not yet' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toHaveValue('boolean')
     expect(screen.getByLabelText('Start date')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create tracker' })).toBeInTheDocument()
     expect(styles).toContain('@media (max-width: 360px)')
@@ -429,6 +491,8 @@ describe('tracker setup flow', () => {
   it('creates a cumulative goal when an optional target and deadline are added', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', 'true')
     const user = userEvent.setup()
     renderSetup()
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
@@ -448,7 +512,7 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('link', { name: 'Customize my plan' })).toHaveAttribute('href', expect.stringMatching(/\/trackers\/.*\/edit/))
     const [saved] = await localRepository.listTrackers()
     expect(saved).toMatchObject({
-      schemaVersion: 6, kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' }, scheduling: { mode: 'calendar' },
+      schemaVersion: 8, streakRuleMode: 'same-as-success', kind: 'goal', name: 'Solve DSA problems', schedule: { kind: 'every-day' }, scheduling: { mode: 'calendar' },
       goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { [saved!.metrics[0]!.id]: 'incremental' }, cumulativeTargets: { [saved!.metrics[0]!.id]: 100 } },
       metrics: [{ name: 'Progress', valueType: 'quantity', unit: 'problems', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }],
     })
@@ -527,10 +591,10 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.click(screen.getByRole('radio', { name: /Goal/ }))
     await user.type(screen.getByRole('textbox', { name: 'What do you want to achieve?' }), 'Read books')
-    expect(screen.getByRole('radio', { name: 'Number or amount' })).toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toHaveValue('quantity')
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
-    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 1, kind: 'goal', name: 'Read books', metrics: [{ thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }] }])
+    expect(await localRepository.listTrackers()).toMatchObject([{ schemaVersion: 8, streakRuleMode: 'same-as-success', kind: 'goal', name: 'Read books', metrics: [{ thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }] }])
     expect((await localRepository.listTrackers())[0]?.metrics[0]?.thresholds?.target).toBeUndefined()
   })
 

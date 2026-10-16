@@ -28,6 +28,8 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate, useWorkspaceCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerEntryFields } from '../shared/TrackerEntryFields'
+
+let historicalProgressNoticeShown = false
 import { ClearCheckInAction } from '../shared/ClearCheckInAction'
 import { useAuth } from '../auth/AuthProvider'
 import { getTodayMetricDetails, TodayRequirements } from './TodayRequirements'
@@ -378,6 +380,7 @@ function checkinBaseline(entry?: StoredTrackerEntry): CheckinBaseline {
 }
 
 function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, holidays, status, canEdit, historical, authStatus, isOnline, syncStatus, onSave, onClear, onClose }: CheckinSheetProps) {
+  const [showHistoricalNotice] = useState(() => historical && !historicalProgressNoticeShown)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
   const [baseline, setBaseline] = useState(() => checkinBaseline(entry))
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
@@ -486,10 +489,15 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
   async function clear(): Promise<boolean> { setSaving(true); const cleared = await onClear(tracker, today); setSaving(false); if (cleared) onClose(); return cleared }
   const challengeDay = getChallengeDayDisplay(tracker, today, timeZone, holidays)
 
+  useEffect(() => {
+    if (historical) historicalProgressNoticeShown = true
+  }, [historical])
+
   return createPortal(<div ref={backdropRef} className="modal-backdrop today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
       <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}<p>{calendarDateLabel(today)}{isBinaryCompletion ? '' : ` · ${ACTIVITY_STATUS_PRESENTATION[status].label}${holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}`}</p>{challengeDay && <p>Starts {calendarDateLabel(trackerActiveStartDate(tracker, timeZone))} · Finish by {calendarDateLabel(tracker.deadline!)}{challengeDay.phase === 'active' ? ` · ${challengeDay.daysRemaining} days remaining` : ''}</p>}</div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
       <div className="today-detail-content">
+        {showHistoricalNotice && historical && <p className="today-detail-notice" role="note">Past entries can update your XP, streaks, and achievements.</p>}
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         {!isBinaryCompletion && <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={entries} holidays={holidays} />}
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>

@@ -26,9 +26,11 @@ A skipped day is an explicitly saved check-in marked as skipped. An unchecked pa
 **Suggestible:** true
 **Sources:**
 - src/features/history/HistoryPage.tsx
+- src/features/today/TodayPage.tsx
 - src/domain/trackers/progression.ts
+- supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Yes. In Calendar, select the date and choose Edit check-in; in History, open the saved entry. Both open the shared editor for that date, where you can update its values and note or clear it with confirmation. Eligible missing dates can also be added from Calendar or History. The latest saved revision for a tracker and date is used in current calculations.
+Yes. In Calendar, select the date and choose Edit check-in; in History, open the saved entry. Both open the shared editor for that date, where you can update its values and note or clear it with confirmation. Eligible missing dates can also be added from Calendar or History. A brief notice explains that past edits can update XP, streaks, and achievements. Rewards and derived results use the activity date and are reconciled when the account syncs; offline estimates stay provisional until then.
 
 ### ID: clear-checkin
 **Category:** check-ins
@@ -97,14 +99,14 @@ Custom check-in fields add context to an entry, such as a note or selected answe
 **Aliases:**
 - Can I track a number or a yes/no habit?
 - What measure types are available?
-**Keywords:** Yes/No, quantity, measures, recorded values, legacy
+**Keywords:** Yes/No, quantity, duration, checklist, measures, recorded values
 **Suggestible:** true
 **Sources:**
 - src/domain/trackers/types.ts
 - src/features/trackers/trackerSetupSchema.ts
 - src/features/shared/TrackerEntryFields.tsx
 **Answer:**
-New tracker measures use Yes/No or Quantity values. Existing trackers may also contain legacy measure types such as Duration or Checklist, which remain supported for their saved history.
+Every measure, including the primary measure, can use Yes/No, Quantity, Duration, or Checklist values. Each type keeps its own input and comparison behavior, and saved measure definitions retain their meaning when a tracker is edited.
 
 ### ID: checkin-empty-versus-zero-status
 **Category:** check-ins

@@ -12,7 +12,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay, qualifiesForStreak } from '../../domain/trackers/progression'
+import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -132,10 +132,6 @@ export function DashboardPage() {
     const tracker = entryById.get(entry.trackerId)
     return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && evaluateTrackerEntry(tracker!, entry).qualified
   })
-  const consistencyQualified = weekEntries.filter((entry) => {
-    const tracker = entryById.get(entry.trackerId)
-    return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && qualifiesForStreak(tracker!, entry)
-  })
   const scheduledWeek = visibleTrackers.reduce((count, tracker) => {
     for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) {
       const opportunity = hasOpportunity(tracker, day)
@@ -144,7 +140,7 @@ export function DashboardPage() {
     }
     return count
   }, 0)
-  const completionPercent = scheduledWeek ? Math.round(consistencyQualified.length / scheduledWeek * 100) : 0
+  const completionPercent = scheduledWeek ? Math.round(successfulWeek.length / scheduledWeek * 100) : 0
   const missingCheckIns = useMemo(() => selectMissingCheckIns({
     trackers: data.trackers,
     entries: data.entries,
@@ -168,7 +164,7 @@ export function DashboardPage() {
         <div className="dashboard-stats" role="group" aria-label="Recent progress summary">
           <StatCard label={selectedTracker ? 'Selected tracker' : 'Active trackers'} value={String(visibleTrackers.length)} detail={selectedTracker ? selectedTracker.name : 'ready for your next check-in'} help="Counts active trackers in this workspace. Archived items and Bin items are not included." />
           <StatCard label="Successes · 7 days" value={String(successfulWeek.length)} detail={`${scheduledWeek} elapsed opportunities`} help="Counts recorded check-ins that met their success rule on a day eligible under that tracker’s policy during the last seven calendar days." />
-          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of eligible opportunities' : 'nothing eligible this week'} help="Streak-qualified check-ins divided by elapsed opportunities over the last seven calendar days. Each tracker uses its own streak qualification and policy. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Today remains open until it ends." />
+          <StatCard label="Weekly consistency" value={scheduledWeek ? `${completionPercent}%` : '—'} detail={scheduledWeek ? 'of eligible opportunities' : 'nothing eligible this week'} help="Success Rule-qualified check-ins divided by elapsed opportunities over the last seven calendar days. Each tracker uses its own success rule and schedule policy. Holidays and rest days are excluded in Standard Mode and required in Strict Mode. Today remains open until it ends." />
           <StatCard label="All Trackers streak" value={`${allTrackersStreak.current}`} detail={allTrackersToday.state === 'perfect' ? 'Perfect Day achieved today' : allTrackersToday.state === 'pending' ? 'Today is still in progress' : allTrackersToday.state === 'failed' ? 'A required target was missed today' : allTrackersToday.state === 'neutral' ? 'No required activity today' : 'Today’s status is not yet available'} help="Consecutive Perfect Days where every required active tracker met its target. Standard Mode holidays and rest days are neutral; Strict Mode requires activity during the tracker period. This account-wide streak is separate from each tracker’s own streak." />
           <StatCard label="Reward points" value={String(rewardPoints)} detail="active trackers · from saved check-ins" help="A playful summary of points earned from active tracker streaks and qualifying check-ins. It does not change your records or goals." />
         </div>

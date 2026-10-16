@@ -4,9 +4,9 @@ import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Catego
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { measureDevPerformance } from '../utils/devPerformance'
-import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
-import { historicalMetricMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
+import { historicalMetricMeaningChange, retiredMetricMeaningChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
 import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
@@ -414,6 +414,7 @@ export const localRepository = {
   },
 
   async saveTracker(draft: StoredTrackerDefinition): Promise<StoredTrackerDefinition> {
+    if (draft.schemaVersion === 8 && !isSchemaV8WriteEnabled()) throw new Error('Custom streak rules need schema v8. Apply and verify migration 20261111000100_tracker_streak_rules_v8.sql, then enable VITE_ENABLE_TRACKER_SCHEMA_V8 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 7 && !isSchemaV7WriteEnabled()) throw new Error('Effective Days counting needs schema v7. Apply and verify migration 20261109000100_tracker_effective_day_counting_v7.sql, then enable VITE_ENABLE_TRACKER_SCHEMA_V7 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 6 && !isSchemaV6WriteEnabled()) throw new Error('Unified scheduling needs schema v6. Apply and verify migration 20261108000100_tracker_scheduling_v6.sql in Supabase, then enable VITE_ENABLE_TRACKER_SCHEMA_V6 for the production build. No tracker changes were saved.')
     if (draft.schemaVersion === 3 && !isSchemaV3WriteEnabled()) throw new Error('Schema v3 plan writes are disabled until the hosted migration is applied and verified.')
@@ -434,14 +435,16 @@ export const localRepository = {
       if (existing?.deletedAt) throw new Error('Restore this tracker from the Bin before editing it.')
       if (existing) {
         if (activeTrackerMetrics(existing.metrics).length > 0 && activeTrackerMetrics(draft.metrics).length === 0) throw new Error('Keep at least one active measure so this tracker can record future check-ins.')
-        const changedType = trackerMetricTypeChange(existing, draft)
-        if (changedType) throw new Error(`The saved measure type for “${changedType}” can’t be changed. Add a new measure to record it differently.`)
-        const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
-        if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
-        const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).filter((entry) => entry.deletedAt === null).toArray()
-        const historicalMetricIds = new Set(existing.metrics.filter((metric) => history.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
-        const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
-        if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
+        if (JSON.stringify(existing.metrics) !== JSON.stringify(draft.metrics)) {
+          const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).filter((entry) => entry.deletedAt === null).toArray()
+          const historicalMetricIds = new Set(existing.metrics.filter((metric) => history.some((entry) => Object.hasOwn(entry.values, metric.id))).map((metric) => metric.id))
+          const changedHistoricalType = existing.metrics.find((metric) => historicalMetricIds.has(metric.id) && draft.metrics.some((candidate) => candidate.id === metric.id && candidate.valueType !== metric.valueType))
+          if (changedHistoricalType) throw new Error(`The saved measure type for “${changedHistoricalType.name}” can’t be changed because its historical values use the original type. Retire it and add a new measure to record it differently.`)
+          const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
+          if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
+          const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)
+          if (changedHistoricalMeaning) throw new Error(`“${changedHistoricalMeaning}” has saved check-ins. Its name, type, unit, and interpretation must stay the same; retire it and add a new measure to change how you track it.`)
+        }
       }
       if (activeOwner) {
         const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([activeOwner, 'tracker', draft.id]).first()
@@ -474,6 +477,11 @@ export const localRepository = {
     const database = await openDatabase()
     const entries = await database.trackerEntries.where('date').between(startDate, endDate, true, true).toArray()
     return entries.filter((entry) => entry.deletedAt === null).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt))
+  },
+
+  async listAllTrackerEntries(): Promise<StoredTrackerEntry[]> {
+    const database = await openDatabase()
+    return (await database.trackerEntries.toArray()).filter((entry) => entry.deletedAt === null)
   },
 
   async listTrackerEntriesForTracker(trackerId: string): Promise<StoredTrackerEntry[]> {

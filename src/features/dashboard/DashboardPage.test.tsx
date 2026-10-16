@@ -37,6 +37,28 @@ describe('local progress dashboard', () => {
     expect(screen.getByText('personal best')).toBeInTheDocument()
   })
 
+  it('shows streak-only progress without counting it as weekly success or consistency', async () => {
+    const yesterday = shiftCalendarDate(localCalendarDate(), -1)
+    const independentRules = {
+      ...tracker(),
+      schemaVersion: 8 as const,
+      startDate: yesterday,
+      scheduling: { mode: 'ongoing' as const },
+      qualificationRule: { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 5 },
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 1 },
+    }
+    await localRepository.saveTracker(independentRules)
+    await localRepository.saveTrackerEntry({ trackerId: independentRules.id, date: yesterday, outcome: 'recorded', values: { pages: 1 }, note: '' })
+
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    const summary = await screen.findByRole('group', { name: 'Recent progress summary' })
+    expect(within(summary).getByText('Successes · 7 days').closest('.dashboard-stat')).toHaveTextContent('0')
+    expect(within(summary).getByText('Weekly consistency').closest('.dashboard-stat')).toHaveTextContent('0%')
+    const card = (await screen.findByRole('heading', { name: 'Read a book' })).closest('.dashboard-tracker-card')!
+    expect(card).toHaveTextContent(/1\s*current streak/)
+  })
+
   it('separates today holiday status from the dated latest check-in and preserves mode-specific streak rules', async () => {
     const standard = { ...tracker(), startDate: shiftCalendarDate(localCalendarDate(), -3) }
     const strict = { ...standard, id: 'dashboard-strict', name: 'Strict tracker', strictMode: true }

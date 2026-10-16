@@ -52,6 +52,40 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse({ ...v7, scheduling: { mode: 'calendar' } }).success).toBe(true)
   })
 
+  it('validates explicit v8 streak modes and type-aware custom conditions while preserving v1-v7 definitions', () => {
+    const v8 = { ...tracker, schemaVersion: 8 as const, scheduling: { mode: 'calendar' as const }, streakRuleMode: 'same-as-success' as const }
+    const custom = {
+      ...v8,
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'any' as const, operands: [
+        { kind: 'comparison' as const, metricId: 'pages', operator: 'at-least' as const, value: 1 },
+        { kind: 'comparison' as const, metricId: 'minutes', operator: 'at-most' as const, value: 5 },
+      ] },
+    }
+    expect(trackerDefinitionSchema.safeParse(v8).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse(custom).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...tracker, schemaVersion: 7, streakRuleMode: 'same-as-success' }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v8, streakRuleMode: undefined }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v8, streakRuleMode: 'custom' }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...v8, streakRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...custom, streakRule: { kind: 'comparison', metricId: 'missing', operator: 'at-least', value: 1 } }).success).toBe(false)
+
+    const checklist = { id: 'steps', name: 'Steps', valueType: 'checklist' as const, checklistItems: [
+      { id: 'one', label: 'One', position: 0 }, { id: 'two', label: 'Two', position: 1 },
+    ] }
+    const checklistV8 = {
+      ...v8,
+      metrics: [checklist],
+      milestones: [],
+      qualificationRule: undefined,
+      streakRuleMode: 'custom' as const,
+      streakRule: { kind: 'comparison' as const, metricId: 'steps', operator: 'at-least' as const, value: 2 },
+    }
+    expect(trackerDefinitionSchema.safeParse(checklistV8).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...checklistV8, streakRule: { ...checklistV8.streakRule, value: 3 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...checklistV8, streakRule: { ...checklistV8.streakRule, value: 1.5 } }).success).toBe(false)
+  })
+
   it('retains future Manual overrides outside a revised v6 goal window for explicit review', () => {
     const effectiveGoal = {
       ...tracker, schemaVersion: 6 as const, kind: 'goal' as const, schedule: { kind: 'weekdays' as const }, deadline: '2026-01-07',

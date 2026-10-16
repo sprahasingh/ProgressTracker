@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule, ThresholdConfiguration } from '../../domain/trackers/types'
+import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule, TrackerStreakRuleMode, ThresholdConfiguration } from '../../domain/trackers/types'
 import { Button } from '../../components/ui/Button'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { SectionHeader } from '../../components/ui/SectionHeader'
@@ -23,10 +23,16 @@ function ruleUsesMetric(rule: TrackerRule | undefined, metricId: string): boolea
   return rule.operands.some((operand) => ruleUsesMetric(operand, metricId))
 }
 
-type RuleNodeProps = { rule: TrackerRule; metrics: TrackerMetricDefinition[]; path: number[]; onChange: (path: number[], rule: TrackerRule) => void; onRemove?: (path: number[]) => void }
+function replaceRuleMetric(rule: TrackerRule | undefined, metricId: string, metric: TrackerMetricDefinition): TrackerRule | undefined {
+  if (!rule) return undefined
+  if (rule.kind === 'threshold' || rule.kind === 'comparison') return rule.metricId === metricId ? defaultRule(metric) : rule
+  return { ...rule, operands: rule.operands.map((operand) => replaceRuleMetric(operand, metricId, metric)!) }
+}
 
-function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
-  const validationPath = `qualificationRule${path.map((index) => `.operands.${index}`).join('')}`
+type RuleNodeProps = { rule: TrackerRule; metrics: TrackerMetricDefinition[]; path: number[]; onChange: (path: number[], rule: TrackerRule) => void; onRemove?: (path: number[]) => void; ruleName: 'Success' | 'Streak'; pathRoot: 'qualificationRule' | 'streakRule' }
+
+function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot }: RuleNodeProps) {
+  const validationPath = `${pathRoot}${path.map((index) => `.operands.${index}`).join('')}`
   const firstMetric = metrics[0]
   const metricId = rule.kind === 'threshold' || rule.kind === 'comparison' ? rule.metricId : firstMetric?.id
   const metric = metrics.find((item) => item.id === metricId) ?? firstMetric
@@ -59,18 +65,18 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
   return (
     <div className={`rule-node${path.length ? ' rule-node-nested' : ''}`}>
       <div className="rule-node-controls">
-        <select data-validation-path={validationPath} aria-label="Success condition type" className="auth-input" value={rule.kind} onChange={(event) => selectKind(event.target.value)}>
+        <select data-validation-path={validationPath} aria-label={`${ruleName} condition type`} className="auth-input" value={rule.kind} onChange={(event) => selectKind(event.target.value)}>
           <option value="comparison">Metric comparison</option>
           {metric && (['minimum', 'target', 'stretch'] as const).some((level) => metric.thresholds?.[level] !== undefined) && <option value="threshold">Achievement threshold</option>}
           <option value="all">All conditions (AND)</option><option value="any">Any condition (OR)</option><option value="at-least">At least N conditions</option>
         </select>
-        <InfoButton title="Condition type" summary="Choose how this success rule evaluates one or more conditions." description="Metric comparison checks a value directly. Achievement threshold checks the metric’s minimum, target, or stretch level. All (AND) requires every child rule; Any (OR) requires at least one; At least N lets you choose how many child rules must pass." />
+        <InfoButton title="Condition type" summary={`Choose how this ${ruleName.toLowerCase()} rule evaluates one or more conditions.`} description="Metric comparison checks a value directly. Achievement threshold checks the metric’s minimum, target, or stretch level. All (AND) requires every child rule; Any (OR) requires at least one; At least N lets you choose how many child rules must pass." />
         {onRemove && <Button type="button" variant="destructive" size="small" onClick={() => onRemove(path)}>Remove</Button>}
       </div>
       {(rule.kind === 'threshold' || rule.kind === 'comparison') && (
         <div className="rule-leaf-controls">
           <label className="form-field"><span>Measure <InfoButton title="Rule measure" summary="Choose which metric this condition evaluates." description="The selected metric supplies the value used by this condition. Rules evaluate a check-in; they do not change the recorded value or the goal’s total planning target." /></span>
-            <select data-validation-path={validationPath} className="auth-input" value={rule.metricId} onChange={(event) => {
+            <select aria-label="Measure" data-validation-path={validationPath} className="auth-input" value={rule.metricId} onChange={(event) => {
               const next = metrics.find((item) => item.id === event.target.value)
               if (next) onChange(path, defaultRule(next))
             }}>{metrics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
@@ -82,18 +88,18 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
           </label>}
           {rule.kind === 'comparison' && <>
             <label className="form-field"><span>Condition <InfoButton title="Comparison" summary="Choose the numeric or yes/no comparison to evaluate." description="At least and at most compare numeric values to the value below. Equals checks exact equality. For boolean values, choose whether completion should be true or false." /></span>
-              <select className="auth-input" value={rule.operator} onChange={(event) => onChange(path, { ...rule, operator: event.target.value as 'equals' | 'at-least' | 'at-most' })}>
+              <select aria-label="Condition" className="auth-input" value={rule.operator} onChange={(event) => onChange(path, { ...rule, operator: event.target.value as 'equals' | 'at-least' | 'at-most' })}>
                 {(metric?.valueType === 'boolean' ? ['equals'] : ['at-least', 'at-most', 'equals']).map((operator) => <option key={operator} value={operator}>{operator === 'at-least' ? 'At least' : operator === 'at-most' ? 'At most' : 'Equals'}</option>)}
               </select>
             </label>
-            {metric?.valueType === 'boolean' ? <label className="form-field"><span>Value <InfoButton title="Comparison value" summary="Choose the value that makes this rule pass." description="For yes/no metrics select Completed or Not completed. For numeric metrics, enter the comparison boundary in that metric’s unit." /></span><select className="auth-input" value={String(rule.value)} onChange={(event) => onChange(path, { ...rule, value: event.target.value === 'true' })}><option value="true">Completed</option><option value="false">Not completed</option></select></label>
-              : <label className="form-field"><span>Value <InfoButton title="Comparison value" summary="Enter the boundary for this numeric comparison." description="The condition compares a saved value to this number using the selected operator. The number uses the selected metric’s unit." /></span><input data-validation-path={`${validationPath}.value`} className="auth-input" type="number" min="0" step="any" value={typeof rule.value === 'number' ? rule.value : ''} onChange={(event) => onChange(path, { ...rule, value: Number(event.target.value) })} /></label>}
+            {metric?.valueType === 'boolean' ? <label className="form-field"><span>Value <InfoButton title="Comparison value" summary="Choose the value that makes this rule pass." description="For yes/no metrics select Completed or Not completed. For numeric metrics, enter the comparison boundary in that metric’s unit." /></span><select aria-label="Value" className="auth-input" value={String(rule.value)} onChange={(event) => onChange(path, { ...rule, value: event.target.value === 'true' })}><option value="true">Completed</option><option value="false">Not completed</option></select></label>
+              : <label className="form-field"><span>Value <InfoButton title="Comparison value" summary="Enter the boundary for this numeric comparison." description="The condition compares a saved value to this number using the selected operator. The number uses the selected metric’s unit." /></span><input aria-label="Value" data-validation-path={`${validationPath}.value`} className="auth-input" type="number" min="0" step="any" value={typeof rule.value === 'number' ? rule.value : ''} onChange={(event) => onChange(path, { ...rule, value: Number(event.target.value) })} /></label>}
           </>}
         </div>
       )}
       {(rule.kind === 'all' || rule.kind === 'any' || rule.kind === 'at-least') && <div className="rule-operands">
         {rule.kind === 'at-least' && <label className="form-field rule-required"><span>Required conditions <InfoButton title="Required conditions" summary="Set how many child conditions must pass." description="Choose a number from one up to the number of listed conditions. The overall success rule qualifies when at least this many child conditions are true." /></span><input data-validation-path={`${validationPath}.required`} className="auth-input" type="number" min={1} max={rule.operands.length} value={rule.required} onChange={(event) => onChange(path, { ...rule, required: Math.min(rule.operands.length, Math.max(1, Number(event.target.value) || 1)) })} /></label>}
-        {rule.operands.map((operand, index) => <RuleNode key={index} rule={operand} metrics={metrics} path={[...path, index]} onChange={changeOperand} onRemove={(childPath) => {
+        {rule.operands.map((operand, index) => <RuleNode key={index} rule={operand} metrics={metrics} path={[...path, index]} onChange={changeOperand} ruleName={ruleName} pathRoot={pathRoot} onRemove={(childPath) => {
           const position = childPath.at(-1)
           if (position === undefined) return
           const remaining = rule.operands.filter((_, i) => i !== position)
@@ -110,7 +116,7 @@ function RuleNode({ rule, metrics, path, onChange, onRemove }: RuleNodeProps) {
 }
 
 type Props = {
-  section?: 'metrics' | 'rules' | 'fields' | 'milestones'
+  section?: 'metrics' | 'rules' | 'streak-rules' | 'fields' | 'milestones'
   metrics: TrackerMetricDefinition[]
   onMetricsChange: (metrics: TrackerMetricDefinition[]) => void
   rule?: TrackerRule
@@ -124,9 +130,27 @@ type Props = {
   metricsWithHistory?: string[]
   onRemoveMetric?: (id: string) => void
   planning?: GoalPlanningConfiguration
+  streakRuleMode?: TrackerStreakRuleMode | 'legacy'
+  streakRule?: TrackerRule
+  onStreakRuleModeChange?: (mode: TrackerStreakRuleMode | 'legacy') => void
+  onStreakRuleChange?: (rule: TrackerRule | undefined) => void
 }
 
-export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, planning }: Props) {
+function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinition[]): string {
+  const metricName = (id: string) => metrics.find((metric) => metric.id === id)?.name ?? 'Unknown measure'
+  if (rule.kind === 'threshold') return `${metricName(rule.metricId)} meets its ${rule.level} threshold`
+  if (rule.kind === 'comparison') {
+    const metric = metrics.find((item) => item.id === rule.metricId)
+    const operator = rule.operator === 'at-least' ? '≥' : rule.operator === 'at-most' ? '≤' : '='
+    const value = typeof rule.value === 'boolean' ? rule.value ? 'Yes' : 'No' : `${rule.value}${metric?.unit ? ` ${metric.unit}` : ''}`
+    return `${metricName(rule.metricId)} ${operator} ${value}`
+  }
+  const parts = rule.operands.map((operand) => ruleSummary(operand, metrics))
+  if (rule.kind === 'at-least') return `At least ${rule.required} of (${parts.join('; ')})`
+  return `(${parts.join(rule.kind === 'all' ? ' AND ' : ' OR ')})`
+}
+
+export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, planning, streakRuleMode = 'legacy', streakRule, onStreakRuleModeChange, onStreakRuleChange }: Props) {
   const duplicateNameFor = (metric: TrackerMetricDefinition) => {
     const normalized = metric.name.trim().toLowerCase()
     if (!normalized) return ''
@@ -152,14 +176,29 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
   }
 
   function changeMetricType(metric: TrackerMetricDefinition, type: TrackerMetricDefinition['valueType']) {
-    if (type !== 'boolean' && type !== 'quantity') return
-    updateMetric(metric.id, {
-      valueType: type,
-      unit: type === 'quantity' ? metric.unit ?? '' : undefined,
-      thresholds: type === 'quantity' ? metric.thresholds ?? { direction: 'increase', streakQualification: 'any-recorded-value' } : undefined,
-      precision: type === 'quantity' ? metric.precision : undefined,
-      checklistItems: undefined,
-    })
+    const apply = (changes: Partial<TrackerMetricDefinition>) => {
+      const next = { ...metric, ...changes }
+      updateMetric(metric.id, changes)
+      onRuleChange(replaceRuleMetric(rule, metric.id, next))
+      if (streakRuleMode === 'custom') onStreakRuleChange?.(replaceRuleMetric(streakRule, metric.id, next))
+    }
+    if (type === 'boolean') {
+      apply({ valueType: type, unit: undefined, thresholds: undefined, precision: undefined, checklistItems: undefined })
+    } else if (type === 'checklist') {
+      apply({
+        valueType: type, unit: undefined, precision: undefined,
+        thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' },
+        checklistItems: metric.checklistItems?.length ? metric.checklistItems : [{ id: crypto.randomUUID(), label: 'Step 1', position: 0 }],
+      })
+    } else {
+      apply({
+        valueType: type,
+        unit: metric.unit ?? '',
+        thresholds: metric.thresholds ?? { direction: 'increase', streakQualification: 'any-recorded-value' },
+        precision: metric.precision,
+        checklistItems: undefined,
+      })
+    }
   }
 
   function updateThreshold(metric: TrackerMetricDefinition, key: 'minimum' | 'target' | 'stretch' | 'direction' | 'streakQualification', raw: string) {
@@ -173,7 +212,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
   }
 
   function removeMetric(id: string) {
-    if (ruleUsesMetric(rule, id) || milestones.some((milestone) => milestone.metricId === id)) return
+    if (ruleUsesMetric(rule, id) || ruleUsesMetric(streakRule, id) || milestones.some((milestone) => milestone.metricId === id)) return
     if (onRemoveMetric) { onRemoveMetric(id); return }
     const next = metrics.filter((metric) => metric.id !== id)
     onMetricsChange(next)
@@ -182,13 +221,13 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
   return (
     <div className="tracker-configuration">
       {(!section || section === 'metrics') && <section data-validation-path="metrics" className="configuration-section" aria-labelledby="metrics-heading">
-        <SectionHeader title="Measures" headingId="metrics-heading" description="New measures use Yes/no or Quantity. Existing Duration and Checklist measures keep their saved format." help={{ title: 'Measures and thresholds', summary: 'Measures are the values captured by each check-in; thresholds classify those values.', description: 'Use separate measures for unlike quantities, such as pages and minutes. New measures use Yes/no or Quantity; existing Duration and Checklist measures keep their saved format. Minimum, target, and stretch describe one check-in only; they are separate from goal planning targets. Threshold direction controls whether higher or lower values count as better.' }} action={<Button type="button" variant="secondary" size="small" onClick={() => onMetricsChange([...metrics, freshMetric(metrics.length)])}>＋ Add measure</Button>} />
+        <SectionHeader title="Measures" headingId="metrics-heading" description="Use the same four value types for every measure." help={{ title: 'Measures and thresholds', summary: 'Measures are the values captured by each check-in; thresholds classify those values.', description: 'Yes/no stores completion, Quantity and Duration store numeric values, and Checklist stores checked items. Use separate measures for unlike quantities, such as pages and minutes. Minimum, target, and stretch describe one check-in only; they are separate from goal planning targets.' }} action={<Button type="button" variant="secondary" size="small" onClick={() => onMetricsChange([...metrics, freshMetric(metrics.length)])}>＋ Add measure</Button>} />
         {metrics.length === 0 && <p className="configuration-empty">Add at least one measure to record progress.</p>}
         {metrics.map((metric, index) => <article className="configuration-card" key={metric.id} aria-label={`${metric.name || `Measure ${index + 1}`} measure`}>
-          {metrics.length > 1 && <header className="configuration-card-heading"><strong>{metric.name || `Measure ${index + 1}`}{metric.retiredAt ? ' · Retired' : ''}</strong><div><Button type="button" variant="destructive" size="small" disabled={Boolean(ruleUsesMetric(rule, metric.id) || milestones.some((item) => item.metricId === metric.id) || metric.retiredAt)} title={ruleUsesMetric(rule, metric.id) ? 'Resolve success rule references first.' : milestones.some((item) => item.metricId === metric.id) ? 'Resolve milestone references first.' : undefined} onClick={() => removeMetric(metric.id)}>{persistedMetricIds.includes(metric.id) && metricsWithHistory.includes(metric.id) ? 'Retire measure' : 'Remove'}</Button>{(ruleUsesMetric(rule, metric.id) || milestones.some((item) => item.metricId === metric.id)) && <small className="field-hint">Resolve linked success rules or milestones first.</small>}</div></header>}
+          {metrics.length > 1 && <header className="configuration-card-heading"><strong>{metric.name || `Measure ${index + 1}`}{metric.retiredAt ? ' · Retired' : ''}</strong><div><Button type="button" variant="destructive" size="small" disabled={Boolean(ruleUsesMetric(rule, metric.id) || ruleUsesMetric(streakRule, metric.id) || milestones.some((item) => item.metricId === metric.id) || metric.retiredAt)} title={ruleUsesMetric(rule, metric.id) || ruleUsesMetric(streakRule, metric.id) ? 'Resolve success and streak rule references first.' : milestones.some((item) => item.metricId === metric.id) ? 'Resolve milestone references first.' : undefined} onClick={() => removeMetric(metric.id)}>{persistedMetricIds.includes(metric.id) && metricsWithHistory.includes(metric.id) ? 'Retire measure' : 'Remove'}</Button>{(ruleUsesMetric(rule, metric.id) || ruleUsesMetric(streakRule, metric.id) || milestones.some((item) => item.metricId === metric.id)) && <small className="field-hint">Resolve linked rules or milestones first.</small>}</div></header>}
           <fieldset data-validation-path={`metrics.${index}`} disabled={Boolean(metric.retiredAt)} className={`form-grid configuration-grid${metric.retiredAt ? ' retired-measure-fields' : ''}`}>
             <label className="form-field"><span>Name <InfoButton title="Measure name" summary="Name the value you plan to record." description="Examples include problems solved, reading, or workout duration. The name appears in check-in forms, history, analytics, and goal plans." /></span><input disabled={metricsWithHistory.includes(metric.id)} data-validation-path={`metrics.${index}.name`} aria-label="Name" className="auth-input" maxLength={120} value={metric.name} onChange={(event) => updateMetric(metric.id, { name: event.target.value })} aria-invalid={Boolean(duplicateNameFor(metric))} aria-describedby={duplicateNameFor(metric) ? `metric-name-error-${metric.id}` : undefined} />{duplicateNameFor(metric) && <small id={`metric-name-error-${metric.id}`} className="auth-error">{duplicateNameFor(metric)}</small>}</label>
-            <label className="form-field"><span>Value type <InfoButton title="Value type" summary="Choose the shape of each recorded value." description="Yes/no stores a boolean completion. Quantity stores a number. Saved measure types stay fixed so historical check-ins keep their meaning." /></span>{index === 0 || persistedMetricIds.includes(metric.id) ? <span className="measure-type-readonly"><span>{(index > 0 || firstMetricTypeMode === 'locked') && <AppIcon name="lock" />}{metric.valueType === 'boolean' ? 'Yes / no' : metric.valueType === 'quantity' ? 'Quantity' : metric.valueType === 'duration' ? 'Duration' : 'Checklist'}</span><small>{index === 0 && firstMetricTypeMode === 'setup' ? 'Choose this type above.' : "Measure types can't be changed after a tracker is created."}</small></span> : <select aria-label={`Measure ${index + 1} value type`} className="auth-input" value={metric.valueType} onChange={(event) => changeMetricType(metric, event.target.value as 'boolean' | 'quantity')}><option value="boolean">Yes / no</option><option value="quantity">Quantity</option></select>}</label>
+            <label className="form-field"><span>Value type <InfoButton title="Value type" summary="Choose the shape of each recorded value." description="Yes/no stores completion, Quantity and Duration store a number, and Checklist stores checked items. A measure with saved values keeps its type so those historical values retain their meaning; retire it and add a new measure to change how you track it." /></span>{index === 0 && firstMetricTypeMode === 'setup' ? <span className="measure-type-readonly"><span>{metric.valueType === 'boolean' ? 'Yes / no' : metric.valueType === 'quantity' ? 'Quantity' : metric.valueType === 'duration' ? 'Duration' : 'Checklist'}</span><small>Choose this type above.</small></span> : metricsWithHistory.includes(metric.id) ? <span className="measure-type-readonly"><span><AppIcon name="lock" />{metric.valueType === 'boolean' ? 'Yes / no' : metric.valueType === 'quantity' ? 'Quantity' : metric.valueType === 'duration' ? 'Duration' : 'Checklist'}</span><small>Saved values keep this type. Retire and add a measure to change it.</small></span> : <select aria-label={`Measure ${index + 1} value type`} className="auth-input" value={metric.valueType} onChange={(event) => changeMetricType(metric, event.target.value as TrackerMetricDefinition['valueType'])}><option value="boolean">Yes / no</option><option value="quantity">Quantity</option><option value="duration">Duration</option><option value="checklist">Checklist</option></select>}</label>
             {(metric.valueType === 'quantity' || metric.valueType === 'duration' || metric.valueType === 'checklist') && <>
               {metric.valueType !== 'checklist' && !(index === 0 && firstMetricTypeMode === 'setup') && <label className="form-field"><span>Unit <InfoButton title="Unit" summary="Add the unit used to interpret the number." description="Examples: pages, sessions, kilometers, minutes, or hours. Separate metrics are never combined across different units." /></span><input disabled={metricsWithHistory.includes(metric.id)} className="auth-input" value={metric.unit ?? ''} onChange={(event) => updateMetric(metric.id, { unit: event.target.value })} placeholder={metric.valueType === 'duration' ? 'minutes, hours' : 'pages, sessions'} /></label>}
               {metric.valueType !== 'checklist' && <>
@@ -205,7 +244,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
               </>}
               {metric.valueType === 'checklist' ? <div className="field-hint">Checklist thresholds use the count of completed items. Higher is better.</div> : <label className="form-field"><span>Threshold direction <InfoButton title="Threshold direction" summary="Choose whether a larger or smaller value represents progress." description="Higher is better suits totals like pages or steps. Lower is better suits measures like minutes spent or errors, where reducing the value is the aim. This direction affects threshold qualification and trend interpretation." /></span><select disabled={metricsWithHistory.includes(metric.id)} className="auth-input" value={metric.thresholds?.direction ?? 'increase'} onChange={(event) => updateThreshold(metric, 'direction', event.target.value)}><option value="increase">Higher is better</option><option value="decrease">Lower is better</option></select></label>}
               {(['minimum', 'target', 'stretch'] as const).map((level) => { const issue = incompatibleThresholdMessage(metric, level); const errorId = `metric-${metric.id}-${level}-error`; return <label className="form-field" key={level}><span>{level[0]?.toUpperCase()}{level.slice(1)} threshold <em>optional</em> <InfoButton title={`${level[0]?.toUpperCase()}${level.slice(1)} threshold`} summary={`Set the ${level} for a single check-in.`} description={`Thresholds classify one recorded value. Minimum is a baseline, target is the intended result, and stretch is an ambitious result; none is the whole deadline total. Example: for 5 problems a day, set target 5 and stretch 8.`} /></span><input disabled={metricsWithHistory.includes(metric.id)} data-validation-path={`metrics.${index}.thresholds.${level}`} className="auth-input" type="number" min="0" step={metric.precision?.increment ?? 'any'} value={metric.thresholds?.[level] ?? ''} onChange={(event) => updateThreshold(metric, level, event.target.value)} aria-invalid={Boolean(issue)} aria-describedby={issue ? errorId : undefined} />{issue && <small id={errorId} className="auth-error">{issue}</small>}</label>})}
-              <label className="form-field"><span>Streak qualifies at <InfoButton title="Streak qualification" summary="Choose the minimum result that keeps this metric’s streak going." description="This threshold is separate from the tracker’s success rule: a check-in can be Completed without qualifying for a streak, or qualify for a streak while showing Partial. Any recorded numeric value qualifies when one is saved; Minimum or Target requires that level. Example: with a 5-problem target, choosing a 1-problem minimum keeps the streak after one problem. Standard Mode counts scheduled opportunities; holidays and unscheduled rest days preserve continuity without adding a day. Strict Mode requires qualifying activity on every active date, including holidays and rest days." /></span><select className="auth-input" value={metric.thresholds?.streakQualification ?? 'any-recorded-value'} onChange={(event) => updateThreshold(metric, 'streakQualification', event.target.value)}><option value="any-recorded-value">Any recorded value</option>{metric.thresholds?.minimum !== undefined && <option value="minimum">Minimum</option>}{metric.thresholds?.target !== undefined && <option value="target">Target</option>}</select></label>
+              {streakRuleMode === 'legacy' && <label className="form-field"><span>Streak qualifies at <InfoButton title="Streak qualification" summary="Choose the minimum result that keeps this legacy tracker’s streak going." description="This saved per-measure setting is retained for trackers using their original streak behavior. A check-in can be Completed without qualifying for a streak, or qualify for a streak without meeting the Success Rule. New explicit Streak Rules are configured separately below the Success Rule. Standard Mode counts scheduled opportunities; Strict Mode requires qualifying activity on every active date." /></span><select className="auth-input" value={metric.thresholds?.streakQualification ?? 'any-recorded-value'} onChange={(event) => updateThreshold(metric, 'streakQualification', event.target.value)}><option value="any-recorded-value">Any recorded value</option>{metric.thresholds?.minimum !== undefined && <option value="minimum">Minimum</option>}{metric.thresholds?.target !== undefined && <option value="target">Target</option>}</select></label>}
             </>}
               {metric.valueType === 'checklist' && <div data-validation-path={`metrics.${index}.checklistItems`} className="form-field form-field-wide checklist-editor"><span><InfoButton title="Checklist items" summary="Define the items you can check off during a check-in." description="A checklist entry stores each item’s checked state. Thresholds and planning targets use the number of checked items. Daily checklist targets cannot exceed the number of defined items; cumulative goals may count incremental completed items across entries." />Checklist items</span>{(metric.checklistItems ?? []).map((item, itemIndex) => <div className="inline-editor-row" key={item.id}><input data-validation-path={`metrics.${index}.checklistItems.${itemIndex}.label`} aria-label={`Checklist item ${itemIndex + 1}`} className="auth-input" value={item.label} onChange={(event) => updateMetric(metric.id, { checklistItems: metric.checklistItems?.map((candidate) => candidate.id === item.id ? { ...candidate, label: event.target.value } : candidate) })} /><Button type="button" variant="destructive" size="small" onClick={() => updateMetric(metric.id, { checklistItems: metric.checklistItems?.filter((candidate) => candidate.id !== item.id).map((candidate, position) => ({ ...candidate, position })) })}>Remove</Button></div>)}<Button type="button" variant="secondary" size="small" onClick={() => updateMetric(metric.id, { checklistItems: [...(metric.checklistItems ?? []), { id: crypto.randomUUID(), label: '', position: metric.checklistItems?.length ?? 0 }] })}>＋ Add checklist item</Button></div>}
           </fieldset>
@@ -214,8 +253,23 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
       </section>}
 
       {(!section || section === 'rules') && <section data-validation-path="qualificationRule" className="configuration-section" aria-label={section === 'rules' ? 'Success rule' : undefined} aria-labelledby={section === 'rules' ? undefined : 'rule-heading'}>
-        <SectionHeader title={section === 'rules' ? undefined : 'Success rule'} headingId={section === 'rules' ? undefined : 'rule-heading'} description="Combine measure conditions with AND, OR, or an “at least” count." help={{ title: 'Success rule', summary: 'Define what makes a check-in qualify as a success.', description: 'A rule can compare a metric to a value or achievement threshold. Combine conditions using AND (all), OR (any), or At least N. Rules affect streaks and success summaries, not the saved entry itself or planning target totals.' }} action={rule ? <Button type="button" variant="quiet" size="small" onClick={() => onRuleChange(undefined)}>Clear rule</Button> : metrics.length > 0 ? <Button type="button" variant="secondary" size="small" onClick={() => onRuleChange(defaultRule(metrics[0]!))}>＋ Add success rule</Button> : undefined} />
-        {rule && metrics.length > 0 && <RuleNode rule={rule} metrics={metrics} path={[]} onChange={(_, changed) => onRuleChange(changed)} />}
+        <SectionHeader title={section === 'rules' ? undefined : 'Success rule'} headingId={section === 'rules' ? undefined : 'rule-heading'} description="Define what makes a check-in successful." help={{ title: 'Success rule', summary: 'Define what makes a check-in qualify as a success.', description: 'A rule can compare a measure to a value or achievement threshold. Combine conditions using AND (all), OR (any), or At least N. Success qualification drives success rates and daily success XP. Streak qualification has its own setting.' }} action={rule ? <Button type="button" variant="quiet" size="small" onClick={() => onRuleChange(undefined)}>Clear rule</Button> : metrics.length > 0 ? <Button type="button" variant="secondary" size="small" onClick={() => onRuleChange(defaultRule(metrics[0]!))}>＋ Add success rule</Button> : undefined} />
+        {rule && metrics.length > 0 && <><RuleNode rule={rule} metrics={metrics} path={[]} onChange={(_, changed) => onRuleChange(changed)} ruleName="Success" pathRoot="qualificationRule" /><p className="field-hint rule-readable-summary" aria-live="polite">Success summary: {ruleSummary(rule, metrics)}</p></>}
+      </section>}
+
+      {(!section || section === 'streak-rules') && <section data-validation-path="streakRule" className="configuration-section" aria-label={section === 'streak-rules' ? 'Streak rule' : undefined} aria-labelledby={section === 'streak-rules' ? undefined : 'streak-rule-heading'}>
+        <SectionHeader title={section === 'streak-rules' ? undefined : 'Streak rule'} headingId={section === 'streak-rules' ? undefined : 'streak-rule-heading'} description="Choose which recorded progress keeps this tracker’s streak going." help={{ title: 'Streak rule', summary: 'Streak rules are evaluated separately from success rules.', description: 'A Streak Rule decides whether a scheduled date advances the tracker streak. It does not mark that date successful or award daily success XP. In Standard Mode, holidays and rest days pause the streak; Strict Mode keeps its existing every-active-date policy.' }} />
+        {onStreakRuleModeChange && <label className="form-field"><span>Streak rule mode</span><select data-validation-path="streakRuleMode" aria-label="Streak rule mode" className="auth-input" value={streakRuleMode} onChange={(event) => onStreakRuleModeChange(event.target.value as TrackerStreakRuleMode | 'legacy')}>
+          {streakRuleMode === 'legacy' && <option value="legacy">Keep existing streak behavior</option>}
+          <option value="same-as-success">Same as Success Rule</option><option value="custom">Custom Streak Rule</option>
+        </select></label>}
+        {streakRuleMode === 'legacy' && <p className="field-hint">This saved tracker keeps its existing streak behavior until you choose a new rule.</p>}
+        {streakRuleMode === 'same-as-success' && <p className="field-hint rule-readable-summary">Streak summary: follows Success Rule changes{rule ? ` · ${ruleSummary(rule, metrics)}` : ' · the existing implicit success condition'}.</p>}
+        {streakRuleMode === 'custom' && <>
+          <p className="field-hint">This rule stays independent when the Success Rule changes.</p>
+          {streakRule && metrics.length > 0 ? <><RuleNode rule={streakRule} metrics={metrics} path={[]} onChange={(_, changed) => onStreakRuleChange?.(changed)} ruleName="Streak" pathRoot="streakRule" /><p className="field-hint rule-readable-summary" aria-live="polite">Streak summary: {ruleSummary(streakRule, metrics)}</p></>
+            : metrics.length > 0 && <Button type="button" variant="secondary" size="small" onClick={() => onStreakRuleChange?.(rule ?? defaultRule(metrics[0]!))}>＋ Add streak rule</Button>}
+        </>}
       </section>}
 
       {(!section || section === 'fields') && <section data-validation-path="customFields" className="configuration-section" aria-labelledby="custom-fields-heading">
