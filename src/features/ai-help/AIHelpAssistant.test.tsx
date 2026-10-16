@@ -23,6 +23,9 @@ function renderAssistant(path = '/') { return render(<MemoryRouter initialEntrie
 function findAssistantPanel(role: 'region' | 'dialog') {
   return screen.findByRole(role, { name: 'Ask ProgressTracker' }, { timeout: 5_000 })
 }
+function visibleAnswerText(answer: string) {
+  return answer.replace(/\*\*([^*]+)\*\*/g, '$1')
+}
 
 describe('AI Help Assistant', () => {
   it('opens from the accessible header entry and submits a page-aware suggestion', async () => {
@@ -50,7 +53,10 @@ describe('AI Help Assistant', () => {
     const text = question.textContent!.trim()
     const answer = verifiedQuestionCatalog.find((entry) => entry.question === text)!.answer
     await user.click(question)
-    await waitFor(() => expect(document.querySelector('.ai-help-message.assistant .ai-help-formatted')?.textContent).toBe(answer))
+    await waitFor(() => expect(document.querySelector('.ai-help-message.assistant .ai-help-formatted')?.textContent).toBe(visibleAnswerText(answer)))
+    const formattedAnswer = document.querySelector('.ai-help-message.assistant .ai-help-formatted')
+    const expectedEmphasis = [...answer.matchAll(/\*\*([^*]+)\*\*/g)].map(([, text]) => text)
+    expect([...formattedAnswer!.querySelectorAll('strong')].map((element) => element.textContent)).toEqual(expectedEmphasis)
     expect(mocks.invoke).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '👍 Helpful' })).toBeInTheDocument()
@@ -284,7 +290,7 @@ describe('AI Help Assistant', () => {
     const question = screen.getAllByRole('button').find((button) => button.closest('.ai-help-suggestions'))!
     const answer = verifiedQuestionCatalog.find((entry) => entry.question === question.textContent!.trim())!.answer
     await user.click(question)
-    expect(await screen.findByText(answer)).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.ai-help-message.assistant .ai-help-formatted')?.textContent).toBe(visibleAnswerText(answer)))
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
