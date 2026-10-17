@@ -3175,6 +3175,7 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .goal-expanded-details .tracker-card-actions,
 .tracker-form-actions,
 .auth-actions,
+.sync-diagnostics-export,
 .workspace-choice-actions,
 .tracker-created-actions,
 .today-actions,
@@ -3183,10 +3184,21 @@ details:not(.mobile-more)[open] > summary::after { transform: rotate(225deg); }
 .allocation-page-controls,
 .dashboard-heading-actions,
 .inline-editor-row { gap: var(--action-group-gap); min-width: 0; }
+.sync-diagnostics-export { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px; margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-raised); }
+.sync-diagnostics-export h4 { margin: 0; color: var(--ink); font-size: 14px; }
+.sync-diagnostics-export p { margin: 4px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.45; }
+.sync-diagnostics-export > p { grid-column: 1 / -1; }
+.sync-diagnostics-export .button { min-height: 44px; }
+.sync-diagnostics-actions { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+.sync-diagnostics-actions > * { min-height: 44px; }
 .tracker-card-actions,
 .goal-expanded-details .tracker-card-actions { flex-wrap: wrap; }
 .action-group-separated { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 @media (max-width: 430px) {
+  .sync-diagnostics-export { grid-template-columns: minmax(0, 1fr); }
+  .sync-diagnostics-export .button { width: 100%; }
+  .sync-diagnostics-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .sync-diagnostics-actions > * { width: 100%; }
   .tracker-form-actions .button-primary,
   .today-detail-actions .button-primary { flex: 1 1 100%; }
   .auth-actions > .button { flex: 1 1 auto; }
