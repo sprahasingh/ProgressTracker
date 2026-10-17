@@ -10,6 +10,15 @@ export async function listBlockedSyncOperations(userId: string): Promise<SyncOpe
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
+/** Includes retained rejections already superseded by a successful newer revision. */
+export async function listSyncRecoveryOperations(userId: string): Promise<SyncOperation[]> {
+  const database = await openDatabase()
+  await database.transaction('rw', [database.workspaceMetadata, database.syncOperations, database.syncConflicts], () => migrateLegacyRejectedConflicts(database, userId))
+  return (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
+    .filter((operation) => operation.status === 'blocked' || operation.status === 'superseded')
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+}
+
 /** Retries one permanently blocked payload only after an explicit user action. */
 export async function retryBlockedSyncOperation(userId: string, operationId: string): Promise<void> {
   const database = await openDatabase()

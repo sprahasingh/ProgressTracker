@@ -22,7 +22,7 @@ type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date
 type ServerHoliday = { id: string; user_id: string; holiday_date: string; reason: AccountHoliday['reason']; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type OperationResult = { status: 'applied' | 'conflict' | 'permanently_deleted'; record: ServerTracker | ServerEntry | ServerHoliday | null; holiday_id?: string; permanently_deleted_at?: string }
 type SyncClient = Pick<SupabaseClient, 'auth'> & {
-  rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>
+  rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string; details?: string; hint?: string } | null }>
   from: (table: string) => any
 }
 
@@ -91,7 +91,20 @@ async function markFailure(database: ProgressTrackerDatabase, operation: SyncOpe
   if (latest) await database.syncOperations.put({ ...latest, attempts: latest.attempts + 1, lastError: message })
 }
 
-async function markPermanentlyBlocked(database: ProgressTrackerDatabase, operation: SyncOperation, code: string, message: string) {
+function safeServerFailureDiagnostic(code: string, message: string) {
+  const relation = /relation \"([a-zA-Z0-9_.]+)\"/.exec(message)?.[1]
+  const constraint = /constraint \"([a-zA-Z0-9_]+)\"/.exec(message)?.[1]
+  return {
+    code,
+    // PostgreSQL's message identifies trigger/constraint failures. `details`
+    // can contain a full failing row, so it is deliberately not persisted.
+    message: message.slice(0, 500),
+    ...(relation ? { table: relation } : {}),
+    ...(constraint ? { constraint } : {}),
+  }
+}
+
+async function markPermanentlyBlocked(database: ProgressTrackerDatabase, operation: SyncOperation, code: string, message: string, serverMessage?: string) {
   const latest = await database.syncOperations.get(operation.id)
   if (latest) await database.syncOperations.put({
     ...latest,
@@ -99,6 +112,7 @@ async function markPermanentlyBlocked(database: ProgressTrackerDatabase, operati
     attempts: latest.attempts + 1,
     lastError: `The server rejected this saved change (${code}). ${message}`,
     failureCode: code,
+    ...(serverMessage ? { failureDiagnostic: safeServerFailureDiagnostic(code, serverMessage) } : {}),
     blockedAt: new Date().toISOString(),
   })
 }
@@ -506,7 +520,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
           // Keep the operation and local payload as a blocked diagnostic record.
           // It will not be retried automatically; a later corrected operation
           // can proceed and will mark this record superseded after server ack.
-          await markPermanentlyBlocked(database, operation, error.code!, 'Your saved payload and diagnostic are retained. Correct the record or retry after the server issue is fixed.')
+          await markPermanentlyBlocked(database, operation, error.code!, 'Your saved payload is retained. Review the server reason, correct the tracker, and save a new version.', error.message)
           failed += 1
           continue
         }

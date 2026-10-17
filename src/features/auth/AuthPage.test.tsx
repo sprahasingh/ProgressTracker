@@ -7,7 +7,7 @@ const authMocks = vi.hoisted(() => ({
   sendSignInLink: vi.fn(), signInWithPassword: vi.fn(), signUpWithPassword: vi.fn(),
   sendPasswordReset: vi.fn(), updateAccountPassword: vi.fn(), useAuth: vi.fn(),
   listSyncConflicts: vi.fn(), resolveSyncConflict: vi.fn(),
-  listBlockedSyncOperations: vi.fn(), retryBlockedSyncOperation: vi.fn(),
+  listBlockedSyncOperations: vi.fn(), listSyncRecoveryOperations: vi.fn(), retryBlockedSyncOperation: vi.fn(),
 }))
 
 vi.mock('./authService', () => ({
@@ -18,7 +18,7 @@ vi.mock('./authService', () => ({
 vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
-vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
+vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
 
 describe('AuthPage', () => {
@@ -27,6 +27,7 @@ describe('AuthPage', () => {
     Object.values(authMocks).forEach((mock) => mock.mockReset())
     authMocks.listSyncConflicts.mockResolvedValue([])
     authMocks.listBlockedSyncOperations.mockResolvedValue([])
+    authMocks.listSyncRecoveryOperations.mockResolvedValue([])
     authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
   })
 
@@ -209,20 +210,24 @@ describe('AuthPage', () => {
     expect(within(holidayCard.closest('article')!).queryByRole('button', { name: 'Save local copy as new' })).not.toBeInTheDocument()
   })
 
-  it('exposes blocked payloads and retries them only after an explicit action', async () => {
+  it('shows the tracker name and validation details while retaining blocked payload access without offering unchanged retries', async () => {
     const user = userEvent.setup()
-    const syncNow = vi.fn().mockResolvedValue(undefined)
-    const blocked = { id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: 'Saved version' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'The server rejected this saved change (23514).', failureCode: '23514' }
-    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle', syncNow })
+    const blocked = { id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1-with-a-very-long-identifier-that-must-wrap-on-mobile', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: '100 Days Of MERN', nested: { longValue: 'x'.repeat(600) } }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'The server rejected this saved change (23514).', failureCode: '23514', failureDiagnostic: { code: '23514', message: 'schema v8 custom streak rule validation failed', table: 'trackers', constraint: 'trackers_streak_rule_v8_check' } }
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle' })
     authMocks.listBlockedSyncOperations.mockResolvedValue([blocked])
-    authMocks.retryBlockedSyncOperation.mockResolvedValue(undefined)
+    authMocks.listSyncRecoveryOperations.mockResolvedValue([blocked, { ...blocked, id: 'older-blocked', entityId: 'older-id', status: 'superseded', supersededByRevision: 4 }])
     render(<AuthPage />)
-    const card = await screen.findByText('tracker · tracker-1')
+    const card = await screen.findByRole('heading', { name: /100 Days Of MERN.*tracker-1-with-a-very-long-identifier/ })
     expect(card.closest('article')).toHaveTextContent('23514')
-    expect(card.closest('article')).toHaveTextContent('Saved version')
-    await user.click(within(card.closest('article')!).getByRole('button', { name: 'Retry saved change' }))
-    expect(authMocks.retryBlockedSyncOperation).toHaveBeenCalledWith('account-1', 'blocked-1')
-    expect(syncNow).toHaveBeenCalledOnce()
+    expect(card.closest('article')).toHaveTextContent('trackers_streak_rule_v8_check')
+    expect(card.closest('article')).toHaveTextContent('Correct the tracker and save a new version')
+    expect(within(card.closest('article')!).queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+    await user.click(within(card.closest('article')!).getByText('Rejected payload retained on this device'))
+    const payload = within(card.closest('article')!).getByLabelText('Rejected payload for 100 Days Of MERN')
+    expect(payload).toHaveTextContent('100 Days Of MERN')
+    expect(payload).toHaveTextContent('x'.repeat(600))
+    expect(card.closest('article')).toHaveClass('blocked-sync-operation')
+    expect(screen.getByText(/Historical rejection · superseded by successful revision 4/)).toBeInTheDocument()
   })
 
   it('hides prior account conflict details immediately when the signed-in account changes', async () => {

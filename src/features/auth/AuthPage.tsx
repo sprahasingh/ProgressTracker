@@ -12,7 +12,7 @@ import { supabaseConfiguration } from '../../services/supabase/client'
 import { sendPasswordReset, sendSignInLink, signInWithPassword, signUpWithPassword, updateAccountPassword } from './authService'
 import { useAuth } from './AuthProvider'
 import { listSyncConflicts, resolveSyncConflict } from '../../db/syncConflictRepository'
-import { listBlockedSyncOperations, retryBlockedSyncOperation } from '../../db/syncRecoveryRepository'
+import { listSyncRecoveryOperations } from '../../db/syncRecoveryRepository'
 import type { SyncConflict, SyncOperation } from '../../db/models'
 import { WorkspaceBackup } from './WorkspaceBackup'
 import { getAuthRedirectUrl } from './authRedirect'
@@ -44,6 +44,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
   const [conflictsOwnerUserId, setConflictsOwnerUserId] = useState<string | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null)
+  const [copiedPayloadId, setCopiedPayloadId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -52,7 +53,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
     setConflictsOwnerUserId(null)
     setConflictError(null)
     if (status !== 'signed-in' || !user?.id || workspaceStatus !== 'ready' || workspaceUserId !== user.id) return () => { active = false }
-    void Promise.all([listSyncConflicts(user.id), listBlockedSyncOperations(user.id)]).then(([conflicts, blocked]) => { if (active) { setSyncConflicts(conflicts); setBlockedOperations(blocked); setConflictsOwnerUserId(user.id) } }).catch(() => {
+    void Promise.all([listSyncConflicts(user.id), listSyncRecoveryOperations(user.id)]).then(([conflicts, blocked]) => { if (active) { setSyncConflicts(conflicts); setBlockedOperations(blocked); setConflictsOwnerUserId(user.id) } }).catch(() => {
       if (active) setConflictError('Saved sync conflicts could not be loaded for this account.')
     })
     return () => { active = false }
@@ -89,18 +90,13 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
     } finally { setResolvingConflict(null) }
   }
 
-  async function handleBlockedOperationRetry(operation: SyncOperation) {
-    if (!user?.id || workspaceUserId !== user.id) return
-    setResolvingConflict(operation.id)
-    setConflictError(null)
+  async function handleCopyBlockedPayload(operation: SyncOperation) {
     try {
-      await retryBlockedSyncOperation(user.id, operation.id)
-      await syncNow?.()
-      setBlockedOperations(await listBlockedSyncOperations(user.id))
-      setSyncConflicts(await listSyncConflicts(user.id))
-    } catch (cause) {
-      setConflictError(cause instanceof Error ? cause.message : 'The saved sync operation could not be retried. Its payload remains on this device.')
-    } finally { setResolvingConflict(null) }
+      await navigator.clipboard.writeText(JSON.stringify(operation.payload, null, 2))
+      setCopiedPayloadId(operation.id)
+    } catch {
+      setConflictError('The payload could not be copied. Expand it to review the saved diagnostic.')
+    }
   }
 
   const emailForm = useForm<EmailValues>({ resolver: zodResolver(emailFormSchema), defaultValues: { email: '' } })
@@ -188,7 +184,18 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
             {syncSummary && syncSummary.conflicts > 0 && <p className="auth-error" role="status">{syncSummary.conflicts} sync conflict{syncSummary.conflicts === 1 ? '' : 's'} need review below.</p>}
             {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
-            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && blockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h3 id="blocked-sync-title">Blocked sync changes</h3><p>These saved payloads were rejected by the server and will not retry automatically. Correct the record and save a new version, or retry the unchanged payload after the server issue is fixed. A later successful version supersedes the blocked change while its payload and diagnostic stay saved here.</p>{blockedOperations.map((operation) => <article className="sync-conflict" key={operation.id}><h4>{operation.entity.replaceAll('_', ' ')} · {operation.entityId}</h4><p className="auth-error" role="status">{operation.lastError ?? 'The server rejected this saved change.'}{operation.failureCode ? ` · ${operation.failureCode}` : ''}</p><details><summary>Rejected payload retained on this device</summary><pre>{JSON.stringify(operation.payload, null, 2)}</pre></details><Button variant="secondary" disabled={resolvingConflict === operation.id || syncStatus === 'syncing'} onClick={() => void handleBlockedOperationRetry(operation)}>Retry saved change</Button></article>)}</section>}
+            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && blockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h3 id="blocked-sync-title">Rejected sync changes</h3><p>Saved payloads and diagnostics stay on this device. A corrected tracker version can sync while older rejected payloads remain available for review.</p>{blockedOperations.map((operation) => {
+              const payload = operation.payload as { name?: unknown } | undefined
+              const trackerName = operation.entity === 'tracker' && typeof payload?.name === 'string' ? payload.name : null
+              const superseded = operation.status === 'superseded'
+              return <article className="sync-conflict blocked-sync-operation" key={operation.id}>
+                <h4>{trackerName ? `${trackerName} · ` : ''}{operation.entity.replaceAll('_', ' ')} · <span className="sync-operation-id">{operation.entityId}</span></h4>
+                <p className={superseded ? 'sync-recovery-status' : 'auth-error'} role="status">{superseded ? `Historical rejection · superseded by successful revision ${operation.supersededByRevision ?? 'unknown'}.` : operation.lastError ?? 'The server rejected this saved change.'}{operation.failureCode ? ` · ${operation.failureCode}` : ''}</p>
+                {operation.failureDiagnostic && <p className="sync-server-diagnostic">Server: {operation.failureDiagnostic.message}{operation.failureDiagnostic.table && ` · ${operation.failureDiagnostic.table}`}{operation.failureDiagnostic.constraint && ` · ${operation.failureDiagnostic.constraint}`}</p>}
+                {!superseded && <p className="auth-hint">This exact saved change is not retried automatically. Correct the tracker and save a new version; do not retry it unchanged.</p>}
+                <details><summary>Rejected payload retained on this device</summary><pre aria-label={`Rejected payload for ${trackerName ?? operation.entity}`}>{JSON.stringify(operation.payload, null, 2)}</pre><Button variant="secondary" onClick={() => void handleCopyBlockedPayload(operation)}>{copiedPayloadId === operation.id ? 'Payload copied' : 'Copy payload'}</Button></details>
+              </article>
+            })}</section>}
             {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
               const cloud = conflict.remoteRecord
               const cloudAvailable = Boolean(cloud && cloud.user_id === user?.id && typeof cloud.server_revision === 'number')

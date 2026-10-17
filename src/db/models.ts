@@ -133,6 +133,7 @@ export type SyncOperation = {
   status: 'pending' | 'in-flight' | 'conflict' | 'blocked' | 'superseded'
   lastError: string | null
   failureCode?: string
+  failureDiagnostic?: { code: string; message: string; table?: string; constraint?: string }
   blockedAt?: string
   supersededAt?: string
   supersededByRevision?: number

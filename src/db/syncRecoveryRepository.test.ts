@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { activateWorkspace, db } from './database'
-import { listBlockedSyncOperations, retryBlockedSyncOperation } from './syncRecoveryRepository'
+import { listBlockedSyncOperations, listSyncRecoveryOperations, retryBlockedSyncOperation } from './syncRecoveryRepository'
 import { listSyncConflicts } from './syncConflictRepository'
 import type { SyncConflict } from './models'
 import { localRepository } from './localRepository'
@@ -29,6 +29,19 @@ describe('blocked sync recovery', () => {
     await expect(listBlockedSyncOperations('recovery-user')).rejects.toThrow('does not belong to this account')
     await expect(retryBlockedSyncOperation('recovery-user', 'private-blocked')).rejects.toThrow('does not belong to this account')
     await expect(db.workspaceMetadata.get('workspace')).resolves.toMatchObject({ userId: 'different-user' })
+  })
+
+  it('keeps superseded rejected payloads distinguishable from current blocked changes', async () => {
+    await activateWorkspace('recovery-user')
+    const common = { ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: 'legacy-tracker', operation: 'upsert' as const, expectedRevision: 1, payload: { id: 'legacy-tracker', name: 'Retained' } as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, lastError: 'Rejected (23514)', failureCode: '23514' }
+    await db.syncOperations.bulkAdd([
+      { ...common, id: 'blocked-current', status: 'blocked' as const },
+      { ...common, id: 'blocked-old', status: 'superseded' as const, supersededAt: '2026-01-02T00:00:00.000Z', supersededByRevision: 4 },
+    ] as never[])
+    await expect(listSyncRecoveryOperations('recovery-user')).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'blocked-current', status: 'blocked' }),
+      expect.objectContaining({ id: 'blocked-old', status: 'superseded', supersededByRevision: 4 }),
+    ]))
   })
 
   it('migrates an old server-validation false conflict to a retained blocked payload', async () => {

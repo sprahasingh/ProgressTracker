@@ -43,7 +43,7 @@ Cross-device synchronization is available when you sign in to the same account a
 - src/db/syncConflictRepository.ts
 - src/db/syncConflictRepository.test.ts
 **Answer:**
-When two saved versions have different cloud revisions, sync preserves the local and cloud copies and asks you to review them under Account → Sync conflicts. Choose which version to keep, or save the local record under a new ID when no cloud record is readable. A permanent server validation rejection is kept as a blocked local payload and diagnostic, is not retried automatically, and appears under Account → Blocked sync changes. Correct and save a newer version, or explicitly retry the original after the server issue is fixed. A successful newer version supersedes the blocked operation without deleting its saved payload.
+When two saved versions have different cloud revisions, sync preserves the local and cloud copies and asks you to review them under Account → Sync conflicts. Choose which version to keep, or save the local record under a new ID when no cloud record is readable. A permanent server validation rejection is kept as a blocked local payload and diagnostic and is not retried automatically. Correct and save a newer version; do not retry the unchanged rejected payload. The Account page keeps superseded rejections labeled as historical after a newer version syncs successfully, without deleting their saved payloads.
 
 ### ID: account-signin
 **Category:** accounts-sync
