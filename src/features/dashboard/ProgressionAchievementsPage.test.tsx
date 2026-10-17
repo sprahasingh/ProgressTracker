@@ -579,7 +579,7 @@ describe('Progression achievements interface', () => {
 
   it('keeps XP actions outside the history button in one compact experience card', async () => {
     renderPage()
-    await screen.findByText('Your Experience')
+    await screen.findByText('Experience')
     const shell = document.querySelector<HTMLElement>('.progression-level-card-shell')!
     expect(shell.querySelector('.progression-xp-header')).toBeInTheDocument()
     expect(shell.querySelector('.progression-xp-header .info-button')?.closest('button.progression-level-card')).toBeNull()

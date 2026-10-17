@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { db } from '../../db/database'
 import { localRepository } from '../../db/localRepository'
-import type { StoredTrackerDefinition } from '../../db/models'
+import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import type { ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { AnalyticsPage } from './AnalyticsPage'
@@ -26,7 +26,7 @@ vi.mock('../../services/supabase/progressionRepository', async (importOriginal) 
   getProgressionOverview: analyticsMocks.getProgressionOverview,
 }))
 
-afterEach(async () => { cleanup(); vi.restoreAllMocks(); analyticsMocks.auth.signedIn = false; analyticsMocks.getProgressionOverview.mockReset(); await db.delete() })
+afterEach(async () => { cleanup(); window.sessionStorage.clear(); vi.restoreAllMocks(); analyticsMocks.auth.signedIn = false; analyticsMocks.getProgressionOverview.mockReset(); await db.delete() })
 
 function progressionFixture(date: string, entryId: string): ProgressionOverview {
   const score = (id: string, xpDelta: number, trackerId: string | null, sourceId: string | null) => ({
@@ -63,7 +63,140 @@ const definition: StoredTrackerDefinition = {
 }
 
 describe('Analytics page', () => {
+  it('keeps every tracker and preset/custom/all-time filter combination scoped to the selected dates', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate()
+    const offsets = [-90, -89, -30, -29, -7, -6, -1, 0]
+    const dates = offsets.map((offset) => shiftCalendarDate(today, offset))
+    const active = { ...definition, startDate: shiftCalendarDate(today, -120) }
+    const archived: StoredTrackerDefinition = { ...active, id: 'analytics-archived', name: 'Earlier program', status: 'archived', archivedAt: `${today}T12:00:00.000Z` }
+    await localRepository.saveTracker(active)
+    await localRepository.saveTracker(archived)
+    for (const date of dates) {
+      await localRepository.saveTrackerEntry({ trackerId: active.id, date, outcome: 'recorded', values: { distance: 5, minutes: 25 }, note: '' })
+      const entry: StoredTrackerEntry = { id: `archived-${date}`, trackerId: archived.id, date, outcome: 'recorded', values: { distance: 5, minutes: 25 }, note: '', createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null }
+      await db.trackerEntries.put(entry)
+    }
+
+    render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('group', { name: 'Activity' })
+    const trackerControl = await screen.findByLabelText('Tracker')
+    const periodControl = screen.getByLabelText('Period')
+    const firstActivityValue = () => Number(screen.getByRole('group', { name: 'Activity' }).querySelector('.analytics-summary-stat strong')?.textContent)
+
+    expect(firstActivityValue()).toBe(10) // Last 30 days includes today and the previous 29 calendar dates.
+    await user.selectOptions(periodControl, '7')
+    expect(firstActivityValue()).toBe(6)
+    await user.selectOptions(periodControl, '30')
+    expect(firstActivityValue()).toBe(10)
+    await user.selectOptions(periodControl, '90')
+    expect(firstActivityValue()).toBe(14)
+
+    await user.selectOptions(periodControl, 'custom')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: shiftCalendarDate(today, -1) } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: today } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+    expect(firstActivityValue()).toBe(4)
+    expect(screen.getByLabelText(/^Analytics date range:/)).toHaveTextContent(calendarDateLabel(shiftCalendarDate(today, -1), { month: 'short', day: 'numeric', year: 'numeric' }))
+
+    await user.selectOptions(periodControl, 'all')
+    expect(firstActivityValue()).toBe(16)
+    expect(screen.getByLabelText(/^Analytics date range:/)).toHaveTextContent('All available history')
+
+    await user.selectOptions(trackerControl, active.id)
+    await user.selectOptions(periodControl, '7')
+    expect(firstActivityValue()).toBe(3)
+    await user.selectOptions(periodControl, '30')
+    expect(firstActivityValue()).toBe(5)
+    await user.selectOptions(periodControl, '90')
+    expect(firstActivityValue()).toBe(7)
+    await user.selectOptions(periodControl, 'custom')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: shiftCalendarDate(today, -1) } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: today } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+    expect(firstActivityValue()).toBe(2)
+    await user.selectOptions(periodControl, 'all')
+    expect(firstActivityValue()).toBe(8)
+
+    await user.selectOptions(trackerControl, archived.id)
+    expect(firstActivityValue()).toBe(8)
+    const consistency = screen.getByRole('group', { name: 'Consistency' })
+    expect(within(consistency).getAllByText('—', { selector: 'strong' })).toHaveLength(1)
+    expect(within(consistency).getAllByText('0', { selector: 'strong' })).toHaveLength(2)
+  })
+
+  it('applies inclusive custom dates across a year boundary and restores the applied range in this session', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate()
+    const startDate = `${Number(today.slice(0, 4)) - 1}-12-31` as CalendarDate
+    const endDate = `${today.slice(0, 4)}-01-01` as CalendarDate
+    const tracker = { ...definition, id: 'analytics-year-boundary', startDate }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: startDate, outcome: 'recorded', values: { distance: 3, minutes: 20 }, note: '' })
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: endDate, outcome: 'recorded', values: { distance: 4, minutes: 21 }, note: '' })
+    const page = render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('group', { name: 'Activity' })
+    await user.selectOptions(screen.getByLabelText('Period'), 'custom')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: startDate } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: endDate } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+    expect(screen.getByRole('group', { name: 'Activity' }).querySelector('.analytics-summary-stat strong')).toHaveTextContent('2')
+    const rangeLabel = screen.getByLabelText(/^Analytics date range:/)
+    expect(rangeLabel).toHaveTextContent(calendarDateLabel(startDate, { month: 'short', day: 'numeric', year: 'numeric' }))
+    expect(rangeLabel).toHaveTextContent(calendarDateLabel(endDate, { month: 'short', day: 'numeric', year: 'numeric' }))
+    page.unmount()
+    render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('group', { name: 'Activity' })
+    expect(await screen.findByLabelText('Period')).toHaveValue('custom')
+    expect(screen.getByLabelText(/^Analytics date range:/)).toHaveTextContent(calendarDateLabel(startDate, { month: 'short', day: 'numeric', year: 'numeric' }))
+    expect(screen.getByRole('group', { name: 'Activity' }).querySelector('.analytics-summary-stat strong')).toHaveTextContent('2')
+  })
+
+  it('cancels custom date edits without changing the applied range and rejects reversed dates', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate()
+    const yesterday = shiftCalendarDate(today, -1)
+    await localRepository.saveTracker({ ...definition, startDate: shiftCalendarDate(today, -60) })
+    render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('group', { name: 'Activity' })
+    const rangeLabel = screen.getByLabelText(/^Analytics date range:/)
+    const originalText = rangeLabel.textContent
+    await user.selectOptions(screen.getByLabelText('Period'), 'custom')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: today } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: yesterday } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The start date must be on or before the end date.')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: today } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: shiftCalendarDate(today, 1) } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The end date cannot be in the future.')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByLabelText('Period')).toHaveValue('30')
+    expect(screen.getByLabelText(/^Analytics date range:/)).toHaveTextContent(originalText ?? '')
+  })
+
+  it('distinguishes a quiet selected range from a tracker with retained lifetime history', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate()
+    const tracker = { ...definition, id: 'analytics-quiet-range', startDate: shiftCalendarDate(today, -50) }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: shiftCalendarDate(today, -40), outcome: 'recorded', values: { distance: 5, minutes: 25 }, note: '' })
+    render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('group', { name: 'Activity' })
+
+    await user.selectOptions(screen.getByLabelText('Period'), 'custom')
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: shiftCalendarDate(today, -2) } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: shiftCalendarDate(today, -1) } })
+    await user.click(screen.getByRole('button', { name: 'Apply range' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Tracker activity exists outside this range.')
+    expect(screen.getByText('No entries in this range · 1 lifetime entries')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Period'), 'all')
+    expect(screen.getByRole('group', { name: 'Activity' }).querySelector('.analytics-summary-stat strong')).toHaveTextContent('1')
+  })
+
   it('groups summaries by definition while keeping account-wide context and tracker detail separate', async () => {
+    const user = userEvent.setup()
     const yesterday = shiftCalendarDate(localCalendarDate(), -1)
     await localRepository.saveTracker(definition)
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date: yesterday, outcome: 'recorded', values: { distance: 5, minutes: 25 }, note: '' })
@@ -79,7 +212,12 @@ describe('Analytics page', () => {
     expect(within(consistency).getByText('Scheduled opportunities')).toBeInTheDocument()
     expect(screen.getByLabelText('Period context')).toHaveTextContent('Holidays')
     const tracker = screen.getByRole('heading', { name: 'Morning run' }).closest('.analytics-tracker') as HTMLElement
-    expect(within(tracker).getByText('Current streak')).toBeInTheDocument()
+    expect(within(tracker).getByRole('button', { name: 'Show details' })).toHaveAttribute('aria-expanded', 'false')
+    const detailsId = within(tracker).getByRole('button', { name: 'Show details' }).getAttribute('aria-controls')
+    expect(document.getElementById(detailsId ?? '')).toHaveAttribute('hidden')
+    await user.click(within(tracker).getByRole('button', { name: 'Show details' }))
+    expect(document.getElementById(detailsId ?? '')).not.toHaveAttribute('hidden')
+    expect(within(tracker).getAllByText('Current streak').length).toBeGreaterThanOrEqual(1)
     expect(within(tracker).getByText('Longest streak')).toBeInTheDocument()
     expect(within(tracker).getByText('Scheduling')).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'XP & rewards' })).not.toBeInTheDocument()
@@ -116,18 +254,24 @@ describe('Analytics page', () => {
     expect(within(selectedRewards).getByText('Tracker badge awards')).toBeInTheDocument()
     expect(within(selectedRewards).getByText('2', { selector: 'strong' })).toBeInTheDocument()
     expect(within(selectedRewards).getByText('24', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide details' })).toHaveAttribute('aria-expanded', 'true')
+    await user.selectOptions(screen.getByLabelText('Period'), 'all')
+    expect(within(screen.getByRole('group', { name: 'XP & rewards' })).getByText('24', { selector: 'strong' })).toBeInTheDocument()
   })
 
   it('keeps grouped summaries compact across phone, tablet, and desktop layouts using both theme palettes', () => {
     expect(appStyles).toMatch(/\.analytics-summary-groups\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(min-width:\s*761px\)\s*and\s*\(max-width:\s*1100px\)[\s\S]*?\.analytics-summary-groups\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(min-width:\s*761px\)\s*and\s*\(max-width:\s*900px\)[\s\S]*?\.analytics-summary-rewards \.analytics-summary-list\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+    expect(appStyles).toMatch(/@media\s*\(min-width:\s*761px\)\s*and\s*\(max-width:\s*900px\)[\s\S]*?\.analytics-summary-group:not\(\.analytics-summary-rewards\) \.analytics-summary-list\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.analytics-summary-groups\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     expect(appStyles).toContain('.analytics-summary-group { min-width: 0; padding: 15px 17px; background: var(--surface); }')
     expect(appStyles).toContain('.analytics-summary-stat { display: grid;')
     expect(themeTokens).toMatch(/:root\s*\{[\s\S]*?--surface:\s*#[0-9a-f]+/i)
     expect(themeTokens).toMatch(/\[data-theme='dark'\]\s*\{[\s\S]*?--surface:\s*#[0-9a-f]+/i)
     expect(appStyles).not.toMatch(/\.analytics-summary-group\s*\{[^}]*background:\s*#[0-9a-f]+/i)
+    expect(appStyles).toContain('.section-tabs-scrollable {')
+    expect(appStyles).toContain('overflow-x: auto;')
   })
 
   it('preserves keyboard accessible, metric-specific explanations in the grouped summaries', async () => {
@@ -147,6 +291,7 @@ describe('Analytics page', () => {
   })
 
   it('shows one contextual empty explanation and keeps undefined rates distinct from zero', async () => {
+    const user = userEvent.setup()
     await localRepository.saveTracker({ ...definition, startDate: shiftCalendarDate(localCalendarDate(), 2) })
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
 
@@ -154,15 +299,17 @@ describe('Analytics page', () => {
     const consistency = screen.getByRole('group', { name: 'Consistency' })
     expect(within(activity).getByText('—', { selector: 'strong' })).toBeInTheDocument()
     expect(within(consistency).getByText('—', { selector: 'strong' })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('No check-ins or scheduled opportunities in this period.')
+    expect(screen.getByRole('status')).toHaveTextContent('No check-ins or scheduled opportunities in this range.')
     expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(screen.queryByText(/No values recorded in this period/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No values recorded in this range/)).not.toBeInTheDocument()
     expect(screen.queryByText('0%', { selector: 'strong' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show details' }))
     expect(screen.getByRole('heading', { name: 'Distance' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Minutes' })).toBeInTheDocument()
   })
 
   it('shows workspace-local consistency and distinct per-metric values', async () => {
+    const user = userEvent.setup()
     const yesterday = shiftCalendarDate(localCalendarDate(), -1)
     await localRepository.saveTracker(definition)
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date: yesterday, outcome: 'recorded', values: { distance: 5, minutes: 25 }, note: '' })
@@ -172,6 +319,7 @@ describe('Analytics page', () => {
 
     expect(await screen.findByRole('heading', { name: /Analytics/ })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Morning run' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show details' }))
     expect(screen.getByText('2', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Distance analysis' })).toHaveTextContent('average 3.5 km')
     expect(screen.getByRole('region', { name: 'Minutes analysis' })).toHaveTextContent('average 32.5 min')
@@ -188,6 +336,7 @@ describe('Analytics page', () => {
 
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
 
+    await user.click(await screen.findByRole('button', { name: 'Show details' }))
     const distanceRegion = await screen.findByRole('region', { name: 'Distance analysis' })
     const summary = within(distanceRegion).getByText('View 2 daily values')
     const details = summary.closest('details')!
@@ -209,6 +358,7 @@ describe('Analytics page', () => {
   })
 
   it('limits dense chart details to the same latest fourteen values shown by the chart', async () => {
+    const user = userEvent.setup()
     const tracker = { ...definition, startDate: shiftCalendarDate(localCalendarDate(), -20) }
     await localRepository.saveTracker(tracker)
     for (let index = 0; index < 16; index += 1) {
@@ -217,9 +367,10 @@ describe('Analytics page', () => {
 
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
 
+    await user.click(await screen.findByRole('button', { name: 'Show details' }))
     const distanceRegion = await screen.findByRole('region', { name: 'Distance analysis' })
     const summary = within(distanceRegion).getByText('View 14 daily values')
-    await userEvent.setup().click(summary)
+    await user.click(summary)
     const detailButtons = within(summary.closest('details')!).getAllByRole('button')
     expect(detailButtons).toHaveLength(14)
     expect(detailButtons[0]).toHaveAccessibleName(/: 3 km$/)
@@ -228,13 +379,15 @@ describe('Analytics page', () => {
   })
 
   it('summarizes empty metric datasets once and omits chart detail controls', async () => {
+    const user = userEvent.setup()
     await localRepository.saveTracker(definition)
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
 
-    expect(await screen.findByText(/No check-ins in this period/)).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('No check-ins in this period.')
+    expect(await screen.findByText(/No check-ins in this range/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No check-ins in this range.')
     expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(screen.queryByText(/No values recorded in this period/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No values recorded in this range/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show details' }))
     expect(screen.getByRole('region', { name: 'Distance analysis' })).toHaveTextContent('0 values')
     expect(screen.getByRole('region', { name: 'Minutes analysis' })).toHaveTextContent('0 values')
     expect(screen.queryByText(/View \d+ daily values?/)).not.toBeInTheDocument()
@@ -255,6 +408,7 @@ describe('Analytics page', () => {
 
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
 
+    await user.click(await screen.findByRole('button', { name: 'Show details' }))
     const region = await screen.findByRole('region', { name: 'Completed analysis' })
     await user.click(within(region).getByText('View 2 daily values'))
     const buttons = within(region).getAllByRole('button')

@@ -1,5 +1,5 @@
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from './types'
-import { assertDateRange } from '../../db/calendarDate'
+import { assertCalendarDate, assertDateRange } from '../../db/calendarDate'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerEvaluationHistoryStartDate } from './planning'
 import { calculateStreak, qualifiesForStreak } from './progression'
 import { trackerStrictModeForDate } from './ruleVersions'
@@ -25,6 +25,9 @@ export type TrackerAnalytics = {
   consistencyPercent: number | null
   currentStreak: number
   longestStreak: number
+  lifetimeEntryCount: number
+  lifetimeRecordedCount: number
+  lifetimeSkippedCount: number
   metrics: MetricAnalytics[]
 }
 
@@ -55,8 +58,10 @@ export function calculateTrackerAnalytics(
   holidays: ReadonlySet<string> = new Set(),
   timeZone?: string,
   historicalEntries: readonly TrackerEntry[] = entries,
+  currentStreakAsOfDate: string = endDate,
 ): TrackerAnalytics {
   assertDateRange(startDate, endDate)
+  assertCalendarDate(currentStreakAsOfDate)
   const latestByDate = new Map<string, TrackerEntry>()
   for (const entry of entries) {
     if (entry.trackerId !== tracker.id || entry.date < startDate || entry.date > endDate) continue
@@ -105,7 +110,10 @@ export function calculateTrackerAnalytics(
     const current = latestHistoryByDate.get(entry.date)
     if (!current || entry.updatedAt > current.updatedAt || (entry.updatedAt === current.updatedAt && entry.id > current.id)) latestHistoryByDate.set(entry.date, entry)
   }
-  const streak = calculateStreak(tracker, [...latestHistoryByDate.values()].filter((entry) => entry.deletedAt === null), endDate, holidays, timeZone)
+  const lifetimeEntries = [...latestHistoryByDate.values()].filter((entry) =>
+    entry.deletedAt === null && entry.date <= currentStreakAsOfDate && isTrackerInActivePeriod(tracker, entry.date, timeZone),
+  )
+  const streak = calculateStreak(tracker, [...latestHistoryByDate.values()].filter((entry) => entry.deletedAt === null), currentStreakAsOfDate, holidays, timeZone)
   return {
     tracker,
     entryCount: trackerEntries.length,
@@ -119,6 +127,9 @@ export function calculateTrackerAnalytics(
     consistencyPercent: activeSchedule && scheduledCount > 0 ? Math.round(scheduledQualifiedCount / scheduledCount * 100) : null,
     currentStreak: streak.current,
     longestStreak: streak.longest,
+    lifetimeEntryCount: lifetimeEntries.length,
+    lifetimeRecordedCount: lifetimeEntries.filter((entry) => entry.outcome === 'recorded').length,
+    lifetimeSkippedCount: lifetimeEntries.filter((entry) => entry.outcome === 'skipped').length,
     metrics,
   }
 }
