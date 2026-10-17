@@ -5,6 +5,7 @@ import { activateWorkspace, clearDeletedAccountWorkspace, countPendingWorkspaceS
 import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/syncEngine'
 import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
 import { clearPushCleanup, getPendingPushCleanups, getStoredPushOwner, managePushSubscriptionWithSupabase, queuePushCleanup, revokePushBeforeSignOut, setStoredPushOwner, setWorkerPushOwner, withPushOwnershipLock } from '../notifications/pushSubscriptionService'
+import { isTrackerRecoveryInspectionMode } from './recoveryInspectionMode'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -315,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status, user?.id, workspaceRetry])
 
   function requestSync(ownerId: string, trigger: 'automatic' | 'manual'): Promise<void> {
-    if (deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return Promise.resolve()
+    if (isTrackerRecoveryInspectionMode() || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return Promise.resolve()
     const active = syncPromisesRef.current.get(ownerId)
     if (active) return active
 
@@ -372,6 +373,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (isTrackerRecoveryInspectionMode()) {
+      setSyncStatus('idle')
+      setSyncTrigger(null)
+      setSyncError(null)
+      return
+    }
     if (status !== 'signed-in' || !user?.id) {
       lastAutomaticAttemptRef.current = null
       return

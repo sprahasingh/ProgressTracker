@@ -43,7 +43,7 @@ Cross-device synchronization is available when you sign in to the same account a
 - src/db/syncConflictRepository.ts
 - src/db/syncConflictRepository.test.ts
 **Answer:**
-When two saved versions have different cloud revisions, sync preserves the local and cloud copies and asks you to review them under Account → Sync conflicts. Choose which version to keep, or save the local record under a new ID when no cloud record is readable. A permanent server validation rejection is kept as a blocked local payload and diagnostic and is not retried automatically. Correct and save a newer version; do not retry the unchanged rejected payload. The Account page keeps superseded rejections labeled as historical after a newer version syncs successfully, without deleting their saved payloads.
+When two saved versions have different cloud revisions, sync preserves the local and cloud copies and asks you to review them under Account → Sync conflicts. Choose which version to keep, or save the local record under a new ID when no cloud record is readable. A permanent server validation rejection is kept as a blocked local payload and diagnostic and is not retried automatically. Correct and save a newer version; do not retry the unchanged rejected payload. Check-ins and permanent-deletion requests for a tracker with a blocked or conflicted tracker-definition write stay queued until a newer definition is acknowledged. The Account page keeps superseded rejections labeled as historical after a newer version syncs successfully, without deleting their saved payloads.
 
 ### ID: account-signin
 **Category:** accounts-sync
@@ -73,7 +73,7 @@ Use the account screen to request an email sign-in link or choose password sign-
 - src/db/workspaceBackup.ts
 - src/db/workspaceBackup.test.ts
 **Answer:**
-Settings provides a local workspace backup you can download as JSON and restore into the same guest workspace or account. Restore previews changes, adds missing records, skips identical records, and stops if it finds a conflicting ID or date. Sync operation states are preserved too: a server-rejected change remains blocked with its payload and diagnostic, and an already superseded operation remains historical; neither is made retryable by restoring a backup. Keep the backup file private.
+Settings provides a local workspace backup you can download as JSON and restore into the same guest workspace or account. Restore previews changes, adds missing records, skips identical records, and stops if it finds a conflicting ID or date. Sync operation states are preserved too: a server-rejected change remains blocked with its payload and diagnostic, an explicitly discarded change remains inert with its audit payload, and an already superseded operation remains historical; none is made retryable by restoring a backup. Keep the backup file private.
 
 ### ID: signout-local-data
 **Category:** accounts-sync
@@ -102,7 +102,7 @@ Signing out ends the account session; it does not itself delete the local worksp
 - src/services/supabase/syncEngine.ts
 - src/features/auth/AuthProvider.tsx
 **Answer:**
-The check-in is saved locally and its account-sync work remains pending until a connection is available. It may not appear on another device before synchronization completes.
+The check-in is saved locally and its account-sync work remains pending until a connection is available. If that tracker has a blocked or conflicted definition change, the check-in stays queued until a newer definition is acknowledged. It may not appear on another device before synchronization completes.
 
 ### ID: sync-deletion
 **Category:** accounts-sync

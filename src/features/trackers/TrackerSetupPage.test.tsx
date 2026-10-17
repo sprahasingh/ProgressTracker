@@ -510,7 +510,7 @@ describe('tracker setup flow', () => {
     expect(screen.getByLabelText('Checklist item 1')).toBeInTheDocument()
   })
 
-  it('preserves types with recorded values and allows type changes where no historical value exists', async () => {
+  it('locks the type of every existing measure while allowing a type choice for a newly added measure', async () => {
     const existing = datedTracker('locked-measures', 'habit')
     existing.metrics.push({ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } })
     await localRepository.saveTracker(existing)
@@ -518,15 +518,14 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     await user.click(await screen.findByText('More options'))
     await user.click(await screen.findByText('Measures, precision & targets'))
-    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toBeInTheDocument()
-    const existingPageType = screen.getByRole('combobox', { name: 'Measure 2 value type' })
-    await user.selectOptions(existingPageType, 'duration')
+    expect(screen.getAllByText('Existing measures keep this type. Retire it and add a measure to change value type.')).toHaveLength(2)
+    expect(screen.queryByRole('combobox', { name: 'Measure 2 value type' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const newType = screen.getByRole('combobox', { name: 'Measure 3 value type' })
     await user.selectOptions(newType, 'boolean')
     expect(newType).toHaveValue('boolean')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ valueType: 'boolean' }, { valueType: 'duration' }, { valueType: 'boolean' }] }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done', valueType: 'boolean' }, { id: 'pages', valueType: 'quantity' }, { valueType: 'boolean' }] }))
   })
 
   it('locks checklist item editing when saved values use the checklist definition', async () => {

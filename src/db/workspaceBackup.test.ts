@@ -46,13 +46,14 @@ describe('workspace backups', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1, lastError: 'The response was interrupted.', payload: { date: '2026-12-24', reason: 'travel' } })
   })
 
-  it('exports and restores blocked and superseded sync diagnostics without making them retryable', async () => {
+  it('exports and restores blocked, superseded, and discarded sync diagnostics without making them retryable', async () => {
     const accountId = `blocked-backup-${crypto.randomUUID()}`
     accountIds.push(accountId)
     await activateWorkspace(accountId)
     const blocked = { id: 'blocked-backup-op', ownerUserId: accountId, entity: 'tracker' as const, entityId: restoreTracker.id, operation: 'upsert' as const, expectedRevision: null, payload: restoreTracker as never, createdAt: '2026-10-08T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Rejected by validation (23514)', failureCode: '23514', failureDiagnostic: { code: '23514', message: 'tracker validation failed', table: 'trackers', constraint: 'trackers_streak_rule_v8_check' }, blockedAt: '2026-10-08T00:01:00.000Z' }
     const superseded = { ...blocked, id: 'superseded-backup-op', status: 'superseded' as const, supersededAt: '2026-10-08T00:02:00.000Z', supersededByRevision: 2 }
-    await db.syncOperations.bulkAdd([blocked, superseded] as never[])
+    const discarded = { ...blocked, id: 'discarded-backup-op', status: 'discarded' as const, discardedAt: '2026-10-08T00:03:00.000Z' }
+    await db.syncOperations.bulkAdd([blocked, superseded, discarded] as never[])
 
     const backup = await createWorkspaceBackup(accountId)
     await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
@@ -61,6 +62,7 @@ describe('workspace backups', () => {
 
     await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'blocked', payload: restoreTracker, lastError: blocked.lastError, failureCode: '23514', failureDiagnostic: blocked.failureDiagnostic, blockedAt: blocked.blockedAt })
     await expect(db.syncOperations.get(superseded.id)).resolves.toMatchObject({ status: 'superseded', payload: restoreTracker, failureCode: '23514', supersededAt: superseded.supersededAt, supersededByRevision: 2 })
+    await expect(db.syncOperations.get(discarded.id)).resolves.toMatchObject({ status: 'discarded', payload: restoreTracker, failureCode: '23514', discardedAt: discarded.discardedAt })
   })
 
   it('validates and restores v2 planning data with its pending sync payload intact', async () => {
