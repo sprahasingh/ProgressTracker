@@ -279,7 +279,7 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText(/Retained historical achievement/)).toBeInTheDocument()
     expect(within(dialog).getByText(/Unlocked.*First award/)).toBeInTheDocument()
     expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
-    expect(within(dialog).getByText('Earned for: Qualifying check-in')).toBeInTheDocument()
+    expect(within(dialog).getByText(/\+10 XP · Earned for: Qualifying check-in/)).toBeInTheDocument()
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
     const earnedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
       .format(new Date(`${today}T11:00:00.000Z`))
@@ -298,24 +298,49 @@ describe('Progression achievements interface', () => {
     const collection = await openBadgeCollection(user)
     await user.click(within(collection).getByRole('button', { name: /Perfect Day, earned/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Perfect Day' })
-    expect(dialog).toHaveTextContent('Account-wide achievement')
+    expect(dialog).toHaveTextContent('All eligible trackers')
     expect(dialog).toHaveTextContent('considers all eligible trackers for that date')
     expect(dialog).not.toHaveTextContent('Deleted tracker')
     expect(dialog).not.toHaveTextContent('XP and rewards')
-    expect(dialog).toHaveTextContent('Completing a Perfect Day earns 20 XP')
+    expect(dialog).toHaveTextContent('A Perfect Day earns 20 XP')
   })
 
-  it('resolves a live source tracker name without calling it deleted', async () => {
+  it('labels a Perfect Day score row account-wide despite the legacy Deleted tracker source text', async () => {
     const user = userEvent.setup()
-    const firstStep = { ...overview.achievements[0]!, history: [{ ...overview.achievements[0]!.history[0]!, trackerId: tracker.id }] }
-    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [firstStep] })
+    mocks.getProgressionHistory.mockResolvedValueOnce({ rows: [{
+      id: 'perfect-day-xp', userId: 'account-1', effectiveDate: today, recordedAt: `${today}T12:00:00.000Z`, xpDelta: 20,
+      eventCategory: 'perfect_day', reasonCode: 'PERFECT_DAY_BONUS', reversesEventId: null, sourceId: null,
+      trackerId: null, goalId: null, displayName: 'Deleted tracker', deletedTracker: false,
+    }], hasMore: false })
     renderPage()
+    await screen.findByRole('heading', { name: /Wins/ })
+    await user.click(screen.getByRole('button', { name: /125 confirmed XP/ }))
+    const history = await screen.findByRole('dialog', { name: 'Score history' })
+    expect(within(history).getByText('All eligible trackers')).toBeInTheDocument()
+    expect(within(history).queryByText('Deleted tracker')).not.toBeInTheDocument()
+  })
+
+  it('keeps the historical source name and shows archived context without calling it deleted', async () => {
+    const user = userEvent.setup()
+    const firstStep = { ...overview.achievements[0]!, history: [{ ...overview.achievements[0]!.history[0]!, trackerId: tracker.id, trackerDisplayName: tracker.name, rewardReasonCode: 'DAILY_CHECK_IN_COMPLETED', rewardXpDelta: 10 }] }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [firstStep] })
+    mocks.getProgressionHistory.mockResolvedValue({ rows: [streakAward], hasMore: false })
+    mocks.listTrackers.mockResolvedValueOnce([{ ...tracker, status: 'archived' as const }])
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /125 confirmed XP/ }))
+    const scoreHistory = await screen.findByRole('dialog', { name: 'Score history' })
+    await user.click(within(scoreHistory).getByRole('button', { name: '90 days' }))
+    const checkInRow = within(scoreHistory).getByText('Streak milestone').closest('li')!
+    expect(within(checkInRow).getByText('Read each day')).toBeInTheDocument()
+    expect(within(checkInRow).getByText('Archived tracker')).toBeInTheDocument()
+    await user.click(within(scoreHistory).getByRole('button', { name: 'Close details' }))
     const collection = await openBadgeCollection(user)
     await user.click(within(collection).getByRole('button', { name: /First Step, earned/ }))
     const dialog = await screen.findByRole('dialog', { name: 'First Step' })
     expect(dialog).toHaveTextContent('Read each day')
+    expect(dialog).toHaveTextContent('Archived tracker')
     expect(dialog).not.toHaveTextContent('Deleted tracker')
-    expect(dialog).toHaveTextContent('Qualifying check-ins earn 10 XP')
+    expect(dialog).toHaveTextContent('Qualifying check-ins earn 10 XP each; this badge adds no separate XP')
   })
 
   it('uses neutral wording when a tracker-specific badge source cannot be resolved', async () => {
@@ -326,7 +351,7 @@ describe('Progression achievements interface', () => {
     const collection = await openBadgeCollection(user)
     await user.click(within(collection).getByRole('button', { name: /First Step, earned/ }))
     const dialog = await screen.findByRole('dialog', { name: 'First Step' })
-    expect(dialog).toHaveTextContent('Tracker unavailable')
+    expect(dialog).toHaveTextContent('Source unavailable')
     expect(dialog).not.toHaveTextContent('Deleted tracker')
   })
 
@@ -347,7 +372,7 @@ describe('Progression achievements interface', () => {
     await user.click(reversalToggle)
     expect(reversalToggle).toBeChecked()
     expect(within(dialog).getByText('Award reversed')).toBeInTheDocument()
-    expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
+    expect(within(dialog).getAllByText('Read each day')).toHaveLength(2)
     expect(within(dialog).getByText(/Reverses qualifying check-in/)).toBeInTheDocument()
     expect(within(dialog).getByText('Qualifying check-in')).toBeInTheDocument()
     expect(screen.getByText('125')).toBeInTheDocument()
@@ -489,7 +514,7 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Unlocked')).toBeInTheDocument()
     expect(within(dialog).getByText('Save one qualifying check-in.')).toBeInTheDocument()
     expect(within(dialog).getByText(/Unlocked · First award/)).toBeInTheDocument()
-    expect(within(dialog).getByText('Qualifying check-ins earn 10 XP.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Qualifying check-ins earn 10 XP each; this badge adds no separate XP.')).toBeInTheDocument()
     expect(within(dialog).queryByText(/Perfect Day/)).not.toBeInTheDocument()
     expect(within(dialog).queryByText(/streak milestone/)).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
