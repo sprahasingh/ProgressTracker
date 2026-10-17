@@ -117,6 +117,48 @@ describe('BadgeCelebrationMonitor', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('combines First Step and Perfect Day as one check-in confirmation arrives in separate refreshes', async () => {
+    const firstStep = { ...oldEvent, id: 'first-step-new', achievementId: 'first-step', sourceDate: '2026-01-02', recordedAt: new Date(Date.now() + 10_000).toISOString() }
+    const perfectDay = { ...firstStep, id: 'perfect-day-new', achievementId: 'perfect-day', sourceEventId: 'perfect-day-ledger-event' }
+    let firstStepHistory: AchievementHistoryEvent[] = [oldEvent]
+    let perfectDayHistory: AchievementHistoryEvent[] = []
+    mocks.getBadges.mockImplementation(async () => [
+      { achievementId: 'first-step', repeatable: false, history: firstStepHistory },
+      { achievementId: 'perfect-day', repeatable: true, history: perfectDayHistory },
+    ])
+    const firstView = render(<BadgeCelebrationMonitor userId="first-checkin-user" />)
+    await waitFor(() => expect(localStorage.getItem('progress-tracker:achievement-seen:first-checkin-user')).toContain('old'))
+
+    firstStepHistory = [oldEvent, firstStep]
+    notifyProgressionChange?.()
+    expect(await screen.findByRole('dialog', { name: 'First Step' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:first-checkin-user') ?? '[]')).toContain(firstStep.id)
+
+    perfectDayHistory = [perfectDay]
+    notifyProgressionChange?.()
+    const dialog = await screen.findByRole('dialog', { name: '2 achievements unlocked' })
+    expect(dialog).toHaveTextContent('New Achievements Unlocked!')
+    expect(within(dialog).getByRole('heading', { name: 'First Step' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'Perfect Day' })).toBeInTheDocument()
+    expect(within(dialog).getByText('A meaningful beginning, built one check-in at a time.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Every eligible tracker was completed on one day.')).toBeInTheDocument()
+    expect(within(dialog).getByText('first-step art')).toBeInTheDocument()
+    expect(within(dialog).getByText('perfect-day art')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'About First Step celebration' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'About Perfect Day celebration' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-pending:first-checkin-user') ?? '[]')).toEqual(expect.arrayContaining([firstStep.id, perfectDay.id]))
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Finish' }))
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('progress-tracker:achievement-seen:first-checkin-user') ?? '[]')).toEqual(expect.arrayContaining([firstStep.id, perfectDay.id])))
+    notifyProgressionChange?.()
+    await waitFor(() => expect(mocks.getBadges).toHaveBeenCalledTimes(4))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    firstView.unmount()
+    render(<BadgeCelebrationMonitor userId="first-checkin-user" />)
+    await waitFor(() => expect(mocks.getBadges).toHaveBeenCalledTimes(5))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('keeps the info control beside the badge title and the close control separate', async () => {
     mocks.getBadges.mockResolvedValue([{ achievementId: 'consistency-star', history: [{ ...newEvent, achievementId: 'consistency-star' }] }])
     render(<BadgeCelebrationMonitor userId="user-1" />)

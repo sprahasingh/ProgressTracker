@@ -15,6 +15,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calculateCumulativeMetricPlan, calculateDailyRecurringMetricPlan, evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate, type GoalPlanDayState } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
+import { formatElapsedMonthsAndDays } from '../../domain/trackers/elapsedProgress'
 import { isTrackerSchemaWriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { useAuth } from '../auth/AuthProvider'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -154,6 +155,8 @@ export function GoalsPage() {
           const latestInPeriod = Boolean(latest && isTrackerInActivePeriod(tracker, latest.date, planningTimeZone))
           const latestQualified = latestInPeriod && latest?.outcome === 'recorded' && evaluateTrackerEntry(tracker, latest).qualified
           const startDate = trackerActiveStartDate(tracker, planningTimeZone)
+          const elapsedEndDate = tracker.deadline && tracker.deadline < planningToday ? tracker.deadline : planningToday
+          const elapsedProgress = tracker.deadline && planningToday > startDate ? formatElapsedMonthsAndDays(startDate, elapsedEndDate) : null
           const goalStatusColor = overdue ? 'missed' : tracker.status === 'completed' ? 'completed' : tracker.status === 'active' ? 'pending' : 'neutral'
           const expanded = expandedGoals.has(tracker.id)
           const goalDetailId = `goal-details-${encodeURIComponent(tracker.id)}`
@@ -172,6 +175,7 @@ export function GoalsPage() {
               <span className="goal-card-summary-top"><span className={`tracker-kind-chip status-badge ${goalStatusColor}`}>{state}</span>{tracker.deadline && <span className="goal-card-deadline">{overdue ? `${Math.abs(daysRemaining ?? 0)} days overdue` : daysRemaining === 0 ? 'Due today' : (daysRemaining ?? 0) > 0 ? `${daysRemaining} days remaining` : 'Deadline passed'} · {calendarDateLabel(tracker.deadline)}</span>}</span>
               {schedulingMode(tracker) === 'effective' && tracker.scheduling && <span className="goal-card-schedule-day">{effectiveDay !== null ? `Effective Day ${effectiveDay} of ${tracker.scheduling.effectiveDays}` : nextEffectiveDate ? `Paused · next eligible day ${calendarDateLabel(nextEffectiveDate)}` : `Effective day target · ${tracker.scheduling.effectiveDays}`} · {plannedActivityDays} planned workdays</span>}
               <span className="goal-card-summary-name" role="heading" aria-level={2}>{tracker.name}</span>
+              {elapsedProgress && <small className="goal-card-elapsed" aria-label={`Elapsed goal period: ${elapsedProgress} completed`}>{elapsedProgress} completed</small>}
               <span className="goal-card-summary-metrics">{summaryMetrics.map((metricSummary) => <span className="goal-card-summary-metric" key={metricSummary.metricId}><span>{metricSummary.name}</span><strong>{metricSummary.value}</strong>{metricSummary.target !== undefined && <><span className="goal-card-progress" role="img" aria-label={`${metricSummary.name}: ${metricSummary.percent ?? 0}% complete`}><i style={{ width: `${metricSummary.percent ?? 0}%` }} /></span>{metricSummary.remaining !== undefined && <small>{formatTrackerNumber(metricSummary.remaining)}{metricSummary.unit} remaining · {Math.round(metricSummary.percent ?? 0)}%</small>}{metricSummary.expected !== undefined && <small>Expected by today {formatTrackerNumber(metricSummary.expected)}{metricSummary.unit}{metricSummary.requiredPace === null ? ' · No Auto days remain' : metricSummary.requiredPace !== undefined ? ` · ${formatTrackerNumber(metricSummary.requiredPace)}${metricSummary.unit}/Auto day` : ''}{metricSummary.paceLabel ? ` · ${metricSummary.paceLabel}` : ''}</small>}</>}</span>)}</span>
               <span className="goal-card-expand-hint">{expanded ? 'Close details' : 'View progress details'} <AppIcon className="goal-card-expand-icon" name="chevron-down" style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></span>
             </button>

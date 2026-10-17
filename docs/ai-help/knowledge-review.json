@@ -164,7 +164,7 @@
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
     "src/domain/trackers/allocationPreview.ts": "8a2e1ab84a9adb6132588eccf4f737e7dd90409f2d06355829d0ea386dbf4921",
     "src/domain/trackers/goalPlanning.test.ts": "109e9d5fa284c243eafcbab35be8b6545f993aa8f335ca408860ad63fa085e35",
-    "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349"
+    "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87"
   },
   "cumulative-plan-rebalancing": {
     "src/domain/trackers/allocationPreview.ts": "8a2e1ab84a9adb6132588eccf4f737e7dd90409f2d06355829d0ea386dbf4921",
@@ -182,7 +182,7 @@
     "src/domain/trackers/ruleVersions.ts": "6f7afb8a5283398a1ee919aeb68d0bb67b6a0b8206ba0a8292e185ea646dfe60",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "cbce46ba34865b4d3b39ee524e0f4702331083a30d08a8c5aa01e200b9c9048e",
     "src/features/trackers/MilestoneProgressList.tsx": "5ff92a11437dc032f61f980c5474c3a05663b1fdc9d6d97e8212e74c37250b47",
-    "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
+    "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87",
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22",
     "src/features/calendar/CalendarPage.tsx": "ee1682f4966de2dbb7709a78554f9b34b703dcf4c8bdc13113f2cb415ed8b99f",
     "src/services/supabase/syncEngine.ts": "40f99a1f4a20c5f9863e8ef70c4606d8de9e5d6fca7f45b66063640273ad85d9",
@@ -194,7 +194,7 @@
     "src/domain/trackers/goalPlanning.test.ts": "109e9d5fa284c243eafcbab35be8b6545f993aa8f335ca408860ad63fa085e35"
   },
   "complete-goal": {
-    "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
+    "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87",
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
     "src/domain/trackers/goalPlanning.test.ts": "109e9d5fa284c243eafcbab35be8b6545f993aa8f335ca408860ad63fa085e35"
   },
@@ -213,12 +213,12 @@
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22"
   },
   "goal-target-change": {
-    "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
+    "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87",
     "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed",
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15"
   },
   "goal-metric-unit": {
-    "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
+    "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87",
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
     "src/features/trackers/GoalPlanningEditor.tsx": "4b2e199c289d1d1f74fadb6c9bd223ad1bdfffe55bf9d83260ac0ff70454dbed"
   },
@@ -390,6 +390,13 @@
     "src/db/calendarDate.ts": "e105c49e92d44c0b64847a147ccf393751b929c1766745370edb9c85c9c2056c",
     "src/db/calendarDate.test.ts": "2dd0c85314beae636eeae4ff6fae52e1ab0d79287f493af90ae3cc7ab2184e79"
   },
+  "feedback-identity-sharing": {
+    "src/features/settings/IdentitySharingSettings.tsx": "bf4382c762f6627930428ca02e716dd6ca0aace2bcf5d07b291c5db01cd3fcc5",
+    "src/features/settings/identitySharing.ts": "e75ee18f04f0974a69ec376e4a67517d7c8b9a2c9e39cedee81f686750d5bafe",
+    "src/features/feedback/SendFeedback.tsx": "c1495ce90f0479593fce11dfd0ecadf2750cfa4a1c86ed259ef0117d56bb6419",
+    "supabase/migrations/20261118000300_default_identity_sharing_to_on.sql": "c43c020ac8adebf546d6a045b5cf9e5183124807e1dce8274386df678111ff8c",
+    "supabase/migrations/20261031000200_identity_sharing_privacy.sql": "c1f652a39e9a00d270a1946f27fa2bf4f84106a7cc653ccb0786368b2dfbfac4"
+  },
   "completion-rate": {
     "src/domain/trackers/analytics.ts": "593594d774acb73d06d9f92de0af94853f32464795e4bf4cafa7d81bf25f800b",
     "src/domain/trackers/planning.ts": "111013d2be904ce48d152ff8f568b1f325030f74d815caf16d8a847f4fa6bc15",
@@ -408,11 +415,11 @@
     "src/services/supabase/progressionRepository.ts": "613d4c01caf87741c03d39e420098056aa07baa394ccf19512afdf053a702195",
     "supabase/migrations/20261111000100_tracker_streak_rules_v8.sql": "66f55b5687d36fa63c4d9dfb8ffc3dd089d4304477cf61a40dd76189cce6e730",
     "src/features/dashboard/AchievementsPage.tsx": "262c9621755d4c65b4c6d4e0b1b6dc63e6d95878392ac354de7777d44735e8c3",
-    "src/features/dashboard/ProgressionAchievementsPage.tsx": "139188050017641bd8218fef64b1bdd50493eeda9d1169be6950510945086132",
+    "src/features/dashboard/ProgressionAchievementsPage.tsx": "839e231ff0396c79904fd93e506905056ddd69857d066685f1f78845bf132abc",
     "src/features/dashboard/achievementCatalog.ts": "9a8f4b17427bc598ab9a2b073cb963f46268a289c3bf7363e77f054374ff3200",
-    "src/features/dashboard/BadgeCelebrationDialog.tsx": "1cd78d58d8ad26e12b519e896b7e7b3cdc34c53611cb1cfc712e9c1dba4d1a76",
-    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "d44f69a65ee056a25bbe4c83044e1a3cbdf30a781d1b0e6fe277a4c1496f8d53",
-    "src/features/dashboard/BadgeCelebrationDialog.test.tsx": "55694d68a03b43f3f06a77a3b22547e893f38946999161b3f0b939c3ac9db7d5",
+    "src/features/dashboard/BadgeCelebrationDialog.tsx": "d85c3b03a91f035f2221a6da7493085347e381b3b335889f43a7ffbd1d74a9cf",
+    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "4a740073ec27101bd8d3446c84716f110adf291cef643aef6d256f94407d7234",
+    "src/features/dashboard/BadgeCelebrationDialog.test.tsx": "bc9bb4e4bd727061988829567de015cb2c012d8984c0e1bca98e1a23de8bbcbf",
     "supabase/tests/progression_achievements.test.sql": "36e29787399585b80dcac096b56dd4f87d39ee03968382df2cd5459e8d2f4ce2",
     "src/features/dashboard/LegacyAchievementsPage.tsx": "5bba2d102c1a019f0389e13a0900c75bc48d64fc33f24de5abb1afbda2aa335a",
     "src/domain/trackers/schemaVersionGate.ts": "91e2985b42814c00994ac1547dddb1eb9711cb807b3071ac529b44d7ca884738",

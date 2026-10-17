@@ -8,12 +8,25 @@ vi.mock('./identitySharing', () => ({ getIdentitySharingPreference: vi.fn(), set
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('IdentitySharingSettings', () => {
-  it('defaults to anonymous when the cloud setting is missing and persists opt in and opt out', async () => {
+  it('shows the enabled default for an account without a saved preference and lets the user opt out', async () => {
+    vi.mocked(getIdentitySharingPreference).mockResolvedValue(true)
+    vi.mocked(setIdentitySharingPreference).mockImplementation(async (value) => value)
+    const user = userEvent.setup()
+    render(<IdentitySharingSettings />)
+    const checkbox = await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })
+    expect(checkbox).toBeChecked()
+    await user.click(checkbox)
+    expect(setIdentitySharingPreference).toHaveBeenCalledWith(false)
+    expect(await screen.findByText('Privacy setting saved.')).toBeInTheDocument()
+    expect(checkbox).not.toBeChecked()
+  })
+
+  it('loads the saved preference and persists opt in and opt out', async () => {
     vi.mocked(getIdentitySharingPreference).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     vi.mocked(setIdentitySharingPreference).mockImplementation(async (value) => value)
     const user = userEvent.setup()
     const { unmount } = render(<IdentitySharingSettings />)
-    const checkbox = await screen.findByRole('checkbox', { name: 'Share my identity with maintainers' })
+    const checkbox = await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })
     expect(checkbox).not.toBeChecked()
     expect(screen.getByText(/Allow maintainers to see your name and email/)).toBeInTheDocument()
     const infoButton = screen.getByRole('button', { name: 'How identity sharing works' })
@@ -35,8 +48,8 @@ describe('IdentitySharingSettings', () => {
     expect(checkbox).toBeChecked()
     unmount()
     render(<IdentitySharingSettings />)
-    expect(await screen.findByRole('checkbox', { name: 'Share my identity with maintainers' })).toBeChecked()
-    const enabledCheckbox = screen.getByRole('checkbox', { name: 'Share my identity with maintainers' })
+    expect(await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })).toBeChecked()
+    const enabledCheckbox = screen.getByRole('checkbox', { name: 'Share my details with maintainers' })
     await user.click(enabledCheckbox)
     expect(setIdentitySharingPreference).toHaveBeenLastCalledWith(false)
   })
@@ -60,9 +73,9 @@ describe('IdentitySharingSettings', () => {
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
-    expect(screen.getByRole('checkbox', { name: 'Share my identity with maintainers' })).toBeDisabled()
+    expect(screen.queryByRole('checkbox', { name: 'Share my details with maintainers' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('checkbox', { name: 'Share my identity with maintainers' })).toBeChecked()
+    expect(await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })).toBeChecked()
   })
 
   it('preserves the last saved value and explains a save failure', async () => {
@@ -70,7 +83,7 @@ describe('IdentitySharingSettings', () => {
     vi.mocked(setIdentitySharingPreference).mockRejectedValue(new Error('Your privacy setting could not be saved. Try again.'))
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)
-    const checkbox = await screen.findByRole('checkbox', { name: 'Share my identity with maintainers' })
+    const checkbox = await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })
     expect(checkbox).toBeChecked()
     await user.click(checkbox)
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be saved')

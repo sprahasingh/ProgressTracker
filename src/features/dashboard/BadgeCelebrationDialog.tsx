@@ -13,12 +13,25 @@ import { measureDevPerformance } from '../../utils/devPerformance'
 
 type Celebration = AchievementHistoryEvent & { repeatable: boolean }
 type LevelCelebration = { kind: 'level'; id: string; fromLevel: number; toLevel: number; confirmedXp: number }
-type QueuedCelebration = { kind: 'badge'; event: Celebration } | LevelCelebration
+type BadgeCelebrationGroup = { kind: 'badge'; id: string; groupKey: string; events: Celebration[] }
+type QueuedCelebration = BadgeCelebrationGroup | LevelCelebration
 const storageKey = (userId: string) => `progress-tracker:achievement-seen:${userId}`
 const pendingStorageKey = (userId: string) => `progress-tracker:achievement-pending:${userId}`
 const levelStateKey = (userId: string) => `progress-tracker:level-state:${userId}`
 const levelPendingKey = (userId: string) => `progress-tracker:level-pending:${userId}`
 const levelForXp = (xp: number) => calculateProgressionLevel(xp).level
+
+function celebrationGroupKey(event: Celebration): string {
+  // Several achievement events can be written from one local calendar day as
+  // the same check-in is reconciled into First Step, Perfect Day, and streaks.
+  return event.sourceDate ? `date:${event.sourceDate}` : event.sourceEventId ? `source:${event.sourceEventId}` : `event:${event.id}`
+}
+
+function withAwardEvents(group: BadgeCelebrationGroup, events: readonly Celebration[]): BadgeCelebrationGroup {
+  const merged = new Map(group.events.map((event) => [event.id, event]))
+  for (const event of events) merged.set(event.id, event)
+  return { ...group, events: [...merged.values()].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id)) }
+}
 
 export function badgeCelebrationLevel(repeatable: boolean, occurrence: number): 'first' | 'repeat' | 'milestone' {
   if (occurrence === 1 || !repeatable) return 'first'
@@ -108,11 +121,27 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       for (const id of activeIds) stillPending.delete(id)
       localStorage.setItem(pendingKey, JSON.stringify([...stillPending].slice(-3000)))
       setQueue((current) => {
-        const surviving = current.filter((item) => item.kind === 'level' || !activeIds.has(item.event.id))
-        const queued = new Set(surviving.map((item) => item.kind === 'level' ? item.id : item.event.id))
-        const levels = levelItems.filter((item) => !queued.has(item.id))
-        const badgesToQueue = positive.filter((event) => !queued.has(event.id)).map((event): QueuedCelebration => ({ kind: 'badge', event }))
-        return [...surviving, ...levels, ...badgesToQueue]
+        const surviving: QueuedCelebration[] = []
+        for (const item of current) {
+          if (item.kind === 'level') surviving.push(item)
+          else {
+            const events = item.events.filter((event) => !activeIds.has(event.id))
+            if (events.length) surviving.push({ ...item, events })
+          }
+        }
+        const queued = new Set(surviving.map((item) => item.id))
+        const next = [...surviving, ...levelItems.filter((item) => !queued.has(item.id))]
+        for (const event of positive) {
+          const groupKey = celebrationGroupKey(event)
+          const existingIndex = next.findIndex((item) => item.kind === 'badge' && item.groupKey === groupKey)
+          if (existingIndex >= 0) {
+            const existing = next[existingIndex] as BadgeCelebrationGroup
+            next[existingIndex] = withAwardEvents(existing, [event])
+          } else {
+            next.push({ kind: 'badge', id: `badge:${groupKey}`, groupKey, events: [event] })
+          }
+        }
+        return next
       })
       // Confirmed awards should be presented as soon as their history is read.
       // XP attribution is supplementary and may wait on a slower Auth/API call;
@@ -120,8 +149,10 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       const sourceEventIds = [...new Set(positive.map((event) => event.sourceEventId).filter((id): id is string => Boolean(id)))]
       if (sourceEventIds.length) {
         void getAchievementAwardXp(userId, sourceEventIds).then((xpBySource) => {
-          setQueue((current) => current.map((item) => item.kind === 'badge' && item.event.sourceEventId && xpBySource.has(item.event.sourceEventId)
-            ? { ...item, event: { ...item.event, rewardXpDelta: xpBySource.get(item.event.sourceEventId)! } }
+          setQueue((current) => current.map((item) => item.kind === 'badge'
+            ? { ...item, events: item.events.map((event) => event.sourceEventId && xpBySource.has(event.sourceEventId)
+              ? { ...event, rewardXpDelta: xpBySource.get(event.sourceEventId)! }
+              : event) }
             : item))
         }).catch(() => { /* XP is optional; show confirmed badge events without it. */ })
       }
@@ -144,14 +175,15 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       localStorage.setItem(levelPendingKey(userId), JSON.stringify(pending.filter((entry) => entry.id !== item.id)))
       return
     }
-    const event = item.event
+    const eventIds = new Set(item.events.map((event) => event.id))
     const key = storageKey(userId)
     let seen: string[] = []
     try { seen = JSON.parse(localStorage.getItem(key) ?? '[]') as string[] } catch { seen = [] }
-    if (!seen.includes(event.id)) localStorage.setItem(key, JSON.stringify([...seen, event.id].slice(-3000)))
+    for (const id of eventIds) if (!seen.includes(id)) seen.push(id)
+    localStorage.setItem(key, JSON.stringify(seen.slice(-3000)))
     let pending: string[] = []
     try { pending = JSON.parse(localStorage.getItem(pendingStorageKey(userId)) ?? '[]') as string[] } catch { pending = [] }
-    localStorage.setItem(pendingStorageKey(userId), JSON.stringify(pending.filter((id) => id !== event.id)))
+    localStorage.setItem(pendingStorageKey(userId), JSON.stringify(pending.filter((id) => !eventIds.has(id))))
   }, [userId])
   const close = useCallback(() => {
     if (current) {
@@ -166,7 +198,7 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
-  const currentId = current ? current.kind === 'level' ? current.id : current.event.id : null
+  const currentId = current?.id ?? null
   useModalLayer(Boolean(current), dialogRef, close, { manageHistoryEntry: false })
   useVisualViewportBounds(Boolean(current), backdropRef)
   useEffect(() => { if (current) closeRef.current?.focus() }, [currentId])
@@ -177,17 +209,22 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
       <div className="progression-dialog-content level-up-content"><span className="level-up-mark" aria-hidden="true"><AppIcon name="spark" /></span><p>You advanced from level {current.fromLevel} to level {current.toLevel}.</p><strong>{current.confirmedXp.toLocaleString()} confirmed XP</strong><div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Continue' : 'Done'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div></div>
     </section>
   </div>, document.body)
-  const event = current.event
-  const definition = achievementDefinition(event.achievementId)
-  if (!definition) return null
-  const level = badgeCelebrationLevel(event.repeatable, event.tier)
+  const awards = current.events.map((event) => ({ event, definition: achievementDefinition(event.achievementId) }))
+  const firstAward = awards[0]!
+  const firstEvent = firstAward.event
+  const firstDefinition = firstAward.definition
+  const singleAward = awards.length === 1
+  const level = badgeCelebrationLevel(firstEvent.repeatable, firstEvent.tier)
   const milestone = level === 'milestone'
-  const grand = level !== 'repeat'
-  const label = event.tier === 1 ? 'New Achievement Unlocked!' : milestone ? 'Achievement Milestone!' : 'Achievement Earned Again!'
+  const grand = awards.some(({ event }) => badgeCelebrationLevel(event.repeatable, event.tier) !== 'repeat')
+  const label = singleAward
+    ? firstEvent.tier === 1 ? 'New Achievement Unlocked!' : milestone ? 'Achievement Milestone!' : 'Achievement Earned Again!'
+    : 'New Achievements Unlocked!'
   const ordinal = (count: number) => `${count}${count % 100 >= 11 && count % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[count % 10] ?? 'th'}`
-  const occurrenceLabel = event.tier === 1 ? 'First Unlock' : milestone ? `${ordinal(event.tier)} ${definition.name}!` : `Earned for the ${ordinal(event.tier)} time`
-  const earnedAt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(event.recordedAt))
-  const index = queue.findIndex((item) => item.kind === 'badge' && item.event.id === event.id)
+  const occurrenceLabel = (event: Celebration, name: string) => event.tier === 1 ? 'First Unlock' : badgeCelebrationLevel(event.repeatable, event.tier) === 'milestone' ? `${ordinal(event.tier)} ${name}!` : `Earned for the ${ordinal(event.tier)} time`
+  const earnedAt = (event: Celebration) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(event.recordedAt))
+  const index = queue.findIndex((item) => item.id === current.id)
+  const title = singleAward ? firstDefinition?.name ?? 'Achievement' : `${awards.length} achievements unlocked`
   return createPortal(<div ref={backdropRef} className="modal-backdrop progression-dialog-backdrop badge-celebration-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
     <section ref={dialogRef} className={`progression-dialog badge-celebration${grand ? ' is-grand' : ' is-subtle'}`} role="dialog" aria-modal="true" aria-labelledby="badge-celebration-title" tabIndex={-1}>
       {grand && <div className="badge-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ '--confetti-index': index } as React.CSSProperties} />)}</div>}
@@ -196,13 +233,39 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
           <span className="eyebrow">{label}</span>
           {queue.length > 1 && <span className="badge-celebration-queue">Celebration {index + 1} of {queue.length}</span>}
           <div className="badge-celebration-title-row">
-            <h2 id="badge-celebration-title">{definition.name}</h2>
-          <InfoButton title={definition.name} label="About this celebration" compact summary={definition.description} description={`${definition.requirement} ${event.repeatable ? 'This badge is repeatable.' : 'This badge can be earned once.'}`} />
+            <h2 id="badge-celebration-title">{title}</h2>
+            {singleAward && <InfoButton title={title} label="About this celebration" compact summary={firstDefinition?.description ?? 'A new achievement was confirmed.'} description={`${firstDefinition?.requirement ?? 'This achievement has been confirmed.'} ${firstEvent.repeatable ? 'This badge is repeatable.' : 'This badge can be earned once.'}`} />}
           </div>
         </div>
         <button ref={closeRef} type="button" className="info-dialog-close badge-celebration-close" aria-label="Close celebration" onClick={close}><AppIcon name="close" /></button>
       </header>
-      <div className="progression-dialog-content badge-celebration-content"><ProgressionBadge achievementId={event.achievementId} tier={event.tier} size="large" /><p>{definition.description}</p><p className="badge-celebration-occurrence">{occurrenceLabel}{event.repeatable && event.tier > 1 ? ` · ${event.tier} valid awards` : ''}</p><p className="badge-celebration-earned">Earned {earnedAt}{event.sourceDate ? ` · qualifying date ${event.sourceDate}` : ''}</p><p className="badge-celebration-xp">{event.rewardXpDelta !== null && event.rewardXpDelta > 0 ? `+${event.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p><div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Next' : 'Finish'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div></div>
+      {singleAward
+        ? <div className="progression-dialog-content badge-celebration-content">
+          <ProgressionBadge achievementId={firstEvent.achievementId} tier={firstEvent.tier} size="large" />
+          <p>{firstDefinition?.description ?? 'A new achievement was confirmed.'}</p>
+          <p className="badge-celebration-occurrence">{occurrenceLabel(firstEvent, firstDefinition?.name ?? 'Achievement')}{firstEvent.repeatable && firstEvent.tier > 1 ? ` · ${firstEvent.tier} valid awards` : ''}</p>
+          <p className="badge-celebration-earned">Earned {earnedAt(firstEvent)}{firstEvent.sourceDate ? ` · qualifying date ${firstEvent.sourceDate}` : ''}</p>
+          <p className="badge-celebration-xp">{firstEvent.rewardXpDelta !== null && firstEvent.rewardXpDelta > 0 ? `+${firstEvent.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p>
+          <div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Next' : 'Finish'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div>
+        </div>
+        : <div className="progression-dialog-content badge-celebration-content is-multiple">
+          <ul className="badge-celebration-awards" aria-label="Newly unlocked awards">
+            {awards.map(({ event, definition }) => {
+              const name = definition?.name ?? 'Achievement'
+              return <li className="badge-celebration-award" key={event.id}>
+                <ProgressionBadge achievementId={event.achievementId} tier={event.tier} size="large" />
+                <div className="badge-celebration-award-details">
+                  <div className="badge-celebration-title-row"><h3>{name}</h3><InfoButton title={name} label={`About ${name} celebration`} compact summary={definition?.description ?? 'A new achievement was confirmed.'} description={`${definition?.requirement ?? 'This achievement has been confirmed.'} ${event.repeatable ? 'This badge is repeatable.' : 'This badge can be earned once.'}`} /></div>
+                  <p>{definition?.description ?? 'A new achievement was confirmed.'}</p>
+                  <p className="badge-celebration-occurrence">{occurrenceLabel(event, name)}{event.repeatable && event.tier > 1 ? ` · ${event.tier} valid awards` : ''}</p>
+                  <p className="badge-celebration-earned">Earned {earnedAt(event)}{event.sourceDate ? ` · qualifying date ${event.sourceDate}` : ''}</p>
+                  <p className="badge-celebration-xp">{event.rewardXpDelta !== null && event.rewardXpDelta > 0 ? `+${event.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p>
+                </div>
+              </li>
+            })}
+          </ul>
+          <div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Next' : 'Finish'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div>
+        </div>}
     </section>
   </div>, document.body)
 }

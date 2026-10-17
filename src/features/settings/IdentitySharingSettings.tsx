@@ -3,7 +3,7 @@ import { InfoButton } from '../../components/ui/InfoButton'
 import { getIdentitySharingPreference, setIdentitySharingPreference } from './identitySharing'
 
 export function IdentitySharingSettings() {
-  const [shareIdentity, setShareIdentity] = useState(false)
+  const [shareIdentity, setShareIdentity] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -17,7 +17,10 @@ export function IdentitySharingSettings() {
     void getIdentitySharingPreference().then((value) => {
       if (active) setShareIdentity(value)
     }).catch((cause: unknown) => {
-      if (active) setError(cause instanceof Error ? cause.message : 'Your privacy setting could not be loaded. Try again.')
+      if (active) {
+        setShareIdentity(null)
+        setError(cause instanceof Error ? cause.message : 'Your privacy setting could not be loaded. Try again.')
+      }
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [loadAttempt])
@@ -38,19 +41,20 @@ export function IdentitySharingSettings() {
 
   return <div className="settings-privacy" aria-busy={loading || saving}>
     <div className="settings-privacy-control">
-      <label className="settings-privacy-toggle" htmlFor="share-identity-with-maintainers">
+      {shareIdentity !== null && <label className="settings-privacy-toggle" htmlFor="share-identity-with-maintainers">
       <input
         id="share-identity-with-maintainers"
         type="checkbox"
-        aria-label="Share my identity with maintainers"
+        aria-label="Share my details with maintainers"
         checked={shareIdentity}
         disabled={loading || saving || Boolean(error)}
         onChange={(event) => void save(event.currentTarget.checked)}
         aria-describedby="identity-sharing-description"
       />
-        <strong>Share my identity with maintainers</strong>
+        <strong>Share my details with maintainers</strong>
       </label>
-      <InfoButton
+      }
+      {shareIdentity !== null && <InfoButton
         title="How identity sharing works"
         label="How identity sharing works"
         compact
@@ -62,9 +66,9 @@ export function IdentitySharingSettings() {
           <li>Information already viewed or exported by maintainers cannot be retroactively erased.</li>
           <li>This setting controls maintainer-facing feedback and support views, not privileged infrastructure administration.</li>
         </ul>}
-      />
+      />}
     </div>
-    <small className="settings-privacy-description" id="identity-sharing-description">Allow maintainers to see your name and email when reviewing your AI feedback or support requests.</small>
+      <small className="settings-privacy-description" id="identity-sharing-description">Allow maintainers to see your name and email when reviewing your AI feedback or support requests. Sharing is on by default until you choose otherwise.</small>
     {loading && <p className="settings-hint" role="status">Loading privacy setting…</p>}
     {saving && <p className="settings-hint" role="status">Saving privacy setting…</p>}
     {saved && <p className="settings-hint" role="status">Privacy setting saved.</p>}

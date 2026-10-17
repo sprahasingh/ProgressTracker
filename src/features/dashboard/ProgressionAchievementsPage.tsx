@@ -134,6 +134,13 @@ function formatCalendarDate(date: string) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00.000Z`))
 }
 
+function formatAchievementTimestamp(timestamp: string, timeZone: string) {
+  const date = new Date(timestamp)
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }).format(date)
+    : timestamp.slice(0, 10)
+}
+
 function badgeOccurrencePeriod(badge: AchievementState, event: AchievementState['history'][number]) {
   const reference = event.sourceReference ?? {}
   if (badge.achievementId === 'perfect-month' && typeof reference.month === 'string' && /^\d{4}-\d{2}$/.test(reference.month)) {
@@ -337,8 +344,20 @@ export function ProgressionAchievementsPage() {
     : streaks.filter(({ tracker }) => isArchivedTracker(tracker))
   const activity = useMemo(() => pageData ? getLocalActivity(pageData, streakFilter === 'active' ? activeTrackers : archivedTrackers, today, timeZone) : [], [pageData, streakFilter, activeTrackers, archivedTrackers, today, timeZone])
   const milestones = useMemo(() => pageData ? milestoneEvents(pageData.overview.scoreHistory) : [], [pageData])
-  const recentUnlocks = useMemo(() => pageData?.overview.achievements.filter((badge) => badge.earned)
-    .sort((left, right) => (right.unlockedAt ?? '').localeCompare(left.unlockedAt ?? '')).slice(0, 3) ?? [], [pageData])
+  const recentUnlocks = useMemo(() => {
+    const byAchievement = new Map<string, { badge: AchievementState; event: AchievementState['history'][number] }>()
+    for (const badge of pageData?.overview.achievements ?? []) {
+      if (!badge.earned) continue
+      const event = activeAchievementOccurrences(badge.history).at(-1)
+      if (!event) continue
+      const existing = byAchievement.get(badge.achievementId)
+      if (!existing || event.recordedAt > existing.event.recordedAt) byAchievement.set(badge.achievementId, { badge, event })
+    }
+    return [...byAchievement.values()]
+      .filter(({ badge }) => Boolean(achievementDefinition(badge.achievementId)))
+      .sort((left, right) => right.event.recordedAt.localeCompare(left.event.recordedAt) || left.badge.achievementId.localeCompare(right.badge.achievementId))
+      .slice(0, 2)
+  }, [pageData])
   const weekStart = shiftCalendarDate(today as CalendarDate, -6)
   const weeklyXp = pageData?.overview.scoreHistory.filter((event) => event.effectiveDate >= weekStart && event.effectiveDate <= today)
     .reduce((sum, event) => sum + event.xpDelta, 0) ?? 0
@@ -447,15 +466,20 @@ export function ProgressionAchievementsPage() {
           </button>
         </div>
         <p className="progression-insights-link">See period activity and tracker statistics in <Link to="/analytics">Insights</Link>.</p>
-        <div className={`progression-recent-unlocks${recentUnlocks.length ? '' : ' is-empty'}`} aria-label="Recently unlocked achievements">
-          {recentUnlocks.length ? <><strong>Recently unlocked</strong>{recentUnlocks.map((badge) => {
-            const definition = achievementDefinition(badge.achievementId)
-            const earnedDate = definition ? badgeEarnedDate(badge) : badge.unlockedAt?.slice(0, 10)
-            const activeOccurrences = activeAchievementOccurrences(badge.history)
-            const earnedCount = badge.validAwardCount ?? activeOccurrences.length
-            return <button type="button" key={badge.achievementId} onClick={() => setSelectedBadge(badge)}><ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, earnedCount) : 1} /><span>{definition?.name ?? 'Achievement'}<small>{earnedDate ? formatCalendarDate(earnedDate) : 'Earned'}</small></span></button>
-          })}</> : <p>Your first confirmed badge will appear here when earned.</p>}
-        </div>
+        <section className={`progression-recent-unlocks${recentUnlocks.length ? '' : ' is-empty'}`} aria-labelledby="progression-recent-unlocks-title">
+          <div className="progression-recent-unlocks-heading"><h3 id="progression-recent-unlocks-title">Recently Achieved</h3><button type="button" className="progression-text-button" onClick={() => { setSelectedBadge(null); setAllBadgesOpen(true) }}>See All Badges</button></div>
+          {recentUnlocks.length
+            ? <div className={`progression-recent-unlocks-grid${recentUnlocks.length === 1 ? ' is-single' : ''}`}>{recentUnlocks.map(({ badge, event }) => {
+              const definition = achievementDefinition(badge.achievementId)!
+              const earnedCount = badge.validAwardCount ?? activeAchievementOccurrences(badge.history).length
+              const earnedDate = formatAchievementTimestamp(event.recordedAt, timeZone)
+              return <button type="button" key={badge.achievementId} aria-label={`${definition.name}, achieved ${earnedDate}. Open badge details`} onClick={() => setSelectedBadge(badge)}>
+                <ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, earnedCount) : 1} />
+                <span><strong>{definition.name}</strong><small>Achieved {earnedDate}</small></span>
+              </button>
+            })}</div>
+            : <p>Your first confirmed badge will appear here when earned.</p>}
+        </section>
       </section>
 
       <section className="progression-section" aria-labelledby="progression-history-heading">
