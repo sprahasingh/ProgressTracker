@@ -164,4 +164,4 @@ The plan and its remaining pace are recalculated against the new target and exis
 - src/domain/trackers/planning.ts
 - src/features/trackers/GoalPlanningEditor.tsx
 **Answer:**
-The goal uses the unit of its linked tracker measure. Choose or edit the measure’s unit in tracker configuration; the goal plan displays values in that unit rather than converting them.
+The goal uses the unit of its linked tracker measure. Choose or edit the measure’s unit in tracker configuration; the goal plan displays values in that unit rather than converting them. A separate elapsed-time label on deadline goals uses calendar months and remaining days from the active start date; it does not convert the measure, target, or saved progress.

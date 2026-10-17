@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { getIdentitySharingPreference, setIdentitySharingPreference } from './identitySharing'
 
-function clientFor({ preference = null, readError = null, saveResult = true, saveError = null, userId = 'user-1' }: {
+function clientFor({ preference = null, preferenceSet = preference !== null, readError = null, saveResult = true, saveError = null, userId = 'user-1' }: {
   preference?: boolean | null
+  preferenceSet?: boolean | null
   readError?: unknown
   saveResult?: boolean | null
   saveError?: unknown
   userId?: string | null
 } = {}) {
-  const maybeSingle = vi.fn().mockResolvedValue({ data: preference === null ? null : { share_identity: preference }, error: readError })
+  const maybeSingle = vi.fn().mockResolvedValue({ data: preference === null ? null : { share_identity: preference, identity_sharing_preference_set: preferenceSet }, error: readError })
   const eq = vi.fn(() => ({ maybeSingle }))
   const select = vi.fn(() => ({ eq }))
   const from = vi.fn(() => ({ select }))
@@ -26,8 +27,12 @@ describe('identity sharing preference', () => {
     expect(eq).toHaveBeenCalledWith('user_id', 'user-1')
   })
 
-  it('fails closed when the account has no settings row', async () => {
-    await expect(getIdentitySharingPreference(clientFor().client)).resolves.toBe(false)
+  it('defaults on only when the preference is missing and preserves an explicit opt-out', async () => {
+    await expect(getIdentitySharingPreference(clientFor().client)).resolves.toBe(true)
+    await expect(getIdentitySharingPreference(clientFor({ preference: false, preferenceSet: true }).client)).resolves.toBe(false)
+    await expect(getIdentitySharingPreference(clientFor({ preference: true, preferenceSet: true }).client)).resolves.toBe(true)
+    // New app_settings rows can exist for timezone or appearance while consent remains unset.
+    await expect(getIdentitySharingPreference(clientFor({ preference: false, preferenceSet: null }).client)).resolves.toBe(true)
   })
 
   it('reports a load error instead of assuming that sharing is enabled', async () => {

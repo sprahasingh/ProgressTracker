@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import type { ProgressionOverview } from '../../services/supabase/progressionRepository'
+import type { AchievementHistoryEvent, ProgressionOverview } from '../../services/supabase/progressionRepository'
 import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
 import { clearProgressionPageCache } from './ProgressionAchievementsPage'
@@ -183,7 +183,8 @@ describe('Progression achievements interface', () => {
     expect(appStyles).toMatch(/\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*900px\)[\s\S]*?\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*560px\)[\s\S]*?\.progression-level-card-shell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
-    expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.progression-recent-unlocks button\s*\{[^}]*min-height:\s*44px/)
+    expect(appStyles).toMatch(/\.progression-recent-unlocks-grid button\s*\{[^}]*min-height:\s*56px/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*520px\)[\s\S]*?\.progression-recent-unlocks-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     expect(appStyles).toContain('.progression-consistency-summary { grid-column: 1 / -1;')
     expect(appStyles).toContain('background: var(--surface)')
     expect(appStyles).toContain('[data-theme=\'dark\'] .progression-level-card')
@@ -675,7 +676,71 @@ describe('Progression achievements interface', () => {
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: lockedAchievements })
     renderPage()
     expect(await screen.findByText('Your first confirmed badge will appear here when earned.')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Recently Achieved' })).getByRole('button', { name: 'See All Badges' })).toBeInTheDocument()
     expect(screen.queryByText(/first badge will be unlocked/i)).not.toBeInTheDocument()
+  })
+
+  it('shows only the two latest active awards by recorded time and reuses badge and collection navigation', async () => {
+    const unlocked = (id: string, achievementId: string, hour: number) => ({
+      id, achievementId, tier: 1, generation: 1, eventType: 'unlocked' as const,
+      recordedAt: `${today}T${String(hour).padStart(2, '0')}:00:00.000Z`, sourceEventId: null, sourceDate: today,
+      reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null,
+    })
+    const firstStepEvent = unlocked('recent-first-step', 'first-step', 8)
+    const perfectDayEvent = unlocked('recent-perfect-day', 'perfect-day', 12)
+    const momentumEvent = unlocked('recent-momentum', 'momentum', 14)
+    const reversedEvent = unlocked('reversed-recent', 'first-flame', 16)
+    const duplicateEvent = unlocked('recent-perfect-week', 'perfect-week', 10)
+    const state = (achievementId: string, history: AchievementHistoryEvent[], unlockedAt = '2025-01-01T00:00:00.000Z') => ({
+      ...overview.achievements[0]!, achievementId, repeatable: achievementId === 'perfect-day' || achievementId === 'perfect-week',
+      earned: true, unlockedAt, history,
+    })
+    const achievements = [
+      state('first-step', [firstStepEvent]), state('perfect-day', [perfectDayEvent]), state('momentum', [momentumEvent]),
+      state('first-flame', [reversedEvent, { ...reversedEvent, id: 'revoke-first-flame', eventType: 'revoked' as const, reversesEventId: reversedEvent.id }]),
+      state('perfect-week', [duplicateEvent, duplicateEvent]),
+    ]
+    let syncedOverview: ProgressionOverview = { ...overview, achievements }
+    mocks.getProgressionOverview.mockImplementation(async () => syncedOverview)
+    const user = userEvent.setup()
+    renderPage()
+
+    const recent = await screen.findByRole('region', { name: 'Recently Achieved' })
+    const awardButtons = within(recent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))
+    expect(awardButtons).toHaveLength(2)
+    expect(awardButtons[0]).toHaveAccessibleName(/Momentum, achieved/)
+    expect(awardButtons[1]).toHaveAccessibleName(/Perfect Day, achieved/)
+    expect(within(recent).queryByText('First Flame')).not.toBeInTheDocument()
+    expect(within(recent).queryByText('Perfect Week')).not.toBeInTheDocument()
+
+    const perfectDayLabel = within(recent).getByRole('button', { name: /Perfect Day, achieved/ }).getAttribute('aria-label')!
+    await user.click(within(recent).getByRole('button', { name: /Perfect Day, achieved/ }))
+    expect(await screen.findByRole('dialog', { name: 'Perfect Day' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Close details' }))
+    expect(screen.queryByRole('dialog', { name: 'Perfect Day' })).not.toBeInTheDocument()
+    await user.click(within(recent).getByRole('button', { name: 'See All Badges' }))
+    const collection = await screen.findByRole('dialog', { name: 'All badges' })
+    expect(within(collection).getByRole('button', { name: /Perfect Day/ })).toBeInTheDocument()
+    expect(perfectDayLabel).toContain('Open badge details')
+
+    // A newer award that arrives with confirmed sync data immediately replaces the oldest preview.
+    const newer = unlocked('recent-steady-flame', 'steady-flame', 18)
+    syncedOverview = { ...overview, achievements: [...achievements, state('steady-flame', [newer])] }
+    await user.click(within(collection).getByRole('button', { name: 'Close details' }))
+    await act(async () => { publishWorkspaceSyncCompleted('account-1') })
+    const syncedRecent = await screen.findByRole('region', { name: 'Recently Achieved' })
+    const syncedButtons = within(syncedRecent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))
+    expect(syncedButtons).toHaveLength(2)
+    expect(syncedButtons[0]).toHaveAccessibleName(/Steady Flame, achieved/)
+    expect(syncedButtons[1]).toHaveAccessibleName(/Momentum, achieved/)
+  })
+
+  it('uses a single balanced award card when exactly one valid award exists', async () => {
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!] })
+    renderPage()
+    const recent = await screen.findByRole('region', { name: 'Recently Achieved' })
+    expect(recent.querySelector('.progression-recent-unlocks-grid')).toHaveClass('is-single')
+    expect(within(recent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))).toHaveLength(1)
   })
 
   it('retains the established Achievements screen while the progression flag is off', async () => {

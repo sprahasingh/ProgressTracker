@@ -15,13 +15,13 @@ async function requireSignedInUser(client: SupabaseClient) {
   return userId
 }
 
-/** Read the cloud preference; a missing row is the privacy-safe anonymous default. */
+/** A missing or not-yet-chosen preference defaults to sharing details. */
 export async function getIdentitySharingPreference(clientInput: SupabaseClient | null = getSupabaseClient()): Promise<boolean> {
   const client = requireClient(clientInput)
   const userId = await requireSignedInUser(client)
-  const { data, error } = await client.from('app_settings').select('share_identity').eq('user_id', userId).maybeSingle()
+  const { data, error } = await client.from('app_settings').select('share_identity,identity_sharing_preference_set').eq('user_id', userId).maybeSingle()
   if (error) throw new IdentitySharingError('Your privacy setting could not be loaded. Try again.')
-  return data?.share_identity === true
+  return data?.identity_sharing_preference_set === true ? data.share_identity === true : true
 }
 
 /** The database RPC saves the preference and withdraws prior submissions atomically. */

@@ -149,6 +149,27 @@ describe('Goals page allocation preview', () => {
     expect(goalStyles).toMatch(/\.goals-filter-option:focus-visible\s*\{[^}]*outline/s)
   })
 
+  it('shows calendar elapsed goal time without changing saved targets or progress values', async () => {
+    const today = localCalendarDate(new Date(), testTimeZone)
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 4, id: 'long-running-goal', name: 'Long running goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: '2020-01-01', deadline: '2100-01-01',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: { pages: 'incremental' }, dailyTargets: {}, cumulativeTargets: { pages: 100 }, planningTimeZone: testTimeZone, allocations: { pages: {} } },
+      createdAt: '2020-01-01T00:00:00.000Z', updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { pages: 20 }, note: '' })
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+
+    const card = await screen.findByRole('button', { name: /Long running goal/ })
+    expect(card).toHaveTextContent(/\d+ months?( \d+ days?)? completed/)
+    expect(card).toHaveTextContent('20 / 100 pages')
+    expect(card).toHaveTextContent('80 pages remaining · 20%')
+    expect(await db.trackers.get(tracker.id)).toMatchObject({ goalPlanning: tracker.goalPlanning })
+    expect(await localRepository.getTrackerEntry(tracker.id, today)).toMatchObject({ values: { pages: 20 } })
+  })
+
   it('exposes an unsaved preview without changing the stored plan or check-ins', async () => {
     const user = userEvent.setup()
     // The fixture uses the workspace planning zone, so its entry date and the goal

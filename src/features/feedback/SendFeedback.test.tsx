@@ -63,6 +63,15 @@ describe('Send Feedback', () => {
     expect(await screen.findByText('Your account name and email (person@example.com) will be visible to maintainers. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
   })
 
+  it('does not claim a message is anonymous when the saved privacy preference cannot be loaded', async () => {
+    mocks.identityPreference.mockRejectedValueOnce(new Error('offline'))
+    const user = userEvent.setup()
+    renderAction()
+    await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
+    expect(await screen.findByText(/If no preference has been saved, sharing your details is enabled by default/i)).toBeInTheDocument()
+    expect(screen.queryByText(/submitted anonymously to maintainers/i)).not.toBeInTheDocument()
+  })
+
   it('preserves a failed message and retries with a stable idempotency key', async () => {
     mocks.submit.mockRejectedValueOnce(new Error('Feedback service is unavailable.')).mockResolvedValueOnce({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
     const user = userEvent.setup()
