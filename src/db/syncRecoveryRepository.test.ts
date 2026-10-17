@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { activateWorkspace, db } from './database'
-import { listBlockedSyncOperations, listSyncRecoveryOperations, retryBlockedSyncOperation } from './syncRecoveryRepository'
+import { isRetryableTransientSyncFailure, listBlockedSyncOperations, listSyncRecoveryOperations, retryBlockedSyncOperation } from './syncRecoveryRepository'
 import { listSyncConflicts } from './syncConflictRepository'
 import type { SyncConflict } from './models'
 import { localRepository } from './localRepository'
@@ -11,14 +11,88 @@ afterEach(async () => {
 })
 
 describe('blocked sync recovery', () => {
-  it('lists only the active account blocked writes and retries one without clearing its payload or diagnostic', async () => {
+  it('classifies only explicit transient failures as retryable', () => {
+    expect(isRetryableTransientSyncFailure('23514', 'network timeout')).toBe(false)
+    expect(isRetryableTransientSyncFailure('503')).toBe(true)
+    expect(isRetryableTransientSyncFailure(undefined, 'Request timed out')).toBe(true)
+    expect(isRetryableTransientSyncFailure(undefined, 'The server rejected this saved change')).toBe(false)
+  })
+
+  it('lists only active account blocked writes and refuses to replay a permanent validation rejection', async () => {
     await activateWorkspace('recovery-user')
     const blocked = { id: 'blocked-payload', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: 'tracker-one', operation: 'upsert' as const, expectedRevision: 3, payload: { id: 'tracker-one', name: 'Preserved' } as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Rejected (23514)', failureCode: '23514', blockedAt: '2026-01-01T00:00:01.000Z' }
     await db.syncOperations.put(blocked)
 
     await expect(listBlockedSyncOperations('recovery-user')).resolves.toEqual([blocked])
-    await retryBlockedSyncOperation('recovery-user', blocked.id)
-    await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'pending', attempts: 0, payload: blocked.payload, lastError: blocked.lastError, failureCode: '23514', blockedAt: blocked.blockedAt })
+    await expect(retryBlockedSyncOperation('recovery-user', blocked.id)).rejects.toThrow(/permanently rejected.*cannot be retried unchanged/i)
+    await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'blocked', attempts: 1, payload: blocked.payload, lastError: blocked.lastError, failureCode: '23514', blockedAt: blocked.blockedAt })
+  })
+
+  it('rechecks the cloud revision before queueing a retryable transient tracker failure', async () => {
+    await activateWorkspace('recovery-user')
+    const tracker = { id: 'tracker-one', name: 'Preserved', schemaVersion: 8, updatedAt: '2026-01-01T00:00:00.000Z' }
+    const blocked = { id: 'transient-503', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: tracker.id, operation: 'upsert' as const, expectedRevision: 3, payload: tracker as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Service unavailable', failureCode: '503' }
+    await db.trackers.put(tracker as never)
+    await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'recovery-user', entity: 'tracker', entityId: tracker.id, serverRevision: 3 })
+    await db.syncOperations.put(blocked)
+
+    await expect(retryBlockedSyncOperation('recovery-user', blocked.id, { database: db, readCloudTracker: async () => ({ id: tracker.id, user_id: 'recovery-user', server_revision: 3, definition: tracker }) })).resolves.toBe('queued')
+    await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'pending', attempts: 0, payload: tracker, lastError: 'Service unavailable', failureCode: '503' })
+  })
+
+  it('converts a stale transient retry into a conflict without queueing its payload', async () => {
+    await activateWorkspace('recovery-user')
+    const tracker = { id: 'tracker-one', name: 'Local version', schemaVersion: 8, updatedAt: '2026-01-01T00:00:00.000Z' }
+    const cloudDefinition = { ...tracker, name: 'Cloud version' }
+    const blocked = { id: 'transient-stale', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: tracker.id, operation: 'upsert' as const, expectedRevision: 3, payload: tracker as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Gateway timeout', failureCode: '504' }
+    await db.trackers.put(tracker as never)
+    await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'recovery-user', entity: 'tracker', entityId: tracker.id, serverRevision: 3 })
+    await db.syncOperations.put(blocked)
+
+    await expect(retryBlockedSyncOperation('recovery-user', blocked.id, { database: db, readCloudTracker: async () => ({ id: tracker.id, user_id: 'recovery-user', server_revision: 4, definition: cloudDefinition }) })).resolves.toBe('conflict')
+    await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'conflict', payload: tracker, failureCode: '504' })
+    await expect(db.syncConflicts.get(blocked.id)).resolves.toMatchObject({ localPayload: tracker, remoteRecord: { server_revision: 4, definition: cloudDefinition }, reason: expect.stringContaining('cloud revision changed') })
+  })
+
+  it('preserves the original operation when the fresh cloud revision read fails', async () => {
+    await activateWorkspace('recovery-user')
+    const tracker = { id: 'tracker-one', name: 'Preserved', schemaVersion: 8, updatedAt: '2026-01-01T00:00:00.000Z' }
+    const blocked = { id: 'transient-unavailable', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: tracker.id, operation: 'upsert' as const, expectedRevision: 3, payload: tracker as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Gateway timeout', failureCode: '504' }
+    await db.trackers.put(tracker as never)
+    await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'recovery-user', entity: 'tracker', entityId: tracker.id, serverRevision: 3 })
+    await db.syncOperations.put(blocked)
+
+    await expect(retryBlockedSyncOperation('recovery-user', blocked.id, { database: db, readCloudTracker: async () => { throw new Error('offline') } })).rejects.toThrow(/latest cloud revision could not be checked/)
+    await expect(db.syncOperations.get(blocked.id)).resolves.toEqual(blocked)
+  })
+
+  it('queues at most one retry under repeated concurrent requests', async () => {
+    await activateWorkspace('recovery-user')
+    const tracker = { id: 'tracker-one', name: 'Preserved', schemaVersion: 8, updatedAt: '2026-01-01T00:00:00.000Z' }
+    const blocked = { id: 'transient-duplicate', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: tracker.id, operation: 'upsert' as const, expectedRevision: 3, payload: tracker as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Timeout', failureCode: 'ETIMEDOUT' }
+    await db.trackers.put(tracker as never)
+    await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'recovery-user', entity: 'tracker', entityId: tracker.id, serverRevision: 3 })
+    await db.syncOperations.put(blocked)
+    const options = { database: db, readCloudTracker: async () => ({ id: tracker.id, user_id: 'recovery-user', server_revision: 3, definition: tracker }) }
+
+    const results = await Promise.allSettled([retryBlockedSyncOperation('recovery-user', blocked.id, options), retryBlockedSyncOperation('recovery-user', blocked.id, options)])
+    expect(results.filter((result) => result.status === 'fulfilled' && result.value === 'queued')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    await expect(db.syncOperations.get(blocked.id)).resolves.toMatchObject({ status: 'pending', payload: tracker, failureCode: 'ETIMEDOUT' })
+  })
+
+  it('never retries an older blocked tracker definition ahead of a newer blocked operation', async () => {
+    await activateWorkspace('recovery-user')
+    const current = { id: 'tracker-one', name: 'Latest local version', schemaVersion: 8, updatedAt: '2026-01-02T00:00:00.000Z' }
+    const older = { id: 'older-transient', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: current.id, operation: 'upsert' as const, expectedRevision: 3, payload: { ...current, name: 'Obsolete version' } as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Gateway timeout', failureCode: '504' }
+    const latest = { ...older, id: 'latest-transient', payload: current as never, createdAt: '2026-01-02T00:00:00.000Z' }
+    await db.trackers.put(current as never)
+    await db.syncRecords.put({ key: `tracker:${current.id}`, ownerUserId: 'recovery-user', entity: 'tracker', entityId: current.id, serverRevision: 3 })
+    await db.syncOperations.bulkPut([older, latest])
+
+    await expect(retryBlockedSyncOperation('recovery-user', older.id, { database: db, readCloudTracker: async () => ({ id: current.id, user_id: 'recovery-user', server_revision: 3, definition: current }) })).rejects.toThrow(/Only the latest blocked tracker definition/)
+    await expect(db.syncOperations.get(older.id)).resolves.toMatchObject({ status: 'blocked', payload: older.payload })
+    await expect(db.syncOperations.get(latest.id)).resolves.toMatchObject({ status: 'blocked', payload: current })
   })
 
   it('does not expose or retry blocked operations from another workspace', async () => {
