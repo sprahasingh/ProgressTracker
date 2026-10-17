@@ -25,6 +25,7 @@ vi.mock('../../db/workspaceBackup', () => ({
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  window.history.replaceState({}, '', '/')
   if (originalShare) Object.defineProperty(navigator, 'share', originalShare)
   else Reflect.deleteProperty(navigator, 'share')
   if (originalCanShare) Object.defineProperty(navigator, 'canShare', originalCanShare)
@@ -46,6 +47,13 @@ const preview = {
 } as never
 
 describe('tracker recovery preview controls', () => {
+  it('focuses the inspection preview when opened through the production hash deep link', async () => {
+    window.history.replaceState({}, '', '/ProgressTracker/#/settings?recoveryPreview=1#sync-data')
+    mocks.createPreview.mockReset()
+    render(<MemoryRouter><TrackerRecoveryPreview userId="recovery-owner" /></MemoryRouter>)
+    await waitFor(() => expect(document.getElementById('account-recovery-preview')).toHaveFocus())
+  })
+
   it('shows the read-only preview, marks the obsolete operation, and offers the scoped backup', async () => {
     mocks.createPreview.mockReset().mockResolvedValue(preview)
     mocks.downloadWorkspaceBackup.mockReset()

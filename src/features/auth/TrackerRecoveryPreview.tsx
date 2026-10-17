@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { canQueueConfirmedMeasureRepair, createTrackerRecoveryPreview, discardRejectedTrackerChanges, queueConfirmedMeasureRepair, type TrackerRecoveryPreview as Preview } from '../../db/trackerRecoveryPreview'
 import { createWorkspaceBackup, downloadWorkspaceBackup, previewWorkspaceRestore } from '../../db/workspaceBackup'
+import { isTrackerRecoveryInspectionMode } from './recoveryInspectionMode'
 
 export function TrackerRecoveryPreview({ userId, trackerId }: { userId: string; trackerId?: string }) {
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -12,6 +13,18 @@ export function TrackerRecoveryPreview({ userId, trackerId }: { userId: string; 
   const [backupSaved, setBackupSaved] = useState(false)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const navigate = useNavigate()
+  const previewRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (!isTrackerRecoveryInspectionMode()) return
+    const timer = window.setTimeout(() => {
+      const target = previewRef.current
+      if (!target) return
+      target.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+      target.focus({ preventScroll: true })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   async function inspect() {
     setBusy(true)
@@ -98,9 +111,9 @@ export function TrackerRecoveryPreview({ userId, trackerId }: { userId: string; 
   const trackerName = preview?.trackers.find((tracker) => tracker.trackerId === trackerId)?.name
   const visibleBlockers = preview?.blockers.filter((blocker) => !trackerName || blocker.startsWith(`${trackerName}:`) || !blocker.includes(':')) ?? []
 
-  return <section className="sync-conflicts tracker-recovery-preview" aria-labelledby={`tracker-recovery-preview-title-${trackerId ?? 'all'}`}>
+  return <section ref={previewRef} id="account-recovery-preview" className="sync-conflicts tracker-recovery-preview account-recovery-preview" tabIndex={-1} aria-labelledby={`tracker-recovery-preview-title-${trackerId ?? 'all'}`}>
     <h3 id={`tracker-recovery-preview-title-${trackerId ?? 'all'}`}>{trackerId ? 'Review cloud version' : 'Blocked tracker recovery preview'}</h3>
-    <p>{trackerId ? 'Fetch the latest cloud definition and related records. Review every proposed change, then export a verified backup and confirm before restoring.' : 'Inspect the two affected trackers and their current cloud rows. Inspection is read-only. Repair and discard actions require a saved backup, fresh revision checks, and separate confirmation.'}</p>
+    <p>{trackerId ? 'Fetch the latest cloud definition and related records. Review every proposed change, then export a verified backup and confirm before restoring.' : 'Inspect blocked tracker changes and their latest cloud records. Inspection is read-only. Repair and discard actions require a saved backup, fresh revision checks, and separate confirmation.'}</p>
     <p className="auth-hint">The backup contains full check-in values and notes, operation payloads, and saved errors for these trackers. Keep the file private.</p>
     <Button variant="secondary" onClick={() => void inspect()} disabled={busy}>{busy ? 'Reading records…' : trackerId ? 'Fetch latest cloud version' : 'Inspect recovery state'}</Button>
     {message && <p className={error ? 'auth-error' : 'auth-success'} role={error ? 'alert' : 'status'}>{message}</p>}

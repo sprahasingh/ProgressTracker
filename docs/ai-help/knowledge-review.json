@@ -15,15 +15,15 @@
     "src/db/syncRecoveryRepository.ts": "34e73df9ff7f43ce27962d7c3291da2013c2cfaacb28a435867312f3d7938e27",
     "src/db/syncRecoveryRepository.test.ts": "9693f74b24b18342f6ac10aa45cbf619b246518e78dc85f973dd9d7fe3e72aea",
     "src/db/trackerRecoveryPreview.ts": "47f2352b708faa1e289337b40dcc27b705ef36aa2764e5400b5abffff34dbecd",
-    "src/features/auth/AuthPage.tsx": "7ba302a574139efca2f2df240e95f7096434e95b807cd82762183086ea410c55",
-    "src/features/auth/AuthPage.test.tsx": "041e7ca6c05ec528945dad1f6139ee0ff65827f63b57c1462e5463bc4b06730a",
-    "src/features/auth/BlockedTrackerSyncCard.tsx": "12031a1ac0ce0179e48ba1f9285781978c831ca6421df685bbf0f48afdf9be7b",
-    "src/features/auth/TrackerRecoveryPreview.tsx": "12eb43e9716405d6615069b61fa3a78892396c0bfce9fc1d345d150e13628a90"
+    "src/features/auth/AuthPage.tsx": "eea74d5e29596fa411050bbde5149c4eb27ec481d4e64670e0b108bf53926fcc",
+    "src/features/auth/AuthPage.test.tsx": "5eeadce10d2b9d932c40b09a73d866244eac2e5651c41a01dbd2ddccefc486b3",
+    "src/features/auth/BlockedTrackerSyncCard.tsx": "fd3493ae035ea8d826d7ca45365923f50f3be380dc3b461366b31a814a360704",
+    "src/features/auth/TrackerRecoveryPreview.tsx": "21de7fbdf4e41b37b319220b505c37bd14f6c3d1d2d4611e72620abe22dd2ba5"
   },
   "account-signin": {
-    "src/features/auth/AuthPage.tsx": "7ba302a574139efca2f2df240e95f7096434e95b807cd82762183086ea410c55",
+    "src/features/auth/AuthPage.tsx": "eea74d5e29596fa411050bbde5149c4eb27ec481d4e64670e0b108bf53926fcc",
     "src/features/auth/authService.ts": "b389188217a4d06f8e5c867474ea60ebd83709f233af7d72612293f5b24e17b5",
-    "src/features/auth/AuthPage.test.tsx": "041e7ca6c05ec528945dad1f6139ee0ff65827f63b57c1462e5463bc4b06730a"
+    "src/features/auth/AuthPage.test.tsx": "5eeadce10d2b9d932c40b09a73d866244eac2e5651c41a01dbd2ddccefc486b3"
   },
   "workspace-backup": {
     "src/features/auth/WorkspaceBackup.tsx": "ac59b739aed87f63d90196c5d5d0a96abeb0069e969f47916a8fbafee5b15a29",
@@ -51,7 +51,7 @@
   "sync-preference-scope": {
     "src/features/settings/WorkspaceTimeZone.tsx": "2855cc6677532c5e2620d085bed13461284f3865065ea7590f94f22f405c41d9",
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
-    "src/features/settings/UnifiedSettings.test.tsx": "242754579e36b6e9342921d4fc1eb51c76194234c5fa905c6c7917eead708e1a"
+    "src/features/settings/UnifiedSettings.test.tsx": "46e228b3310ae2f0531ecac40062c56461ee93f8b93d49d56c19adc229f5534b"
   },
   "ai-help-private-data": {
     "src/features/ai-help/aiHelpService.ts": "0fa45f8d217350b13a09d4e3411fb9a50c02347523be3218e8af86da34fda6cc",
@@ -152,7 +152,7 @@
   "guest-mode": {
     "src/features/auth/AuthProvider.tsx": "c877776e60369c8bef05477f78883f619b689d5db96637d921fa4eccb61b52f9",
     "src/db/localRepository.ts": "9e43da2af98169879cac1d4f792433855181b704b349d4793f21adf6dd07a965",
-    "src/features/auth/AuthPage.tsx": "7ba302a574139efca2f2df240e95f7096434e95b807cd82762183086ea410c55",
+    "src/features/auth/AuthPage.tsx": "eea74d5e29596fa411050bbde5149c4eb27ec481d4e64670e0b108bf53926fcc",
     "src/features/auth/AuthProvider.test.tsx": "0b881a16655238e6d176c884b9aa1dfb8564fe7234bb0be134bc9cedb9079565"
   },
   "create-tracker": {

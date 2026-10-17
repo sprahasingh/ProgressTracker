@@ -3813,8 +3813,10 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .account-sync-counts span { padding: 4px 8px; border-radius: 999px; background: var(--surface-muted); color: var(--ink-muted); font-size: 10px; font-weight: 650; }
 .account-sync-primary { width: 100%; min-height: 46px; margin-top: 2px; }
 .account-inspection-notice { margin: 2px 0; padding: 9px 11px; border-left: 3px solid var(--accent); border-radius: 0 9px 9px 0; background: var(--accent-soft); color: var(--ink); font-size: 12px; line-height: 1.45; }
-.account-secondary-actions { justify-content: flex-start; gap: 6px 12px; margin-top: 2px; }
-.account-secondary-actions .button { min-height: 40px; }
+.account-secondary-actions { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .8fr); gap: 8px; margin-top: 2px; }
+.account-secondary-actions .button { width: 100%; min-width: 0; min-height: 44px; padding-inline: 8px; line-height: 1.25; }
+.account-sign-out { border-color: color-mix(in srgb, var(--danger) 36%, var(--line)); background: var(--surface-raised); color: color-mix(in srgb, var(--danger) 82%, var(--ink)); }
+.account-sign-out:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 58%, var(--line)); background: color-mix(in srgb, var(--danger-soft) 52%, var(--surface-raised)); color: var(--danger); }
 .account-sync-issues { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--warning) 46%, var(--line)); border-radius: var(--radius-card); background: color-mix(in srgb, var(--warning-soft) 46%, var(--surface)); text-align: left; }
 .account-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .account-section-heading > div { min-width: 0; }
@@ -3828,7 +3830,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .account-sync-issues .blocked-sync-operation h4 { margin: 0; font-size: 12px; }
 .account-sync-issues .blocked-sync-operation > p { margin: 4px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
 .blocked-sync-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
-.blocked-sync-card-actions .button { min-height: 42px; }
+.blocked-sync-card-actions .button { min-width: 0; min-height: 44px; padding-inline: 10px; }
+.blocked-sync-retry-disabled { flex: 0 1 auto; }
 .blocked-sync-action-help { margin: 4px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .blocked-sync-revert-preview { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
 .blocked-sync-revert-preview .tracker-recovery-preview { margin: 0; padding: 0; border: 0; background: transparent; }
@@ -3856,7 +3859,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .account-backup-disclosure .workspace-backup p, .account-backup-disclosure .workspace-restore > p { font-size: 12px; }
 .account-advanced-disclosure { scroll-margin-top: 18px; }
 .account-advanced-disclosure .sync-diagnostics-export { margin: 0 0 10px; }
-.account-advanced-disclosure .tracker-recovery-preview { margin-top: 8px; }
+.account-advanced-disclosure .tracker-recovery-preview { margin-top: 8px; scroll-margin-top: 18px; }
+.account-recovery-preview:focus { outline: 3px solid var(--focus-ring); outline-offset: 4px; border-radius: var(--radius-card); }
 .account-technical-error { margin: 0 0 10px; color: var(--ink-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .account-technical-error strong { color: var(--ink); }
 .account-sync-page .auth-success, .account-sync-page .auth-error { margin: 3px 0 0; }
@@ -3872,9 +3876,9 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .account-section-heading a { min-height: 44px; }
   .account-sync-issues .auth-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .account-sync-issues .auth-actions .button { width: 100%; }
-  .blocked-sync-card-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
-  .blocked-sync-card-actions .button { width: 100%; }
-  .account-secondary-actions { display: flex; }
-  .account-secondary-actions .button { flex: 0 1 auto; }
+  .blocked-sync-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blocked-sync-card-actions .button { width: 100%; overflow-wrap: anywhere; }
+  .account-secondary-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, .8fr); }
+  .account-secondary-actions .button { white-space: normal; font-size: 11px; }
   .account-sync-conflict-list .sync-conflict-versions { grid-template-columns: minmax(0, 1fr); }
 }

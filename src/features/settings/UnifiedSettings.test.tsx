@@ -167,6 +167,14 @@ describe('unified Settings authentication states', () => {
     expect(document.getElementById('settings-panel-sync-data')).not.toHaveAttribute('hidden')
   })
 
+  it('keeps the recovery inspection query on the Settings route and expands Sync & Data', () => {
+    mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
+    render(<ToastProvider><MemoryRouter initialEntries={['/settings?recoveryPreview=1#sync-data']}><SettingsPage /></MemoryRouter></ToastProvider>)
+    expect(screen.getByRole('button', { name: 'Sync & Data' })).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('settings-panel-sync-data')).not.toHaveAttribute('hidden')
+    expect(screen.queryByText('We couldn’t find that page')).not.toBeInTheDocument()
+  })
+
   it('opens support history when a support conversation is deep-linked', () => {
     mocks.auth.mockReturnValue({ status: 'signed-in', user: account })
     render(<ToastProvider><MemoryRouter initialEntries={['/settings?support=thread-1']}><SettingsPage /></MemoryRouter></ToastProvider>)

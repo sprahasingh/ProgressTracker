@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import type { SyncOperation } from '../../db/models'
 import { isRetryableTransientSyncFailure, retryBlockedSyncOperation, type RetryBlockedResult } from '../../db/syncRecoveryRepository'
+import { TRACKER_RECOVERY_TARGETS } from '../../db/trackerRecoveryPreview'
 import { TrackerRecoveryPreview } from './TrackerRecoveryPreview'
 
 export function BlockedTrackerSyncCard({ userId, trackerId, operations, syncNow, onOperationsChanged }: { userId: string; trackerId: string; operations: SyncOperation[]; syncNow?: () => Promise<unknown>; onOperationsChanged: () => void }) {
@@ -16,11 +17,13 @@ export function BlockedTrackerSyncCard({ userId, trackerId, operations, syncNow,
   const payload = trackerOperation?.payload as { name?: unknown } | undefined
   const trackerName = typeof payload?.name === 'string' ? payload.name : 'Tracker'
   const supported = Boolean(trackerId)
+  const repairSupported = operations.some((operation) => operation.failureCode === '23514')
+    && TRACKER_RECOVERY_TARGETS.some((target) => target.trackerId === trackerId)
   const retryExplanation = !retryCandidate && operations.some((operation) => operation.failureCode === '23514')
-    ? 'The server permanently rejected this saved definition (23514). It cannot be retried unchanged; review the guarded Repair or Revert to Cloud preview.'
+    ? 'This change cannot be retried until its configuration is corrected. Review Repair Changes or Revert to Cloud.'
     : retryCandidate
       ? 'Retry checks the latest cloud revision first. It will stop and show a conflict if the cloud has changed.'
-      : 'This saved operation has no verified transient error and cannot be replayed unchanged. Pending network failures can be retried with Sync now.'
+      : 'This saved change cannot be retried unchanged. Review its recovery options below.'
 
   async function retry() {
     if (!retryCandidate || retryBusy) return
@@ -59,10 +62,12 @@ export function BlockedTrackerSyncCard({ userId, trackerId, operations, syncNow,
     <h4>{trackerName}</h4>
     <p>The server rejected this saved change. Your local tracker and entries remain saved on this device{operations.length > 1 ? `; ${operations.length} rejected changes are grouped here` : ''}.</p>
     <div className="blocked-sync-card-actions">
-      <Button variant="secondary" disabled={!retryCandidate || retryBusy} aria-describedby={`retry-blocked-help-${trackerId}`} onClick={() => void retry()}>{retryBusy ? 'Checking cloud…' : 'Retry Sync'}</Button>
+      {retryCandidate && <Button variant="secondary" disabled={retryBusy} aria-describedby={`retry-blocked-help-${trackerId}`} onClick={() => void retry()}>{retryBusy ? 'Checking cloud…' : 'Retry Sync'}</Button>}
+      {repairSupported && <Button variant="secondary" aria-expanded={previewOpen} aria-controls={`revert-preview-${trackerId}`} onClick={() => setPreviewOpen(true)}>{previewOpen ? 'Repair options open' : 'Repair Changes'}</Button>}
       <Button variant="secondary" disabled={!supported} aria-expanded={supported ? previewOpen : undefined} aria-controls={supported ? `revert-preview-${trackerId}` : undefined} onClick={() => setPreviewOpen((open) => !open)}>
         {supported ? previewOpen ? 'Close revert preview' : 'Revert to Cloud' : 'Revert to Cloud'}
       </Button>
+      {!retryCandidate && <Button variant="secondary" className="blocked-sync-retry-disabled" disabled aria-describedby={`retry-blocked-help-${trackerId}`}>Retry Sync</Button>}
     </div>
     <p className="blocked-sync-action-help" id={`retry-blocked-help-${trackerId}`}>{retryExplanation}</p>
     {retryMessage && <p className={retryError ? 'auth-error' : 'auth-hint'} role={retryError ? 'alert' : 'status'}>{retryMessage}</p>}
