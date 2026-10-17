@@ -449,12 +449,12 @@ export async function createTrackerRecoveryPreview(
       const byDate = targetCloudEntries.find((cloud) => cloud.entry_date === entry.date && cloud.id !== entry.id)
       const entryWrites = relevantOps.filter((row) => row.entity === 'tracker_entry' && row.entityId === entry.id && ['pending', 'blocked'].includes(row.status))
       if (byDate) entryConflicts.push(`${entry.date}: local entry ${entry.id} and cloud entry ${byDate.id} occupy the same tracker date.`)
-      else if (byId && !sameEntry(entry, byId) && (!genericRecovery || !entryWrites.length)) entryConflicts.push(`${entry.date}: local entry ${entry.id} differs from cloud copy revision ${byId.server_revision}.`)
+      else if (byId && !sameEntry(entry, byId) && !entryWrites.length) entryConflicts.push(`${entry.date}: local entry ${entry.id} differs from cloud copy revision ${byId.server_revision}.`)
       const state = entrySyncStatus(entry, local.syncRecords, local.operations)
       if (!byId && state.acknowledgedRevision !== null) entryConflicts.push(`${entry.date}: locally acknowledged entry ${entry.id} is absent from the current cloud read.`)
-      if (byId && state.acknowledgedRevision !== null && state.acknowledgedRevision !== byId.server_revision && (!genericRecovery || !entryWrites.length)) entryConflicts.push(`${entry.date}: local check-in revision ${state.acknowledgedRevision} differs from cloud revision ${byId.server_revision}.`)
+      if (byId && state.acknowledgedRevision !== null && state.acknowledgedRevision !== byId.server_revision && !entryWrites.length) entryConflicts.push(`${entry.date}: local check-in revision ${state.acknowledgedRevision} differs from cloud revision ${byId.server_revision}.`)
       for (const operation of relevantOps.filter((row) => row.entity === 'tracker_entry' && row.entityId === entry.id && row.status !== 'superseded')) {
-        if (byId && operation.expectedRevision !== byId.server_revision && (!genericRecovery || ['pending', 'blocked'].includes(operation.status))) entryConflicts.push(`${entry.date}: operation ${operation.id} expects check-in revision ${operation.expectedRevision ?? 'new row'}, cloud is revision ${byId.server_revision}.`)
+        if (byId && operation.expectedRevision !== byId.server_revision && ['pending', 'blocked'].includes(operation.status)) entryConflicts.push(`${entry.date}: operation ${operation.id} expects check-in revision ${operation.expectedRevision ?? 'new row'}, cloud is revision ${byId.server_revision}.`)
         if (!byId && operation.expectedRevision !== null) entryConflicts.push(`${entry.date}: operation ${operation.id} expects existing check-in revision ${operation.expectedRevision}, but its cloud row is absent.`)
       }
     }
@@ -476,20 +476,21 @@ export async function createTrackerRecoveryPreview(
       const cloudEntry = targetCloudEntries.find((row) => row.id === entry.id)
       const state = entrySyncStatus(entry, local.syncRecords, local.operations)
       const hasPendingWrite = relevantOps.some((operation) => operation.entity === 'tracker_entry' && operation.entityId === entry.id && ['pending', 'blocked'].includes(operation.status))
-      if (!genericRecovery) return !cloudEntry || !sameEntry(entry, cloudEntry) || state.acknowledgedRevision !== cloudEntry.server_revision
       if (!cloudEntry) return state.acknowledgedRevision !== null
       return (!sameEntry(entry, cloudEntry) || state.acknowledgedRevision !== null && state.acknowledgedRevision !== cloudEntry.server_revision) && !hasPendingWrite
     })
     if (unsafeEntryState) discardBlockers.push('A saved check-in is missing from cloud or is not confirmed at the current revision.')
-    if (genericRecovery && cloudDefinition) {
+    if (cloudDefinition) {
       for (const entry of localEntries) {
         const valueError = validateTrackerEntryValues(cloudDefinition, entry.values, { enforcePrecision: false, existingValues: entry.values })
         if (valueError) discardBlockers.push(`Check-in ${entry.id} cannot be preserved under the cloud definition: ${valueError}`)
       }
-      const localMetrics = new Map((localDefinition?.metrics ?? []).map((metric) => [metric.id, metric]))
-      for (const metric of cloudDefinition.metrics) {
-        const localMetric = localMetrics.get(metric.id)
-        if (localMetric && localMetric.valueType !== metric.valueType) discardBlockers.push(`Measure ${metric.id} changes type from ${localMetric.valueType} to ${metric.valueType}; this recovery path cannot prove its historical meaning is preserved.`)
+      if (genericRecovery) {
+        const localMetrics = new Map((localDefinition?.metrics ?? []).map((metric) => [metric.id, metric]))
+        for (const metric of cloudDefinition.metrics) {
+          const localMetric = localMetrics.get(metric.id)
+          if (localMetric && localMetric.valueType !== metric.valueType) discardBlockers.push(`Measure ${metric.id} changes type from ${localMetric.valueType} to ${metric.valueType}; this recovery path cannot prove its historical meaning is preserved.`)
+        }
       }
     }
     const permanentDeletionRequests = local.permanentDeletionRequests.filter((request) => request.trackerId === target.trackerId)
@@ -657,18 +658,13 @@ export async function discardRejectedTrackerChanges(
     const cloudEntry = ownedCloudEntries.find((row) => row.id === entry.id)
     const acknowledged = initial.syncRecords.find((row) => row.entity === 'tracker_entry' && row.entityId === entry.id)
     const entryOperations = initial.operations.filter((operation) => operation.entity === 'tracker_entry' && operation.entityId === entry.id)
-    if (preview.genericScope) {
-      const valueError = validateTrackerEntryValues(parsedCloud.data, entry.values, { enforcePrecision: false, existingValues: entry.values })
-      if (valueError) throw new Error(`Check-in ${entry.id} cannot be preserved under the cloud definition: ${valueError}`)
-      const activeEntryWrites = entryOperations.filter((operation) => ['pending', 'blocked'].includes(operation.status))
-      if (entryOperations.some((operation) => ['in-flight', 'conflict'].includes(operation.status))) throw new Error(`Check-in ${entry.id} has an in-flight or conflicted write; resolve it before reverting.`)
-      if (cloudEntry && activeEntryWrites.some((operation) => operation.expectedRevision !== cloudEntry.server_revision)) throw new Error(`Check-in ${entry.id} has a queued operation for a stale cloud revision.`)
-      if (!cloudEntry && acknowledged) throw new Error(`Previously synchronized check-in ${entry.id} is missing from the current cloud state.`)
-      if (cloudEntry && !activeEntryWrites.length && (!acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry))) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe revert is disabled.`)
-    } else {
-      if (!cloudEntry || !acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry)) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe discard is disabled.`)
-      if (entryOperations.some((operation) => operation.status === 'pending' || operation.status === 'in-flight' || operation.status === 'conflict' || operation.status === 'blocked')) throw new Error(`Unsynced check-in ${entry.id} blocks safe discard.`)
-    }
+    const valueError = validateTrackerEntryValues(parsedCloud.data, entry.values, { enforcePrecision: false, existingValues: entry.values })
+    if (valueError) throw new Error(`Check-in ${entry.id} cannot be preserved under the cloud definition: ${valueError}`)
+    const activeEntryWrites = entryOperations.filter((operation) => ['pending', 'blocked'].includes(operation.status))
+    if (entryOperations.some((operation) => ['in-flight', 'conflict'].includes(operation.status))) throw new Error(`Check-in ${entry.id} has an in-flight or conflicted write; resolve it before reverting.`)
+    if (cloudEntry && activeEntryWrites.some((operation) => operation.expectedRevision !== cloudEntry.server_revision)) throw new Error(`Check-in ${entry.id} has a queued operation for a stale cloud revision.`)
+    if (!cloudEntry && acknowledged) throw new Error(`Previously synchronized check-in ${entry.id} is missing from the current cloud state.`)
+    if (cloudEntry && !activeEntryWrites.length && (!acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry))) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe revert is disabled.`)
   }
   if (initial.operations.some((operation) => operation.entity === 'tracker_entry' && (operation.payload as StoredTrackerEntry | undefined)?.trackerId === trackerId && !trackerEntries.some((entry) => entry.id === operation.entityId) && ['pending', 'in-flight', 'conflict', 'blocked'].includes(operation.status))) throw new Error('A dependent check-in operation without a local row blocks safe discard.')
   if (!preview.genericScope && target && discardableOperations.some((operation) => operation.id === target.operationIds.find((identity) => identity.obsolete)?.id) && trackerId === TRACKER_RECOVERY_TARGETS[0].trackerId) {

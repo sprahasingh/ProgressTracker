@@ -63,6 +63,7 @@ describe('tracker recovery preview controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Inspect recovery state' }))
     expect(await screen.findByText(/fresh cloud revision 1/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/explicitly confirm to restore it locally/i)
     expect(screen.getByText(/obsolete; never replay/)).toBeInTheDocument()
     expect(screen.getByText(/XP and streaks are derived/i)).toBeInTheDocument()
     fireEvent.click(screen.getByText('Complete saved operation payload'))

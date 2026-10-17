@@ -20,7 +20,7 @@ export function BlockedTrackerSyncCard({ userId, trackerId, operations, syncNow,
   const repairSupported = operations.some((operation) => operation.failureCode === '23514')
     && TRACKER_RECOVERY_TARGETS.some((target) => target.trackerId === trackerId)
   const retryExplanation = !retryCandidate && operations.some((operation) => operation.failureCode === '23514')
-    ? 'This change cannot be retried until its configuration is corrected. Review Repair Changes or Revert to Cloud.'
+    ? 'This saved configuration was rejected. Retry is disabled until it is corrected.'
     : retryCandidate
       ? 'Retry checks the latest cloud revision first. It will stop and show a conflict if the cloud has changed.'
       : 'This saved change cannot be retried unchanged. Review its recovery options below.'
@@ -62,15 +62,14 @@ export function BlockedTrackerSyncCard({ userId, trackerId, operations, syncNow,
     <h4>{trackerName}</h4>
     <p>The server rejected this saved change. Your local tracker and entries remain saved on this device{operations.length > 1 ? `; ${operations.length} rejected changes are grouped here` : ''}.</p>
     <div className="blocked-sync-card-actions">
-      {retryCandidate && <Button variant="secondary" disabled={retryBusy} aria-describedby={`retry-blocked-help-${trackerId}`} onClick={() => void retry()}>{retryBusy ? 'Checking cloud…' : 'Retry Sync'}</Button>}
-      {repairSupported && <Button variant="secondary" aria-expanded={previewOpen} aria-controls={`revert-preview-${trackerId}`} onClick={() => setPreviewOpen(true)}>{previewOpen ? 'Repair options open' : 'Repair Changes'}</Button>}
+      <Button variant="secondary" className={!retryCandidate ? 'blocked-sync-retry-disabled' : undefined} disabled={!retryCandidate || retryBusy} aria-describedby={`retry-blocked-help-${trackerId}`} onClick={() => void retry()}>{retryBusy ? 'Checking cloud…' : 'Try again'}</Button>
       <Button variant="secondary" disabled={!supported} aria-expanded={supported ? previewOpen : undefined} aria-controls={supported ? `revert-preview-${trackerId}` : undefined} onClick={() => setPreviewOpen((open) => !open)}>
-        {supported ? previewOpen ? 'Close revert preview' : 'Revert to Cloud' : 'Revert to Cloud'}
+        {previewOpen ? 'Close undo preview' : 'Undo unsynced changes'}
       </Button>
-      {!retryCandidate && <Button variant="secondary" className="blocked-sync-retry-disabled" disabled aria-describedby={`retry-blocked-help-${trackerId}`}>Retry Sync</Button>}
     </div>
     <p className="blocked-sync-action-help" id={`retry-blocked-help-${trackerId}`}>{retryExplanation}</p>
     {retryMessage && <p className={retryError ? 'auth-error' : 'auth-hint'} role={retryError ? 'alert' : 'status'}>{retryMessage}</p>}
+    {repairSupported && <details className="blocked-sync-other-recovery"><summary>Other recovery options</summary><p>Use the guarded measure repair only when the preview confirms the cloud revision and the saved backup is ready.</p><Button variant="secondary" onClick={() => setPreviewOpen(true)}>Repair Changes</Button></details>}
     {previewOpen && supported && <div className="blocked-sync-revert-preview" id={`revert-preview-${trackerId}`}><TrackerRecoveryPreview userId={userId} trackerId={trackerId} /></div>}
     <details><summary>Technical details and saved payload</summary>{operations.map((operation) => <div key={operation.id}><p className="sync-operation-id">Operation {operation.id} · record {operation.entityId}</p><p>{operation.lastError ?? 'The server rejected this saved change.'}</p>{operation.failureDiagnostic && <p className="sync-server-diagnostic">{operation.failureDiagnostic.message}{operation.failureDiagnostic.table && ` · ${operation.failureDiagnostic.table}`}{operation.failureDiagnostic.constraint && ` · ${operation.failureDiagnostic.constraint}`}</p>}<pre aria-label={`Rejected payload for ${trackerName}`}>{JSON.stringify(operation.payload, null, 2)}</pre><Button variant="secondary" size="small" onClick={() => void copyPayload(operation)}>{copiedPayloadId === operation.id ? 'Payload copied' : 'Copy saved payload'}</Button></div>)}{copyError && <p className="auth-error" role="alert">The payload could not be copied. Expand it to review the saved diagnostic.</p>}</details>
   </article>

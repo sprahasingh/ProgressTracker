@@ -36,8 +36,8 @@ export function TrackerRecoveryPreview({ userId, trackerId }: { userId: string; 
       const result = await createTrackerRecoveryPreview(userId, trackerId ? { trackerIds: [trackerId] } : {})
       setPreview(result)
       setMessage(result.status === 'ready-for-review'
-        ? 'Fresh cloud state matches the supplied revisions. This is a review preview only; recovery is not enabled.'
-        : 'The preview found missing or changed records. Do not recover until each conflict is reviewed.')
+        ? 'Fresh cloud state is ready for review. Save a verified backup and explicitly confirm to restore it locally; inspection itself sends no cloud writes.'
+        : 'The preview found missing or changed records. Review each conflict before recovery; no local changes have been made.')
     } catch (cause) {
       setError(true)
       const detail = cause instanceof Error ? ` ${cause.message}` : ''
