@@ -26,8 +26,9 @@ Move a tracker to the Bin to keep its saved progress and plan. Choose Restore to
 **Sources:**
 - src/features/trackers/TrackerBinPage.tsx
 - src/db/localRepository.ts
+- src/services/supabase/syncEngine.ts
 **Answer:**
-Moving a tracker to the Bin keeps its saved progress and rewards. You can restore it while it is in the Bin. Permanently Delete cannot be undone. Choose Keep My Wins to remove the tracker and its activity while preserving earned XP, badges, achievements, reward history, and appropriate tracker context. Choose Delete Tracker and Wins to remove the tracker and its activity and reverse only rewards linked to it. Other rewards and achievements stay. If rewards cannot be safely separated, nothing is deleted; choose Keep My Wins instead.
+Moving a tracker to the Bin keeps its saved progress and rewards. You can restore it while it is in the Bin. Permanently Delete cannot be undone. The confirmation explains that unsynced changes and tracker-owned history may be lost. Choose Keep My Wins to remove the tracker and its activity while preserving earned XP, badges, achievements, reward history, and appropriate tracker context. Choose Delete Tracker and Wins to remove the tracker and its activity and reverse only rewards linked to it. Other rewards and achievements stay. If rewards cannot be safely separated, the server rejects that selected policy and nothing is deleted. After confirmation, deletion is saved locally even when offline, and the original Wins choice stays attached to the request. Pending tracker configuration and check-in operations are superseded so they cannot replay. Once online, the app fetches a fresh cloud revision and asks the owner-checked deletion RPC to delete the tracker atomically. Sync conflicts do not require repair first. The tracker is hidden locally while deletion is pending; local content and conflict UI are cleared only after the server confirms deletion. A durable server deletion ledger blocks stale writes from older versions and other devices from recreating the tracker.
 
 ### ID: edit-tracker-history
 **Category:** trackers

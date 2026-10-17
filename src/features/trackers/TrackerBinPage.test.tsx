@@ -113,7 +113,8 @@ describe('Tracker Bin', () => {
     const dialog = await screen.findByRole('alertdialog', { name: 'Permanently Delete “Read 12 books”?' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveClass('tracker-deletion-dialog')
-    expect(dialog).toHaveTextContent('This cannot be undone.')
+    expect(dialog).toHaveTextContent('This is permanent.')
+    expect(dialog).toHaveTextContent(/unsynced changes and all tracker-owned history/i)
     expect(screen.getByRole('radio', { name: /Keep My Wins/ })).toBeChecked()
     expect(screen.getByText(/Keeps your XP, badges, achievements, and reward history with appropriate tracker context/)).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Choose what happens to its Wins' })).toBeInTheDocument()
@@ -183,15 +184,39 @@ describe('Tracker Bin', () => {
     expect(await screen.findByText(/Permanent deletion will finish when you reconnect/)).toBeInTheDocument()
   })
 
-  it('blocks restore and another delete attempt until a sync conflict is resolved', async () => {
+  it('lets a confirmed deletion be retried without resolving a tracker sync conflict first', async () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    mocks.isOnline = true
     mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
-    mocks.listPermanentDeletionRequests.mockResolvedValue([{ id: 'delete-conflict', ownerUserId: 'bin-account', trackerId: deletedTracker.id, requestedAt: new Date().toISOString(), status: 'conflict', lastError: 'The cloud tracker changed. Resolve its sync conflict before deleting it permanently.' }])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([{ id: 'delete-conflict', ownerUserId: 'bin-account', trackerId: deletedTracker.id, requestedAt: new Date().toISOString(), status: 'conflict', lastError: 'The cloud changed during deletion. Retry to check the latest revision.', winsRetention: 'delete_wins' }])
+    mocks.requestPermanentDeletion.mockResolvedValue('queued')
+    const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    expect(await screen.findByText(/This tracker changed on another device/)).toBeInTheDocument()
+    expect(await screen.findByText(/The cloud changed during deletion/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Restore' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Resolve account issue' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Review and retry deletion' }))
+    expect(screen.getByRole('radio', { name: /Delete Tracker and Wins/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Delete Tracker and Wins/ })).toBeDisabled()
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
+    expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith(deletedTracker.id, 'delete_wins')
+  })
+
+  it('explains queued deletion supersedes blocked configuration without backup or repair', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([{
+      id: 'delete-waiting-for-sync', ownerUserId: 'bin-account', trackerId: deletedTracker.id,
+      requestedAt: new Date().toISOString(), status: 'pending',
+      lastError: 'Waiting for tracker sync: rejected configuration will be skipped and deletion will use a fresh cloud revision.',
+      winsRetention: 'keep_wins',
+    }])
+    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+
+    expect(await screen.findByText(/rejected configuration will be skipped/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /backup|repair|finish deleting tracker/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/original Wins choice is saved/)).toBeInTheDocument()
+    expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
   })
 
   it('keeps account recovery decisions server-authoritative after the local countdown expires', async () => {

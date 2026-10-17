@@ -1,5 +1,5 @@
 begin;
-select plan(160);
+select plan(163);
 
 select ok(to_regclass('public.tracker_deletion_ledger') is not null, 'durable deletion ledger exists');
 select ok(to_regclass('public.tracker_deletion_cleanup_control') is not null, 'cleanup control exists');
@@ -64,7 +64,9 @@ insert into public.trackers (id, user_id, kind, status, name, definition, delete
   ('00000000-0000-4000-8000-000000000667', '00000000-0000-4000-8000-000000000061', 'habit', 'active', 'Other owner expired item',
    '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000667","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null),
   ('00000000-0000-4000-8000-000000000668', '00000000-0000-4000-8000-000000000062', 'habit', 'active', 'Active item',
-   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000668","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null);
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000668","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null),
+  ('00000000-0000-4000-8000-000000000669', '00000000-0000-4000-8000-000000000061', 'habit', 'active', 'Explicit live-row delete',
+   '{"schemaVersion":1,"id":"00000000-0000-4000-8000-000000000669","kind":"habit","status":"active","metrics":[],"schedule":{"kind":"every-day"}}', null);
 -- These rows model pre-existing retained history from before the database
 -- date-window guard; new RPC writes below are still subject to that guard.
 alter table public.tracker_entries disable trigger user;
@@ -150,6 +152,9 @@ select throws_ok($$update public.tracker_entries set note = 'stale direct update
 select throws_ok($$delete from public.tracker_entries where id = '00000000-0000-4000-8000-000000000761'$$,
   '42501', null, 'direct entry deletes remain blocked for authenticated clients');
 select is((public.permanently_delete_tracker('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000961','00000000-0000-4000-8000-000000000661',1)->>'status'), 'already_deleted'::text, 'repeated deletion request is idempotent');
+select is((public.permanently_delete_tracker('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000963','00000000-0000-4000-8000-000000000669',(select server_revision from public.trackers where id='00000000-0000-4000-8000-000000000669'),'keep_wins')->>'status'), 'deleted'::text, 'explicit deletion atomically removes a live cloud tracker without syncing a tombstone');
+select is((select count(*) from public.trackers where id='00000000-0000-4000-8000-000000000669'), 0::bigint, 'live-row deletion leaves no tracker that an old configuration can update');
+select is((select wins_retention from public.tracker_deletion_ledger where user_id='00000000-0000-4000-8000-000000000061' and tracker_id='00000000-0000-4000-8000-000000000669'), 'keep_wins'::text, 'live-row deletion records the exact selected Wins policy');
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000862','tracker_entry',1,
   '{"id":"00000000-0000-4000-8000-000000000761","tracker_id":"00000000-0000-4000-8000-000000000661","entry_date":"2026-10-09","outcome":"recorded","entry_values":{"pages":4}}')->>'status'), 'permanently_deleted'::text, 'old matching receipt cannot replay deleted entry data');
 select is((public.apply_tracker_sync_operation('00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000861','tracker',null,
@@ -237,7 +242,7 @@ where user_id='00000000-0000-4000-8000-000000000062';
 select throws_ok($$select public.purge_expired_tracker_bin()$$, 'P0001', 'injected cleanup failure', 'failed finalization aborts the cleanup transaction');
 select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000669'), 1::bigint, 'failed cleanup retains the tracker row');
 select is((select count(*) from public.tracker_entries where tracker_id = '00000000-0000-4000-8000-000000000669'), 1::bigint, 'failed cleanup rolls back child-history deletion');
-select is((select count(*) from public.tracker_deletion_ledger where tracker_id = '00000000-0000-4000-8000-000000000669'), 0::bigint, 'failed cleanup rolls back its tentative ledger insert');
+select is((select count(*) from public.tracker_deletion_ledger where user_id='00000000-0000-4000-8000-000000000062' and tracker_id = '00000000-0000-4000-8000-000000000669'), 0::bigint, 'failed cleanup rolls back its tentative ledger insert for the owning account');
 select is(row((select count(*)::bigint from public.progression_retained_achievement_progress where user_id='00000000-0000-4000-8000-000000000062'),
   (select max(retained_at) from public.progression_retained_achievement_progress where user_id='00000000-0000-4000-8000-000000000062')),
   (select row(row_count,latest_snapshot) from tracker_bin_snapshot_before_failure),'failed cleanup rolls back its tentative Wins snapshot');
@@ -405,7 +410,7 @@ reset role;
 update public.tracker_deletion_cleanup_control set enabled=true where id=true;
 select is(public.purge_expired_tracker_bin(),1,'scheduled cleanup deterministically applies Keep Wins after the 30-day expiry');
 select is((select count(*) from public.trackers where id='00000000-0000-4000-8000-000000000669'),0::bigint,'scheduled Keep Wins removes expired tracker data');
-select is((select wins_retention from public.tracker_deletion_ledger where tracker_id='00000000-0000-4000-8000-000000000669'),'keep_wins'::text,'scheduled cleanup records its deterministic retention policy');
+select is((select wins_retention from public.tracker_deletion_ledger where user_id='00000000-0000-4000-8000-000000000062' and tracker_id='00000000-0000-4000-8000-000000000669'),'keep_wins'::text,'scheduled cleanup records its deterministic retention policy for the owning account');
 select is((select sum(xp_delta) from public.progression_events where user_id='00000000-0000-4000-8000-000000000062'),240::bigint,'scheduled Keep Wins preserves account XP');
 select ok(exists(select 1 from public.progression_retained_reward_context c join public.progression_events e on e.user_id=c.user_id and e.id=c.event_id where c.user_id='00000000-0000-4000-8000-000000000062' and c.context_kind='score' and e.idempotency_key=md5('00000000-0000-4000-8000-000000000062:00000000-0000-4000-8000-000000000769:daily-check-in-v1')::uuid and c.tracker_display_name='Scheduled cleanup tracker' and c.reward_reason_code='DAILY_CHECK_IN_COMPLETED'),'scheduled cleanup applies Keep Wins reward-context retention');
 select is((select count(*) from public.progression_retained_achievement_unlocks where user_id='00000000-0000-4000-8000-000000000062'),6::bigint,'scheduled Keep Wins preserves earned badges and repeatable instances');

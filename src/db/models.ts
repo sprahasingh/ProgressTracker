@@ -137,6 +137,7 @@ export type SyncOperation = {
   blockedAt?: string
   supersededAt?: string
   supersededByRevision?: number
+  supersededByDeletionRequestId?: string
   discardedAt?: string
 }
 

@@ -55,6 +55,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     const deletionRequest = conflict.entity === 'tracker'
       ? await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([userId, conflict.entityId]).first()
       : undefined
+    if (deletionRequest) throw new Error('A confirmed permanent deletion is already queued for this tracker. Its rejected changes stay superseded; the saved deletion will finish when sync reaches the server.')
     const holidayDeletionRequest = conflict.entity === 'account_holiday'
       ? await database.holidayPermanentDeletionRequests.where('[ownerUserId+holidayId]').equals([userId, conflict.entityId]).first()
       : undefined
@@ -104,7 +105,6 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         queuedLocalChanges = true
       }
       await database.syncConflicts.delete(conflict.id)
-      if (deletionRequest) await database.permanentDeletionRequests.delete(deletionRequest.id)
       if (holidayDeletionRequest) {
         await database.holidayPermanentDeletionRequests.delete(holidayDeletionRequest.id)
         publishHolidayDeletionNotification({ status: 'cancelled', ownerUserId: userId, holidayId: holidayDeletionRequest.holidayId, holidayDate: holidayDeletionRequest.holidayDate })
@@ -144,7 +144,6 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       await clearQueuedOperations(database, userId, conflict.entity, conflict.entityId)
       if (recordId !== conflict.entityId) await database.syncRecords.delete(stateKey)
       await database.syncConflicts.delete(conflict.id)
-      if (deletionRequest) await database.permanentDeletionRequests.delete(deletionRequest.id)
       if (holidayDeletionRequest) await database.holidayPermanentDeletionRequests.delete(holidayDeletionRequest.id)
       return
     }
@@ -187,7 +186,6 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       .find((operation) => operation.status === 'pending' || operation.status === 'in-flight')
     if (replacement) await database.syncOperations.put({ ...replacement, expectedRevision: revision, status: 'pending', attempts: 0, lastError: null } satisfies SyncOperation)
     await database.syncConflicts.delete(conflict.id)
-    if (deletionRequest) await database.permanentDeletionRequests.put({ ...deletionRequest, status: 'pending', lastError: null })
     if (holidayDeletionRequest) {
       await database.holidayPermanentDeletionRequests.put({ ...holidayDeletionRequest, status: 'pending', lastError: null })
       publishHolidayDeletionNotification({ status: 'queued', ownerUserId: userId, holidayId: holidayDeletionRequest.holidayId, holidayDate: holidayDeletionRequest.holidayDate })

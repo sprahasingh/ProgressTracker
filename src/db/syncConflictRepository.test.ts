@@ -98,7 +98,7 @@ describe('sync conflict recovery', () => {
     await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
   })
 
-  it('cancels a permanent-delete request when the account conflict is resolved with the cloud copy', async () => {
+  it('does not let a cloud conflict choice cancel a confirmed permanent deletion', async () => {
     await activateWorkspace('conflict-user')
     await localRepository.saveTracker(tracker)
     await localRepository.deleteTracker(tracker.id)
@@ -108,13 +108,14 @@ describe('sync conflict recovery', () => {
     await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, serverRevision: 4 })
     await db.syncConflicts.put({ id: request.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: { ...tracker, deletedAt: '2026-01-05T00:00:00.000Z' }, remoteRecord: remote, detectedAt: '2026-01-05T00:00:00.000Z' })
 
-    await resolveSyncConflict('conflict-user', request.id, 'use-cloud')
+    await expect(resolveSyncConflict('conflict-user', request.id, 'use-cloud')).rejects.toThrow(/confirmed permanent deletion is already queued/)
 
-    await expect(db.permanentDeletionRequests.get(request.id)).resolves.toBeUndefined()
-    await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ name: 'Cloud name', deletedAt: null })
+    await expect(db.permanentDeletionRequests.get(request.id)).resolves.toMatchObject({ winsRetention: 'keep_wins' })
+    await expect(db.trackers.get(tracker.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.syncConflicts.get(request.id)).resolves.toBeDefined()
   })
 
-  it('retries a permanent-delete request after the user resolves the revision conflict with the Bin copy', async () => {
+  it('does not requeue a tracker payload when old conflict UI resolves a pending deletion conflict', async () => {
     await activateWorkspace('conflict-user')
     await localRepository.saveTracker(tracker)
     await localRepository.deleteTracker(tracker.id)
@@ -125,10 +126,13 @@ describe('sync conflict recovery', () => {
     await db.syncRecords.put({ key: `tracker:${tracker.id}`, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, serverRevision: 4 })
     await db.syncConflicts.put({ id: request.id, ownerUserId: 'conflict-user', entity: 'tracker', entityId: tracker.id, localPayload: { ...tracker, deletedAt: '2026-01-05T00:00:00.000Z' }, remoteRecord: remote, detectedAt: '2026-01-05T00:00:00.000Z' })
 
-    await resolveSyncConflict('conflict-user', request.id, 'keep-local')
+    await expect(resolveSyncConflict('conflict-user', request.id, 'keep-local')).rejects.toThrow(/confirmed permanent deletion is already queued/)
 
-    await expect(db.permanentDeletionRequests.get(request.id)).resolves.toMatchObject({ status: 'pending', lastError: null })
-    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', tracker.id]).first()).resolves.toMatchObject({ expectedRevision: 4, payload: { deletedAt: '2026-01-05T00:00:00.000Z' } })
+    await expect(db.permanentDeletionRequests.get(request.id)).resolves.toMatchObject({ status: 'conflict', winsRetention: 'keep_wins' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker', tracker.id]).toArray()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'superseded', supersededByDeletionRequestId: request.id }),
+    ]))
+    await expect(db.syncConflicts.get(request.id)).resolves.toBeDefined()
   })
 
   it('normalizes PostgreSQL timestamp strings before applying a cloud conflict choice', async () => {
