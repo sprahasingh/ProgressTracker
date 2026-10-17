@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { CalendarPage } from './CalendarPage'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { calendarDateLabel } from '../shared/localDates'
+import appStyles from '../../styles.css?raw'
 
 const mocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), listAccountHolidays: vi.fn() }))
 const auth = vi.hoisted(() => ({ value: { status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false } }))
@@ -35,6 +36,21 @@ const entry = {
 afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks() })
 
 describe('Calendar page', () => {
+  it('uses the shared page-header hierarchy with visible schedule copy and the holidays action after it', async () => {
+    mocks.listTrackers.mockResolvedValue([])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    const header = container.querySelector<HTMLElement>('.calendar-page > .page-header')!
+    expect(within(header).getByText('YOUR SCHEDULE')).toBeInTheDocument()
+    expect(within(header).getByRole('heading', { name: 'Calendar.' })).toBeInTheDocument()
+    expect(within(header).getByText('Review your daily progress, check-ins, and holidays in one place.')).toBeInTheDocument()
+    expect(within(header).getByRole('link', { name: 'Manage holidays' })).toHaveAttribute('href', '/holidays')
+    expect(header.children[1]).toHaveClass('page-header-action')
+    expect(appStyles).toContain('.calendar-page .page-header { display: block;')
+    expect(appStyles).not.toMatch(/\.calendar-page \.page-header-copy > \.eyebrow, \.calendar-page \.page-description\s*\{\s*display:\s*none/)
+  })
+
   it('shows Effective Challenge numbering on an unscheduled weekend without calling it missed', async () => {
     const challenge = {
       ...tracker, id: 'calendar-challenge', name: 'Weekend Challenge', kind: 'challenge', schemaVersion: 6,
