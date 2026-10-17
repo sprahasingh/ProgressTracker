@@ -16,6 +16,7 @@ import { listSyncRecoveryOperations } from '../../db/syncRecoveryRepository'
 import type { SyncConflict, SyncOperation } from '../../db/models'
 import { WorkspaceBackup } from './WorkspaceBackup'
 import { getAuthRedirectUrl } from './authRedirect'
+import { SyncDiagnosticsExport } from './SyncDiagnosticsExport'
 
 type AuthMode = 'magic-link' | 'sign-in' | 'sign-up' | 'forgot-password' | 'set-password'
 const emailSchema = z.string().trim().email('Enter a valid email address.').toLowerCase()
@@ -184,6 +185,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
             {syncSummary && syncSummary.conflicts > 0 && <p className="auth-error" role="status">{syncSummary.conflicts} sync conflict{syncSummary.conflicts === 1 ? '' : 's'} need review below.</p>}
             {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
+            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && <SyncDiagnosticsExport userId={user.id} />}
             {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && blockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h3 id="blocked-sync-title">Rejected sync changes</h3><p>Saved payloads and diagnostics stay on this device. A corrected tracker version can sync while older rejected payloads remain available for review.</p>{blockedOperations.map((operation) => {
               const payload = operation.payload as { name?: unknown } | undefined
               const trackerName = operation.entity === 'tracker' && typeof payload?.name === 'string' ? payload.name : null

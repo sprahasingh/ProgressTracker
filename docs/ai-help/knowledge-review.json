@@ -14,7 +14,7 @@
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
   "account-signin": {
-    "src/features/auth/AuthPage.tsx": "516c9c48d412962b42cf81f33dc96e626a932aaf5985c4e5c3cc7b3c3c68cce6",
+    "src/features/auth/AuthPage.tsx": "29862330e81e0e4a4879963882b43f473a4b1e937fa44a88ef327e0f03c4ddeb",
     "src/features/auth/authService.ts": "b389188217a4d06f8e5c867474ea60ebd83709f233af7d72612293f5b24e17b5",
     "src/features/auth/AuthPage.test.tsx": "224150f7630e4d8ac3f1f6f8e2aadb5797532912c4ac4da76233307d5bbba111"
   },
@@ -145,7 +145,7 @@
   "guest-mode": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/features/auth/AuthPage.tsx": "516c9c48d412962b42cf81f33dc96e626a932aaf5985c4e5c3cc7b3c3c68cce6",
+    "src/features/auth/AuthPage.tsx": "29862330e81e0e4a4879963882b43f473a4b1e937fa44a88ef327e0f03c4ddeb",
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
