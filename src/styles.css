@@ -4519,3 +4519,41 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .progression-badge-detail > div { justify-content: center; }
   .progression-badge-detail > div p { text-align: center; }
 }
+
+/* Calendar and History visual consistency refinements. */
+.calendar-toolbar { grid-template-columns: minmax(0, 1fr) minmax(280px, 390px); align-items: end; gap: 12px; }
+.calendar-toolbar .history-filter { min-width: 0; max-width: none; gap: 6px; font-size: 11px; }
+.calendar-toolbar .history-filter > span { line-height: 16px; }
+.calendar-month-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.calendar-month-controls > .button { min-height: 44px; }
+.calendar-status-key { border: 1px solid var(--line); border-radius: var(--radius-card-nested); background: var(--surface-muted); }
+.activity-calendar .calendar-cell-status { position: relative; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 4px 2px; line-height: 1.05; overflow-wrap: anywhere; }
+.activity-calendar .calendar-cell-mark { display: grid; place-items: center; line-height: 1; }
+.history-filters-section, .history-records-section { min-width: 0; }
+.history-filters-section { margin-bottom: 18px; }
+.history-records-section { margin-top: 16px; }
+.history-section-title { margin: 0 0 10px; color: var(--ink); font-family: var(--font-sans); font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+.history-missing-section.is-clear { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 12px; margin: 12px 0 18px; padding: 11px 15px; }
+.history-missing-section.is-clear .history-missing-heading { align-items: center; }
+.history-missing-section.is-clear .history-missing-heading h2 { font-family: var(--font-sans); font-size: 15px; font-weight: 700; }
+.history-missing-section.is-clear .history-missing-count { min-width: 28px; height: 28px; color: var(--ink-muted); font-size: 11px; }
+.history-missing-section.is-clear .history-missing-empty { grid-column: 1; margin: 0; font-size: 11px; }
+.history-missing-section.is-clear .history-missing-note { grid-column: 1; margin: 0; padding: 0; border: 0; font-size: 10px; }
+.history-entry-card.status-card { border-color: var(--line); }
+.history-entry-card > .button { align-self: flex-start; margin-top: 10px; }
+.history-entry-card .history-values { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) {
+  .calendar-toolbar { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .calendar-toolbar > .tracker-filter { grid-column: 1; width: 100%; max-width: none; }
+  .calendar-month-controls { grid-column: 1; grid-template-columns: minmax(0, 1fr) auto; }
+  .calendar-month-controls .history-filter { width: 100%; }
+  .calendar-month-controls > .button { min-width: 88px; }
+  .history-filters-section { margin-bottom: 15px; }
+  .history-records-section { margin-top: 12px; }
+  .history-section-title { font-size: 16px; }
+  .history-missing-section.is-clear { padding: 10px 12px; }
+}
+@media (max-width: 360px) {
+  .calendar-month-controls { grid-template-columns: minmax(0, 1fr) minmax(82px, auto); gap: 6px; }
+  .calendar-month-controls > .button { min-width: 82px; padding-inline: 10px; }
+}
