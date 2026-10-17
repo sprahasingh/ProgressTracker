@@ -236,7 +236,7 @@ describe('blocked tracker recovery preview', () => {
     await expect(discardRejectedTrackerChanges(afterDiscard, cpId, true, { database: db, cloudReader })).rejects.toThrow(/no rejected tracker changes/)
   })
 
-  it('blocks MERN discard across the v10-to-v6 schema downgrade and blocks discard with unsynced entries', async () => {
+  it('blocks MERN discard across the v10-to-v6 schema downgrade and preserves independent CP entries', async () => {
     const preview = await createTrackerRecoveryPreview(owner, { cloudReader })
     await expect(discardRejectedTrackerChanges(preview, mernId, true, { database: db, cloudReader })).rejects.toThrow(/schemas differ/)
     const staleCloud: TrackerRecoveryCloudReader = { ...cloudReader, readTrackers: async () => cloudTrackers.map((row) => row.id === cpId ? { ...row, server_revision: 4 } : row) }
@@ -246,8 +246,24 @@ describe('blocked tracker recovery preview', () => {
     await db.trackerEntries.put(cpEntry)
     await db.syncOperations.put({ id: 'unsynced-cp-write', ownerUserId: owner, entity: 'tracker_entry', entityId: cpEntry.id, operation: 'upsert', expectedRevision: null, payload: cpEntry, createdAt: '2026-10-17T01:00:00.000Z', attempts: 0, status: 'pending', lastError: null })
     const withPendingEntry = await createTrackerRecoveryPreview(owner, { cloudReader })
-    await expect(discardRejectedTrackerChanges(withPendingEntry, cpId, true, { database: db, cloudReader })).rejects.toThrow(/saved check-in is missing|Unresolved tracker or check-in conflicts|Unsynced check-in|not confirmed identical/)
-    expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'blocked' })
+    await discardRejectedTrackerChanges(withPendingEntry, cpId, true, { database: db, cloudReader })
+    expect(await db.trackerEntries.get(cpEntry.id)).toEqual(cpEntry)
+    expect(await db.syncOperations.get('unsynced-cp-write')).toMatchObject({ status: 'pending', expectedRevision: null })
+    expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'discarded' })
+  })
+
+  it('reverts incident CP while preserving an independent unsynced check-in', async () => {
+    const cpEntry: StoredTrackerEntry = { ...localEntry, id: 'unsynced-cp-entry', trackerId: cpId, values: { [cpMetricId]: 2.5 }, note: 'Keep this entry', deletedAt: null }
+    const cpEntryOperation: SyncOperation = { id: 'unsynced-cp-write', ownerUserId: owner, entity: 'tracker_entry', entityId: cpEntry.id, operation: 'upsert', expectedRevision: null, payload: cpEntry, createdAt: '2026-10-17T01:00:00.000Z', attempts: 0, status: 'pending', lastError: null }
+    await db.trackerEntries.put(cpEntry)
+    await db.syncOperations.put(cpEntryOperation)
+    const preview = await createTrackerRecoveryPreview(owner, { cloudReader, trackerIds: [cpId] })
+    expect(preview.trackers[0]?.discardBlockers).toEqual([])
+    await discardRejectedTrackerChanges(preview, cpId, true, { database: db, cloudReader })
+    expect(await db.trackerEntries.get(cpEntry.id)).toEqual(cpEntry)
+    expect(await db.syncOperations.get(cpEntryOperation.id)).toEqual(cpEntryOperation)
+    expect(await db.trackers.get(cpId)).toMatchObject({ schemaVersion: 8, metrics: [{ id: cpMetricId, valueType: 'quantity' }] })
+    expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'discarded' })
   })
 
   it.each([6, 8, 9, 10] as const)('reverts a generic schema v%s tracker without identity allowlists and keeps the same-schema cloud definition', async (version) => {
