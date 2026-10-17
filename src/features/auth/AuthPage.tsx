@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
@@ -245,9 +245,9 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
               {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
               {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
               {notice && <p className="auth-success" role="status">{notice}</p>}
-              <div className="auth-actions account-secondary-actions"><Button variant="secondary" size="small" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="quiet" size="small" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
+              <div className="auth-actions account-secondary-actions"><Button variant="secondary" size="small" className="account-password-action" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" size="small" className="account-sign-out" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
             </section>
-            {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && issueCount > 0 && <section className="account-sync-issues" aria-labelledby="sync-issues-title"><div className="account-section-heading"><div><h3 id="sync-issues-title">Sync issues</h3><p>{issueCount} saved item{issueCount === 1 ? '' : 's'} need attention. They remain on this device.</p></div><a href="#account-advanced-tools" onClick={() => setAdvancedOpen(true)}>Review recovery tools</a></div>
+            {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && issueCount > 0 && <section className="account-sync-issues" aria-labelledby="sync-issues-title"><div className="account-section-heading"><div><h3 id="sync-issues-title">Sync issues</h3><p>{issueCount} saved item{issueCount === 1 ? '' : 's'} need attention. They remain on this device.</p></div><Link to="/settings?recoveryPreview=1#sync-data" onClick={() => setAdvancedOpen(true)}>Review recovery tools</Link></div>
             {activeBlockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h4 id="blocked-sync-title">Rejected changes</h4>{blockedTrackerGroups.map(([trackerId, operations]) => <BlockedTrackerSyncCard key={trackerId} userId={user!.id!} trackerId={trackerId} operations={operations} syncNow={syncNow} onOperationsChanged={() => setSyncIssueRefreshVersion((version) => version + 1)} />)}{otherBlockedOperations.map((operation) => {
               const payload = operation.payload as { name?: unknown } | undefined
               const trackerName = operation.entity === 'tracker' && typeof payload?.name === 'string' ? payload.name : null

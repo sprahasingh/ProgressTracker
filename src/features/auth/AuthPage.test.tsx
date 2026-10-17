@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render as testingRender, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import type { ReactElement, ReactNode } from 'react'
 import { AuthPage } from './AuthPage'
 import accountStyles from '../../styles.css?raw'
 
@@ -24,6 +26,17 @@ vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks
 vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation, isRetryableTransientSyncFailure: (code: string | undefined, message?: string | null) => Boolean(code && (/^5\d\d$/.test(code) || ['ECONNABORTED', 'ECONNRESET', 'ETIMEDOUT', 'FETCH_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(code)) || !code && message && /\b(network|connection|timed? ?out|timeout|temporarily unavailable|service unavailable|gateway timeout)\b/i.test(message)) }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
 vi.mock('./TrackerRecoveryPreview', () => ({ TrackerRecoveryPreview: ({ trackerId }: { trackerId?: string }) => <div data-testid="recovery-preview" data-tracker-id={trackerId ?? 'all'}>Recovery Preview</div> }))
+
+function AuthRouterWrapper({ children }: { children: ReactNode }) {
+  return <MemoryRouter initialEntries={['/settings#sync-data']}><Routes><Route path="/settings" element={<>{children}</>} /><Route path="*" element={<p>Page Not Found</p>} /></Routes></MemoryRouter>
+}
+
+function render(ui: ReactElement) { return testingRender(ui, { wrapper: AuthRouterWrapper }) }
+
+function CurrentRouterLocation() {
+  const location = useLocation()
+  return <output data-testid="router-location">{location.pathname}{location.search}{location.hash}</output>
+}
 
 describe('AuthPage', () => {
   afterEach(() => { cleanup(); window.history.replaceState({}, '', '/') })
@@ -155,11 +168,32 @@ describe('AuthPage', () => {
     if (label === 'Changes waiting to sync') expect(screen.getByText('3 changes waiting')).toBeInTheDocument()
   })
 
+  it('keeps password and sign-out controls aligned as outlined, accessible touch buttons', async () => {
+    const user = userEvent.setup()
+    let finishSignOut: ((error: string | null) => void) | undefined
+    const signOut = vi.fn(() => new Promise<string | null>((resolve) => { finishSignOut = resolve }))
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person-with-a-long-address@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut, passwordRecovery: false })
+    render(<AuthPage embedded />)
+    const password = screen.getByRole('button', { name: 'Set or change password' })
+    const signOutButton = screen.getByRole('button', { name: 'Sign out' })
+    expect(password).toHaveClass('button-small', 'button-secondary', 'account-password-action')
+    expect(signOutButton).toHaveClass('button-small', 'button-secondary', 'account-sign-out')
+    expect(signOutButton).not.toHaveClass('button-destructive')
+    expect(accountStyles).toMatch(/\.account-secondary-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1\.35fr\)\s+minmax\(0,\s*\.8fr\)/s)
+    expect(accountStyles).toMatch(/\.account-secondary-actions \.button\s*\{[^}]*min-height:\s*44px/s)
+    expect(accountStyles).toMatch(/@media \(max-width:\s*430px\)[\s\S]*?\.account-secondary-actions \.button[^}]*white-space:\s*normal/s)
+    await user.click(signOutButton)
+    expect(signOut).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Signing out…' })).toBeDisabled()
+    finishSignOut?.(null)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled())
+  })
+
   it('shows blocked operations as action needed and opens inline generic recovery preview', async () => {
     const user = userEvent.setup()
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncStatus: 'complete', syncSummary: { uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 } })
     authMocks.listSyncRecoveryOperations.mockResolvedValue([{ id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: 'Reading' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'Rejected', failureCode: '23514' }])
-    render(<AuthPage embedded />)
+    render(<><AuthPage embedded /><CurrentRouterLocation /></>)
     expect(await screen.findByText('Action needed', { selector: '.account-sync-badge' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Sync issues' })).toBeInTheDocument()
     expect(screen.queryByText('Synced', { selector: '.account-sync-badge' })).not.toBeInTheDocument()
@@ -169,6 +203,8 @@ describe('AuthPage', () => {
     expect(screen.getAllByTestId('recovery-preview')[0]).toHaveAttribute('data-tracker-id', 'tracker-1')
     await user.click(screen.getByRole('link', { name: 'Review recovery tools' }))
     expect(advanced.parentElement).toHaveAttribute('open')
+    expect(screen.getByTestId('router-location')).toHaveTextContent('/settings?recoveryPreview=1#sync-data')
+    expect(screen.queryByText('Page Not Found')).not.toBeInTheDocument()
   })
 
   it('offers a transient retry only after the recovery repository verifies it', async () => {
@@ -327,7 +363,9 @@ describe('AuthPage', () => {
     const issueCard = card.closest('article')!
     expect(issueCard).toHaveTextContent('2 rejected changes are grouped here')
     expect(within(issueCard).getByRole('button', { name: 'Retry Sync' })).toBeDisabled()
-    expect(within(issueCard).getByText(/permanently rejected.*23514/i)).toBeInTheDocument()
+    expect(within(issueCard).getByText(/cannot be retried until its configuration is corrected/i)).toBeInTheDocument()
+    expect(within(issueCard).getByText(/cannot be retried until its configuration is corrected/i)).not.toHaveTextContent('23514')
+    expect(within(issueCard).getByRole('button', { name: 'Repair Changes' })).toBeInTheDocument()
     await user.click(within(issueCard).getByRole('button', { name: 'Revert to Cloud' }))
     expect(within(issueCard).getByTestId('recovery-preview')).toHaveAttribute('data-tracker-id', trackerId)
     await user.click(within(card.closest('article')!).getByText('Technical details and saved payload'))

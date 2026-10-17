@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { matchRoutes } from 'react-router-dom'
 import { router } from './router'
 
 describe('application route loading', () => {
@@ -16,5 +17,10 @@ describe('application route loading', () => {
 
   it('retains a root-level route error boundary for failed lazy imports', () => {
     expect(router.routes[0]?.errorElement).toBeTruthy()
+  })
+
+  it('matches the GitHub Pages recovery inspection deep link to Settings', () => {
+    const matches = matchRoutes(router.routes, '/settings?recoveryPreview=1#sync-data')
+    expect(matches?.at(-1)?.route.path).toBe('settings')
   })
 })
