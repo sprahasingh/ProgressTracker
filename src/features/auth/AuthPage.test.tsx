@@ -20,9 +20,10 @@ vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { stat
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
 vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
+vi.mock('./TrackerRecoveryPreview', () => ({ TrackerRecoveryPreview: () => <div>Recovery Preview</div> }))
 
 describe('AuthPage', () => {
-  afterEach(() => cleanup())
+  afterEach(() => { cleanup(); window.history.replaceState({}, '', '/') })
   beforeEach(() => {
     Object.values(authMocks).forEach((mock) => mock.mockReset())
     authMocks.listSyncConflicts.mockResolvedValue([])
@@ -135,6 +136,20 @@ describe('AuthPage', () => {
     expect(syncNow).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Sync this account' }))
     expect(syncNow).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the recovery inspection route read-only and skips legacy conflict migration', () => {
+    window.history.replaceState({}, '', '/ProgressTracker/#/settings?recoveryPreview=1#sync-data')
+    const syncNow = vi.fn()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncNow, syncStatus: 'idle' })
+    render(<AuthPage embedded />)
+
+    expect(screen.getByText(/automatic and manual cloud sync are paused/i)).toBeInTheDocument()
+    expect(screen.getByText('Recovery Preview')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sync this account' })).not.toBeInTheDocument()
+    expect(authMocks.listSyncConflicts).not.toHaveBeenCalled()
+    expect(authMocks.listSyncRecoveryOperations).not.toHaveBeenCalled()
+    expect(syncNow).not.toHaveBeenCalled()
   })
 
   it('offers guest backup only after the guest workspace is ready', () => {

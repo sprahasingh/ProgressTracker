@@ -30,7 +30,7 @@ The setup page remains a single form. A validation error identifies the relevant
 
 ## Edit a tracker
 
-Open the tracker from **Trackers**, then choose its edit action. You can update supported settings and add new measures. A saved measure’s type and historical interpretation are protected. Retire a measure with history to remove it from future check-ins while retaining the definition for old entries. Resolve rule, milestone, or plan dependencies before removing or retiring a measure.
+Open the tracker from **Trackers**, then choose its edit action. You can update supported settings and add new measures. An existing measure’s type is immutable, including when no check-in is visible locally, so its stable ID keeps the same meaning in the cloud and in history. Retire a measure with history to remove it from future check-ins while retaining the definition for old entries. Resolve rule, milestone, or plan dependencies before removing or retiring a measure.
 
 Rule and schedule edits recalculate derived history under the current tracker settings; the saved activity values themselves remain unchanged. This can change historical success, streak, goal, and milestone progress, and synchronization may reconcile progression rewards. Existing custom fields with saved values keep their label and value type; retire one to stop collecting future values while preserving its historical values. Checklist items also remain fixed after that measure has check-in history.
 

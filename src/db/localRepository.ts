@@ -7,7 +7,7 @@ import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
 import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
-import { historicalCustomFieldMeaningChange, historicalMetricMeaningChange, retiredCustomFieldMeaningChange, retiredMetricMeaningChange } from '../domain/trackers/invariants'
+import { historicalCustomFieldMeaningChange, historicalMetricMeaningChange, retiredCustomFieldMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
 import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
@@ -446,9 +446,9 @@ export const localRepository = {
           const history = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).toArray()
           const historicalKeys = new Set(history.flatMap((entry) => Object.keys(entry.values)))
           if (metricsChanged) {
+            const changedType = trackerMetricTypeChange(existing, draft)
+            if (changedType) throw new Error(`The measure type for “${changedType}” can’t be changed for an existing measure. Retire it and add a new measure to record a different value type.`)
             const historicalMetricIds = new Set(existing.metrics.filter((metric) => historicalKeys.has(metric.id)).map((metric) => metric.id))
-            const changedHistoricalType = existing.metrics.find((metric) => historicalMetricIds.has(metric.id) && draft.metrics.some((candidate) => candidate.id === metric.id && candidate.valueType !== metric.valueType))
-            if (changedHistoricalType) throw new Error(`The saved measure type for “${changedHistoricalType.name}” can’t be changed because its historical values use the original type. Retire it and add a new measure to record it differently.`)
             const changedRetiredMeaning = retiredMetricMeaningChange(existing, draft)
             if (changedRetiredMeaning) throw new Error(`The retired measure “${changedRetiredMeaning}” must stay in the tracker with its original definition so its history keeps its meaning.`)
             const changedHistoricalMeaning = historicalMetricMeaningChange(existing, draft, historicalMetricIds)

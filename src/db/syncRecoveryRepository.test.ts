@@ -44,6 +44,15 @@ describe('blocked sync recovery', () => {
     ]))
   })
 
+  it('retains discarded payloads for audit and refuses to retry them', async () => {
+    await activateWorkspace('recovery-user')
+    const discarded = { id: 'discarded-audit', ownerUserId: 'recovery-user', entity: 'tracker' as const, entityId: 'tracker-one', operation: 'upsert' as const, expectedRevision: 3, payload: { id: 'tracker-one', name: 'Preserved' } as never, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'discarded' as const, discardedAt: '2026-01-02T00:00:00.000Z', lastError: 'Rejected (23514)', failureCode: '23514' }
+    await db.syncOperations.put(discarded)
+    await expect(listSyncRecoveryOperations('recovery-user')).resolves.toContainEqual(expect.objectContaining({ id: discarded.id, status: 'discarded', payload: discarded.payload }))
+    await expect(retryBlockedSyncOperation('recovery-user', discarded.id)).rejects.toThrow(/no longer available/)
+    await expect(db.syncOperations.get(discarded.id)).resolves.toMatchObject({ status: 'discarded', discardedAt: discarded.discardedAt, payload: discarded.payload })
+  })
+
   it('migrates an old server-validation false conflict to a retained blocked payload', async () => {
     await activateWorkspace('recovery-user')
     const message = 'The server rejected this saved change (23514). Review the local record and resolve the sync issue before retrying.'

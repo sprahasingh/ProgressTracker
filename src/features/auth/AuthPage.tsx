@@ -17,6 +17,8 @@ import type { SyncConflict, SyncOperation } from '../../db/models'
 import { WorkspaceBackup } from './WorkspaceBackup'
 import { getAuthRedirectUrl } from './authRedirect'
 import { SyncDiagnosticsExport } from './SyncDiagnosticsExport'
+import { TrackerRecoveryPreview } from './TrackerRecoveryPreview'
+import { isTrackerRecoveryInspectionMode } from './recoveryInspectionMode'
 
 type AuthMode = 'magic-link' | 'sign-in' | 'sign-up' | 'forgot-password' | 'set-password'
 const emailSchema = z.string().trim().email('Enter a valid email address.').toLowerCase()
@@ -46,6 +48,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
   const [conflictError, setConflictError] = useState<string | null>(null)
   const [resolvingConflict, setResolvingConflict] = useState<string | null>(null)
   const [copiedPayloadId, setCopiedPayloadId] = useState<string | null>(null)
+  const readOnlyRecoveryInspection = isTrackerRecoveryInspectionMode()
 
   useEffect(() => {
     let active = true
@@ -53,12 +56,13 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
     setBlockedOperations([])
     setConflictsOwnerUserId(null)
     setConflictError(null)
+    if (readOnlyRecoveryInspection) return () => { active = false }
     if (status !== 'signed-in' || !user?.id || workspaceStatus !== 'ready' || workspaceUserId !== user.id) return () => { active = false }
     void Promise.all([listSyncConflicts(user.id), listSyncRecoveryOperations(user.id)]).then(([conflicts, blocked]) => { if (active) { setSyncConflicts(conflicts); setBlockedOperations(blocked); setConflictsOwnerUserId(user.id) } }).catch(() => {
       if (active) setConflictError('Saved sync conflicts could not be loaded for this account.')
     })
     return () => { active = false }
-  }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary])
+  }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary, readOnlyRecoveryInspection])
 
   useEffect(() => {
     if (manualSyncPhase === 'requested' && syncStatus === 'syncing') {
@@ -185,20 +189,23 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
             {syncError && <p className="auth-error" role="alert">{syncError}</p>}
             {syncSummary && syncSummary.conflicts > 0 && <p className="auth-error" role="status">{syncSummary.conflicts} sync conflict{syncSummary.conflicts === 1 ? '' : 's'} need review below.</p>}
             {conflictError && <p className="auth-error" role="alert">{conflictError}</p>}
-            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && <SyncDiagnosticsExport userId={user.id} />}
-            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && blockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h3 id="blocked-sync-title">Rejected sync changes</h3><p>Saved payloads and diagnostics stay on this device. A corrected tracker version can sync while older rejected payloads remain available for review.</p>{blockedOperations.map((operation) => {
+            {readOnlyRecoveryInspection && <p className="auth-hint" role="status">Read-only recovery inspection is active. Automatic and manual cloud sync are paused on this page.</p>}
+            {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && <SyncDiagnosticsExport userId={user.id} />}
+            {workspaceStatus === 'ready' && workspaceUserId === user?.id && user?.id && <TrackerRecoveryPreview userId={user.id} />}
+            {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && blockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h3 id="blocked-sync-title">Rejected sync changes</h3><p>Saved payloads and diagnostics stay on this device. A corrected tracker version can sync while older rejected payloads remain available for review.</p>{blockedOperations.map((operation) => {
               const payload = operation.payload as { name?: unknown } | undefined
               const trackerName = operation.entity === 'tracker' && typeof payload?.name === 'string' ? payload.name : null
               const superseded = operation.status === 'superseded'
+              const discarded = operation.status === 'discarded'
               return <article className="sync-conflict blocked-sync-operation" key={operation.id}>
                 <h4>{trackerName ? `${trackerName} · ` : ''}{operation.entity.replaceAll('_', ' ')} · <span className="sync-operation-id">{operation.entityId}</span></h4>
-                <p className={superseded ? 'sync-recovery-status' : 'auth-error'} role="status">{superseded ? `Historical rejection · superseded by successful revision ${operation.supersededByRevision ?? 'unknown'}.` : operation.lastError ?? 'The server rejected this saved change.'}{operation.failureCode ? ` · ${operation.failureCode}` : ''}</p>
+                <p className={superseded || discarded ? 'sync-recovery-status' : 'auth-error'} role="status">{superseded ? `Historical rejection · superseded by successful revision ${operation.supersededByRevision ?? 'unknown'}.` : discarded ? `Rejected change discarded on this device at ${operation.discardedAt ?? 'unknown time'}; its payload remains in the audit record.` : operation.lastError ?? 'The server rejected this saved change.'}{operation.failureCode ? ` · ${operation.failureCode}` : ''}</p>
                 {operation.failureDiagnostic && <p className="sync-server-diagnostic">Server: {operation.failureDiagnostic.message}{operation.failureDiagnostic.table && ` · ${operation.failureDiagnostic.table}`}{operation.failureDiagnostic.constraint && ` · ${operation.failureDiagnostic.constraint}`}</p>}
-                {!superseded && <p className="auth-hint">This exact saved change is not retried automatically. Correct the tracker and save a new version; do not retry it unchanged.</p>}
+                {!superseded && !discarded && <p className="auth-hint">This exact saved change is not retried automatically. Correct the tracker and save a new version; do not retry it unchanged.</p>}
                 <details><summary>Rejected payload retained on this device</summary><pre aria-label={`Rejected payload for ${trackerName ?? operation.entity}`}>{JSON.stringify(operation.payload, null, 2)}</pre><Button variant="secondary" onClick={() => void handleCopyBlockedPayload(operation)}>{copiedPayloadId === operation.id ? 'Payload copied' : 'Copy payload'}</Button></details>
               </article>
             })}</section>}
-            {conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
+            {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && syncConflicts.length > 0 && <section className="sync-conflicts" aria-labelledby="sync-conflicts-title"><h3 id="sync-conflicts-title">Sync conflicts</h3><p>Choose which version to keep. Your other account’s data is never shown here.</p>{syncConflicts.map((conflict) => {
               const cloud = conflict.remoteRecord
               const cloudAvailable = Boolean(cloud && cloud.user_id === user?.id && typeof cloud.server_revision === 'number')
               const localPayload = conflict.localPayload as Record<string, unknown>
@@ -217,7 +224,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
             })}</section>}
             {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
             {notice && <p className="auth-success" role="status">{notice}</p>}
-            <div className="auth-actions"><Button onClick={() => void runManualSync()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button><Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
+            <div className="auth-actions">{!readOnlyRecoveryInspection && <Button onClick={() => void runManualSync()} disabled={syncStatus === 'syncing'}>{syncStatus === 'syncing' ? 'Syncing…' : 'Sync this account'}</Button>}<Button variant="secondary" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="secondary" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
           </div>
         )}
 

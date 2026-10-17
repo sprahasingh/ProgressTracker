@@ -128,6 +128,58 @@ describe('account-scoped sync engine', () => {
     } finally { unsubscribe() }
   })
 
+  it('keeps dependent check-ins queued while their tracker write remains blocked', async () => {
+    await activateWorkspace('sync-user')
+    const parent = tracker('blocked-entry-parent')
+    await db.trackers.put(parent)
+    await db.syncOperations.put({
+      id: 'blocked-parent-write', ownerUserId: 'sync-user', entity: 'tracker', entityId: parent.id, operation: 'upsert',
+      expectedRevision: 1, payload: parent, createdAt: '2026-01-02T00:00:00.000Z', attempts: 1, status: 'blocked',
+      lastError: 'Rejected (23514)', failureCode: '23514',
+    })
+    const entry = { id: 'held-dependent-entry', trackerId: parent.id, date: '2026-01-03', outcome: 'recorded' as const, values: {}, note: '', createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z', deletedAt: null }
+    await db.trackerEntries.put(entry)
+    await queueSyncMutation(db, 'sync-user', 'tracker_entry', entry)
+    await db.permanentDeletionRequests.put({ id: 'held-delete-request', ownerUserId: 'sync-user', trackerId: parent.id, requestedAt: '2026-01-03T00:00:01.000Z', status: 'pending', lastError: null })
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    const { client, rpc } = fakeClient()
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 0 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.syncOperations.get('blocked-parent-write')).resolves.toMatchObject({ status: 'blocked', payload: parent })
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').toArray()).resolves.toContainEqual(expect.objectContaining({ entity: 'tracker_entry', entityId: entry.id, status: 'pending', payload: entry }))
+    await expect(db.permanentDeletionRequests.get('held-delete-request')).resolves.toMatchObject({ status: 'pending' })
+  })
+
+  it('uploads dependent check-ins only after a newer tracker write acknowledges and supersedes the blocked write', async () => {
+    await activateWorkspace('sync-user')
+    const definition: StoredTrackerDefinition = {
+      ...tracker('blocked-parent-then-corrected'), schemaVersion: 8, scheduling: { mode: 'ongoing' },
+      streakRuleMode: 'same-as-success',
+    }
+    await db.trackers.put(definition)
+    await db.syncRecords.put({ key: `tracker:${definition.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: definition.id, serverRevision: 1 })
+    const obsolete = { id: 'blocked-before-correction', ownerUserId: 'sync-user', entity: 'tracker' as const, entityId: definition.id, operation: 'upsert' as const, expectedRevision: 1, payload: definition, createdAt: '2026-01-02T00:00:00.000Z', attempts: 1, status: 'blocked' as const, lastError: 'Rejected (23514)', failureCode: '23514' }
+    await db.syncOperations.put(obsolete)
+    await queueSyncMutation(db, 'sync-user', 'tracker', definition)
+    const entry = { id: 'released-dependent-entry', trackerId: definition.id, date: '2026-01-03', outcome: 'recorded' as const, values: {}, note: '', createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z', deletedAt: null }
+    await db.trackerEntries.put(entry)
+    await queueSyncMutation(db, 'sync-user', 'tracker_entry', entry)
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => {
+      const payload = args.p_record as Record<string, unknown>
+      if (args.p_entity === 'tracker') return { data: { status: 'applied', record: serverTracker(definition, 'sync-user', 2) }, error: null }
+      return { data: { status: 'applied', record: {
+        id: payload.id, user_id: 'sync-user', tracker_id: payload.tracker_id, entry_date: payload.entry_date, outcome: payload.outcome,
+        entry_values: payload.entry_values, note: payload.note, created_at: payload.created_at, updated_at: payload.updated_at, deleted_at: payload.deleted_at, server_revision: 1,
+      } }, error: null }
+    })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    expect(rpc.mock.calls.map((call) => call[1]?.p_entity)).toEqual(['tracker', 'tracker_entry'])
+    await expect(db.syncOperations.get(obsolete.id)).resolves.toMatchObject({ status: 'superseded', supersededByRevision: 2 })
+  })
+
   it('uploads and downloads account-wide holiday rows through the revisioned owner-scoped RPC', async () => {
     await activateWorkspace('sync-user')
     const [row] = await localRepository.saveAccountHolidays(['2026-10-12'], 'travel')
@@ -504,6 +556,18 @@ describe('account-scoped sync engine', () => {
     }))
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').count()).resolves.toBe(0)
     await expect(db.syncRecords.get('tracker:sync-tracker')).resolves.toMatchObject({ serverRevision: 1, ownerUserId: 'sync-user' })
+  })
+
+  it('never uploads or deletes an explicitly discarded tracker payload', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('discarded-tracker')
+    await db.trackers.put(definition)
+    await db.syncOperations.put({ id: 'discarded-tracker-write', ownerUserId: 'sync-user', entity: 'tracker', entityId: definition.id, operation: 'upsert', expectedRevision: 1, payload: definition, createdAt: '2026-01-03T00:00:00.000Z', attempts: 1, status: 'discarded', discardedAt: '2026-01-04T00:00:00.000Z', lastError: 'Rejected and explicitly discarded.' })
+    const { client, rpc } = fakeClient()
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 0 })
+    expect(rpc).not.toHaveBeenCalled()
+    await expect(db.syncOperations.get('discarded-tracker-write')).resolves.toMatchObject({ status: 'discarded', discardedAt: '2026-01-04T00:00:00.000Z', payload: definition })
   })
 
   it('single-flights concurrent automatic and manual requests for the same account', async () => {

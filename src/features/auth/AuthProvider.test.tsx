@@ -86,6 +86,20 @@ describe('AuthProvider automatic sync lifecycle', () => {
     })
   })
 
+  it('pauses automatic, mutation-triggered, and manual cloud sync for recovery inspection', async () => {
+    window.history.replaceState({}, '', '/ProgressTracker/#/settings?recoveryPreview=1#sync-data')
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'read-only-account')
+    await waitFor(() => expect(screen.getByTestId('workspace-state')).toHaveTextContent('ready:read-only-account'))
+
+    await act(async () => { await (window as Window & { latestSync?: () => Promise<void> }).latestSync?.() })
+    act(() => publishWorkspaceMutation('read-only-account'))
+    await new Promise((resolve) => setTimeout(resolve, 550))
+
+    expect(providerMocks.synchronizeWorkspace).not.toHaveBeenCalled()
+    expect(screen.getByTestId('sync-state')).toHaveTextContent('idle')
+  })
+
   it('revokes Account A with Account A’s captured token before allowing a direct Account A to B switch', async () => {
     const subscription = { endpoint: 'https://push.example.test/a', unsubscribe: vi.fn().mockResolvedValue(true) }
     const worker = { active: { postMessage: vi.fn() }, pushManager: { getSubscription: vi.fn().mockResolvedValueOnce(subscription).mockResolvedValue(null) } }

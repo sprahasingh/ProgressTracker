@@ -15,7 +15,7 @@ export async function listSyncRecoveryOperations(userId: string): Promise<SyncOp
   const database = await openDatabase()
   await database.transaction('rw', [database.workspaceMetadata, database.syncOperations, database.syncConflicts], () => migrateLegacyRejectedConflicts(database, userId))
   return (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
-    .filter((operation) => operation.status === 'blocked' || operation.status === 'superseded')
+    .filter((operation) => operation.status === 'blocked' || operation.status === 'superseded' || operation.status === 'discarded')
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 

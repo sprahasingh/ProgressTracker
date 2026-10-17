@@ -17,7 +17,7 @@ Duration stores a nonnegative time amount, commonly interpreted with a unit such
 
 ## Editing, type immutability, and retirement
 
-Measure 1 and subsequent measures use the same type options. A measure with recorded values keeps its type, name, unit, and meaning so saved check-ins remain readable. If a measure has no recorded values, its type can still be changed. To track something different after recording history, add a new measure and retire the old one.
+Measure 1 and subsequent measures use the same type options. Once a measure is saved, its type is immutable, even if no check-in is currently visible on this device. This keeps its stable ID consistent with the cloud and with any historical values. To track something different, add a new measure and retire or remove the old one when its references and history allow it.
 
 An unsaved measure can be removed. A saved measure with no references or history may be removed safely. A measure with history should be **retired**, not deleted: it disappears from future check-in forms while its definition and values remain available in History and Analytics. Retired measures cannot be reactivated. Keep at least one active measure for future check-ins. If rules, milestones, or goal plans refer to the measure, resolve those references before retiring or removing it.
 

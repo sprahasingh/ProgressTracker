@@ -120,7 +120,7 @@ async function markPermanentlyBlocked(database: ProgressTrackerDatabase, operati
 async function markInFlight(database: ProgressTrackerDatabase, operationId: string): Promise<SyncOperation | undefined> {
   return database.transaction('rw', [database.syncOperations], async () => {
     const latest = await database.syncOperations.get(operationId)
-    if (!latest || latest.status === 'conflict') return undefined
+    if (!latest || (latest.status !== 'pending' && latest.status !== 'in-flight')) return undefined
     const inFlight = { ...latest, status: 'in-flight' as const }
     await database.syncOperations.put(inFlight)
     return inFlight
@@ -137,7 +137,7 @@ async function recordQueuedConflict(database: ProgressTrackerDatabase, operation
   else if (operation.entity === 'account_holiday') localPayload = await database.accountHolidays.get(operation.entityId) ?? localPayload
   const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray()
   for (const sibling of queued) {
-    if (sibling.id !== operation.id && sibling.status !== 'blocked' && sibling.status !== 'superseded') await database.syncOperations.delete(sibling.id)
+    if (sibling.id !== operation.id && sibling.status !== 'blocked' && sibling.status !== 'superseded' && sibling.status !== 'discarded') await database.syncOperations.delete(sibling.id)
   }
   const latest = await database.syncOperations.get(operation.id)
   if (latest) await database.syncOperations.put({ ...latest, payload: localPayload, status: 'conflict', attempts: latest.attempts + 1, lastError: reason })
@@ -169,7 +169,7 @@ async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOpe
     const queued = (await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray())
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     const index = queued.findIndex((candidate) => candidate.id === operation.id)
-    const next = index >= 0 ? queued.slice(index + 1).find((candidate) => candidate.status !== 'conflict' && candidate.status !== 'blocked' && candidate.status !== 'superseded') : undefined
+    const next = index >= 0 ? queued.slice(index + 1).find((candidate) => candidate.status !== 'conflict' && candidate.status !== 'blocked' && candidate.status !== 'superseded' && candidate.status !== 'discarded') : undefined
     const isLatest = index >= 0 && index === queued.length - 1
     if (operation.entity === 'tracker' && isLatest) {
       const current = await database.trackers.get(operation.entityId)
@@ -296,13 +296,13 @@ async function processPermanentHolidayDeletionRequests(database: ProgressTracker
   return { deleted, failed, conflicts }
 }
 
-async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
+async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string, heldTrackerIds: ReadonlySet<string> = new Set()) {
   if (!isPermanentDeletionEnabled()) return { deleted: 0, failed: 0, conflicts: 0 }
   const requests = await database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
   let deleted = 0
   let failed = 0
   let conflicts = 0
-  for (const request of requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
+  for (const request of requests.filter((item) => item.status === 'pending' && !heldTrackerIds.has(item.trackerId)).sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
     let trackerName = request.trackerId
     try {
       await accountState(database, userId)
@@ -359,10 +359,22 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
   return { deleted, failed, conflicts }
 }
 
-async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday'): Promise<{ uploaded: number; conflicts: number; failed: number }> {
-  const operations = (await database.syncOperations.where('ownerUserId').equals(userId).toArray())
-    .filter((operation) => operation.entity === entity && operation.status !== 'conflict' && operation.status !== 'blocked' && operation.status !== 'superseded')
+async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday', heldTrackerIds: ReadonlySet<string> = new Set()): Promise<{ uploaded: number; conflicts: number; failed: number }> {
+  const allOperations = await database.syncOperations.where('ownerUserId').equals(userId).toArray()
+  const candidates = allOperations
+    .filter((operation) => operation.entity === entity && operation.status !== 'conflict' && operation.status !== 'blocked' && operation.status !== 'superseded' && operation.status !== 'discarded')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+  const entriesById = entity === 'tracker_entry'
+    ? await database.trackerEntries.bulkGet(candidates.map((operation) => operation.entityId))
+    : []
+  const operations = candidates.filter((operation, index) => {
+    if (entity !== 'tracker_entry') return true
+    const payloadTrackerId = (operation.payload as StoredTrackerEntry | undefined)?.trackerId
+    const localTrackerId = entriesById[index]?.trackerId
+    // A blocked or conflicted definition is not an acknowledgement. Keep its dependent
+    // check-ins queued until a newer tracker write succeeds and supersedes it.
+    return !heldTrackerIds.has(payloadTrackerId ?? localTrackerId ?? '')
+  })
   let uploaded = 0
   let conflicts = 0
   let failed = 0
@@ -371,7 +383,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
     let phase: 'workspace-preflight' | 'payload-validation' | 'server-request' | 'server-acknowledgement' = 'workspace-preflight'
     try {
       operation = await database.syncOperations.get(queued.id)
-      if (!operation || operation.status === 'conflict' || operation.status === 'blocked' || operation.status === 'superseded') continue
+      if (!operation || operation.status === 'conflict' || operation.status === 'blocked' || operation.status === 'superseded' || operation.status === 'discarded') continue
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
         await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
@@ -740,8 +752,10 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   if (isHolidayPermanentDeletionEnabled()) await reconcileServerHolidayDeletionLedger(database, client, userId)
 
   const trackers = await uploadQueue(database, client, userId, 'tracker')
-  const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId)
-  const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry')
+  const remainingTrackerOperations = await database.syncOperations.where('ownerUserId').equals(userId).toArray()
+  const unacknowledgedTrackerIds = new Set(remainingTrackerOperations.filter((operation) => operation.entity === 'tracker' && (operation.status === 'blocked' || operation.status === 'conflict')).map((operation) => operation.entityId))
+  const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId, unacknowledgedTrackerIds)
+  const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry', unacknowledgedTrackerIds)
   // The entry write RPC commits progression triggers in the same transaction.
   // Refresh Wins as soon as that acknowledgment arrives instead of waiting for
   // unrelated holiday work and full-table pulls later in this sync pass.

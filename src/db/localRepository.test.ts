@@ -58,6 +58,21 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.saveTracker(extended)).resolves.toMatchObject({ metrics: [{ retiredAt: expect.any(String) }, {}, { id: 'new' }] })
   })
 
+  it('rejects changing an existing measure type when no check-in is visible locally', async () => {
+    await activateWorkspace('measure-type-without-local-history-owner')
+    const original: StoredTrackerDefinition = { ...tracker, metrics: [
+      { id: 'hours', name: 'Hours', valueType: 'quantity', unit: 'Hours' },
+    ] }
+    await localRepository.saveTracker(original)
+    const queuedBefore = await db.syncOperations.toArray()
+
+    await expect(localRepository.saveTracker({ ...original, metrics: [{ ...original.metrics[0]!, valueType: 'duration' }] }))
+      .rejects.toThrow(/measure type.*can’t be changed for an existing measure/i)
+
+    await expect(localRepository.getTracker(original.id)).resolves.toMatchObject({ metrics: [{ id: 'hours', valueType: 'quantity', unit: 'Hours' }] })
+    await expect(db.syncOperations.toArray()).resolves.toEqual(queuedBefore)
+  })
+
   it('locks custom-field meaning after use, retires fields without losing values, and allows old entries to be resaved', async () => {
     await activateWorkspace('historical-custom-field-owner')
     const original: StoredTrackerDefinition = { ...tracker,
