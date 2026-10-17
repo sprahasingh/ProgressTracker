@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import type { AchievementHistoryEvent, ProgressionOverview } from '../../services/supabase/progressionRepository'
 import appStyles from '../../styles.css?raw'
 import { AchievementsPage } from './AchievementsPage'
+import { LegacyAchievementsPage } from './LegacyAchievementsPage'
 import { clearProgressionPageCache } from './ProgressionAchievementsPage'
 import { achievementDefinition } from './achievementCatalog'
 import { publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
@@ -78,6 +79,10 @@ function overviewWithConsistency(details: NonNullable<ProgressionOverview['achie
 
 let injectedStylesheet: HTMLStyleElement | null = null
 function renderPage() { return render(<MemoryRouter><AchievementsPage /></MemoryRouter>) }
+async function openBadgeCollection(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'See All Badges' }))
+  return screen.findByRole('dialog', { name: 'All badges' })
+}
 
 beforeEach(() => {
   clearProgressionPageCache()
@@ -109,7 +114,8 @@ describe('Progression achievements interface', () => {
       adherence_percent: 80, adherence_target_percent: 80,
     }))
     renderPage()
-    const card = await screen.findByRole('button', { name: /Consistency Star, locked/i })
+    const collection = await openBadgeCollection(user)
+    const card = await within(collection).findByRole('button', { name: /Consistency Star, locked/i })
     expect(card).not.toHaveTextContent('Eligible days: 18 / 30')
     expect(card).not.toHaveTextContent('Adherence: 80% (target: 80%)')
     expect(card).not.toHaveTextContent('80% / 80%')
@@ -130,7 +136,8 @@ describe('Progression achievements interface', () => {
       adherence_percent: 79.5, adherence_target_percent: 80,
     }))
     renderPage()
-    const card = await screen.findByRole('button', { name: /Consistency Star, locked/i })
+    const collection = await openBadgeCollection(userEvent.setup())
+    const card = await within(collection).findByRole('button', { name: /Consistency Star, locked/i })
     expect(card).not.toHaveTextContent('Eligible days: 30 / 30')
     expect(card).not.toHaveTextContent('Adherence: 79.5% (target: 80%)')
     expect(card.querySelector('.progression-level-track')).toBeNull()
@@ -143,7 +150,8 @@ describe('Progression achievements interface', () => {
       adherence_percent: 82.3, adherence_target_percent: 80,
     }, true))
     renderPage()
-    const card = await screen.findByRole('button', { name: /Consistency Star, earned/i })
+    const collection = await openBadgeCollection(user)
+    const card = await within(collection).findByRole('button', { name: /Consistency Star, earned/i })
     expect(card).toHaveTextContent('Unlocked')
     expect(card).not.toHaveTextContent('80% / 80%')
     await user.click(card)
@@ -163,7 +171,7 @@ describe('Progression achievements interface', () => {
     expect(screen.getByRole('button', { name: /30-day account consistency 75/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Insights' })).toHaveAttribute('href', '/analytics')
     expect(screen.queryByText('XP THIS WEEK')).not.toBeInTheDocument()
-    expect(screen.getByText('+35 confirmed XP · past 7 days')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '30-Day Activity' })).toBeInTheDocument()
     expect(screen.queryByText('ACTIVE STREAKS')).not.toBeInTheDocument()
     expect(screen.queryByText('BADGES', { selector: '.progression-card-label' })).not.toBeInTheDocument()
     expect(screen.queryByText('CONFIRMED XP')).not.toBeInTheDocument()
@@ -173,18 +181,17 @@ describe('Progression achievements interface', () => {
   it('keeps badge collection navigation in the collection section after removing the summary card', async () => {
     const user = userEvent.setup()
     renderPage()
-    const allBadges = await screen.findByRole('button', { name: '1 of 2 earned, show all badges' })
-    await user.click(allBadges)
-    expect(await screen.findByRole('dialog', { name: 'All badges' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /First Step, earned/ })).toBeInTheDocument()
+    const collection = await openBadgeCollection(user)
+    expect(within(collection).getByRole('button', { name: /First Step, earned/ })).toBeInTheDocument()
   })
 
   it('uses responsive breakpoints and existing theme surfaces for the Wins overview', () => {
     expect(appStyles).toMatch(/\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*900px\)[\s\S]*?\.progression-overview-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*560px\)[\s\S]*?\.progression-level-card-shell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
-    expect(appStyles).toMatch(/\.progression-recent-unlocks-grid button\s*\{[^}]*min-height:\s*56px/)
-    expect(appStyles).toMatch(/@media\s*\(max-width:\s*520px\)[\s\S]*?\.progression-recent-unlocks-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    expect(appStyles).toMatch(/\.progression-recent-unlocks-grid\s*\{[^}]*grid-auto-flow:\s*column/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.progression-recent-unlocks-grid\s*\{[^}]*grid-auto-columns:/)
+    expect(appStyles).toMatch(/\.progression-recent-unlocks-scroll-actions button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/)
     expect(appStyles).toContain('.progression-consistency-summary { grid-column: 1 / -1;')
     expect(appStyles).toContain('background: var(--surface)')
     expect(appStyles).toContain('[data-theme=\'dark\'] .progression-level-card')
@@ -210,7 +217,8 @@ describe('Progression achievements interface', () => {
   it('opens per-badge information with exact requirement and a reliable percentage meter', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: 'More about Dedicated' }))
+    const collection = await openBadgeCollection(user)
+    await user.click(within(collection).getByRole('button', { name: 'More about Dedicated' }))
     const dialog = await screen.findByRole('dialog', { name: 'Dedicated badge information' })
     expect(dialog).toHaveTextContent('Reach 100 qualifying saved check-ins.')
     expect(dialog).toHaveTextContent('Current progress: 23 / 100 check-ins.')
@@ -252,13 +260,17 @@ describe('Progression achievements interface', () => {
 
     expect(await screen.findByText('125')).toBeInTheDocument()
     expect(screen.getByText('LEVEL 2')).toBeInTheDocument()
-    expect(screen.getByText('Streak milestone')).toBeInTheDocument()
-    expect(screen.getByText('Read each day')).toBeInTheDocument()
-    expect(screen.getByText('Deleted tracker')).toBeInTheDocument()
-    const rewardLine = screen.getByText('Streak milestone').closest('li')!
+    await user.click(screen.getByRole('button', { name: /125 confirmed XP/ }))
+    const history = await screen.findByRole('dialog', { name: 'Score history' })
+    expect(within(history).getByText('Streak milestone')).toBeInTheDocument()
+    expect(within(history).getByText('Read each day')).toBeInTheDocument()
+    expect(within(history).getByText('Deleted tracker')).toBeInTheDocument()
+    const rewardLine = within(history).getByText('Streak milestone').closest('li')!
     expect(rewardLine.querySelector('a')).toBeNull()
     expect(rewardLine.querySelector('.progression-deleted-tracker-tag')).toHaveTextContent('Deleted tracker')
-    const badge = screen.getByRole('button', { name: /First Step, earned/ })
+    await user.click(within(history).getByRole('button', { name: 'Close details' }))
+    const collection = await openBadgeCollection(user)
+    const badge = within(collection).getByRole('button', { name: /First Step, earned/ })
     await user.click(badge)
     const dialog = await screen.findByRole('dialog', { name: 'First Step' })
     expect(within(dialog).getByText(/Retained historical achievement/)).toBeInTheDocument()
@@ -386,7 +398,7 @@ describe('Progression achievements interface', () => {
   it('shows streak progress, upcoming and earned milestone rewards, and goal details link', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /Tracker streak history/ }))
+    await user.click(await screen.findByRole('button', { name: /Current streak 1 day across active trackers/ }))
     const streakDialog = await screen.findByRole('dialog', { name: 'Streaks & recent activity' })
     expect(within(streakDialog).getByText(/Next streak milestone:/)).toBeInTheDocument()
     expect(within(streakDialog).getByText(/\+35 XP/)).toBeInTheDocument()
@@ -406,7 +418,7 @@ describe('Progression achievements interface', () => {
     mocks.listTrackerEntriesBetween.mockResolvedValueOnce([entry, archivedEntry])
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /Tracker streak history/ }))
+    await user.click(await screen.findByRole('button', { name: /Current streak 1 day across active trackers/ }))
     const dialog = await screen.findByRole('dialog', { name: 'Streaks & recent activity' })
     expect(within(dialog).getByRole('group', { name: 'Filter streak history' })).toBeInTheDocument()
     expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
@@ -421,7 +433,8 @@ describe('Progression achievements interface', () => {
   it('opens earned and locked badge details with requirements and unlock history', async () => {
     const user = userEvent.setup()
     renderPage()
-    const earnedBadge = await screen.findByRole('button', { name: /First Step, earned/ })
+    const collection = await openBadgeCollection(user)
+    const earnedBadge = within(collection).getByRole('button', { name: /First Step, earned/ })
     await user.click(earnedBadge)
     const dialog = await screen.findByRole('dialog', { name: 'First Step' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
@@ -429,10 +442,15 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Unlocked')).toBeInTheDocument()
     expect(within(dialog).getByText('Save one qualifying check-in.')).toBeInTheDocument()
     expect(within(dialog).getByText(/Unlocked · First award/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Unlocking a badge adds no separate XP/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/qualifying check-in earns 10 XP/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Perfect Day adds 20 XP/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/streak milestones earn 7 days \(\+35 XP\)/)).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'First Step' })).not.toBeInTheDocument()
-    expect(earnedBadge).toHaveFocus()
-    const lockedBadge = screen.getByRole('button', { name: /Dedicated, locked/ })
+    expect(await screen.findByRole('dialog', { name: 'All badges' })).toBeInTheDocument()
+    expect(within(collection).getByRole('button', { name: 'Close details' })).toHaveFocus()
+    const lockedBadge = within(collection).getByRole('button', { name: /Dedicated, locked/ })
     expect(lockedBadge).not.toHaveTextContent('Save 100 qualifying check-ins')
     expect(lockedBadge).not.toHaveTextContent('23 / 100 check-ins')
     expect(lockedBadge).toHaveTextContent('23%')
@@ -441,47 +459,106 @@ describe('Progression achievements interface', () => {
   })
 
   it('uses the server cadence and valid count supplied in the shared achievement state', async () => {
-    const dedicated = { ...overview.achievements[1]!, progress: 200, currentTier: 2, repeatable: true, earned: true, validAwardCount: 2, unlockedAt: `${today}T11:00:00.000Z` }
+    const repeatableBadge = { ...overview.achievements[0]!, achievementId: 'perfect-day', progress: 3, target: 1, currentTier: 3, repeatable: true, earned: true, validAwardCount: 3, unlockedAt: `${today}T11:00:00.000Z` }
     const momentum = { ...overview.achievements[1]!, achievementId: 'momentum', progress: 0, target: 3, repeatable: false }
     const firstFlameState = { ...momentum, achievementId: 'first-flame', target: 7 }
-    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, momentum, firstFlameState, dedicated] })
+    const longName = { ...momentum, achievementId: 'milestone-maker', qualificationDetails: { status: 'unavailable' } }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, momentum, firstFlameState, longName, repeatableBadge] })
+    const user = userEvent.setup()
     renderPage()
+    const collection = await openBadgeCollection(user)
 
-    const momentumBadge = await screen.findByRole('button', { name: /Momentum, locked/ })
+    const momentumBadge = within(collection).getByRole('button', { name: /Momentum, locked/ })
     expect(momentumBadge.querySelector('.badge-threshold-value')).toHaveTextContent('3')
     expect(momentumBadge.querySelector('.badge-threshold-unit')).toHaveTextContent('DAYS')
-    const firstFlame = screen.getByRole('button', { name: /First Flame, locked/ })
+    const firstFlame = within(collection).getByRole('button', { name: /First Flame, locked/ })
     expect(firstFlame.querySelector('.badge-threshold-value')).toHaveTextContent('7')
-    const repeatableBadge = screen.getByRole('button', { name: /Dedicated, earned/ })
-    expect(repeatableBadge.querySelector('.badge-threshold-value')).toHaveTextContent('100')
-    expect(repeatableBadge).toHaveTextContent('Unlocked (2)')
-    expect(repeatableBadge).not.toHaveTextContent('×2 earned')
-    expect(screen.getByRole('button', { name: '2 of 4 earned, show all badges' })).toHaveTextContent('2 of 4 earned')
+    const repeatedPerfectDay = within(collection).getByRole('button', { name: /Perfect Day, earned/ })
+    expect(repeatedPerfectDay).toHaveTextContent('Unlocked (3)')
+    expect(repeatedPerfectDay).not.toHaveTextContent('×3 earned')
+    expect(within(collection).getByRole('button', { name: /Milestone Maker, locked, progress unavailable/ })).toHaveTextContent('—')
+    expect(within(collection).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))).toHaveLength(5)
     expect(appStyles).toContain('.progression-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
   })
 
-  it('keeps badge cards on fixed rows and distinguishes unavailable percentages from valid zero progress', async () => {
+  it('keeps flexible badge cards readable and distinguishes unavailable progress from valid zero progress', async () => {
     const perfectWeek = { ...overview.achievements[1]!, achievementId: 'perfect-week', progress: 0, target: 7, qualificationDetails: { status: 'unavailable' } }
-    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [...overview.achievements, perfectWeek] })
+    const perfectYear = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, currentTier: 0, repeatable: true, earned: false, validAwardCount: 0, unlockedAt: null, qualificationDetails: { status: 'unavailable' } }
+    const perfectDayAward = { ...checkIn, id: 'confirmed-perfect-day', xpDelta: 20, reasonCode: 'PERFECT_DAY_BONUS' }
+    const reversedPerfectDayAward = { ...reversal, id: 'reversed-perfect-day', xpDelta: -20, reversesEventId: perfectDayAward.id }
+    const monday = new Date(`${today}T00:00:00.000Z`)
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7))
+    const activePerfectDayAward = { ...perfectDayAward, id: 'active-perfect-day', effectiveDate: monday.toISOString().slice(0, 10) }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, scoreHistory: [...overview.scoreHistory, perfectDayAward, reversedPerfectDayAward, activePerfectDayAward], achievements: [...overview.achievements, perfectWeek, perfectYear] })
+    const user = userEvent.setup()
     renderPage()
-    const earned = await screen.findByRole('button', { name: /First Step, earned, unlocked, 100% progress/ })
-    const dedicated = screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })
-    const week = screen.getByRole('button', { name: /Perfect Week, locked, progress unavailable/ })
+    const collection = await openBadgeCollection(user)
+    const earned = within(collection).getByRole('button', { name: /First Step, earned, unlocked, 100% progress/ })
+    const dedicated = within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })
+    const week = within(collection).getByRole('button', { name: /Perfect Week, locked, 1 \/ 7 confirmed days/ })
+    const year = within(collection).getByRole('button', { name: /Perfect Year, locked, 0 \/ 12 months/ })
     expect(earned).toHaveTextContent('Unlocked')
     expect(earned).not.toHaveTextContent('Unlocked (1)')
     expect(dedicated).toHaveTextContent('23%')
-    expect(week).toHaveTextContent('—')
-    expect(week).not.toHaveTextContent('0%')
-    expect(appStyles).toContain('height: 166px; min-width: 0; grid-template-rows: 64px 2.6em 1.2em 1.2em')
+    expect(week).toHaveTextContent('1 / 7 days')
+    expect(year).toHaveTextContent('0 / 12 months')
+    expect(week).not.toHaveTextContent('—')
+    const collectionContent = collection.querySelector<HTMLElement>('.progression-dialog-content')!
+    collectionContent.scrollTop = 240
+    await user.click(week)
+    const dialog = await screen.findByRole('dialog', { name: 'Perfect Week' })
+    expect(dialog.querySelector('.progression-dialog-content')?.scrollTop).toBe(0)
+    expect(dialog).toHaveTextContent('1 / 7 confirmed days')
+    expect(dialog).toHaveTextContent('Some dates cannot be verified from available schedule history.')
+    expect(dialog).toHaveTextContent('They are not counted as failed.')
+    expect(within(dialog).getByRole('progressbar', { name: 'Perfect Week confirmed calendar progress' })).toHaveAttribute('aria-valuenow', '1')
+    const badgeCardRules = [...appStyles.matchAll(/\.progression-badge-card\s*\{([^}]*)\}/g)].map((match) => match[1] ?? '')
+    expect(badgeCardRules[0]).toMatch(/min-height:\s*184px/)
+    expect(badgeCardRules[0]).toMatch(/display:\s*flex/)
+    expect(badgeCardRules[0]).toMatch(/flex-direction:\s*column/)
+    expect(badgeCardRules[0]).toMatch(/overflow:\s*visible/)
+    expect(badgeCardRules.every((rule) => !/(?:^|;\s*)height:\s*\d+px/.test(rule) && !/(?:^|;\s*)max-height:\s*\d+px/.test(rule))).toBe(true)
+    expect(appStyles).toContain('.progression-badge-card { height: auto; max-height: none; }')
+    expect(appStyles).toContain('.progression-dialog-content { overflow-x: hidden; overflow-y: auto;')
+    expect(appStyles).toContain('.progression-badge-grid { grid-template-columns: repeat(5, minmax(112px, 1fr));')
+  })
+
+  it('shows month and year progress as confirmed calendar units in badge details', async () => {
+    const priorMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1))
+    const priorMonthKey = `${priorMonth.getUTCFullYear()}-${String(priorMonth.getUTCMonth() + 1).padStart(2, '0')}`
+    const priorMonthEnd = new Date(Date.UTC(priorMonth.getUTCFullYear(), priorMonth.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
+    const monthIsInCurrentYear = priorMonthKey.startsWith(`${today.slice(0, 4)}-`)
+    const completedMonth = { id: `perfect-month-${priorMonthKey}`, achievementId: 'perfect-month', tier: 1, generation: 1, eventType: 'unlocked' as const, recordedAt: `${priorMonthEnd}T12:00:00.000Z`, sourceEventId: null, sourceDate: priorMonthEnd, sourceReference: { month: priorMonthKey }, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }
+    const month = { ...overview.achievements[1]!, achievementId: 'perfect-month', progress: 1, target: 1, repeatable: true, earned: true, currentTier: 1, unlockedAt: `${priorMonthEnd}T12:00:00.000Z`, history: [completedMonth], qualificationDetails: { status: 'unavailable' } }
+    const year = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, repeatable: true, qualificationDetails: { status: 'unavailable' } }
+    const perfectDayAward = { ...checkIn, id: 'current-month-perfect-day', effectiveDate: today, xpDelta: 20, reasonCode: 'PERFECT_DAY_BONUS' }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, scoreHistory: [...overview.scoreHistory, perfectDayAward], achievements: [...overview.achievements, month, year] })
+    const user = userEvent.setup()
+    renderPage()
+    const collection = await openBadgeCollection(user)
+
+    await user.click(within(collection).getByRole('button', { name: /Perfect Month, earned/ }))
+    let dialog = await screen.findByRole('dialog', { name: 'Perfect Month' })
+    const monthLength = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate()
+    expect(dialog).toHaveTextContent(`1 / ${monthLength} confirmed days`)
+    await user.click(within(dialog).getByRole('button', { name: 'Back' }))
+
+    await user.click(within(collection).getByRole('button', { name: /Perfect Year, locked/ }))
+    dialog = await screen.findByRole('dialog', { name: 'Perfect Year' })
+    expect(dialog).toHaveTextContent(`${monthIsInCurrentYear ? 1 : 0} / 12 months`)
+    expect(dialog).toHaveTextContent(`Current month: 1 / ${monthLength} confirmed days so far`)
+    expect(within(dialog).getByRole('progressbar', { name: 'Perfect Year confirmed calendar progress' })).toHaveAttribute('aria-valuemax', '12')
   })
 
   it('shows concise unlocked labels from active confirmed award counts', async () => {
     const repeatable = { ...overview.achievements[1]!, achievementId: 'perfect-week', repeatable: true, earned: true, validAwardCount: 3 }
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [...overview.achievements, repeatable] })
+    const user = userEvent.setup()
     renderPage()
-    const firstAward = await screen.findByRole('button', { name: /First Step, earned, unlocked,/ })
-    const locked = screen.getByRole('button', { name: /Dedicated, locked,/ })
-    const thirdAward = screen.getByRole('button', { name: /Perfect Week, earned, unlocked \(3\),/ })
+    const collection = await openBadgeCollection(user)
+    const firstAward = within(collection).getByRole('button', { name: /First Step, earned, unlocked,/ })
+    const locked = within(collection).getByRole('button', { name: /Dedicated, locked,/ })
+    const thirdAward = within(collection).getByRole('button', { name: /Perfect Week, earned, unlocked \(3\),/ })
     expect(firstAward).toHaveTextContent('Unlocked')
     expect(firstAward).not.toHaveTextContent('Unlocked (1)')
     expect(locked).toHaveTextContent('Locked')
@@ -503,62 +580,71 @@ describe('Progression achievements interface', () => {
   it('refreshes confirmed achievement cards after the account sync completes', async () => {
     const updated = { ...overview.achievements[1]!, progress: 46 }
     mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockResolvedValueOnce({ ...overview, achievements: [overview.achievements[0]!, updated] })
+    const user = userEvent.setup()
     renderPage()
-    const card = await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })
+    const collection = await openBadgeCollection(user)
+    const card = within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })
     expect(card).toHaveTextContent('23%')
 
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
-    expect(await screen.findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toHaveTextContent('46%')
+    expect(await within(collection).findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toHaveTextContent('46%')
     expect(mocks.getProgressionOverview).toHaveBeenCalledTimes(2)
   })
 
   it('explains when a failed progression refresh leaves the last confirmed cards visible', async () => {
     mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockRejectedValueOnce(new Error('temporary network error'))
+    const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    const collection = await openBadgeCollection(user)
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
     expect(await screen.findByRole('alert')).toHaveTextContent('Cards below show the last server-confirmed state')
-    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
   }, 15_000)
 
   it('keeps cached Wins visible while a server-confirmed refresh is still pending', async () => {
     let resolveRefresh!: (value: ProgressionOverview) => void
     mocks.getProgressionOverview.mockReset().mockResolvedValueOnce(overview).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve }))
+    const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    const collection = await openBadgeCollection(user)
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
 
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
-    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Refreshing confirmed Wins')
     expect(screen.queryByText('Loading your confirmed progress')).not.toBeInTheDocument()
 
     resolveRefresh({ ...overview, achievements: [overview.achievements[0]!, { ...overview.achievements[1]!, progress: 46 }] })
-    expect(await screen.findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toBeInTheDocument()
+    expect(await within(collection).findByRole('button', { name: /Dedicated, locked, 46% progress/ })).toBeInTheDocument()
   })
 
   it('renders a previously loaded Wins snapshot immediately on revisit', async () => {
+    const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    let collection = await openBadgeCollection(user)
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
     cleanup()
 
     let resolveRefresh!: (value: ProgressionOverview) => void
     mocks.getProgressionOverview.mockReset().mockReturnValue(new Promise((resolve) => { resolveRefresh = resolve }))
     renderPage()
-    expect(screen.getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
+    collection = await openBadgeCollection(user)
+    expect(within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })).toBeInTheDocument()
     expect(screen.queryByText('Loading your confirmed progress')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Refreshing confirmed Wins')
     resolveRefresh(overview)
   })
 
-  it('opens a modal containing only active unlocked badges from the whole card button', async () => {
+  it('opens the full badge collection from its clearly labeled action', async () => {
     const user = userEvent.setup()
     renderPage()
-    const card = await screen.findByRole('button', { name: /earned, show all badges/ })
-    card.focus()
+    const action = await screen.findByRole('button', { name: 'See All Badges' })
+    action.focus()
     await user.keyboard('{Enter}')
     const dialog = await screen.findByRole('dialog', { name: 'All badges' })
     expect(dialog).toHaveTextContent('First Step')
-    expect(dialog).not.toHaveTextContent('Momentum')
+    expect(dialog).toHaveTextContent('Dedicated')
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'All badges' })).not.toBeInTheDocument()
   })
@@ -566,9 +652,9 @@ describe('Progression achievements interface', () => {
   it('navigates into an All Badges detail view and Back preserves the root dialog', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByRole('button', { name: /earned, show all badges/ }))
+    await user.click(await screen.findByRole('button', { name: 'See All Badges' }))
     const rootDialog = await screen.findByRole('dialog', { name: 'All badges' })
-    await user.click(within(rootDialog).getByRole('button', { name: /First Step/ }))
+    await user.click(within(rootDialog).getByRole('button', { name: /First Step, earned/ }))
     const detail = await screen.findByRole('dialog', { name: 'First Step' })
     expect(document.querySelectorAll('.progression-dialog-backdrop')).toHaveLength(1)
     await user.click(within(detail).getByRole('button', { name: 'Back' }))
@@ -580,7 +666,7 @@ describe('Progression achievements interface', () => {
 
   it('keeps XP actions outside the history button in one compact experience card', async () => {
     renderPage()
-    await screen.findByText('Experience')
+    await screen.findByRole('heading', { name: 'Level progress' })
     const shell = document.querySelector<HTMLElement>('.progression-level-card-shell')!
     expect(shell.querySelector('.progression-xp-header')).toBeInTheDocument()
     expect(shell.querySelector('.progression-xp-header .info-button')?.closest('button.progression-level-card')).toBeNull()
@@ -591,7 +677,7 @@ describe('Progression achievements interface', () => {
     expect(appStyles).not.toContain('.progression-level-card { min-height: 150px; }')
   })
 
-  it('counts unique valid repeatable awards and shows their latest award date and occurrence history', async () => {
+  it('counts unique valid repeatable awards and shows occurrence periods without duplicating dates', async () => {
     const unlocked = (id: string, tier: number, sourceDate: string) => ({ id, achievementId: 'perfect-week', tier, generation: 1, eventType: 'unlocked' as const, recordedAt: `${sourceDate}T12:00:00.000Z`, sourceEventId: null, sourceDate, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null })
     const first = unlocked('week-1', 1, '2026-09-06')
     const second = unlocked('week-2', 2, '2026-09-13')
@@ -601,14 +687,16 @@ describe('Progression achievements interface', () => {
     const user = userEvent.setup()
     renderPage()
 
-    const card = await screen.findByRole('button', { name: /Perfect Week, earned/ })
+    const collection = await openBadgeCollection(user)
+    const card = within(collection).getByRole('button', { name: /Perfect Week, earned/ })
     expect(card).toHaveTextContent('Unlocked (2)')
     expect(card).not.toHaveTextContent('Unlocked (3)')
     await user.click(card)
     const dialog = await screen.findByRole('dialog', { name: 'Perfect Week' })
     expect(dialog).toHaveTextContent('Earned 2 times')
-    expect(dialog).toHaveTextContent('Most recent')
+    expect(dialog).toHaveTextContent('2 confirmed unlocks')
     expect(dialog).toHaveTextContent('Sep 13, 2026')
+    expect(dialog).not.toHaveTextContent('Most recent')
     expect(within(dialog).getByText(/Award 2/)).toBeInTheDocument()
     expect(within(dialog).getByText(/Revoked · Award 3/)).toBeInTheDocument()
   })
@@ -680,7 +768,7 @@ describe('Progression achievements interface', () => {
     expect(screen.queryByText(/first badge will be unlocked/i)).not.toBeInTheDocument()
   })
 
-  it('shows only the two latest active awards by recorded time and reuses badge and collection navigation', async () => {
+  it('shows every distinct active award by recorded time and reuses badge and collection navigation', async () => {
     const unlocked = (id: string, achievementId: string, hour: number) => ({
       id, achievementId, tier: 1, generation: 1, eventType: 'unlocked' as const,
       recordedAt: `${today}T${String(hour).padStart(2, '0')}:00:00.000Z`, sourceEventId: null, sourceDate: today,
@@ -691,6 +779,7 @@ describe('Progression achievements interface', () => {
     const momentumEvent = unlocked('recent-momentum', 'momentum', 14)
     const reversedEvent = unlocked('reversed-recent', 'first-flame', 16)
     const duplicateEvent = unlocked('recent-perfect-week', 'perfect-week', 10)
+    const unknownEvent = unlocked('unknown-recent', 'not-in-catalog', 20)
     const state = (achievementId: string, history: AchievementHistoryEvent[], unlockedAt = '2025-01-01T00:00:00.000Z') => ({
       ...overview.achievements[0]!, achievementId, repeatable: achievementId === 'perfect-day' || achievementId === 'perfect-week',
       earned: true, unlockedAt, history,
@@ -698,7 +787,7 @@ describe('Progression achievements interface', () => {
     const achievements = [
       state('first-step', [firstStepEvent]), state('perfect-day', [perfectDayEvent]), state('momentum', [momentumEvent]),
       state('first-flame', [reversedEvent, { ...reversedEvent, id: 'revoke-first-flame', eventType: 'revoked' as const, reversesEventId: reversedEvent.id }]),
-      state('perfect-week', [duplicateEvent, duplicateEvent]),
+      state('perfect-week', [duplicateEvent, duplicateEvent]), state('not-in-catalog', [unknownEvent]),
     ]
     let syncedOverview: ProgressionOverview = { ...overview, achievements }
     mocks.getProgressionOverview.mockImplementation(async () => syncedOverview)
@@ -707,11 +796,13 @@ describe('Progression achievements interface', () => {
 
     const recent = await screen.findByRole('region', { name: 'Recently Achieved' })
     const awardButtons = within(recent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))
-    expect(awardButtons).toHaveLength(2)
+    expect(awardButtons).toHaveLength(4)
     expect(awardButtons[0]).toHaveAccessibleName(/Momentum, achieved/)
     expect(awardButtons[1]).toHaveAccessibleName(/Perfect Day, achieved/)
+    expect(awardButtons[2]).toHaveAccessibleName(/Perfect Week, achieved/)
+    expect(awardButtons[3]).toHaveAccessibleName(/First Step, achieved/)
     expect(within(recent).queryByText('First Flame')).not.toBeInTheDocument()
-    expect(within(recent).queryByText('Perfect Week')).not.toBeInTheDocument()
+    expect(within(recent).queryByText('not-in-catalog')).not.toBeInTheDocument()
 
     const perfectDayLabel = within(recent).getByRole('button', { name: /Perfect Day, achieved/ }).getAttribute('aria-label')!
     await user.click(within(recent).getByRole('button', { name: /Perfect Day, achieved/ }))
@@ -720,17 +811,17 @@ describe('Progression achievements interface', () => {
     expect(screen.queryByRole('dialog', { name: 'Perfect Day' })).not.toBeInTheDocument()
     await user.click(within(recent).getByRole('button', { name: 'See All Badges' }))
     const collection = await screen.findByRole('dialog', { name: 'All badges' })
-    expect(within(collection).getByRole('button', { name: /Perfect Day/ })).toBeInTheDocument()
+    expect(within(collection).getByRole('button', { name: /Perfect Day, earned/ })).toBeInTheDocument()
     expect(perfectDayLabel).toContain('Open badge details')
 
-    // A newer award that arrives with confirmed sync data immediately replaces the oldest preview.
+    // A newer award that arrives with confirmed sync data appears at the beginning of the row.
     const newer = unlocked('recent-steady-flame', 'steady-flame', 18)
     syncedOverview = { ...overview, achievements: [...achievements, state('steady-flame', [newer])] }
     await user.click(within(collection).getByRole('button', { name: 'Close details' }))
     await act(async () => { publishWorkspaceSyncCompleted('account-1') })
     const syncedRecent = await screen.findByRole('region', { name: 'Recently Achieved' })
     const syncedButtons = within(syncedRecent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))
-    expect(syncedButtons).toHaveLength(2)
+    expect(syncedButtons).toHaveLength(5)
     expect(syncedButtons[0]).toHaveAccessibleName(/Steady Flame, achieved/)
     expect(syncedButtons[1]).toHaveAccessibleName(/Momentum, achieved/)
   })
@@ -743,10 +834,28 @@ describe('Progression achievements interface', () => {
     expect(within(recent).getAllByRole('button').filter((button) => button.querySelector('.progression-badge'))).toHaveLength(1)
   })
 
-  it('retains the established Achievements screen while the progression flag is off', async () => {
+  it('shows the Wins overview even when the old progression feature flag is off', async () => {
     vi.stubEnv('VITE_ENABLE_PROGRESSION_UI', 'false')
     renderPage()
-    expect(await screen.findByText('Reward points')).toBeInTheDocument()
-    expect(screen.queryByText('CONFIRMED XP')).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Wins/ })).toBeInTheDocument()
+    expect(screen.getByText('YOUR ACHIEVEMENTS')).toBeInTheDocument()
+    expect(screen.getByText('Your earned badges, milestones, and progress.')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Insights sections' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Recently Achieved' })).toBeInTheDocument()
+    expect(screen.queryByText('Reward points')).not.toBeInTheDocument()
+  })
+
+  it('opens tracker challenge details from Wins and returns through the existing View Wins action', async () => {
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/achievements']}><Routes>
+      <Route path="/achievements" element={<AchievementsPage />} />
+      <Route path="/achievements/challenges" element={<LegacyAchievementsPage />} />
+    </Routes></MemoryRouter>)
+
+    await user.click(await screen.findByRole('link', { name: /Tracker challenges/ }))
+    expect(await screen.findByRole('heading', { name: /^Tracker Challenges/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Read each day/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'View Wins' }))
+    expect(await screen.findByRole('heading', { name: /^Wins/ })).toBeInTheDocument()
   })
 })

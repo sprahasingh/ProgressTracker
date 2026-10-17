@@ -27,6 +27,22 @@ function HistoryWithTodayEditor() {
 }
 
 describe('local check-in history', () => {
+  it('explains why Add / edit is disabled for All Trackers and enables it for a valid active tracker/date', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker(definition)
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    const action = await screen.findByRole('button', { name: 'Add / edit check-in' })
+    expect(action).toBeDisabled()
+    expect(screen.getByText('Choose a tracker to add a check-in.')).toBeInTheDocument()
+
+    await screen.findByRole('option', { name: 'Morning run' })
+    await user.selectOptions(screen.getByLabelText('Tracker'), definition.id)
+    await waitFor(() => expect(action).toBeEnabled())
+    expect(action).not.toHaveAttribute('aria-describedby')
+    await user.click(action)
+    expect(await screen.findByRole('spinbutton', { name: 'Distance' })).toBeInTheDocument()
+  })
+
   it('confirms a historical check-in edit after the local write succeeds', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(definition)
@@ -136,6 +152,29 @@ describe('local check-in history', () => {
     expect(screen.getByText('Archived trackers’ check-ins are read-only.')).toBeInTheDocument()
   })
 
+  it('does not offer an edit action for paused or completed trackers rejected by the shared editor', async () => {
+    const user = userEvent.setup()
+    const paused = { ...definition, id: 'history-paused', name: 'Paused tracker', status: 'paused' as const }
+    const completed = { ...definition, id: 'history-completed', name: 'Completed tracker', status: 'completed' as const }
+    for (const tracker of [paused, completed]) {
+      await localRepository.saveTracker(tracker)
+      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: localCalendarDate(), outcome: 'recorded', values: { distance: 4 }, note: '' })
+    }
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    await screen.findByText('Paused trackers’ check-ins are read-only until the tracker is resumed.')
+    expect(screen.getByText('Completed trackers’ check-ins are read-only.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Edit check-in for/ })).not.toBeInTheDocument()
+
+    await screen.findByRole('option', { name: 'Paused tracker' })
+    const action = screen.getByRole('button', { name: 'Add / edit check-in' })
+    await user.selectOptions(screen.getByLabelText('Tracker'), paused.id)
+    expect(action).toBeDisabled()
+    expect(screen.getByText('Paused trackers cannot receive check-ins. Resume the tracker to continue.')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Tracker'), completed.id)
+    expect(action).toBeDisabled()
+    expect(screen.getByText('Completed trackers cannot receive new check-ins.')).toBeInTheDocument()
+  })
+
   it('renders retired measure history with its original label and unit', async () => {
     const withSecondMetric = { ...definition, metrics: [...definition.metrics, { id: 'done', name: 'Done', valueType: 'boolean' as const }] }
     await localRepository.saveTracker(withSecondMetric)
@@ -166,6 +205,12 @@ describe('local check-in history', () => {
 
   it('shows a useful empty message without synthetic history', async () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+    const heading = await screen.findByRole('heading', { name: 'History.' })
+    expect(screen.getByText('YOUR RECORD')).toBeInTheDocument()
+    expect(screen.getByText('Review and update previous check-ins.')).toBeInTheDocument()
+    expect(heading.closest('.insights-page')?.children[1]).toHaveClass('section-tabs')
+    expect(screen.getByRole('navigation', { name: 'Insights sections' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Missing Check-Ins' })).toBeInTheDocument()
     expect(await screen.findByText('No check-ins in this range')).toBeInTheDocument()
     expect(screen.queryByText(/Success rule met/)).not.toBeInTheDocument()
   })

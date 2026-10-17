@@ -23,6 +23,7 @@ export const router = createHashRouter([
       { path: 'trackers/new', lazy: loadTrackerSetup },
       { path: 'trackers/:trackerId/edit', lazy: loadTrackerSetup },
       { path: 'achievements', lazy: async () => ({ Component: (await import('../features/dashboard/AchievementsPage')).AchievementsPage }) },
+      { path: 'achievements/challenges', lazy: async () => ({ Component: (await import('../features/dashboard/LegacyAchievementsPage')).LegacyAchievementsPage }) },
       { path: 'settings', lazy: async () => ({ Component: (await import('../features/settings/WorkspaceTimeZone')).SettingsPage }) },
       { path: 'ai-knowledge', lazy: async () => ({ Component: (await import('../features/ai-knowledge/AIKnowledgePage')).AIKnowledgePage }) },
       { path: 'auth', lazy: async () => {

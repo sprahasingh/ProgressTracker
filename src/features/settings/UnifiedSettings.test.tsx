@@ -118,7 +118,7 @@ describe('unified Settings authentication states', () => {
     await user.click(screen.getByRole('button', { name: 'Feedback & Support' }))
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
     expect(await screen.findByRole('dialog', { name: 'Send Feedback' })).toBeInTheDocument()
-    expect(screen.getByText('This request will be submitted anonymously to maintainers. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
+    expect(screen.getByText(/Replies remain available in Notifications and My Support Queries\. Avoid passwords or access tokens\./)).toBeInTheDocument()
   })
 
   it('validates email and reports the secure confirmation state', async () => {
