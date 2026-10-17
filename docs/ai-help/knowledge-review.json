@@ -14,11 +14,11 @@
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015",
     "src/db/syncRecoveryRepository.ts": "34e73df9ff7f43ce27962d7c3291da2013c2cfaacb28a435867312f3d7938e27",
     "src/db/syncRecoveryRepository.test.ts": "9693f74b24b18342f6ac10aa45cbf619b246518e78dc85f973dd9d7fe3e72aea",
-    "src/db/trackerRecoveryPreview.ts": "a6eae63846865b52f4975eb1acc5839635746f53b32c8b65cc3101566a39114e",
+    "src/db/trackerRecoveryPreview.ts": "41ddd41ff41ef82191baae5a6cdf51cbc09f96b68bb94e905f7618b93ba7cdbe",
     "src/features/auth/AuthPage.tsx": "eea74d5e29596fa411050bbde5149c4eb27ec481d4e64670e0b108bf53926fcc",
     "src/features/auth/AuthPage.test.tsx": "ede0dc4dde3c822b0fd27d7f08aadd583dd69c92bf9f5751fb97e017f85ad0b9",
     "src/features/auth/BlockedTrackerSyncCard.tsx": "0788d9d9ede76991aa8098302eb37b898bf62e76e795a4c24aaa880fccc4c253",
-    "src/features/auth/TrackerRecoveryPreview.tsx": "71a0484cba3557be7381c4ceacb55c2f21dcbd3ee7dd8fde76fb3809a90d4b4f"
+    "src/features/auth/TrackerRecoveryPreview.tsx": "de14d12924e7be26095e15f43f3b9b30d8906d4b672fd9a0de040c73a6c2d845"
   },
   "account-signin": {
     "src/features/auth/AuthPage.tsx": "eea74d5e29596fa411050bbde5149c4eb27ec481d4e64670e0b108bf53926fcc",

@@ -6,7 +6,7 @@ import { validateTrackerEntryValues } from '../domain/trackers/schema'
 import { evaluateTrackerEntry } from '../domain/trackers/planning'
 import { synchronizeWorkspace } from '../services/supabase/syncEngine'
 import {
-  createTrackerRecoveryCloudReader, createTrackerRecoveryPreview, discardRejectedTrackerChanges, parseTrackerRecoveryBackup, queueConfirmedMeasureRepair, TRACKER_RECOVERY_TARGETS,
+  createTrackerRecoveryCloudReader, createTrackerRecoveryPreview, discardRejectedTrackerChanges, getTrackerRecoveryBlockers, parseTrackerRecoveryBackup, queueConfirmedMeasureRepair, TRACKER_RECOVERY_TARGETS,
   type RecoveryCloudEntry, type RecoveryCloudTracker, type TrackerRecoveryCloudReader,
 } from './trackerRecoveryPreview'
 
@@ -85,6 +85,17 @@ afterEach(async () => {
 })
 
 describe('blocked tracker recovery preview', () => {
+  it('surfaces UUID-scoped and workspace-wide blockers for the selected tracker', () => {
+    const preview = {
+      blockers: [`Tracker ${cpId}: a related check-in operation is missing its local row.`, 'Fresh cloud tracker read failed: unavailable', `100 Days Of MERN: unrelated rule history needs review.`],
+      trackers: [{ trackerId: cpId, name: '100 Days Of CP' }, { trackerId: mernId, name: '100 Days Of MERN' }],
+    } as Parameters<typeof getTrackerRecoveryBlockers>[0]
+    expect(getTrackerRecoveryBlockers(preview, cpId)).toEqual([
+      `Tracker ${cpId}: a related check-in operation is missing its local row.`,
+      'Fresh cloud tracker read failed: unavailable',
+    ])
+  })
+
   it('reads account records and fresh cloud state without mutating IndexedDB; proposes only MERN v10 and CP type corrections', async () => {
     const beforeTrackers = await db.trackers.toArray()
     const beforeOperations = await db.syncOperations.toArray()
@@ -234,6 +245,16 @@ describe('blocked tracker recovery preview', () => {
     expect(afterEdit.find((operation) => operation.status === 'pending')).toMatchObject({ expectedRevision: 3, payload: { description: 'Edited after safe discard', metrics: [{ id: cpMetricId, valueType: 'quantity' }] } })
     const afterDiscard = await createTrackerRecoveryPreview(owner, { cloudReader })
     await expect(discardRejectedTrackerChanges(afterDiscard, cpId, true, { database: db, cloudReader })).rejects.toThrow(/no rejected tracker changes/)
+  })
+
+  it('enforces UUID-scoped and workspace-wide preview blockers during discard', async () => {
+    const preview = await createTrackerRecoveryPreview(owner, { cloudReader })
+    const withUuidBlocker = { ...preview, blockers: [...preview.blockers, `Tracker ${cpId}: a related local operation references a missing check-in.`] }
+    await expect(discardRejectedTrackerChanges(withUuidBlocker, cpId, true, { database: db, cloudReader })).rejects.toThrow(/missing check-in/)
+    const withReadFailure = { ...preview, blockers: [...preview.blockers, 'Fresh cloud tracker read failed: unavailable'] }
+    await expect(discardRejectedTrackerChanges(withReadFailure, cpId, true, { database: db, cloudReader })).rejects.toThrow(/Fresh cloud tracker read failed/)
+    expect(await db.trackers.get(cpId)).toMatchObject({ metrics: [{ id: cpMetricId, valueType: 'duration' }] })
+    expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'blocked' })
   })
 
   it('blocks MERN discard across the v10-to-v6 schema downgrade and preserves independent CP entries', async () => {
