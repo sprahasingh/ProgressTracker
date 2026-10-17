@@ -147,6 +147,20 @@ describe('progression data contract calculations', () => {
     expect(locked).toMatchObject({ earned: false, validAwardCount: 0, progress: 1, target: 1 })
   })
 
+  it('uses historical reward source snapshots and XP when building badge unlock history', () => {
+    const [badge] = makeAchievementStates(
+      [{ achievement_id: 'first-step', progress: 1, target: 1, current_tier: 1, repeatable: false }],
+      [{ id: 'unlock', achievement_id: 'first-step', tier: 1, generation: 1, event_type: 'unlocked',
+        recorded_at: '2026-09-01T12:00:00.000Z', source_event_id: 'xp-source', source_date: '2026-09-01', reverses_event_id: null }],
+      new Set(), new Map(), new Map([['unlock', 'tracker-id']]),
+      new Map([['unlock', { displayName: 'Original tracker name', reasonCode: 'DAILY_CHECK_IN_COMPLETED', xpDelta: 10, goalId: null, reversed: true }]]),
+    )
+    expect(badge?.history[0]).toMatchObject({
+      trackerId: 'tracker-id', trackerDisplayName: 'Original tracker name',
+      rewardReasonCode: 'DAILY_CHECK_IN_COMPLETED', rewardXpDelta: 10, rewardReversed: true,
+    })
+  })
+
   it('averages recorded eligible activity across the latest 30 closed days and excludes skips, today, and future dates', () => {
     const entries = Array.from({ length: 30 }, (_, index) => {
       const time = Date.parse('2026-09-13T00:00:00.000Z') + index * 86_400_000

@@ -43,13 +43,13 @@ export function achievementRewardExplanation(id: string): string | null {
   const detail = details[id as AchievementId]
   const reward = detail?.rewardExplanation
   if (!reward) return null
-  if (reward === 'check-in') return `Qualifying check-ins earn ${PROGRESSION_REWARDS.checkIn} XP.`
-  if (reward === 'perfect-day') return `Completing a Perfect Day earns ${PROGRESSION_REWARDS.perfectDay} XP, in addition to separately qualifying check-in rewards.`
-  if (reward === 'perfect-day-series') return `Each qualifying Perfect Day earns ${PROGRESSION_REWARDS.perfectDay} XP.`
-  if (reward === 'goal-milestone') return `Reaching a configured goal milestone earns ${PROGRESSION_REWARDS.goalMilestone} XP.`
-  if (reward === 'goal-completed') return `Completing a goal earns ${PROGRESSION_REWARDS.goalCompleted} XP.`
+  if (reward === 'check-in') return `Qualifying check-ins earn ${PROGRESSION_REWARDS.checkIn} XP each; this badge adds no separate XP.`
+  if (reward === 'perfect-day') return `A Perfect Day earns ${PROGRESSION_REWARDS.perfectDay} XP; qualifying check-ins earn their own XP.`
+  if (reward === 'perfect-day-series') return `Each Perfect Day in the qualifying period earns ${PROGRESSION_REWARDS.perfectDay} XP; the period badge adds no separate XP.`
+  if (reward === 'goal-milestone') return `A configured goal milestone earns ${PROGRESSION_REWARDS.goalMilestone} XP; this badge adds no separate XP.`
+  if (reward === 'goal-completed') return `A completed goal earns ${PROGRESSION_REWARDS.goalCompleted} XP; this badge adds no separate XP.`
   const milestone = PROGRESSION_REWARDS.streakMilestones.find(({ days }) => days === Number(reward.slice('streak-'.length)))
-  return milestone ? `Qualifying check-ins earn ${PROGRESSION_REWARDS.checkIn} XP each. Reaching the ${milestone.days}-day streak milestone also earns ${milestone.xp} XP.` : null
+  return milestone ? `Qualifying check-ins earn ${PROGRESSION_REWARDS.checkIn} XP each. The ${milestone.days}-day streak milestone earns ${milestone.xp} additional XP.` : null
 }
 
 export function badgeTierLabel(tier: number): string {

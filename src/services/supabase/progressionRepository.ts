@@ -75,6 +75,8 @@ export type AchievementHistoryEvent = {
   trackerDisplayName: string | null
   rewardReasonCode: string | null
   rewardXpDelta: number | null
+  rewardReversed?: boolean
+  sourceGoalId?: string | null
 }
 
 export type AchievementState = {
@@ -328,6 +330,7 @@ export function makeAchievementStates(
   retainedIds: ReadonlySet<string> = new Set(),
   retainedContexts: ReadonlyMap<string, RetainedRewardContext> = new Map(),
   trackerIdsByEvent: ReadonlyMap<string, string> = new Map(),
+  sourceContextByEvent: ReadonlyMap<string, { displayName: string | null; reasonCode: string | null; xpDelta: number | null; goalId: string | null; reversed?: boolean }> = new Map(),
 ): AchievementState[] {
   const historyById = new Map<string, AchievementHistoryEvent[]>()
   for (const row of history) {
@@ -338,10 +341,12 @@ export function makeAchievementStates(
       sourceReference: row.source_reference ?? null,
       retainedAfterTrackerDeletion: retainedIds.has(row.id),
       trackerId: trackerIdsByEvent.get(row.id) ?? null,
+      sourceGoalId: sourceContextByEvent.get(row.id)?.goalId ?? null,
       trackerDeleted: retainedContexts.get(row.id)?.deleted_tracker ?? false,
-      trackerDisplayName: retainedContexts.get(row.id)?.tracker_display_name ?? null,
-      rewardReasonCode: retainedContexts.get(row.id)?.reward_reason_code ?? null,
-      rewardXpDelta: retainedContexts.get(row.id)?.xp_delta ?? null,
+      trackerDisplayName: retainedContexts.get(row.id)?.tracker_display_name ?? sourceContextByEvent.get(row.id)?.displayName ?? null,
+      rewardReasonCode: retainedContexts.get(row.id)?.reward_reason_code ?? sourceContextByEvent.get(row.id)?.reasonCode ?? null,
+      rewardXpDelta: retainedContexts.get(row.id)?.xp_delta ?? sourceContextByEvent.get(row.id)?.xpDelta ?? null,
+      rewardReversed: sourceContextByEvent.get(row.id)?.reversed ?? false,
     }
     historyById.set(event.achievementId, [...(historyById.get(event.achievementId) ?? []), event])
   }
@@ -483,20 +488,47 @@ async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof g
   const contexts = await getRetainedRewardContexts(client, userId, historyRows.map((row: { id: string }) => row.id), 'achievement')
   const sourceEventIds = [...new Set(historyRows.map((row: { id: string; source_event_id: string | null }) => row.source_event_id).filter((id: string | null): id is string => Boolean(id)))]
   const trackerIdsByEvent = new Map<string, string>()
+  const sourceContextByAchievement = new Map<string, { displayName: string | null; reasonCode: string | null; xpDelta: number | null; goalId: string | null; reversed?: boolean }>()
   for (let offset = 0; offset < sourceEventIds.length; offset += 200) {
     const ids = sourceEventIds.slice(offset, offset + 200)
     if (!ids.length) continue
     countDevPerformance('supabase.achievement-source-tracker-request')
-    const { data, error } = await client.from('progression_event_sources').select('event_id,tracker_id')
-      .eq('user_id', userId).in('event_id', ids).not('tracker_id', 'is', null)
+    const { data, error } = await client.from('progression_event_sources').select('event_id,tracker_id,goal_id,display_name')
+      .eq('user_id', userId).in('event_id', ids)
     if (error) throw progressionReadError('progression_event_sources (achievement attribution)', error)
-    for (const row of (data ?? []) as Array<{ event_id: string; tracker_id: string | null }>) {
+    for (const row of (data ?? []) as Array<{ event_id: string; tracker_id: string | null; goal_id: string | null; display_name: string }>) {
       if (row.tracker_id) trackerIdsByEvent.set(row.event_id, row.tracker_id)
+      sourceContextByAchievement.set(row.event_id, { displayName: row.display_name, reasonCode: null, xpDelta: null, goalId: row.goal_id })
+    }
+  }
+  for (let offset = 0; offset < sourceEventIds.length; offset += 200) {
+    const ids = sourceEventIds.slice(offset, offset + 200)
+    if (!ids.length) continue
+    const [{ data, error }, { data: reversalData, error: reversalError }] = await Promise.all([
+      client.from('progression_events').select('id,reason_code,xp_delta').eq('user_id', userId).in('id', ids),
+      client.from('progression_events').select('id,reverses_event_id,reason_code,xp_delta,event_category').eq('user_id', userId).in('reverses_event_id', ids),
+    ])
+    if (error) throw progressionReadError('progression_events (achievement reward source)', error)
+    if (reversalError) throw progressionReadError('progression_events (achievement reward reversals)', reversalError)
+    const reversalsBySource = new Map<string, Array<{ reason_code: string; xp_delta: number; event_category: string }>>()
+    for (const reversal of (reversalData ?? []) as Array<{ reverses_event_id: string | null; reason_code: string; xp_delta: number; event_category: string }>) {
+      if (!reversal.reverses_event_id) continue
+      reversalsBySource.set(reversal.reverses_event_id, [...(reversalsBySource.get(reversal.reverses_event_id) ?? []), reversal])
+    }
+    for (const row of (data ?? []) as Array<{ id: string; reason_code: string; xp_delta: number }>) {
+      const existing = sourceContextByAchievement.get(row.id)
+      const reversals = reversalsBySource.get(row.id) ?? []
+      const fullyReversed = row.xp_delta > 0 && reversals.length > 0
+        && reversals.every((reversal) => reversal.reason_code === 'AWARD_REVERSAL' && reversal.event_category === 'reversal' && reversal.xp_delta < 0)
+        && row.xp_delta + reversals.reduce((sum, reversal) => sum + reversal.xp_delta, 0) === 0
+      sourceContextByAchievement.set(row.id, { displayName: existing?.displayName ?? null, reasonCode: row.reason_code, xpDelta: row.xp_delta, goalId: existing?.goalId ?? null, reversed: fullyReversed })
     }
   }
   const trackerIdsByAchievement = new Map(historyRows.map((row: { id: string; source_event_id: string | null }) => [row.id, row.source_event_id ? trackerIdsByEvent.get(row.source_event_id) : undefined]))
+  const sourceContextByAchievementEvent = new Map(historyRows.map((row: { id: string; source_event_id: string | null }) => [row.id, row.source_event_id ? sourceContextByAchievement.get(row.source_event_id) : undefined]))
   return makeAchievementStates(progress.data ?? [], historyRows, new Set((retained.data ?? []).map((row: { achievement_event_id: string }) => row.achievement_event_id)), contexts,
-    new Map([...trackerIdsByAchievement].filter((entry): entry is [string, string] => Boolean(entry[1])))
+    new Map([...trackerIdsByAchievement].filter((entry): entry is [string, string] => Boolean(entry[1]))),
+    new Map([...sourceContextByAchievementEvent].filter((entry): entry is [string, { displayName: string | null; reasonCode: string | null; xpDelta: number | null; goalId: string | null; reversed?: boolean }] => Boolean(entry[1])))
   )
 }
 
