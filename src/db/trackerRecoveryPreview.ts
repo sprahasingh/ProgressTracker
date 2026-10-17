@@ -4,7 +4,7 @@ import type { TrackerDefinition } from '../domain/trackers/types'
 import { db, openDatabase, queueSyncMutation, type ProgressTrackerDatabase } from './database'
 import type { PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState } from './models'
 import { getSupabaseClient } from '../services/supabase/client'
-import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
+import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const TRACKER_RECOVERY_TARGETS = [
@@ -65,12 +65,14 @@ export type TrackerRecoveryPreview = {
   cloudReadOnly: true
   readyForReview: boolean
   safeToExecute: false
+  genericScope: boolean
   status: 'ready-for-review' | 'conflict' | 'incomplete'
   blockers: string[]
   trackers: Array<{
     trackerId: string; name: string; localSchemaVersion: number | null; localAcknowledgedRevision: number | null
     cloudSchemaVersion: number | null; cloudRevision: number | null; cloudMetricType: string | null
     localMetricType: string | null; proposedMetricType: 'quantity' | null
+    metricSummary: Array<{ id: string; name: string; localType: string | null; cloudType: string | null }>
     latestRuleVersion: null | { revision: number; application: string; effectiveFrom: string; metricType: string | null; matchesCurrentAfterCorrection: boolean }
     historicalRuleVersions: Array<{ revision: number; application: string; effectiveFrom: string; metricType: string | null }>
     milestoneSnapshots: Array<{ id: string; title: string; measureTypeSnapshot: string | null }>
@@ -144,7 +146,7 @@ type LocalSnapshot = {
   verification: Array<{ trackerId: string; status: 'pending-server-check'; purpose?: 'restore' | 'import' }>
 }
 
-async function readLocalSnapshot(database: ProgressTrackerDatabase, userId: string): Promise<LocalSnapshot> {
+async function readLocalSnapshot(database: ProgressTrackerDatabase, userId: string, requestedTrackerIds: string[] = TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)): Promise<LocalSnapshot> {
   // Requiring an already open account DB prevents this read-only feature from
   // opening IndexedDB and implicitly running a version upgrade.
   if (!database.isOpen()) throw new Error('Open the signed-in account workspace before inspecting local recovery data.')
@@ -152,17 +154,17 @@ async function readLocalSnapshot(database: ProgressTrackerDatabase, userId: stri
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
     const [trackers, entries, operations, syncRecords, conflicts, deletionRequests, deletionLedger, verification] = await Promise.all([
-      database.trackers.where('id').anyOf(TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)).toArray(),
-      database.trackerEntries.where('trackerId').anyOf(TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)).toArray(),
+      database.trackers.where('id').anyOf(requestedTrackerIds).toArray(),
+      database.trackerEntries.where('trackerId').anyOf(requestedTrackerIds).toArray(),
       database.syncOperations.where('ownerUserId').equals(userId).toArray(),
       database.syncRecords.where('ownerUserId').equals(userId).toArray(),
       database.syncConflicts.where('ownerUserId').equals(userId).toArray(),
       database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray(),
       database.permanentDeletionLedger.where('ownerUserId').equals(userId).toArray(),
-      database.trackerVerification.where('trackerId').anyOf(TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)).toArray(),
+      database.trackerVerification.where('trackerId').anyOf(requestedTrackerIds).toArray(),
     ])
     const entryIds = new Set<string>(entries.map((entry) => entry.id))
-    const targetIds = new Set<string>(TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId))
+    const targetIds = new Set<string>(requestedTrackerIds)
     const conflictEntryIds = new Set(conflicts.filter((conflict) => conflict.entity === 'tracker_entry' && (targetIds.has((conflict.localPayload as StoredTrackerEntry | undefined)?.trackerId ?? '') || entryIds.has(conflict.entityId))).map((conflict) => conflict.entityId))
     const relatedOperation = (operation: SyncOperation) => targetIds.has(operation.entityId) && operation.entity === 'tracker'
       || operation.entity === 'tracker_entry' && (entryIds.has(operation.entityId) || conflictEntryIds.has(operation.entityId) || (operation.payload as StoredTrackerEntry | undefined)?.trackerId && targetIds.has((operation.payload as StoredTrackerEntry).trackerId))
@@ -256,13 +258,15 @@ function correctedDefinition(tracker: TrackerDefinition, metricId: string, block
 }
 
 function buildBackup(userId: string, local: LocalSnapshot): TrackerRecoveryBackup {
-  const expectedTrackerIds: string[] = TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)
-  if (local.metadata.length !== 1 || local.trackers.length !== expectedTrackerIds.length || expectedTrackerIds.some((id) => !local.trackers.some((tracker) => tracker.id === id))) {
-    throw new Error('Recovery backup stopped: a required account or tracker record is missing.')
-  }
-  const requiredOperationIds = TRACKER_RECOVERY_TARGETS.flatMap((target) => target.operationIds.map((operation) => operation.id))
+  const expectedTrackerIds = local.trackers.map((tracker) => tracker.id).sort()
+  if (local.metadata.length !== 1 || expectedTrackerIds.length === 0) throw new Error('Recovery backup stopped: a required account or tracker record is missing.')
+  const scopedTargets = TRACKER_RECOVERY_TARGETS.filter((target) => expectedTrackerIds.includes(target.trackerId))
+  const requiredOperationIds = [...new Set([
+    ...scopedTargets.flatMap((target) => target.operationIds.map((operation) => operation.id)),
+    ...(scopedTargets.length ? [] : local.operations.filter((operation) => operation.entity === 'tracker' && expectedTrackerIds.includes(operation.entityId) && ['blocked', 'pending'].includes(operation.status)).map((operation) => operation.id)),
+  ])].sort()
   if (requiredOperationIds.some((id) => !local.operations.some((operation) => operation.id === id))) {
-    throw new Error('Recovery backup stopped: one or more of the three original operation records are missing.')
+    throw new Error('Recovery backup stopped: a blocked or pending tracker operation is missing.')
   }
   const backup: TrackerRecoveryBackup = {
     format: TRACKER_RECOVERY_BACKUP_FORMAT, version: TRACKER_RECOVERY_BACKUP_VERSION, exportedAt: new Date().toISOString(),
@@ -279,13 +283,14 @@ export function parseTrackerRecoveryBackup(value: unknown, expectedOwnerUserId: 
   const backup = value as TrackerRecoveryBackup
   if (backup.format !== TRACKER_RECOVERY_BACKUP_FORMAT || backup.version !== TRACKER_RECOVERY_BACKUP_VERSION) throw new Error('Recovery backup format or version is unsupported.')
   if (backup.workspace?.ownerUserId !== expectedOwnerUserId) throw new Error('Recovery backup belongs to a different account.')
-  const expectedTrackerIds: string[] = TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)
-  const requiredOperationIds = TRACKER_RECOVERY_TARGETS.flatMap((target) => target.operationIds.map((operation) => operation.id))
-  if (backup.scope?.trackerIds?.length !== expectedTrackerIds.length || expectedTrackerIds.some((id) => !backup.scope.trackerIds.includes(id))) throw new Error('Recovery backup scope is incomplete.')
-  if (!Array.isArray(backup.scope.requiredOperationIds) || requiredOperationIds.length !== backup.scope.requiredOperationIds.length || requiredOperationIds.some((id) => !backup.scope.requiredOperationIds.includes(id))) throw new Error('Recovery backup original-operation manifest is incomplete.')
+  const expectedTrackerIds = backup.scope?.trackerIds
+  if (!Array.isArray(expectedTrackerIds) || expectedTrackerIds.length === 0 || expectedTrackerIds.some((id) => typeof id !== 'string' || !id) || new Set(expectedTrackerIds).size !== expectedTrackerIds.length) throw new Error('Recovery backup scope is incomplete.')
+  const knownOperationIds = TRACKER_RECOVERY_TARGETS.filter((target) => expectedTrackerIds.includes(target.trackerId)).flatMap((target) => target.operationIds.map((operation) => operation.id))
+  const requiredOperationIds = backup.scope.requiredOperationIds
+  if (!Array.isArray(requiredOperationIds) || new Set(requiredOperationIds).size !== requiredOperationIds.length || knownOperationIds.some((id) => !requiredOperationIds.includes(id))) throw new Error('Recovery backup operation manifest is incomplete.')
   if (backup.stores?.workspaceMetadata?.length !== 1 || backup.stores.workspaceMetadata[0]?.userId !== expectedOwnerUserId) throw new Error('Recovery backup workspace metadata is missing or mismatched.')
   if (backup.stores.trackers?.length !== expectedTrackerIds.length || expectedTrackerIds.some((id) => !backup.stores.trackers.some((row) => row.id === id))) throw new Error('Recovery backup is missing an affected tracker.')
-  if (requiredOperationIds.some((id) => !backup.stores.syncOperations?.some((row) => row.id === id && row.ownerUserId === expectedOwnerUserId))) throw new Error('Recovery backup is missing an original blocked operation.')
+  if (requiredOperationIds.some((id) => !backup.stores.syncOperations?.some((row) => row.id === id && row.ownerUserId === expectedOwnerUserId && row.entity === 'tracker' && expectedTrackerIds.includes(row.entityId)))) throw new Error('Recovery backup is missing a required tracker operation.')
   if (!Array.isArray(backup.stores.trackerEntries) || !Array.isArray(backup.stores.syncOperations) || !Array.isArray(backup.stores.syncRecords) || !Array.isArray(backup.stores.syncConflicts) || !Array.isArray(backup.stores.permanentDeletionRequests) || !Array.isArray(backup.stores.permanentDeletionLedger) || !Array.isArray(backup.stores.trackerVerification)) throw new Error('Recovery backup is missing a required record collection.')
   for (const row of backup.stores.trackers) {
     const parsed = trackerDefinitionSchema.safeParse(row)
@@ -314,6 +319,11 @@ export function parseTrackerRecoveryBackup(value: unknown, expectedOwnerUserId: 
       entryIds.add(parsed.data.id)
     } else throw new Error('Recovery backup contains an unrelated operation type.')
   }
+  const expectedOperationIds = [...new Set([
+    ...knownOperationIds,
+    ...(knownOperationIds.length ? [] : backup.stores.syncOperations.filter((operation) => operation.entity === 'tracker' && expectedTrackerIds.includes(operation.entityId) && ['blocked', 'pending'].includes(operation.status)).map((operation) => operation.id)),
+  ])].sort()
+  if ([...requiredOperationIds].sort().join('\n') !== expectedOperationIds.join('\n')) throw new Error('Recovery backup operation manifest does not cover every blocked or pending tracker write.')
   if (backup.stores.trackerEntries.some((entry) => !expectedTrackerIds.includes(entry.trackerId))) throw new Error('Recovery backup contains an unrelated tracker check-in.')
   if (backup.stores.syncOperations?.some((operation) => operation.ownerUserId !== expectedOwnerUserId)) throw new Error('Recovery backup contains an operation from a different account.')
   if (backup.stores.syncRecords.some((record) => record.ownerUserId !== expectedOwnerUserId || record.key !== `${record.entity}:${record.entityId}` || !(record.entity === 'tracker' && expectedTrackerIds.includes(record.entityId) || record.entity === 'tracker_entry' && entryIds.has(record.entityId)))) throw new Error('Recovery backup contains invalid or unrelated sync metadata.')
@@ -347,14 +357,32 @@ function entrySyncStatus(entry: StoredTrackerEntry, records: SyncRecordState[], 
 /** Reads exact local records and fresh cloud state. No IndexedDB writes, retries, or sync RPCs occur. */
 export async function createTrackerRecoveryPreview(
   userId: string,
-  options: { database?: ProgressTrackerDatabase; cloudReader?: TrackerRecoveryCloudReader; client?: SupabaseClient | null } = {},
+  options: { database?: ProgressTrackerDatabase; cloudReader?: TrackerRecoveryCloudReader; client?: SupabaseClient | null; trackerIds?: string[] } = {},
 ): Promise<TrackerRecoveryPreview> {
   const database = options.database ?? db
-  const local = await readLocalSnapshot(database, userId)
+  const incidentIds: string[] = TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)
+  const targetsToInspect = options.trackerIds ?? incidentIds
+  if (!targetsToInspect.length || new Set(targetsToInspect).size !== targetsToInspect.length) throw new Error('Choose one or more distinct tracker IDs to inspect.')
+  const genericRecovery = targetsToInspect.some((id) => !incidentIds.includes(id))
+  if (genericRecovery && targetsToInspect.length !== 1) throw new Error('Inspect one generic blocked tracker at a time so its backup and operation set remain exact.')
+  const local = await readLocalSnapshot(database, userId, targetsToInspect)
+  if (genericRecovery && !local.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === targetsToInspect[0] && operation.status === 'blocked')) throw new Error('This tracker has no blocked configuration write to revert.')
   const backup = buildBackup(userId, local)
-  const targets = TRACKER_RECOVERY_TARGETS.map((target) => target.trackerId)
+  type RecoveryTarget = { trackerId: string; name: string; metricId: string | null; expectedCloudRevision?: number; expectedCloudSchemaVersion?: number; expectedLocalSchemaVersion?: number; operationIds: Array<{ id: string; schemaVersion: number; expectedRevision: number | null; obsolete: boolean }> }
+  const targets: RecoveryTarget[] = targetsToInspect.map((trackerId) => {
+    const known = TRACKER_RECOVERY_TARGETS.find((target) => target.trackerId === trackerId)
+    if (known) return { ...known, operationIds: [...known.operationIds] }
+    const tracker = local.trackers.find((row) => row.id === trackerId)
+    if (!tracker) throw new Error(`Tracker ${trackerId} is not present in this local workspace.`)
+    const operations = local.operations.filter((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && ['blocked', 'pending'].includes(operation.status))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    return {
+      trackerId, name: tracker.name, metricId: null,
+      operationIds: operations.map((operation, index) => ({ id: operation.id, schemaVersion: (operation.payload as StoredTrackerDefinition).schemaVersion, expectedRevision: operation.expectedRevision, obsolete: index < operations.length - 1 })),
+    }
+  })
   const cloudReader = options.cloudReader ?? createTrackerRecoveryCloudReader(options.client)
-  const [trackerRead, entryRead] = await Promise.allSettled([cloudReader.readTrackers(userId, targets), cloudReader.readEntries(userId, targets)])
+  const [trackerRead, entryRead] = await Promise.allSettled([cloudReader.readTrackers(userId, targetsToInspect), cloudReader.readEntries(userId, targetsToInspect)])
   const cloudTrackers = trackerRead.status === 'fulfilled' ? trackerRead.value : []
   const cloudEntries = entryRead.status === 'fulfilled' ? entryRead.value : []
   const blockers: string[] = []
@@ -365,7 +393,7 @@ export async function createTrackerRecoveryPreview(
   }
   const ownedCloudTrackers = cloudTrackers.filter((row) => row.user_id === userId)
   const ownedCloudEntries = cloudEntries.filter((row) => row.user_id === userId)
-  const previewTrackers: TrackerRecoveryPreview['trackers'] = TRACKER_RECOVERY_TARGETS.map((target) => {
+  const previewTrackers: TrackerRecoveryPreview['trackers'] = targets.map((target) => {
     const discardBlockers: string[] = []
     const discardDiffs: TrackerRecoveryPreview['trackers'][number]['discardDiffs'] = []
     const localTracker = local.trackers.find((tracker) => tracker.id === target.trackerId)
@@ -375,40 +403,42 @@ export async function createTrackerRecoveryPreview(
     const localDefinition = localTracker && trackerDefinitionSchema.safeParse(localTracker).success ? localTracker as TrackerDefinition : undefined
     const parsedCloudDefinition = cloudTracker ? trackerDefinitionSchema.safeParse(cloudTracker.definition) : null
     const cloudDefinition = parsedCloudDefinition?.success ? parsedCloudDefinition.data as TrackerDefinition : undefined
-    const correction = localDefinition ? correctedDefinition(localDefinition, target.metricId, blockers) : { definition: undefined, diffs: [], latest: null, historical: [], milestoneSnapshots: [] }
+    const correction = localDefinition && target.metricId ? correctedDefinition(localDefinition, target.metricId, blockers) : { definition: undefined, diffs: [], latest: null, historical: localDefinition?.ruleVersions?.slice(0, -1).map((version) => ({ revision: version.revision, application: version.application, effectiveFrom: version.effectiveFrom, metricType: null })) ?? [], milestoneSnapshots: localDefinition?.milestones.map((milestone) => ({ id: milestone.id, title: milestone.title, measureTypeSnapshot: milestone.measureTypeSnapshot ?? null })) ?? [] }
     if (localTracker && !localDefinition) blockers.push(`${target.name}: local tracker definition does not validate in this build.`)
     if (cloudTracker && !cloudDefinition) blockers.push(`${target.name}: fresh cloud tracker definition does not validate in this build.`)
     if (localDefinition && cloudDefinition) {
-      if (localDefinition.schemaVersion !== cloudDefinition.schemaVersion) discardBlockers.push('Local and cloud schema versions differ; restoring cloud would lose or reinterpret versioned settings.')
+      if (localDefinition.schemaVersion !== cloudDefinition.schemaVersion) discardBlockers.push('Local and cloud schema versions differ. No verified conversion preserves every setting and historical reference, so Revert to Cloud is disabled.')
       const localRecord = localDefinition as unknown as Record<string, unknown>
       const cloudRecord = cloudDefinition as unknown as Record<string, unknown>
       for (const key of [...new Set([...Object.keys(localRecord), ...Object.keys(cloudRecord)])].sort()) {
         if (stable(localRecord[key]) !== stable(cloudRecord[key])) discardDiffs.push({ path: key, before: localRecord[key], after: cloudRecord[key] })
       }
     }
-    if (localTracker && localTracker.schemaVersion !== target.expectedLocalSchemaVersion) blockers.push(`${target.name}: local schema is ${localTracker.schemaVersion}, expected ${target.expectedLocalSchemaVersion}.`)
-    if (cloudTracker && cloudTracker.server_revision !== target.expectedCloudRevision) blockers.push(`${target.name}: cloud revision is ${cloudTracker.server_revision}, expected ${target.expectedCloudRevision}; do not recover against changed cloud state.`)
-    if (cloudTracker && cloudTracker.schema_version !== target.expectedCloudSchemaVersion) blockers.push(`${target.name}: cloud schema is ${cloudTracker.schema_version}, expected ${target.expectedCloudSchemaVersion}.`)
-    const localMetricType = localDefinition?.metrics.find((metric) => metric.id === target.metricId)?.valueType ?? null
-    const cloudMetricType = cloudDefinition?.metrics.find((metric) => metric.id === target.metricId)?.valueType ?? null
-    if (cloudMetricType !== 'quantity') blockers.push(`${target.name}: cloud measure type is ${cloudMetricType ?? 'unavailable'}, expected quantity.`)
+    if (target.expectedLocalSchemaVersion && localTracker && localTracker.schemaVersion !== target.expectedLocalSchemaVersion) blockers.push(`${target.name}: local schema is ${localTracker.schemaVersion}, expected ${target.expectedLocalSchemaVersion}.`)
+    if (target.expectedCloudRevision !== undefined && cloudTracker && cloudTracker.server_revision !== target.expectedCloudRevision) blockers.push(`${target.name}: cloud revision is ${cloudTracker.server_revision}, expected ${target.expectedCloudRevision}; do not recover against changed cloud state.`)
+    if (target.expectedCloudSchemaVersion && cloudTracker && cloudTracker.schema_version !== target.expectedCloudSchemaVersion) blockers.push(`${target.name}: cloud schema is ${cloudTracker.schema_version}, expected ${target.expectedCloudSchemaVersion}.`)
+    const localMetricType = target.metricId ? localDefinition?.metrics.find((metric) => metric.id === target.metricId)?.valueType ?? null : null
+    const cloudMetricType = target.metricId ? cloudDefinition?.metrics.find((metric) => metric.id === target.metricId)?.valueType ?? null : null
+    if (target.metricId && cloudMetricType !== 'quantity') blockers.push(`${target.name}: cloud measure type is ${cloudMetricType ?? 'unavailable'}, expected quantity.`)
     if (cloudTracker && (!cloudDefinition || cloudDefinition.id !== cloudTracker.id || cloudDefinition.schemaVersion !== cloudTracker.schema_version || cloudDefinition.kind !== cloudTracker.kind || cloudDefinition.status !== cloudTracker.status || cloudDefinition.name !== cloudTracker.name)) blockers.push(`${target.name}: cloud tracker columns do not match its definition payload.`)
     const acknowledgedTrackerRevision = local.syncRecords.find((row) => row.entity === 'tracker' && row.entityId === target.trackerId)?.serverRevision ?? null
-    if (acknowledgedTrackerRevision !== target.expectedCloudRevision) blockers.push(`${target.name}: local acknowledged revision is ${acknowledgedTrackerRevision ?? 'missing'}, expected ${target.expectedCloudRevision}.`)
-    if (localMetricType !== 'duration' && localMetricType !== 'quantity') blockers.push(`${target.name}: local measure type is ${localMetricType ?? 'unavailable'}.`)
+    if (target.expectedCloudRevision !== undefined && acknowledgedTrackerRevision !== target.expectedCloudRevision) blockers.push(`${target.name}: local acknowledged revision is ${acknowledgedTrackerRevision ?? 'missing'}, expected ${target.expectedCloudRevision}.`)
+    if (genericRecovery && cloudTracker && acknowledgedTrackerRevision !== cloudTracker.server_revision) discardBlockers.push(`The last acknowledged local cloud revision (${acknowledgedTrackerRevision ?? 'missing'}) differs from fresh cloud revision ${cloudTracker.server_revision}. Refresh or resolve the cloud conflict first.`)
+    if (target.metricId && localMetricType !== 'duration' && localMetricType !== 'quantity') blockers.push(`${target.name}: local measure type is ${localMetricType ?? 'unavailable'}.`)
 
     const targetOps = local.operations.filter((operation) => target.operationIds.some((identity) => identity.id === operation.id) || operation.entity === 'tracker' && operation.entityId === target.trackerId)
-    for (const expected of target.operationIds) {
+    for (const expected of (TRACKER_RECOVERY_TARGETS.some((row) => row.trackerId === target.trackerId) ? target.operationIds : [])) {
       const operation = local.operations.find((item) => item.id === expected.id)
       if (!operation) blockers.push(`${target.name}: original operation ${expected.id} is missing.`)
       else if (operation.status !== 'blocked') blockers.push(`${target.name}: expected operation ${expected.id} is ${operation.status}, not blocked.`)
       else if (operation.entity !== 'tracker' || operation.entityId !== target.trackerId || (operation.payload as StoredTrackerDefinition | undefined)?.schemaVersion !== expected.schemaVersion) blockers.push(`${target.name}: original operation ${expected.id} does not match its expected tracker and schema.`)
       else if (operation.expectedRevision !== expected.expectedRevision) blockers.push(`${target.name}: operation ${expected.id} expects cloud revision ${operation.expectedRevision ?? 'unknown'}, expected ${expected.expectedRevision}.`)
     }
-    const expectedTrackerOperationIds = new Set<string>(target.operationIds.map((operation) => operation.id))
-    if (targetOps.some((operation) => operation.entity === 'tracker' && !expectedTrackerOperationIds.has(operation.id))) blockers.push(`${target.name}: an unexpected tracker write is also queued.`)
-    const currentOperation = target.operationIds.filter((identity) => !identity.obsolete).map((identity) => local.operations.find((operation) => operation.id === identity.id)).find(Boolean)
-    if (localTracker && currentOperation && stable(currentOperation.payload) !== stable(localTracker)) blockers.push(`${target.name}: current local tracker differs from the intended latest saved operation payload.`)
+    if (targetOps.some((operation) => operation.entity === 'tracker' && ['in-flight', 'conflict'].includes(operation.status))) blockers.push(`${target.name}: a tracker write is in flight or conflicted.`)
+    const currentOperation = targetOps.filter((operation) => operation.entity === 'tracker' && ['blocked', 'pending'].includes(operation.status))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)).at(-1)
+    if (!currentOperation) blockers.push(`${target.name}: no blocked or pending tracker configuration operation remains to revert.`)
+    if (localTracker && currentOperation && stable(currentOperation.payload) !== stable(localTracker)) blockers.push(`${target.name}: current local tracker differs from the latest saved configuration operation.`)
     const localEntries = local.entries.filter((entry) => entry.trackerId === target.trackerId)
     const conflictEntryIds = new Set(local.conflicts.filter((conflict) => conflict.entity === 'tracker_entry' && (localEntries.some((entry) => entry.id === conflict.entityId) || (conflict.localPayload as StoredTrackerEntry | undefined)?.trackerId === target.trackerId)).map((conflict) => conflict.entityId))
     const relevantOps = local.operations.filter((operation) => targetOps.includes(operation) || operation.entity === 'tracker_entry' && (localEntries.some((entry) => entry.id === operation.entityId) || conflictEntryIds.has(operation.entityId) || (operation.payload as StoredTrackerEntry | undefined)?.trackerId === target.trackerId))
@@ -417,13 +447,14 @@ export async function createTrackerRecoveryPreview(
     for (const entry of localEntries) {
       const byId = targetCloudEntries.find((cloud) => cloud.id === entry.id)
       const byDate = targetCloudEntries.find((cloud) => cloud.entry_date === entry.date && cloud.id !== entry.id)
+      const entryWrites = relevantOps.filter((row) => row.entity === 'tracker_entry' && row.entityId === entry.id && ['pending', 'blocked'].includes(row.status))
       if (byDate) entryConflicts.push(`${entry.date}: local entry ${entry.id} and cloud entry ${byDate.id} occupy the same tracker date.`)
-      else if (byId && !sameEntry(entry, byId)) entryConflicts.push(`${entry.date}: local entry ${entry.id} differs from cloud copy revision ${byId.server_revision}.`)
+      else if (byId && !sameEntry(entry, byId) && (!genericRecovery || !entryWrites.length)) entryConflicts.push(`${entry.date}: local entry ${entry.id} differs from cloud copy revision ${byId.server_revision}.`)
       const state = entrySyncStatus(entry, local.syncRecords, local.operations)
       if (!byId && state.acknowledgedRevision !== null) entryConflicts.push(`${entry.date}: locally acknowledged entry ${entry.id} is absent from the current cloud read.`)
-      if (byId && state.acknowledgedRevision !== null && state.acknowledgedRevision !== byId.server_revision) entryConflicts.push(`${entry.date}: local check-in revision ${state.acknowledgedRevision} differs from cloud revision ${byId.server_revision}.`)
+      if (byId && state.acknowledgedRevision !== null && state.acknowledgedRevision !== byId.server_revision && (!genericRecovery || !entryWrites.length)) entryConflicts.push(`${entry.date}: local check-in revision ${state.acknowledgedRevision} differs from cloud revision ${byId.server_revision}.`)
       for (const operation of relevantOps.filter((row) => row.entity === 'tracker_entry' && row.entityId === entry.id && row.status !== 'superseded')) {
-        if (byId && operation.expectedRevision !== byId.server_revision) entryConflicts.push(`${entry.date}: operation ${operation.id} expects check-in revision ${operation.expectedRevision ?? 'new row'}, cloud is revision ${byId.server_revision}.`)
+        if (byId && operation.expectedRevision !== byId.server_revision && (!genericRecovery || ['pending', 'blocked'].includes(operation.status))) entryConflicts.push(`${entry.date}: operation ${operation.id} expects check-in revision ${operation.expectedRevision ?? 'new row'}, cloud is revision ${byId.server_revision}.`)
         if (!byId && operation.expectedRevision !== null) entryConflicts.push(`${entry.date}: operation ${operation.id} expects existing check-in revision ${operation.expectedRevision}, but its cloud row is absent.`)
       }
     }
@@ -438,14 +469,29 @@ export async function createTrackerRecoveryPreview(
     for (const conflict of localConflicts) blockers.push(`${target.name}: unresolved local ${conflict.entity} conflict ${conflict.id}.`)
     if (localConflicts.length) discardBlockers.push('Unresolved tracker or check-in conflicts exist.')
     if (local.permanentDeletionRequests.some((request) => request.trackerId === target.trackerId) || local.permanentDeletionLedger.some((record) => record.trackerId === target.trackerId)) discardBlockers.push('A permanent deletion request or ledger record exists.')
-    if (local.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === target.trackerId && !['blocked', 'superseded', 'discarded'].includes(operation.status))) discardBlockers.push('A tracker operation is pending, in flight, or conflicted.')
-    if (relevantOps.some((operation) => operation.entity === 'tracker_entry' && ['pending', 'in-flight', 'conflict', 'blocked'].includes(operation.status))) discardBlockers.push('A dependent check-in operation is unsynced or conflicted.')
+    if (local.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === target.trackerId && (['in-flight', 'conflict'].includes(operation.status) || !genericRecovery && operation.status === 'pending'))) discardBlockers.push('A tracker operation is pending, in flight, or conflicted.')
+    if (relevantOps.some((operation) => operation.entity === 'tracker_entry' && ['in-flight', 'conflict'].includes(operation.status))) discardBlockers.push('A dependent check-in operation is in flight or conflicted; resolve it before reverting the tracker.')
     if (entryConflicts.length) discardBlockers.push('One or more local check-ins differ from cloud or have a revision conflict.')
-    if (localEntries.some((entry) => {
+    const unsafeEntryState = localEntries.some((entry) => {
       const cloudEntry = targetCloudEntries.find((row) => row.id === entry.id)
       const state = entrySyncStatus(entry, local.syncRecords, local.operations)
-      return !cloudEntry || !sameEntry(entry, cloudEntry) || state.acknowledgedRevision !== cloudEntry.server_revision
-    })) discardBlockers.push('A saved check-in is missing from cloud or is not confirmed at the current revision.')
+      const hasPendingWrite = relevantOps.some((operation) => operation.entity === 'tracker_entry' && operation.entityId === entry.id && ['pending', 'blocked'].includes(operation.status))
+      if (!genericRecovery) return !cloudEntry || !sameEntry(entry, cloudEntry) || state.acknowledgedRevision !== cloudEntry.server_revision
+      if (!cloudEntry) return state.acknowledgedRevision !== null
+      return (!sameEntry(entry, cloudEntry) || state.acknowledgedRevision !== null && state.acknowledgedRevision !== cloudEntry.server_revision) && !hasPendingWrite
+    })
+    if (unsafeEntryState) discardBlockers.push('A saved check-in is missing from cloud or is not confirmed at the current revision.')
+    if (genericRecovery && cloudDefinition) {
+      for (const entry of localEntries) {
+        const valueError = validateTrackerEntryValues(cloudDefinition, entry.values, { enforcePrecision: false, existingValues: entry.values })
+        if (valueError) discardBlockers.push(`Check-in ${entry.id} cannot be preserved under the cloud definition: ${valueError}`)
+      }
+      const localMetrics = new Map((localDefinition?.metrics ?? []).map((metric) => [metric.id, metric]))
+      for (const metric of cloudDefinition.metrics) {
+        const localMetric = localMetrics.get(metric.id)
+        if (localMetric && localMetric.valueType !== metric.valueType) discardBlockers.push(`Measure ${metric.id} changes type from ${localMetric.valueType} to ${metric.valueType}; this recovery path cannot prove its historical meaning is preserved.`)
+      }
+    }
     const permanentDeletionRequests = local.permanentDeletionRequests.filter((request) => request.trackerId === target.trackerId)
     const permanentDeletionLedger = local.permanentDeletionLedger.filter((record) => record.trackerId === target.trackerId)
     for (const request of permanentDeletionRequests) blockers.push(`${target.name}: a permanent-deletion request is ${request.status}; do not recover until it is reviewed.`)
@@ -456,6 +502,7 @@ export async function createTrackerRecoveryPreview(
       localAcknowledgedRevision: acknowledgedTrackerRevision,
       cloudSchemaVersion: cloudTracker?.schema_version ?? null, cloudRevision: cloudTracker?.server_revision ?? null,
       cloudMetricType, localMetricType, proposedMetricType: correction.diffs.length || localMetricType === 'duration' ? 'quantity' : null,
+      metricSummary: [...new Set([...(localDefinition?.metrics ?? []).map((metric) => metric.id), ...(cloudDefinition?.metrics ?? []).map((metric) => metric.id)])].map((id) => ({ id, name: localDefinition?.metrics.find((metric) => metric.id === id)?.name ?? cloudDefinition?.metrics.find((metric) => metric.id === id)?.name ?? id, localType: localDefinition?.metrics.find((metric) => metric.id === id)?.valueType ?? null, cloudType: cloudDefinition?.metrics.find((metric) => metric.id === id)?.valueType ?? null })),
       latestRuleVersion: correction.latest, historicalRuleVersions: correction.historical, milestoneSnapshots: correction.milestoneSnapshots,
       diffs: correction.diffs, proposedDefinition: correction.definition ?? null,
       discardDiffs, discardBlockers,
@@ -478,11 +525,11 @@ export async function createTrackerRecoveryPreview(
       })),
     }
   })
-  const requiredOps = TRACKER_RECOVERY_TARGETS.flatMap((target) => target.operationIds.map((operation) => operation.id))
-  if (requiredOps.some((id) => !local.operations.some((operation) => operation.id === id))) blockers.push('One or more original blocked operations are missing; do not use this preview for recovery.')
+  const requiredOps = targets.flatMap((target) => target.operationIds.map((operation) => operation.id))
+  if (requiredOps.some((id) => !local.operations.some((operation) => operation.id === id))) blockers.push('One or more blocked or pending tracker operations changed while previewing; inspect again before recovery.')
   const status = blockers.length ? (previewTrackers.some((tracker) => tracker.localSchemaVersion === null || tracker.cloudSchemaVersion === null) ? 'incomplete' : 'conflict') : 'ready-for-review'
   return {
-    generatedAt: new Date().toISOString(), ownerUserId: userId, cloudReadOnly: true,
+    generatedAt: new Date().toISOString(), ownerUserId: userId, cloudReadOnly: true, genericScope: genericRecovery,
     readyForReview: status === 'ready-for-review', safeToExecute: false, status, blockers,
     trackers: previewTrackers, unrelatedPendingOperationsExcluded: true,
     progressionState: { localMaterializedRecords: false, note: 'This build stores tracker check-ins and rule/milestone snapshots locally; XP, streak, and achievement values are derived. Their before/after cloud state must be verified in the separately approved recovery phase.' },
@@ -503,11 +550,7 @@ function snapshotMatchesBackup(snapshot: LocalSnapshot, backup: TrackerRecoveryB
     && rowsEqual(snapshot.verification, backup.stores.trackerVerification, 'trackerId')
 }
 
-function findRecoveryTarget(trackerId: string) {
-  const target = TRACKER_RECOVERY_TARGETS.find((candidate) => candidate.trackerId === trackerId)
-  if (!target) throw new Error('This tracker is outside the narrowly scoped recovery workflow.')
-  return target
-}
+function findRecoveryTarget(trackerId: string) { return TRACKER_RECOVERY_TARGETS.find((candidate) => candidate.trackerId === trackerId) }
 
 export function canQueueConfirmedMeasureRepair(preview: TrackerRecoveryPreview, trackerId: string): boolean {
   const target = TRACKER_RECOVERY_TARGETS.find((candidate) => candidate.trackerId === trackerId)
@@ -528,6 +571,7 @@ export async function queueConfirmedMeasureRepair(
 ): Promise<void> {
   if (!backupConfirmedSaved) throw new Error('Save and verify the scoped recovery backup before repairing this tracker.')
   const target = findRecoveryTarget(trackerId)
+  if (!target) throw new Error('The guarded measure repair applies only to the verified incident trackers.')
   if (!canQueueConfirmedMeasureRepair(preview, trackerId)) throw new Error('The selected tracker has blockers; no repair was queued.')
   const reviewed = preview.trackers.find((tracker) => tracker.trackerId === trackerId)
   if (!reviewed?.proposedDefinition || reviewed.cloudRevision !== target.expectedCloudRevision || reviewed.cloudSchemaVersion !== target.expectedCloudSchemaVersion) throw new Error('The reviewed tracker is missing or its expected cloud revision changed.')
@@ -575,10 +619,15 @@ export async function discardRejectedTrackerChanges(
   const target = findRecoveryTarget(trackerId)
   const reviewed = preview.trackers.find((tracker) => tracker.trackerId === trackerId)
   if (!reviewed || reviewed.cloudRevision === null || reviewed.cloudSchemaVersion === null) throw new Error('A fresh cloud tracker row is required before discard.')
-  if (reviewed.localSchemaVersion !== reviewed.cloudSchemaVersion) throw new Error('The local and cloud schemas differ. Automatic discard cannot safely downgrade or upgrade this tracker.')
+  if (!preview.backup.scope.trackerIds.includes(trackerId)) throw new Error('The reviewed backup does not include this tracker; inspect it again before reverting.')
+  if (reviewed.localSchemaVersion !== reviewed.cloudSchemaVersion) throw new Error('The local and cloud schemas differ. No verified conversion preserves every historical field and reference, so Revert to Cloud is disabled.')
+  const reviewedTracker = preview.trackers.find((row) => row.trackerId === trackerId)!
+  const reviewedCandidates = reviewedTracker.operations.filter((operation) => operation.entity === 'tracker' && (operation.status === 'blocked' || preview.genericScope && operation.status === 'pending'))
+  if (!reviewedCandidates.length) throw new Error('There are no rejected tracker changes to discard.')
+  if (reviewed.discardBlockers.length || preview.blockers.some((blocker) => blocker.startsWith(`${reviewed.name}:`))) throw new Error(`Revert is blocked: ${reviewed.discardBlockers.join(' ') || preview.blockers.filter((blocker) => blocker.startsWith(`${reviewed.name}:`)).join(' ')}`)
   const backup = parseTrackerRecoveryBackup(preview.backup, preview.ownerUserId)
   const database = options.database ?? await openDatabase()
-  const initial = await readLocalSnapshot(database, preview.ownerUserId)
+  const initial = await readLocalSnapshot(database, preview.ownerUserId, backup.scope.trackerIds)
   if (!snapshotMatchesBackup(initial, backup)) throw new Error('Local tracker data changed after the backup. Inspect again and create a new backup.')
   const reader = options.cloudReader ?? createTrackerRecoveryCloudReader()
   const [trackerRows, cloudEntries] = await Promise.all([reader.readTrackers(preview.ownerUserId, [trackerId]), reader.readEntries(preview.ownerUserId, [trackerId])])
@@ -586,29 +635,49 @@ export async function discardRejectedTrackerChanges(
   if (!cloud || cloud.server_revision !== reviewed.cloudRevision || cloud.server_revision !== reviewed.localAcknowledgedRevision || cloud.schema_version !== reviewed.cloudSchemaVersion) throw new Error('Cloud or acknowledged revision changed after inspection. No changes were discarded.')
   const parsedCloud = trackerDefinitionSchema.safeParse(cloud.definition)
   if (!parsedCloud.success || parsedCloud.data.schemaVersion !== cloud.schema_version || parsedCloud.data.id !== trackerId) throw new Error('Fresh cloud tracker definition is invalid or inconsistent.')
-  if ((parsedCloud.data as TrackerDefinition).metrics.find((metric) => metric.id === target.metricId)?.valueType !== 'quantity') throw new Error('The confirmed cloud measure type differs from the safe recovery target.')
+  if (target && (parsedCloud.data as TrackerDefinition).metrics.find((metric) => metric.id === target.metricId)?.valueType !== 'quantity') throw new Error('The confirmed cloud measure type differs from the safe recovery target.')
+  if (!preview.genericScope && !target) throw new Error('The incident recovery preview does not include this tracker.')
   if (initial.permanentDeletionRequests.some((request) => request.trackerId === trackerId) || initial.permanentDeletionLedger.some((row) => row.trackerId === trackerId)) throw new Error('A deletion request or permanent-deletion record blocks safe discard.')
   if (initial.conflicts.some((conflict) => conflict.entity === 'tracker' && conflict.entityId === trackerId || conflict.entity === 'tracker_entry' && (initial.entries.some((entry) => entry.id === conflict.entityId && entry.trackerId === trackerId) || (conflict.localPayload as StoredTrackerEntry | undefined)?.trackerId === trackerId))) throw new Error('An unresolved tracker or check-in conflict blocks safe discard.')
-  const blockedOperations = initial.operations.filter((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && operation.status === 'blocked')
-  if (!blockedOperations.length) throw new Error('There are no rejected tracker changes to discard.')
-  if (initial.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && !['blocked', 'superseded', 'discarded'].includes(operation.status))) throw new Error('A pending, in-flight, or conflicted tracker write blocks safe discard.')
+  const discardableOperations = initial.operations.filter((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && (operation.status === 'blocked' || preview.genericScope && operation.status === 'pending'))
+  if (!discardableOperations.length) throw new Error('There are no blocked or pending tracker changes to discard.')
+  if (initial.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && ['in-flight', 'conflict'].includes(operation.status))) throw new Error('An in-flight or conflicted tracker write blocks safe discard.')
+  if (!preview.genericScope && initial.operations.some((operation) => operation.entity === 'tracker' && operation.entityId === trackerId && operation.status === 'pending')) throw new Error('A pending tracker write blocks incident recovery; sync or inspect it first.')
   const trackerEntries = initial.entries.filter((entry) => entry.trackerId === trackerId)
+  if (preview.genericScope) {
+    const localDefinition = trackerDefinitionSchema.safeParse(initial.trackers.find((row) => row.id === trackerId))
+    if (!localDefinition.success) throw new Error('The latest local tracker definition is invalid; no data was changed.')
+    for (const cloudMetric of parsedCloud.data.metrics) {
+      const localMetric = localDefinition.data.metrics.find((metric) => metric.id === cloudMetric.id)
+      if (localMetric && localMetric.valueType !== cloudMetric.valueType) throw new Error(`Measure ${cloudMetric.id} changes type from ${localMetric.valueType} to ${cloudMetric.valueType}; its historical meaning cannot be proven safe.`)
+    }
+  }
   const ownedCloudEntries = cloudEntries.filter((entry) => entry.user_id === preview.ownerUserId && entry.tracker_id === trackerId)
   for (const entry of trackerEntries) {
     const cloudEntry = ownedCloudEntries.find((row) => row.id === entry.id)
     const acknowledged = initial.syncRecords.find((row) => row.entity === 'tracker_entry' && row.entityId === entry.id)
     const entryOperations = initial.operations.filter((operation) => operation.entity === 'tracker_entry' && operation.entityId === entry.id)
-    if (!cloudEntry || !acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry)) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe discard is disabled.`)
-    if (entryOperations.some((operation) => operation.status === 'pending' || operation.status === 'in-flight' || operation.status === 'conflict' || operation.status === 'blocked')) throw new Error(`Unsynced check-in ${entry.id} blocks safe discard.`)
+    if (preview.genericScope) {
+      const valueError = validateTrackerEntryValues(parsedCloud.data, entry.values, { enforcePrecision: false, existingValues: entry.values })
+      if (valueError) throw new Error(`Check-in ${entry.id} cannot be preserved under the cloud definition: ${valueError}`)
+      const activeEntryWrites = entryOperations.filter((operation) => ['pending', 'blocked'].includes(operation.status))
+      if (entryOperations.some((operation) => ['in-flight', 'conflict'].includes(operation.status))) throw new Error(`Check-in ${entry.id} has an in-flight or conflicted write; resolve it before reverting.`)
+      if (cloudEntry && activeEntryWrites.some((operation) => operation.expectedRevision !== cloudEntry.server_revision)) throw new Error(`Check-in ${entry.id} has a queued operation for a stale cloud revision.`)
+      if (!cloudEntry && acknowledged) throw new Error(`Previously synchronized check-in ${entry.id} is missing from the current cloud state.`)
+      if (cloudEntry && !activeEntryWrites.length && (!acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry))) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe revert is disabled.`)
+    } else {
+      if (!cloudEntry || !acknowledged || acknowledged.serverRevision !== cloudEntry.server_revision || !sameEntry(entry, cloudEntry)) throw new Error(`Check-in ${entry.id} is not confirmed identical in cloud; safe discard is disabled.`)
+      if (entryOperations.some((operation) => operation.status === 'pending' || operation.status === 'in-flight' || operation.status === 'conflict' || operation.status === 'blocked')) throw new Error(`Unsynced check-in ${entry.id} blocks safe discard.`)
+    }
   }
   if (initial.operations.some((operation) => operation.entity === 'tracker_entry' && (operation.payload as StoredTrackerEntry | undefined)?.trackerId === trackerId && !trackerEntries.some((entry) => entry.id === operation.entityId) && ['pending', 'in-flight', 'conflict', 'blocked'].includes(operation.status))) throw new Error('A dependent check-in operation without a local row blocks safe discard.')
-  if (blockedOperations.some((operation) => operation.id === target.operationIds.find((identity) => identity.obsolete)?.id) && trackerId === TRACKER_RECOVERY_TARGETS[0].trackerId) {
+  if (!preview.genericScope && target && discardableOperations.some((operation) => operation.id === target.operationIds.find((identity) => identity.obsolete)?.id) && trackerId === TRACKER_RECOVERY_TARGETS[0].trackerId) {
     // Retain obsolete MERN rejections as audit records, but never make them retryable.
   }
   await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== preview.ownerUserId) throw new Error('The open local workspace belongs to a different account.')
-    const latest = await readLocalSnapshot(database, preview.ownerUserId)
+    const latest = await readLocalSnapshot(database, preview.ownerUserId, backup.scope.trackerIds)
     if (!snapshotMatchesBackup(latest, backup)) throw new Error('Local tracker data changed during confirmation. No changes were discarded.')
     const state = await database.syncRecords.get(`tracker:${trackerId}`)
     if (state?.serverRevision !== cloud.server_revision) throw new Error('The locally acknowledged revision changed during confirmation.')
@@ -616,7 +685,7 @@ export async function discardRejectedTrackerChanges(
     if (!current) throw new Error('Local tracker disappeared; no changes were discarded.')
     await database.trackers.put(parsedCloud.data as StoredTrackerDefinition)
     const discardedAt = new Date().toISOString()
-    for (const operation of blockedOperations) await database.syncOperations.put({ ...operation, status: 'discarded', discardedAt })
+    for (const operation of discardableOperations) await database.syncOperations.put({ ...operation, status: 'discarded', discardedAt, lastError: operation.lastError ?? 'Discarded by the user while restoring the confirmed cloud tracker.' })
   })
   publishWorkspaceMutation(preview.ownerUserId)
 }

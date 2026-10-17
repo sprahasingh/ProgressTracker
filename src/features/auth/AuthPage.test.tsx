@@ -21,9 +21,9 @@ vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
 vi.mock('../../db/database', () => ({ countPendingWorkspaceSyncOperations: authMocks.pendingOperationCount }))
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
-vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
+vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation, isRetryableTransientSyncFailure: (code: string | undefined, message?: string | null) => Boolean(code && (/^5\d\d$/.test(code) || ['ECONNABORTED', 'ECONNRESET', 'ETIMEDOUT', 'FETCH_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(code)) || !code && message && /\b(network|connection|timed? ?out|timeout|temporarily unavailable|service unavailable|gateway timeout)\b/i.test(message)) }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
-vi.mock('./TrackerRecoveryPreview', () => ({ TrackerRecoveryPreview: () => <div>Recovery Preview</div> }))
+vi.mock('./TrackerRecoveryPreview', () => ({ TrackerRecoveryPreview: ({ trackerId }: { trackerId?: string }) => <div data-testid="recovery-preview" data-tracker-id={trackerId ?? 'all'}>Recovery Preview</div> }))
 
 describe('AuthPage', () => {
   afterEach(() => { cleanup(); window.history.replaceState({}, '', '/') })
@@ -155,7 +155,7 @@ describe('AuthPage', () => {
     if (label === 'Changes waiting to sync') expect(screen.getByText('3 changes waiting')).toBeInTheDocument()
   })
 
-  it('shows blocked operations as action needed and links to recovery tools', async () => {
+  it('shows blocked operations as action needed and opens inline generic recovery preview', async () => {
     const user = userEvent.setup()
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncStatus: 'complete', syncSummary: { uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 } })
     authMocks.listSyncRecoveryOperations.mockResolvedValue([{ id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: 'Reading' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'Rejected', failureCode: '23514' }])
@@ -165,8 +165,27 @@ describe('AuthPage', () => {
     expect(screen.queryByText('Synced', { selector: '.account-sync-badge' })).not.toBeInTheDocument()
     const advanced = screen.getByText('Advanced tools', { selector: 'summary' })
     expect(advanced.parentElement).not.toHaveAttribute('open')
+    await user.click(screen.getByRole('button', { name: 'Revert to Cloud' }))
+    expect(screen.getAllByTestId('recovery-preview')[0]).toHaveAttribute('data-tracker-id', 'tracker-1')
     await user.click(screen.getByRole('link', { name: 'Review recovery tools' }))
     expect(advanced.parentElement).toHaveAttribute('open')
+  })
+
+  it('offers a transient retry only after the recovery repository verifies it', async () => {
+    const user = userEvent.setup()
+    const syncNow = vi.fn().mockResolvedValue(undefined)
+    const trackerId = '8e0c514e-ad75-47e1-abed-a770023b545e'
+    const operation = { id: 'transient-1', ownerUserId: 'account-1', entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: 1, payload: { id: trackerId, name: '100 Days Of MERN' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'Gateway timeout', failureCode: '504' }
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncNow, syncStatus: 'idle' })
+    authMocks.retryBlockedSyncOperation.mockResolvedValue('queued')
+    authMocks.listSyncRecoveryOperations.mockResolvedValue([operation])
+    render(<AuthPage embedded />)
+    const retry = await screen.findByRole('button', { name: 'Retry Sync' })
+    expect(retry).toBeEnabled()
+    await user.click(retry)
+    expect(authMocks.retryBlockedSyncOperation).toHaveBeenCalledWith('account-1', 'transient-1')
+    expect(syncNow).toHaveBeenCalledOnce()
+    expect(await screen.findByText(/Retry requested.*remain saved until the cloud confirms/i)).toBeInTheDocument()
   })
 
   it('keeps the recovery inspection route read-only and skips legacy conflict migration', () => {
@@ -298,21 +317,27 @@ describe('AuthPage', () => {
 
   it('shows the tracker name and validation details while retaining blocked payload access without offering unchanged retries', async () => {
     const user = userEvent.setup()
-    const blocked = { id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1-with-a-very-long-identifier-that-must-wrap-on-mobile', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: '100 Days Of MERN', nested: { longValue: 'x'.repeat(600) } }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'The server rejected this saved change (23514).', failureCode: '23514', failureDiagnostic: { code: '23514', message: 'schema v8 custom streak rule validation failed', table: 'trackers', constraint: 'trackers_streak_rule_v8_check' } }
+    const trackerId = '8e0c514e-ad75-47e1-abed-a770023b545e'
+    const blocked = { id: 'f4d5f15b-b890-437b-9fe2-bb9d8d23b1c6', ownerUserId: 'account-1', entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: 1, payload: { id: trackerId, schemaVersion: 8, name: '100 Days Of MERN', nested: { longValue: 'x'.repeat(600) } }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'The server rejected this saved change (23514).', failureCode: '23514', failureDiagnostic: { code: '23514', message: 'schema v8 custom streak rule validation failed', table: 'trackers', constraint: 'trackers_streak_rule_v8_check' } }
+    const blockedV10 = { ...blocked, id: '28bf5f83-9c6b-4ab4-b61f-acfee4e74d2e', payload: { ...blocked.payload, schemaVersion: 10 }, createdAt: '2026-01-02T00:00:00.000Z' }
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn(), syncStatus: 'idle' })
-    authMocks.listBlockedSyncOperations.mockResolvedValue([blocked])
-    authMocks.listSyncRecoveryOperations.mockResolvedValue([blocked, { ...blocked, id: 'older-blocked', entityId: 'older-id', status: 'superseded', supersededByRevision: 4 }])
+    authMocks.listSyncRecoveryOperations.mockResolvedValue([blocked, blockedV10, { ...blocked, id: 'older-blocked', status: 'superseded', supersededByRevision: 4 }])
     render(<AuthPage />)
     const card = await screen.findByRole('heading', { name: '100 Days Of MERN' })
+    const issueCard = card.closest('article')!
+    expect(issueCard).toHaveTextContent('2 rejected changes are grouped here')
+    expect(within(issueCard).getByRole('button', { name: 'Retry Sync' })).toBeDisabled()
+    expect(within(issueCard).getByText(/permanently rejected.*23514/i)).toBeInTheDocument()
+    await user.click(within(issueCard).getByRole('button', { name: 'Revert to Cloud' }))
+    expect(within(issueCard).getByTestId('recovery-preview')).toHaveAttribute('data-tracker-id', trackerId)
     await user.click(within(card.closest('article')!).getByText('Technical details and saved payload'))
-    expect(card.closest('article')).toHaveTextContent('23514')
-    expect(card.closest('article')).toHaveTextContent('trackers_streak_rule_v8_check')
-    expect(card.closest('article')).toHaveTextContent('will not be retried unchanged')
-    expect(within(card.closest('article')!).queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
-    const payload = within(card.closest('article')!).getByLabelText('Rejected payload for 100 Days Of MERN')
-    expect(payload).toHaveTextContent('100 Days Of MERN')
-    expect(payload).toHaveTextContent('x'.repeat(600))
-    expect(card.closest('article')).toHaveClass('blocked-sync-operation')
+    expect(issueCard).toHaveTextContent('23514')
+    expect(issueCard).toHaveTextContent('trackers_streak_rule_v8_check')
+    const payload = within(issueCard).getAllByLabelText('Rejected payload for 100 Days Of MERN')
+    expect(payload).toHaveLength(2)
+    expect(payload[0]).toHaveTextContent('100 Days Of MERN')
+    expect(payload[0]).toHaveTextContent('x'.repeat(600))
+    expect(issueCard).toHaveClass('blocked-sync-operation')
     await user.click(screen.getByText('Advanced tools', { selector: 'summary' }))
     expect(screen.getByText(/Historical rejection · superseded by successful revision 4/)).toBeInTheDocument()
   })

@@ -426,12 +426,17 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
   const pageTerms = new Set(identifierTerms(pageContext))
   const normalizedQuestion = canonicalize(question)
   const asksBin = /\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/.test(normalizedQuestion)
+  const asksStaleServerRevision = /\b(?:revision|version|updated timestamp)\b/.test(normalizedQuestion)
+    && /\b(?:stale|outdated|changed|mismatch|reject(?:ed|s)?|conflict)\b/.test(normalizedQuestion)
+    && /\b(?:server|cloud|remote|tracker|sync)\b/.test(normalizedQuestion)
   const hasOfflineBinMutationIntent = asksBin && /\b(?:offline|disconnected|change|sync|pending|queued)\b/.test(normalizedQuestion)
   const currentTerms = new Set([...queryCurrentTerms(question), ...identifiers, ...(asksAiHelpImplementation || hasOfflineBinMutationIntent ? focusTerms : [])])
   const preferredPaths = asksBin
     ? /\b(?:permanent(?:ly)? delet|recover|restore)\b/.test(normalizedQuestion)
       ? ['src/features/trackers/TrackerBinPage.tsx', 'src/domain/trackers/schemaVersionGate.ts', 'src/app/AppShell.tsx', 'src/routes/router.tsx', '20261010000100_tracker_bin_permanent_deletion.sql']
       : ['src/features/trackers/TrackerBinPage.tsx']
+    : asksStaleServerRevision
+    ? ['syncEngine', 'syncConflictRepository']
     : /\b(?:sync|synchroni[sz]ation|two devices|conflict|offline)\b/.test(normalizedQuestion)
     ? ['syncEngine', 'syncConflictRepository']
     : /\bmilestone\b/.test(normalizedQuestion)

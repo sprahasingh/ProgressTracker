@@ -4,6 +4,7 @@ import { localRepository } from './localRepository'
 import type { StoredTrackerDefinition, StoredTrackerEntry, SyncOperation } from './models'
 import { validateTrackerEntryValues } from '../domain/trackers/schema'
 import { evaluateTrackerEntry } from '../domain/trackers/planning'
+import { synchronizeWorkspace } from '../services/supabase/syncEngine'
 import {
   createTrackerRecoveryCloudReader, createTrackerRecoveryPreview, discardRejectedTrackerChanges, parseTrackerRecoveryBackup, queueConfirmedMeasureRepair, TRACKER_RECOVERY_TARGETS,
   type RecoveryCloudEntry, type RecoveryCloudTracker, type TrackerRecoveryCloudReader,
@@ -15,7 +16,7 @@ const cpId = TRACKER_RECOVERY_TARGETS[1]!.trackerId
 const mernMetricId = TRACKER_RECOVERY_TARGETS[0]!.metricId
 const cpMetricId = TRACKER_RECOVERY_TARGETS[1]!.metricId
 
-function tracker(id: string, metricId: string, schemaVersion: 6 | 8 | 10, valueType: 'quantity' | 'duration'): StoredTrackerDefinition {
+function tracker(id: string, metricId: string, schemaVersion: 6 | 8 | 9 | 10, valueType: 'quantity' | 'duration'): StoredTrackerDefinition {
   const metric = { id: metricId, name: 'Progress', valueType, unit: 'hours', thresholds: { direction: 'increase' as const, minimum: 0, streakQualification: 'minimum' as const } }
   const rule = { kind: 'comparison' as const, metricId, operator: 'greater-than' as const, value: 0 }
   const base = {
@@ -168,7 +169,7 @@ describe('blocked tracker recovery preview', () => {
 
   it('aborts backup creation when any original operation is missing', async () => {
     await db.syncOperations.delete('f4d5f15b-b890-437b-9fe2-bb9d8d23b1c6')
-    await expect(createTrackerRecoveryPreview(owner, { cloudReader })).rejects.toThrow(/original operation records are missing/)
+    await expect(createTrackerRecoveryPreview(owner, { cloudReader })).rejects.toThrow(/blocked or pending tracker operation is missing/)
   })
 
   it('rejects a backup with a mismatched manifest or account owner', async () => {
@@ -215,10 +216,13 @@ describe('blocked tracker recovery preview', () => {
   })
 
   it('discards CP blocked operations consistently, restores the same-schema cloud definition, and retains its audit payload', async () => {
+    const extraBlocked = { ...operation('cp-extra-blocked', cpId, 8, 3), createdAt: '2026-10-17T00:00:05.000Z' }
+    await db.syncOperations.put(extraBlocked)
     const preview = await createTrackerRecoveryPreview(owner, { cloudReader })
     await discardRejectedTrackerChanges(preview, cpId, true, { database: db, cloudReader })
     expect(await db.trackers.get(cpId)).toMatchObject({ id: cpId, schemaVersion: 8, metrics: [{ id: cpMetricId, valueType: 'quantity' }] })
     expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'discarded', payload: { metrics: [{ id: cpMetricId, valueType: 'duration' }] }, discardedAt: expect.any(String) })
+    expect(await db.syncOperations.get('cp-extra-blocked')).toMatchObject({ status: 'discarded', payload: extraBlocked.payload, discardedAt: expect.any(String) })
     expect(await db.syncRecords.get(`tracker:${cpId}`)).toMatchObject({ serverRevision: 3 })
     expect(await db.trackerEntries.get(localEntry.id)).toEqual(localEntry)
     expect(await db.syncOperations.get('f4d5f15b-b890-437b-9fe2-bb9d8d23b1c6')).toMatchObject({ status: 'blocked' })
@@ -242,8 +246,126 @@ describe('blocked tracker recovery preview', () => {
     await db.trackerEntries.put(cpEntry)
     await db.syncOperations.put({ id: 'unsynced-cp-write', ownerUserId: owner, entity: 'tracker_entry', entityId: cpEntry.id, operation: 'upsert', expectedRevision: null, payload: cpEntry, createdAt: '2026-10-17T01:00:00.000Z', attempts: 0, status: 'pending', lastError: null })
     const withPendingEntry = await createTrackerRecoveryPreview(owner, { cloudReader })
-    await expect(discardRejectedTrackerChanges(withPendingEntry, cpId, true, { database: db, cloudReader })).rejects.toThrow(/Unresolved tracker or check-in conflicts|Unsynced check-in|not confirmed identical/)
+    await expect(discardRejectedTrackerChanges(withPendingEntry, cpId, true, { database: db, cloudReader })).rejects.toThrow(/saved check-in is missing|Unresolved tracker or check-in conflicts|Unsynced check-in|not confirmed identical/)
     expect(await db.syncOperations.get('3f00df8b-5d9b-42e6-9693-312e3995035e')).toMatchObject({ status: 'blocked' })
+  })
+
+  it.each([6, 8, 9, 10] as const)('reverts a generic schema v%s tracker without identity allowlists and keeps the same-schema cloud definition', async (version) => {
+    const trackerId = `generic-v${version}`
+    const metricId = `generic-measure-v${version}`
+    const baseCloudDefinition = tracker(trackerId, metricId, version, 'quantity')
+    const cloudDefinition = version === 9 ? {
+      ...baseCloudDefinition,
+      milestones: [{ id: `generic-milestone-v${version}`, title: 'Historical target', description: '', type: 'cumulative-quantity' as const, metricId, targetValue: 100, measureTypeSnapshot: 'quantity' as const, unitSnapshot: 'hours', position: 0 }],
+    } as StoredTrackerDefinition : baseCloudDefinition
+    const localDefinition = { ...cloudDefinition, description: 'Rejected local wording change' }
+    const blocked: SyncOperation = { id: `generic-blocked-v${version}`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: 7, payload: localDefinition, createdAt: `2026-10-17T00:00:0${version}.000Z`, attempts: 1, status: 'blocked', lastError: 'Validation rejected' }
+    const earlierBlocked: SyncOperation = { ...blocked, id: `generic-earlier-blocked-v${version}`, payload: { ...cloudDefinition, description: 'Earlier rejected wording' }, createdAt: '2026-10-16T23:59:00.000Z' }
+    await db.trackers.put(localDefinition)
+    await db.syncOperations.bulkPut([earlierBlocked, blocked])
+    await db.syncRecords.put({ key: `tracker:${trackerId}`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, serverRevision: 7 })
+    const cloudRow: RecoveryCloudTracker = { id: trackerId, user_id: owner, schema_version: version, server_revision: 7, definition: cloudDefinition, kind: 'challenge', status: 'active', name: cloudDefinition.name, updated_at: cloudDefinition.updatedAt, deleted_at: null }
+    const reader: TrackerRecoveryCloudReader = { readTrackers: async () => [cloudRow], readEntries: async () => [] }
+    const preview = await createTrackerRecoveryPreview(owner, { database: db, cloudReader: reader, trackerIds: [trackerId] })
+    expect(preview.genericScope).toBe(true)
+    expect(preview.status).toBe('ready-for-review')
+    expect(preview.trackers[0]?.discardDiffs).toContainEqual(expect.objectContaining({ path: 'description', before: 'Rejected local wording change', after: '' }))
+    await discardRejectedTrackerChanges(preview, trackerId, true, { database: db, cloudReader: reader })
+    expect(await db.trackers.get(trackerId)).toEqual(cloudDefinition)
+    expect(await db.syncOperations.get(blocked.id)).toMatchObject({ status: 'discarded', payload: localDefinition, lastError: 'Validation rejected', discardedAt: expect.any(String) })
+    expect(await db.syncOperations.get(earlierBlocked.id)).toMatchObject({ status: 'discarded', payload: earlierBlocked.payload, discardedAt: expect.any(String) })
+  })
+
+  it('keeps independent unsynced check-ins through a generic same-schema revert and permits another edit', async () => {
+    const trackerId = 'generic-with-unsynced-checkin'
+    const metricId = 'generic-checkin-measure'
+    const cloudDefinition = tracker(trackerId, metricId, 8, 'quantity')
+    const localDefinition = { ...cloudDefinition, description: 'Rejected local description' }
+    const blocked: SyncOperation = { id: 'generic-checkin-blocked', ownerUserId: owner, entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: 7, payload: localDefinition, createdAt: '2026-10-17T00:00:04.000Z', attempts: 1, status: 'blocked', lastError: 'Validation rejected' }
+    const unsyncedEntry: StoredTrackerEntry = { id: 'generic-unsynced-entry', trackerId, date: '2026-10-16', outcome: 'recorded', values: { [metricId]: 1.5 }, note: 'Independent saved check-in', createdAt: '2026-10-16T12:00:00.000Z', updatedAt: '2026-10-16T12:00:00.000Z', deletedAt: null }
+    const entryOperation: SyncOperation = { id: 'generic-unsynced-entry-op', ownerUserId: owner, entity: 'tracker_entry', entityId: unsyncedEntry.id, operation: 'upsert', expectedRevision: null, payload: unsyncedEntry, createdAt: '2026-10-17T00:00:05.000Z', attempts: 0, status: 'pending', lastError: null }
+    await db.trackers.put(localDefinition)
+    await db.trackerEntries.put(unsyncedEntry)
+    await db.syncOperations.bulkPut([blocked, entryOperation])
+    await db.syncRecords.put({ key: `tracker:${trackerId}`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, serverRevision: 7 })
+    const cloudRow: RecoveryCloudTracker = { id: trackerId, user_id: owner, schema_version: 8, server_revision: 7, definition: cloudDefinition, kind: 'challenge', status: 'active', name: cloudDefinition.name, updated_at: cloudDefinition.updatedAt, deleted_at: null }
+    const reader: TrackerRecoveryCloudReader = { readTrackers: async () => [cloudRow], readEntries: async () => [] }
+    const preview = await createTrackerRecoveryPreview(owner, { database: db, cloudReader: reader, trackerIds: [trackerId] })
+    expect(preview.trackers[0]?.discardBlockers).toEqual([])
+    await discardRejectedTrackerChanges(preview, trackerId, true, { database: db, cloudReader: reader })
+    expect(await db.trackerEntries.get(unsyncedEntry.id)).toEqual(unsyncedEntry)
+    expect(await db.syncOperations.get(entryOperation.id)).toEqual(entryOperation)
+    expect(await db.syncOperations.get(blocked.id)).toMatchObject({ status: 'discarded' })
+    await localRepository.saveTracker({ ...cloudDefinition, description: 'Edited after revert' })
+    const queuedEdit = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', trackerId]).toArray()
+    expect(queuedEdit).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'pending', expectedRevision: 7, payload: expect.objectContaining({ description: 'Edited after revert' }) })]))
+    const client = {
+      auth: {
+        getUser: async () => ({ data: { user: { id: owner } }, error: null }),
+        getSession: async () => ({ data: { session: { user: { id: owner } } }, error: null }),
+      },
+      from: (_table: string) => {
+        const builder: any = {
+          select() { return builder }, eq() { return builder }, in() { return builder }, order() { return builder }, limit() { return builder }, gt() { return builder },
+          maybeSingle: async () => ({ data: { timezone: 'UTC', timezone_configured: true }, error: null }),
+          then(resolve: (value: unknown) => unknown) { return Promise.resolve(resolve({ data: [], error: null })) },
+        }
+        return builder
+      },
+      rpc: async (_name: string, args: Record<string, unknown>) => {
+        const row = args.p_record as Record<string, any>
+        const record = args.p_entity === 'tracker'
+          ? { ...row, user_id: owner, schema_version: row.schema_version, definition: row.definition, server_revision: 8 }
+          : { id: row.id, user_id: owner, tracker_id: row.tracker_id, entry_date: row.entry_date, outcome: row.outcome, entry_values: row.entry_values, note: row.note, created_at: row.created_at, updated_at: row.updated_at, deleted_at: row.deleted_at, server_revision: 1 }
+        return { data: { status: 'applied', record }, error: null }
+      },
+    } as never
+    await expect(synchronizeWorkspace(owner, client)).resolves.toMatchObject({ uploaded: 2, failed: 0, conflicts: 0 })
+    expect(await db.syncOperations.get(blocked.id)).toMatchObject({ status: 'discarded', payload: localDefinition })
+    expect(await db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', trackerId]).toArray()).not.toContainEqual(expect.objectContaining({ status: 'pending' }))
+    expect(await db.syncRecords.get(`tracker:${trackerId}`)).toMatchObject({ serverRevision: 8 })
+  })
+
+  it('disables generic revert for stale revisions, type changes, pending deletion, and schema mismatch', async () => {
+    const trackerId = 'generic-unsafe-revert'
+    const metricId = 'generic-unsafe-measure'
+    const localDefinition = tracker(trackerId, metricId, 10, 'duration')
+    const cloudDefinition = tracker(trackerId, metricId, 6, 'quantity')
+    const blocked: SyncOperation = { id: 'generic-unsafe-blocked', ownerUserId: owner, entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: 7, payload: localDefinition, createdAt: '2026-10-17T00:00:04.000Z', attempts: 1, status: 'blocked', lastError: 'Validation rejected' }
+    await db.trackers.put(localDefinition)
+    await db.syncOperations.put(blocked)
+    await db.syncRecords.put({ key: `tracker:${trackerId}`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, serverRevision: 7 })
+    const cloudRow: RecoveryCloudTracker = { id: trackerId, user_id: owner, schema_version: 6, server_revision: 8, definition: cloudDefinition, kind: 'challenge', status: 'active', name: cloudDefinition.name, updated_at: cloudDefinition.updatedAt, deleted_at: null }
+    const reader: TrackerRecoveryCloudReader = { readTrackers: async () => [cloudRow], readEntries: async () => [] }
+    await db.permanentDeletionRequests.put({ id: 'generic-deletion-request', ownerUserId: owner, trackerId, requestedAt: '2026-10-17T00:00:06.000Z', status: 'pending', lastError: null })
+    const preview = await createTrackerRecoveryPreview(owner, { database: db, cloudReader: reader, trackerIds: [trackerId] })
+    expect(preview.trackers[0]?.discardBlockers.join(' ')).toMatch(/schema versions differ|measure .* changes type|acknowledged local cloud revision|permanent deletion request/i)
+    await expect(discardRejectedTrackerChanges(preview, trackerId, true, { database: db, cloudReader: reader })).rejects.toThrow(/No verified conversion preserves/)
+    expect(await db.trackers.get(trackerId)).toEqual(localDefinition)
+    expect(await db.syncOperations.get(blocked.id)).toMatchObject({ status: 'blocked' })
+  })
+
+  it.each([
+    ['stale acknowledged revision', { acknowledgedRevision: 6, cloudRevision: 7, localType: 'quantity' as const, deletion: false }, /acknowledged local cloud revision/],
+    ['measure type conflict', { acknowledgedRevision: 7, cloudRevision: 7, localType: 'duration' as const, deletion: false }, /changes type/],
+    ['pending deletion request', { acknowledgedRevision: 7, cloudRevision: 7, localType: 'quantity' as const, deletion: true }, /permanent deletion request/],
+  ] as const)('blocks same-schema generic revert for %s', async (_label, scenario, blockerPattern) => {
+    const trackerId = `generic-blocked-${_label.replaceAll(' ', '-')}`
+    const metricId = `generic-measure-${trackerId}`
+    const localDefinition = tracker(trackerId, metricId, 8, scenario.localType)
+    const cloudDefinition = tracker(trackerId, metricId, 8, 'quantity')
+    const blocked: SyncOperation = { id: `${trackerId}-operation`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, operation: 'upsert', expectedRevision: scenario.cloudRevision, payload: localDefinition, createdAt: '2026-10-17T00:00:04.000Z', attempts: 1, status: 'blocked', lastError: 'Validation rejected' }
+    await db.trackers.put(localDefinition)
+    await db.syncOperations.put(blocked)
+    await db.syncRecords.put({ key: `tracker:${trackerId}`, ownerUserId: owner, entity: 'tracker', entityId: trackerId, serverRevision: scenario.acknowledgedRevision })
+    const cloudRow: RecoveryCloudTracker = { id: trackerId, user_id: owner, schema_version: 8, server_revision: scenario.cloudRevision, definition: cloudDefinition, kind: 'challenge', status: 'active', name: cloudDefinition.name, updated_at: cloudDefinition.updatedAt, deleted_at: null }
+    const reader: TrackerRecoveryCloudReader = { readTrackers: async () => [cloudRow], readEntries: async () => [] }
+    if (scenario.deletion) await db.permanentDeletionRequests.put({ id: `${trackerId}-deletion`, ownerUserId: owner, trackerId, requestedAt: '2026-10-17T00:00:06.000Z', status: 'pending', lastError: null })
+    const preview = await createTrackerRecoveryPreview(owner, { database: db, cloudReader: reader, trackerIds: [trackerId] })
+    expect(preview.trackers[0]?.discardBlockers.join(' ')).toMatch(blockerPattern)
+    await expect(discardRejectedTrackerChanges(preview, trackerId, true, { database: db, cloudReader: reader })).rejects.toThrow()
+    expect(await db.trackers.get(trackerId)).toEqual(localDefinition)
+    expect(await db.syncOperations.get(blocked.id)).toMatchObject({ status: 'blocked' })
   })
 
   it('reports duration milestone snapshots without silently rewriting them', async () => {

@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { canQueueConfirmedMeasureRepair, createTrackerRecoveryPreview, discardRejectedTrackerChanges, queueConfirmedMeasureRepair, type TrackerRecoveryPreview as Preview } from '../../db/trackerRecoveryPreview'
 import { createWorkspaceBackup, downloadWorkspaceBackup, previewWorkspaceRestore } from '../../db/workspaceBackup'
 
-export function TrackerRecoveryPreview({ userId }: { userId: string }) {
+export function TrackerRecoveryPreview({ userId, trackerId }: { userId: string; trackerId?: string }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -20,7 +20,7 @@ export function TrackerRecoveryPreview({ userId }: { userId: string }) {
     setPreview(null)
     setBackupSaved(false)
     try {
-      const result = await createTrackerRecoveryPreview(userId)
+      const result = await createTrackerRecoveryPreview(userId, trackerId ? { trackerIds: [trackerId] } : {})
       setPreview(result)
       setMessage(result.status === 'ready-for-review'
         ? 'Fresh cloud state matches the supplied revisions. This is a review preview only; recovery is not enabled.'
@@ -68,7 +68,7 @@ export function TrackerRecoveryPreview({ userId }: { userId: string }) {
       // this updated state before another tracker can be repaired.
       setBackupSaved(false)
       setMessage(`${name}: corrected configuration is saved locally as a new sync operation. The rejected operations remain preserved and are not replayed. Sync this account to submit the corrected operation.`)
-      setPreview(await createTrackerRecoveryPreview(userId))
+      setPreview(await createTrackerRecoveryPreview(userId, trackerId ? { trackerIds: [trackerId] } : {}))
     } catch (cause) {
       setError(true)
       setMessage(cause instanceof Error ? cause.message : 'The repair stopped without changing tracker data.')
@@ -76,7 +76,12 @@ export function TrackerRecoveryPreview({ userId }: { userId: string }) {
   }
 
   async function discard(trackerId: string, name: string) {
-    if (!preview || !backupSaved || !window.confirm(`Discard rejected changes for ${name} and restore the latest confirmed cloud configuration? This abandons unsynced settings for this tracker. The cloud tracker and its saved check-ins will not be deleted.`)) return
+    const operationCount = preview?.trackers.find((tracker) => tracker.trackerId === trackerId)?.operations
+      .filter((operation) => operation.entity === 'tracker' && (operation.status === 'blocked' || preview.genericScope && operation.status === 'pending')).length ?? 0
+    const confirmation = preview?.genericScope
+      ? `Discard ${operationCount} blocked or pending configuration operation${operationCount === 1 ? '' : 's'} for ${name} and restore its latest confirmed cloud configuration? The exact definition differences are listed in the preview. Valid independent check-ins and unrelated operations will be preserved. The cloud tracker and its saved check-ins will not be deleted.`
+      : `Discard rejected changes for ${name} and restore the latest confirmed cloud configuration? This abandons unsynced settings for this tracker. The cloud tracker and its saved check-ins will not be deleted.`
+    if (!preview || !backupSaved || !window.confirm(confirmation)) return
     setActionBusy(trackerId)
     setError(false)
     try {
@@ -89,20 +94,24 @@ export function TrackerRecoveryPreview({ userId }: { userId: string }) {
     } finally { setActionBusy(null) }
   }
 
-  return <section className="sync-conflicts tracker-recovery-preview" aria-labelledby="tracker-recovery-preview-title">
-    <h3 id="tracker-recovery-preview-title">Blocked tracker recovery preview</h3>
-    <p>Inspect the two affected trackers and their current cloud rows. Inspection is read-only. Repair and discard actions require a saved backup, fresh revision checks, and separate confirmation.</p>
+  const visibleTrackers = preview?.trackers.filter((tracker) => !trackerId || tracker.trackerId === trackerId) ?? []
+  const trackerName = preview?.trackers.find((tracker) => tracker.trackerId === trackerId)?.name
+  const visibleBlockers = preview?.blockers.filter((blocker) => !trackerName || blocker.startsWith(`${trackerName}:`) || !blocker.includes(':')) ?? []
+
+  return <section className="sync-conflicts tracker-recovery-preview" aria-labelledby={`tracker-recovery-preview-title-${trackerId ?? 'all'}`}>
+    <h3 id={`tracker-recovery-preview-title-${trackerId ?? 'all'}`}>{trackerId ? 'Review cloud version' : 'Blocked tracker recovery preview'}</h3>
+    <p>{trackerId ? 'Fetch the latest cloud definition and related records. Review every proposed change, then export a verified backup and confirm before restoring.' : 'Inspect the two affected trackers and their current cloud rows. Inspection is read-only. Repair and discard actions require a saved backup, fresh revision checks, and separate confirmation.'}</p>
     <p className="auth-hint">The backup contains full check-in values and notes, operation payloads, and saved errors for these trackers. Keep the file private.</p>
-    <Button variant="secondary" onClick={() => void inspect()} disabled={busy}>{busy ? 'Reading records…' : 'Inspect recovery state'}</Button>
+    <Button variant="secondary" onClick={() => void inspect()} disabled={busy}>{busy ? 'Reading records…' : trackerId ? 'Fetch latest cloud version' : 'Inspect recovery state'}</Button>
     {message && <p className={error ? 'auth-error' : 'auth-success'} role={error ? 'alert' : 'status'}>{message}</p>}
     {preview && <div className="tracker-recovery-results">
       <p><strong>Preview status:</strong> {preview.status} · generated {new Date(preview.generatedAt).toLocaleString()}</p>
       <p><strong>Recovery actions:</strong> only the scoped, guarded actions shown below are available. No hosted write is sent during inspection.</p>
-      {preview.blockers.length > 0 && <div role="alert"><h4>Conflicts to review</h4><ul>{preview.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></div>}
-      {preview.trackers.map((tracker) => <article className="sync-conflict" key={tracker.trackerId}>
+      {visibleBlockers.length > 0 && <div role="alert"><h4>Conflicts to review</h4><ul>{visibleBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></div>}
+      {visibleTrackers.map((tracker) => <article className="sync-conflict" key={tracker.trackerId}>
         <h4>{tracker.name}</h4>
         <p>Local schema v{tracker.localSchemaVersion ?? 'unknown'} · acknowledged cloud revision {tracker.localAcknowledgedRevision ?? 'unknown'} · cloud schema v{tracker.cloudSchemaVersion ?? 'unknown'} · fresh cloud revision {tracker.cloudRevision ?? 'unavailable'}</p>
-        <p>Progress measure {tracker.trackerId === '8e0c514e-ad75-47e1-abed-a770023b545e' ? '1d3ebaa0-6b7e-4b5d-a7aa-2cbb62e2b0ef' : '40de0b2b-ad9e-4392-a5aa-ce53d9c2ff70'}: local {tracker.localMetricType ?? 'missing'}, cloud {tracker.cloudMetricType ?? 'missing'}</p>
+        {(tracker.metricSummary ?? []).length > 0 && <p>Measures: {(tracker.metricSummary ?? []).map((metric) => `${metric.name} (${metric.id}): local ${metric.localType ?? 'missing'}, cloud ${metric.cloudType ?? 'missing'}`).join('; ')}</p>}
         {tracker.diffs.length > 0 ? <><h5>Proposed definition changes</h5><ul>{tracker.diffs.map((diff) => <li key={diff.path}><code>{diff.path}</code>: {String(diff.before)} → {String(diff.after)}</li>)}</ul></> : <p>No measure-type change is proposed for this tracker.</p>}
         {tracker.discardDiffs.length > 0 && <details><summary>Changes discard would abandon ({tracker.discardDiffs.length})</summary><ul>{tracker.discardDiffs.map((diff) => <li key={diff.path}><code>{diff.path}</code>: <code>{JSON.stringify(diff.before)}</code> → <code>{JSON.stringify(diff.after)}</code></li>)}</ul></details>}
         {tracker.latestRuleVersion && <p>Latest rule version: revision {tracker.latestRuleVersion.revision}, {tracker.latestRuleVersion.application}, effective {tracker.latestRuleVersion.effectiveFrom}; evaluation {tracker.latestRuleVersion.matchesCurrentAfterCorrection ? 'matches after the proposed correction' : 'needs review'}.</p>}
@@ -124,12 +133,14 @@ export function TrackerRecoveryPreview({ userId }: { userId: string }) {
       {backupSaved && <label className="auth-hint"><input type="checkbox" checked readOnly /> Backup file was exported. Keep it in a private location before proceeding.</label>}
       {preview.trackers.map((tracker) => {
         const hasRepair = tracker.diffs.length > 0 && canQueueConfirmedMeasureRepair(preview, tracker.trackerId)
-        const rejectedOperations = tracker.operations.filter((operation) => operation.entity === 'tracker' && operation.status === 'blocked')
-        const canDiscard = rejectedOperations.length > 0 && tracker.discardBlockers.length === 0 && tracker.localSchemaVersion === tracker.cloudSchemaVersion
+        const hasTrackerBlocker = preview.blockers.some((blocker) => blocker.startsWith(`${tracker.name}:`))
+        const discardBlockers = tracker.discardBlockers ?? []
+        const candidateOperations = tracker.operations.filter((operation) => operation.entity === 'tracker' && ['blocked', 'pending'].includes(operation.status))
+        const canDiscard = candidateOperations.length > 0 && discardBlockers.length === 0 && !hasTrackerBlocker && tracker.localSchemaVersion === tracker.cloudSchemaVersion
         return <div className="auth-actions" key={`actions-${tracker.trackerId}`}>
           {hasRepair && <Button disabled={!backupSaved || actionBusy !== null || busy} onClick={() => void repair(tracker.trackerId, tracker.name)}>{actionBusy === tracker.trackerId ? 'Repairing…' : `Repair ${tracker.name} measure`}</Button>}
-          {rejectedOperations.length > 0 && <Button variant="secondary" disabled={!backupSaved || !canDiscard || actionBusy !== null || busy} onClick={() => void discard(tracker.trackerId, tracker.name)}>{`Discard rejected changes for ${tracker.name}`}</Button>}
-          {rejectedOperations.length > 0 && !canDiscard && <p className="auth-hint">Discard is disabled: {tracker.discardBlockers.join(' ') || 'The local and cloud schemas differ, so restoring cloud could lose versioned settings.'}</p>}
+          {candidateOperations.length > 0 && <Button variant="secondary" disabled={!backupSaved || !canDiscard || actionBusy !== null || busy} onClick={() => void discard(tracker.trackerId, tracker.name)}>{`Discard rejected changes for ${tracker.name}`}</Button>}
+          {candidateOperations.length > 0 && !canDiscard && <p className="auth-hint">Revert to Cloud is disabled: {discardBlockers.join(' ') || 'Resolve the listed tracker blocker before restoring cloud configuration.'}</p>}
         </div>
       })}
       <p className="auth-hint">Recovery stays disabled until the full workspace backup passes the app’s restore preview and is exported. This backup includes all local account data. Restore it later through Account → Import backup.</p>

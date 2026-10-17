@@ -3827,6 +3827,11 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .account-sync-issues .sync-conflict { margin-top: 8px; padding: 11px; border-radius: var(--radius-control); background: var(--surface-raised); }
 .account-sync-issues .blocked-sync-operation h4 { margin: 0; font-size: 12px; }
 .account-sync-issues .blocked-sync-operation > p { margin: 4px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.blocked-sync-card-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.blocked-sync-card-actions .button { min-height: 42px; }
+.blocked-sync-action-help { margin: 4px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.blocked-sync-revert-preview { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.blocked-sync-revert-preview .tracker-recovery-preview { margin: 0; padding: 0; border: 0; background: transparent; }
 .account-sync-issues details > summary, .account-disclosure > summary { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 10px; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
 .account-sync-issues details > summary::-webkit-details-marker, .account-disclosure > summary::-webkit-details-marker { display: none; }
 .account-sync-issues details > summary::after, .account-disclosure > summary::after { content: '+'; color: var(--accent-strong); font-size: 18px; font-weight: 500; }
@@ -3867,6 +3872,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .account-section-heading a { min-height: 44px; }
   .account-sync-issues .auth-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .account-sync-issues .auth-actions .button { width: 100%; }
+  .blocked-sync-card-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .blocked-sync-card-actions .button { width: 100%; }
   .account-secondary-actions { display: flex; }
   .account-secondary-actions .button { flex: 0 1 auto; }
   .account-sync-conflict-list .sync-conflict-versions { grid-template-columns: minmax(0, 1fr); }

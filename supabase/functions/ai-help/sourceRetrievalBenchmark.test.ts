@@ -249,6 +249,13 @@ describe('AI Help source retrieval benchmark', () => {
     expect(first.length).toBeLessThanOrEqual(4)
   })
 
+  it('retrieves synchronization implementation for stale server revision wording', () => {
+    for (const question of [
+      'Why was my tracker edit rejected because the cloud revision was outdated?',
+      'What does sync do when the server reports a changed version?',
+    ]) expect(selectedPaths(question)).toContain('src/services/supabase/syncEngine.ts')
+  })
+
   it('measures local retrieval cost without making an external request', () => {
     const samples: number[] = []
     for (let index = 0; index < 80; index += 1) {

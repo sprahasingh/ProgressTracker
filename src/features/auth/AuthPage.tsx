@@ -18,6 +18,7 @@ import { WorkspaceBackup } from './WorkspaceBackup'
 import { getAuthRedirectUrl } from './authRedirect'
 import { SyncDiagnosticsExport } from './SyncDiagnosticsExport'
 import { TrackerRecoveryPreview } from './TrackerRecoveryPreview'
+import { BlockedTrackerSyncCard } from './BlockedTrackerSyncCard'
 import { isTrackerRecoveryInspectionMode } from './recoveryInspectionMode'
 import { countPendingWorkspaceSyncOperations } from '../../db/database'
 
@@ -51,6 +52,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
   const [copiedPayloadId, setCopiedPayloadId] = useState<string | null>(null)
   const readOnlyRecoveryInspection = isTrackerRecoveryInspectionMode()
   const [pendingOperationCount, setPendingOperationCount] = useState<number | null>(null)
+  const [syncIssueRefreshVersion, setSyncIssueRefreshVersion] = useState(0)
   const [advancedOpen, setAdvancedOpen] = useState(readOnlyRecoveryInspection)
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
       if (pendingResult.status === 'fulfilled') setPendingOperationCount(pendingResult.value)
     })
     return () => { active = false }
-  }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary, readOnlyRecoveryInspection])
+  }, [status, user?.id, workspaceStatus, workspaceUserId, syncSummary, readOnlyRecoveryInspection, syncIssueRefreshVersion])
 
   useEffect(() => setAdvancedOpen(readOnlyRecoveryInspection), [readOnlyRecoveryInspection])
 
@@ -185,6 +187,8 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
   const accountConflicts = conflictsOwnerUserId === user?.id ? syncConflicts : []
   const accountOperations = conflictsOwnerUserId === user?.id ? blockedOperations : []
   const activeBlockedOperations = accountOperations.filter((operation) => operation.status === 'blocked')
+  const blockedTrackerGroups = [...activeBlockedOperations.filter((operation) => operation.entity === 'tracker').reduce((groups, operation) => groups.set(operation.entityId, [...(groups.get(operation.entityId) ?? []), operation]), new Map<string, SyncOperation[]>()).entries()]
+  const otherBlockedOperations = activeBlockedOperations.filter((operation) => operation.entity !== 'tracker')
   const historicalRejectedOperations = accountOperations.filter((operation) => operation.failureCode && (operation.status === 'superseded' || operation.status === 'discarded'))
   const issueCount = activeBlockedOperations.length + accountConflicts.length
   const hasSyncFailure = Boolean(syncError) || (syncSummary?.failed ?? 0) > 0
@@ -244,7 +248,7 @@ export function AuthPage({ embedded = false, redirectSignedIn = false }: { embed
               <div className="auth-actions account-secondary-actions"><Button variant="secondary" size="small" onClick={() => { clearFeedback(); setMode('set-password') }}>Set or change password</Button><Button variant="quiet" size="small" onClick={handleSignOut} disabled={isSigningOut}>{isSigningOut ? 'Signing out…' : 'Sign out'}</Button></div>
             </section>
             {!readOnlyRecoveryInspection && conflictsOwnerUserId === user?.id && workspaceStatus === 'ready' && workspaceUserId === user?.id && issueCount > 0 && <section className="account-sync-issues" aria-labelledby="sync-issues-title"><div className="account-section-heading"><div><h3 id="sync-issues-title">Sync issues</h3><p>{issueCount} saved item{issueCount === 1 ? '' : 's'} need attention. They remain on this device.</p></div><a href="#account-advanced-tools" onClick={() => setAdvancedOpen(true)}>Review recovery tools</a></div>
-            {activeBlockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h4 id="blocked-sync-title">Rejected changes</h4>{activeBlockedOperations.map((operation) => {
+            {activeBlockedOperations.length > 0 && <section className="sync-conflicts" aria-labelledby="blocked-sync-title"><h4 id="blocked-sync-title">Rejected changes</h4>{blockedTrackerGroups.map(([trackerId, operations]) => <BlockedTrackerSyncCard key={trackerId} userId={user!.id!} trackerId={trackerId} operations={operations} syncNow={syncNow} onOperationsChanged={() => setSyncIssueRefreshVersion((version) => version + 1)} />)}{otherBlockedOperations.map((operation) => {
               const payload = operation.payload as { name?: unknown } | undefined
               const trackerName = operation.entity === 'tracker' && typeof payload?.name === 'string' ? payload.name : null
               return <article className="sync-conflict blocked-sync-operation" key={operation.id}>
