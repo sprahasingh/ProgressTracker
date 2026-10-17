@@ -214,15 +214,27 @@ describe('synchronized tracker Bin', () => {
     await expect(localRepository.listPendingTrackerRestores('bin-legacy-marker-owner')).resolves.toMatchObject([{ tracker: { id: 'legacy-pending-restore' }, status: 'pending' }])
   })
 
-  it('queues repeatable account-wide deletion requests without erasing local data before server confirmation', async () => {
+  it('persists deletion offline, supersedes only tracker-owned sync work, and locks the original Wins choice', async () => {
     await activateWorkspace('bin-request-owner')
     await localRepository.saveTracker({ ...tracker, id: 'request-tracker' })
+    await localRepository.saveTracker({ ...tracker, id: 'unrelated-tracker' })
     await localRepository.saveTrackerEntry({ trackerId: 'request-tracker', date: '2026-10-01', outcome: 'recorded', values: {}, note: 'keep until server confirms' })
     await localRepository.deleteTracker('request-tracker')
+    await db.syncOperations.put({ id: 'rejected-config-to-delete', ownerUserId: 'bin-request-owner', entity: 'tracker', entityId: 'request-tracker', operation: 'upsert', expectedRevision: 1, payload: { ...tracker, id: 'request-tracker', name: 'Rejected local config' }, createdAt: '2026-10-02T00:00:00Z', attempts: 1, status: 'blocked', lastError: 'server rejected', failureCode: '23514' })
+    const targetEntry = await db.trackerEntries.where('trackerId').equals('request-tracker').first()
+    await db.syncOperations.put({ id: 'rejected-entry-to-delete', ownerUserId: 'bin-request-owner', entity: 'tracker_entry', entityId: targetEntry!.id, operation: 'upsert', expectedRevision: null, payload: targetEntry!, createdAt: '2026-10-03T00:00:00Z', attempts: 1, status: 'conflict', lastError: 'revision conflict' })
+    await db.syncOperations.put({ id: 'unrelated-operation', ownerUserId: 'bin-request-owner', entity: 'tracker', entityId: 'unrelated-tracker', operation: 'upsert', expectedRevision: 1, payload: { ...tracker, id: 'unrelated-tracker' }, createdAt: '2026-10-03T00:00:00Z', attempts: 0, status: 'pending', lastError: null })
 
     await expect(localRepository.requestPermanentDeletion('request-tracker', 'keep_wins')).resolves.toBe('queued')
+    const request = await db.permanentDeletionRequests.where('ownerUserId').equals('bin-request-owner').first()
     await expect(localRepository.requestPermanentDeletion('request-tracker', 'keep_wins')).resolves.toBe('queued')
     await expect(db.permanentDeletionRequests.where('ownerUserId').equals('bin-request-owner').toArray()).resolves.toHaveLength(1)
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('bin-request-owner').first()).resolves.toMatchObject({ id: request!.id, winsRetention: 'keep_wins' })
+    await expect(db.syncOperations.get('rejected-config-to-delete')).resolves.toMatchObject({ status: 'superseded', supersededByDeletionRequestId: request!.id })
+    await expect(db.syncOperations.get('rejected-entry-to-delete')).resolves.toMatchObject({ status: 'superseded', supersededByDeletionRequestId: request!.id })
+    await expect(db.syncOperations.get('unrelated-operation')).resolves.toMatchObject({ status: 'pending' })
+    await expect(localRepository.requestPermanentDeletion('request-tracker', 'delete_wins')).rejects.toThrow(/different Wins choice/)
+    await expect(db.permanentDeletionRequests.where('ownerUserId').equals('bin-request-owner').first()).resolves.toMatchObject({ winsRetention: 'keep_wins' })
     await expect(db.trackers.get('request-tracker')).resolves.toMatchObject({ name: 'Read more', deletedAt: expect.any(String) })
     await expect(db.trackerEntries.where('trackerId').equals('request-tracker').count()).resolves.toBe(1)
   })

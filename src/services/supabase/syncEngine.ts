@@ -296,50 +296,59 @@ async function processPermanentHolidayDeletionRequests(database: ProgressTracker
   return { deleted, failed, conflicts }
 }
 
-async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string, heldTrackerIds: ReadonlySet<string> = new Set()) {
+async function processPermanentDeletionRequests(database: ProgressTrackerDatabase, client: SyncClient, userId: string) {
   if (!isPermanentDeletionEnabled()) return { deleted: 0, failed: 0, conflicts: 0 }
   const requests = await database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
   let deleted = 0
   let failed = 0
   let conflicts = 0
-  for (const request of requests.filter((item) => item.status === 'pending' && !heldTrackerIds.has(item.trackerId)).sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))) {
+  const pendingRequests = requests.filter((item) => item.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))
+  for (const request of pendingRequests) {
     let trackerName = request.trackerId
     try {
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
-      const [tracker, revision] = await Promise.all([
-        database.trackers.get(request.trackerId), database.syncRecords.get(keyFor('tracker', request.trackerId)),
-      ])
+      const tracker = await database.trackers.get(request.trackerId)
       if (!request.winsRetention) throw new PermanentDeletionRejectedError('This saved request needs a Wins retention choice. Reopen the Bin and choose how its XP and achievements should be handled.')
-      if (!tracker?.deletedAt || !revision) throw new Error('The Bin deletion must sync successfully before permanent deletion can proceed.')
+      if (!tracker?.deletedAt) throw new PermanentDeletionRejectedError('The tracker is no longer in the Bin. Reopen the Bin and review its deletion status.')
       trackerName = tracker.name
+      const { data: cloudTracker, error: cloudReadError } = await client.from('trackers')
+        .select('id,user_id,server_revision').eq('user_id', userId).eq('id', request.trackerId).maybeSingle()
+      if (cloudReadError) throw new Error(`The latest cloud tracker revision could not be checked: ${cloudReadError.message}`)
+      if (!cloudTracker) throw new PermanentDeletionRejectedError('The owned cloud tracker is missing and no deletion receipt was found. Contact support before retrying.')
+      if (cloudTracker.user_id !== userId || cloudTracker.id !== request.trackerId || !Number.isSafeInteger(cloudTracker.server_revision) || cloudTracker.server_revision < 1) {
+        throw new PermanentDeletionRejectedError('The fresh cloud tracker identity, owner, or revision is invalid. No data was deleted.')
+      }
+      await accountState(database, userId)
+      await assertCurrentSession(client, userId)
       publishPermanentDeletionNotification({ status: 'queued', ownerUserId: userId, trackerId: request.trackerId, trackerName })
       const { data, error } = await client.rpc('permanently_delete_tracker', {
         p_expected_user_id: userId, p_operation_id: request.id, p_tracker_id: request.trackerId,
-        p_expected_revision: revision.serverRevision, p_wins_retention: request.winsRetention,
+        p_expected_revision: cloudTracker.server_revision, p_wins_retention: request.winsRetention,
       })
       if (error) {
         if (error.code === '55000') {
-          throw new PermanentDeletionRejectedError(request.winsRetention === 'delete_wins'
-            ? 'Delete Tracker and Wins is unavailable because some rewards cannot be safely separated. Nothing was deleted. Choose Keep My Wins to preserve them.'
-            : 'This tracker could not be deleted safely. Nothing was deleted. Your tracker is still in the Bin.')
+          throw new PermanentDeletionRejectedError(`The server rejected the selected Wins policy: ${error.message}`)
         }
-        if (error.code === '22023') throw new PermanentDeletionRejectedError('Move this tracker to the Bin before permanently deleting it.')
-        if (error.code === '42501') throw new PermanentDeletionRejectedError('You don’t have access to delete this tracker. Sign in to the account that owns it.')
-        if (error.code === 'PGRST202') throw new PermanentDeletionRejectedError('Permanent deletion is unavailable right now. Your tracker is still in the Bin.')
+        if (error.code === '22023') throw new PermanentDeletionRejectedError(`The server rejected this deletion request: ${error.message}`)
+        if (error.code === '42501') throw new PermanentDeletionRejectedError(`Deletion was denied for this account: ${error.message}`)
+        if (error.code === 'PGRST202') throw new PermanentDeletionRejectedError(`The deletion RPC is unavailable: ${error.message}`)
+        if (error.code && !['40001', '40P01', '55P03', '57014'].includes(error.code)) {
+          throw new PermanentDeletionRejectedError(`The server rejected deletion (${error.code}): ${error.message}`)
+        }
         throw new Error(error.message)
       }
       const result = data as { status?: string; tracker_id?: string; permanently_deleted_at?: string; record?: ServerTracker | null }
       if (result?.status === 'conflict') {
-        await database.transaction('rw', [database.permanentDeletionRequests, database.syncConflicts], async () => {
+        await database.transaction('rw', [database.permanentDeletionRequests], async () => {
           const current = await database.permanentDeletionRequests.get(request.id)
-          if (current) await database.permanentDeletionRequests.put({ ...current, status: 'conflict', lastError: 'The cloud tracker changed. Resolve its sync conflict before deleting it permanently.' })
-          await database.syncConflicts.put({ id: request.id, ownerUserId: userId, entity: 'tracker', entityId: request.trackerId, localPayload: tracker, remoteRecord: result.record as unknown as Record<string, unknown> | null, detectedAt: new Date().toISOString() })
+          if (current) await database.permanentDeletionRequests.put({ ...current, status: 'pending', lastError: 'The cloud changed during deletion. The request is preserved; retry deletion to fetch a fresh revision.' })
         })
-        publishPermanentDeletionNotification({ status: 'conflict', ownerUserId: userId, trackerId: request.trackerId, trackerName: tracker.name, message: 'The cloud tracker changed. Resolve its sync conflict before retrying permanent deletion.' })
+        publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName: tracker.name, message: 'The cloud changed during deletion. Retry to check the latest revision.' })
         conflicts += 1
         continue
       }
+      if (result?.status === 'not_found') throw new PermanentDeletionRejectedError('The server reports that this tracker does not exist and has no deletion receipt. No local data was removed.')
       if (!['deleted', 'already_deleted'].includes(result?.status ?? '') || result.tracker_id !== request.trackerId) throw new Error('The server did not confirm permanent deletion.')
       await localRepository.recordPermanentDeletionConfirmation(userId, {
         tracker_id: request.trackerId,
@@ -350,7 +359,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
       const current = await database.permanentDeletionRequests.get(request.id)
       const message = cause instanceof PermanentDeletionRejectedError
         ? errorMessage(cause)
-        : 'We couldn’t confirm permanent deletion. Your tracker is still in the Bin. Reconnect and try again.'
+        : `Deletion was not confirmed: ${errorMessage(cause)}`
       if (current) await database.permanentDeletionRequests.put({ ...current, status: cause instanceof PermanentDeletionRejectedError ? 'failed' : 'pending', lastError: message })
       publishPermanentDeletionNotification({ status: 'failed', ownerUserId: userId, trackerId: request.trackerId, trackerName, message })
       failed += 1
@@ -368,6 +377,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
     ? await database.trackerEntries.bulkGet(candidates.map((operation) => operation.entityId))
     : []
   const operations = candidates.filter((operation, index) => {
+    if (entity === 'tracker') return !heldTrackerIds.has(operation.entityId)
     if (entity !== 'tracker_entry') return true
     const payloadTrackerId = (operation.payload as StoredTrackerEntry | undefined)?.trackerId
     const localTrackerId = entriesById[index]?.trackerId
@@ -751,11 +761,17 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   if (isPermanentDeletionEnabled()) await reconcileServerDeletionLedger(database, client, userId)
   if (isHolidayPermanentDeletionEnabled()) await reconcileServerHolidayDeletionLedger(database, client, userId)
 
-  const trackers = await uploadQueue(database, client, userId, 'tracker')
+  // Permanent deletion is authoritative for its tracker. Process it before
+  // uploads; queued tracker and entry writes for every saved deletion intent
+  // stay quarantined, including while the device is offline or deletion fails.
+  const deletionRequestsBeforeUpload = await database.permanentDeletionRequests.where('ownerUserId').equals(userId).toArray()
+  const deletionIntentTrackerIds = new Set(deletionRequestsBeforeUpload.map((request) => request.trackerId))
+  const deletionRequests = await processPermanentDeletionRequests(database, client, userId)
+  const trackers = await uploadQueue(database, client, userId, 'tracker', deletionIntentTrackerIds)
   const remainingTrackerOperations = await database.syncOperations.where('ownerUserId').equals(userId).toArray()
-  const unacknowledgedTrackerIds = new Set(remainingTrackerOperations.filter((operation) => operation.entity === 'tracker' && (operation.status === 'blocked' || operation.status === 'conflict')).map((operation) => operation.entityId))
-  const deletionRequests = trackers.failed || trackers.conflicts ? { deleted: 0, conflicts: 0, failed: 0 } : await processPermanentDeletionRequests(database, client, userId, unacknowledgedTrackerIds)
-  const entries = trackers.failed || trackers.conflicts || deletionRequests.failed || deletionRequests.conflicts ? { uploaded: 0, conflicts: 0, failed: 0 } : await uploadQueue(database, client, userId, 'tracker_entry', unacknowledgedTrackerIds)
+  const unacknowledgedTrackerIds = new Set(remainingTrackerOperations.filter((operation) => operation.entity === 'tracker' && ['pending', 'in-flight', 'blocked', 'conflict'].includes(operation.status)).map((operation) => operation.entityId))
+  for (const trackerId of deletionIntentTrackerIds) unacknowledgedTrackerIds.add(trackerId)
+  const entries = await uploadQueue(database, client, userId, 'tracker_entry', unacknowledgedTrackerIds)
   // The entry write RPC commits progression triggers in the same transaction.
   // Refresh Wins as soon as that acknowledgment arrives instead of waiting for
   // unrelated holiday work and full-table pulls later in this sync pass.

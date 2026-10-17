@@ -151,9 +151,30 @@ async function compareBackupWithWorkspace(backup: WorkspaceBackup, database: Awa
   const alreadyPresent: Record<string, number> = {}
   const conflicts: string[] = []
   const plannedUniqueKeys = new Map<string, string>()
+  const workspace = await database.workspaceMetadata.get('workspace')
+  const deletedTrackerIds = new Set(workspace?.userId
+    ? (await database.permanentDeletionLedger.where('ownerUserId').equals(workspace.userId).toArray()).map((row) => row.trackerId)
+    : [])
+  const deletedEntryIds = new Set((backup.stores.trackerEntries as Array<{ id: string; trackerId: string }>)
+    .filter((entry) => deletedTrackerIds.has(entry.trackerId)).map((entry) => entry.id))
+
+  const belongsToDeletedTracker = (storeName: string, row: Record<string, unknown>) => {
+    if (storeName === 'trackers') return deletedTrackerIds.has(String(row.id))
+    if (storeName === 'trackerEntries') return deletedTrackerIds.has(String(row.trackerId))
+    if (storeName === 'permanentDeletionRequests' || storeName === 'trackerVerification') return deletedTrackerIds.has(String(storeName === 'permanentDeletionRequests' ? row.trackerId : row.trackerId))
+    if (storeName === 'syncOperations' || storeName === 'syncConflicts') {
+      const payload = storeName === 'syncOperations' ? row.payload : row.localPayload
+      const payloadTrackerId = typeof payload === 'object' && payload !== null && 'trackerId' in payload ? String((payload as { trackerId: unknown }).trackerId) : ''
+      return row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId))
+        || row.entity === 'tracker_entry' && (deletedEntryIds.has(String(row.entityId)) || deletedTrackerIds.has(payloadTrackerId))
+    }
+    if (storeName === 'syncRecords') return (row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId)))
+      || (row.entity === 'tracker_entry' && deletedEntryIds.has(String(row.entityId)))
+    return false
+  }
 
   for (const storeName of backupStores) {
-    const candidates = backup.stores[storeName] as Array<Record<string, unknown>>
+    const candidates = (backup.stores[storeName] as Array<Record<string, unknown>>).filter((row) => !belongsToDeletedTracker(storeName, row))
     const keyName = primaryKeyFor[storeName]
     if (storeName === 'workspaceMetadata') {
       added[storeName] = 0
@@ -243,9 +264,29 @@ export async function restoreWorkspaceBackup(value: unknown, expectedOwnerUserId
     if (metadata?.userId !== expectedOwnerUserId) throw new Error('The active workspace changed. Reopen Account and select the backup again.')
     const comparison = await compareBackupWithWorkspace(backup, database)
     if (comparison.conflicts.length) throw new Error(`Restore stopped without changing data: ${comparison.conflicts[0]}`)
+      const deletedTrackerIds = new Set(metadata.userId
+        ? (await database.permanentDeletionLedger.where('ownerUserId').equals(metadata.userId).toArray()).map((row) => row.trackerId)
+        : [])
+      const deletedEntryIds = new Set((backup.stores.trackerEntries as Array<{ id: string; trackerId: string }>)
+        .filter((entry) => deletedTrackerIds.has(entry.trackerId)).map((entry) => entry.id))
+      const belongsToDeletedTracker = (storeName: string, row: Record<string, unknown>) => {
+        if (storeName === 'trackers') return deletedTrackerIds.has(String(row.id))
+        if (storeName === 'trackerEntries') return deletedTrackerIds.has(String(row.trackerId))
+        if (storeName === 'permanentDeletionRequests') return deletedTrackerIds.has(String(row.trackerId))
+        if (storeName === 'trackerVerification') return deletedTrackerIds.has(String(row.trackerId))
+        if (storeName === 'syncOperations' || storeName === 'syncConflicts') {
+          const payload = storeName === 'syncOperations' ? row.payload : row.localPayload
+          const payloadTrackerId = typeof payload === 'object' && payload !== null && 'trackerId' in payload ? String((payload as { trackerId: unknown }).trackerId) : ''
+          return row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId))
+            || row.entity === 'tracker_entry' && (deletedEntryIds.has(String(row.entityId)) || deletedTrackerIds.has(payloadTrackerId))
+        }
+        if (storeName === 'syncRecords') return (row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId)))
+          || (row.entity === 'tracker_entry' && deletedEntryIds.has(String(row.entityId)))
+        return false
+      }
     for (const storeName of backupStores) {
       if (storeName === 'workspaceMetadata') continue
-      const candidates = backup.stores[storeName] as Array<Record<string, unknown>>
+      const candidates = (backup.stores[storeName] as Array<Record<string, unknown>>).filter((row) => !belongsToDeletedTracker(storeName, row))
       const table = database.table(storeName)
       const additions = []
       for (const row of candidates) {
