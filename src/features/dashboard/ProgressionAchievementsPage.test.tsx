@@ -191,7 +191,10 @@ describe('Progression achievements interface', () => {
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*560px\)[\s\S]*?\.progression-level-card-shell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/)
     expect(appStyles).toMatch(/\.progression-recent-unlocks-grid\s*\{[^}]*grid-auto-flow:\s*column/)
     expect(appStyles).toMatch(/@media\s*\(max-width:\s*760px\)[\s\S]*?\.progression-recent-unlocks-grid\s*\{[^}]*grid-auto-columns:/)
+    expect(appStyles).toMatch(/\.progression-recent-unlocks-heading\s*\{[^}]*flex-wrap:\s*nowrap/)
+    expect(appStyles).toMatch(/@media\s*\(max-width:\s*420px\)[\s\S]*?\.progression-recent-unlocks-heading\s*\{[^}]*flex-wrap:\s*nowrap/)
     expect(appStyles).toMatch(/\.progression-recent-unlocks-scroll-actions button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/)
+    expect(appStyles).toMatch(/\[data-theme='dark'\] \.progression-badge-bronze/)
     expect(appStyles).toContain('.progression-consistency-summary { grid-column: 1 / -1;')
     expect(appStyles).toContain('background: var(--surface)')
     expect(appStyles).toContain('[data-theme=\'dark\'] .progression-level-card')
@@ -240,7 +243,7 @@ describe('Progression achievements interface', () => {
     const retainedUnlock = {
       ...overview.achievements[0]!,
       history: overview.achievements[0]!.history.map((event) => ({
-        ...event, sourceEventId: null, retainedAfterTrackerDeletion: true, trackerDisplayName: 'Read each day',
+        ...event, sourceEventId: null, retainedAfterTrackerDeletion: true, trackerDeleted: true, trackerDisplayName: 'Read each day',
         rewardReasonCode: 'DAILY_CHECK_IN_COMPLETED', rewardXpDelta: 10,
       })),
     }
@@ -281,6 +284,50 @@ describe('Progression achievements interface', () => {
     const earnedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
       .format(new Date(`${today}T11:00:00.000Z`))
     expect(within(dialog).getByText(earnedTimestamp)).toBeInTheDocument()
+  })
+
+  it('labels Perfect Day as account-wide and never infers a deleted tracker from stray attribution data', async () => {
+    const user = userEvent.setup()
+    const perfectDay = {
+      ...overview.achievements[0]!, achievementId: 'perfect-day', repeatable: true,
+      history: [{ ...overview.achievements[0]!.history[0]!, id: 'perfect-day-history', achievementId: 'perfect-day',
+        trackerDeleted: true, trackerDisplayName: 'Read each day' }],
+    }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [perfectDay] })
+    renderPage()
+    const collection = await openBadgeCollection(user)
+    await user.click(within(collection).getByRole('button', { name: /Perfect Day, earned/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Perfect Day' })
+    expect(dialog).toHaveTextContent('Account-wide achievement')
+    expect(dialog).toHaveTextContent('considers all eligible trackers for that date')
+    expect(dialog).not.toHaveTextContent('Deleted tracker')
+    expect(dialog).not.toHaveTextContent('XP and rewards')
+    expect(dialog).toHaveTextContent('Completing a Perfect Day earns 20 XP')
+  })
+
+  it('resolves a live source tracker name without calling it deleted', async () => {
+    const user = userEvent.setup()
+    const firstStep = { ...overview.achievements[0]!, history: [{ ...overview.achievements[0]!.history[0]!, trackerId: tracker.id }] }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [firstStep] })
+    renderPage()
+    const collection = await openBadgeCollection(user)
+    await user.click(within(collection).getByRole('button', { name: /First Step, earned/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'First Step' })
+    expect(dialog).toHaveTextContent('Read each day')
+    expect(dialog).not.toHaveTextContent('Deleted tracker')
+    expect(dialog).toHaveTextContent('Qualifying check-ins earn 10 XP')
+  })
+
+  it('uses neutral wording when a tracker-specific badge source cannot be resolved', async () => {
+    const user = userEvent.setup()
+    const unresolved = { ...overview.achievements[0]!, history: [{ ...overview.achievements[0]!.history[0]!, trackerId: 'missing-tracker-id' }] }
+    mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, achievements: [unresolved] })
+    renderPage()
+    const collection = await openBadgeCollection(user)
+    await user.click(within(collection).getByRole('button', { name: /First Step, earned/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'First Step' })
+    expect(dialog).toHaveTextContent('Tracker unavailable')
+    expect(dialog).not.toHaveTextContent('Deleted tracker')
   })
 
   it('hides complete reversal groups by default and can show the original transactions', async () => {
@@ -442,10 +489,9 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Unlocked')).toBeInTheDocument()
     expect(within(dialog).getByText('Save one qualifying check-in.')).toBeInTheDocument()
     expect(within(dialog).getByText(/Unlocked · First award/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/Unlocking a badge adds no separate XP/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/qualifying check-in earns 10 XP/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/Perfect Day adds 20 XP/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/streak milestones earn 7 days \(\+35 XP\)/)).toBeInTheDocument()
+    expect(within(dialog).getByText('Qualifying check-ins earn 10 XP.')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Perfect Day/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/streak milestone/)).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'First Step' })).not.toBeInTheDocument()
     expect(await screen.findByRole('dialog', { name: 'All badges' })).toBeInTheDocument()
