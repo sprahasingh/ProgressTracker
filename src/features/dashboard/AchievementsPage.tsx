@@ -1,8 +1,6 @@
-import { isProgressionUiEnabled } from '../../domain/trackers/schemaVersionGate'
-import { LegacyAchievementsPage } from './LegacyAchievementsPage'
 import { ProgressionAchievementsPage } from './ProgressionAchievementsPage'
 
-/** Keep the established page intact until a release explicitly enables progression UI. */
+/** The achievements tab is the Wins overview; tracker-specific challenges live on their own route. */
 export function AchievementsPage() {
-  return isProgressionUiEnabled() ? <ProgressionAchievementsPage /> : <LegacyAchievementsPage />
+  return <ProgressionAchievementsPage />
 }

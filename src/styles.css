@@ -963,7 +963,7 @@ a { color: inherit; text-decoration: none; }
 .progression-badge-card-shell { position: relative; min-width: 0; }
 .progression-badge-card-shell > .info-button { position: absolute; z-index: 2; top: 0; right: 0; width: 44px; height: 44px; }
 .progression-badge-card-shell > .info-button .info-button-icon { width: 22px; height: 22px; }
-.progression-badge-card { display: grid; width: 100%; height: 166px; min-width: 0; grid-template-rows: 64px 2.6em 1.2em 1.2em; align-content: start; justify-items: center; gap: 3px; padding: 27px 8px 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: center; transition: border-color 140ms ease, transform 140ms ease; }
+.progression-badge-card { display: flex; width: 100%; min-height: 184px; min-width: 0; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px; padding: 23px 8px 12px; overflow: visible; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: center; transition: border-color 140ms ease, transform 140ms ease; }
 .progression-badge-card > strong { max-width: 100%; color: var(--ink); font-size: 10px; line-height: 1.3; overflow-wrap: anywhere; }
 .progression-badge-card > span, .progression-badge-card > small, .progression-badge-card time { color: var(--ink-muted); font-size: 9px; }
 .progression-badge-card > strong { width: 100%; min-height: 2.6em; display: -webkit-box; align-self: stretch; align-content: center; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -1170,7 +1170,7 @@ a { color: inherit; text-decoration: none; }
   .progression-badges-summary .progression-card-action { font-size: 10px; }
   .progression-detail-cards { grid-template-columns: 1fr; gap: 8px; }
   .progression-badge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-  .progression-badge-card { height: 166px; padding: 27px 5px 8px; }
+  .progression-badge-card { padding-right: 5px; padding-left: 5px; }
   .progression-badge-card .progression-badge { width: 64px; }
   .progression-dialog-backdrop { align-items: center; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
   .progression-dialog { width: 100%; max-height: calc(var(--modal-visible-height, 100dvh) - max(16px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px))); border-radius: 19px 19px 16px 16px; }
@@ -3990,4 +3990,521 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 }
 @media (prefers-reduced-motion: reduce) {
   .analytics-tracker-toggle svg { transition: none; }
+}
+
+/* Insights destinations share the established page-header scale and alignment. */
+.insights-page > .page-header { align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+.insights-page .page-title { margin-top: 14px; font-size: clamp(36px, 5vw, 54px); letter-spacing: -1.8px; line-height: 1.08; }
+.insights-page .page-title-row { gap: 8px; }
+.insights-page .page-title-row .info-button { width: 44px; height: 44px; flex: 0 0 44px; }
+.insights-page .page-description { margin-top: 8px; font-size: 13px; line-height: 1.5; }
+.insights-page > .section-tabs { margin: 0 0 14px; }
+.analytics-toolbar { display: grid; grid-template-columns: minmax(145px, .72fr) minmax(300px, 1.35fr) minmax(190px, 1fr); align-items: center; gap: 10px; margin: 12px 0 14px; }
+.analytics-toolbar > * { min-width: 0; }
+.analytics-period-control { display: flex; min-width: 0; gap: 2px; overflow-x: auto; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); scrollbar-width: thin; }
+.analytics-period-control button { min-width: 44px; min-height: 38px; flex: 1 0 auto; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ink-muted); font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.analytics-period-control button[aria-pressed='true'] { background: var(--accent); color: #fff; box-shadow: 0 2px 7px color-mix(in srgb, var(--accent) 24%, transparent); }
+.analytics-period-control button:focus-visible { position: relative; z-index: 1; outline: 3px solid var(--focus-ring); outline-offset: 1px; }
+.analytics-range { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 6px 0; color: var(--ink-muted); font-size: 12px; line-height: 1.4; }
+.analytics-range svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--accent-strong); }
+.analytics-range span { min-width: 0; overflow-wrap: anywhere; }
+.analytics-summary-groups { align-items: stretch; gap: 12px; margin: 14px 0 12px; }
+.analytics-summary-group { min-height: 0; padding: 14px; border-radius: 15px; background: var(--surface); box-shadow: var(--shadow-card); }
+.analytics-summary-group > h2 { margin-bottom: 7px; font-size: 15px; font-weight: 680; letter-spacing: -.15px; }
+.analytics-summary-activity .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)) 86px; gap: 0 10px; align-items: center; }
+.analytics-summary-activity .analytics-summary-stat { padding: 8px 0; }
+.analytics-summary-activity .analytics-summary-stat > strong { font-size: clamp(20px, 2vw, 24px); }
+.analytics-summary-activity .analytics-summary-label { font-size: 11px; }
+.analytics-success-ring { display: grid; width: 78px; height: 78px; grid-column: 3; grid-row: 1 / span 2; align-content: center; justify-items: center; border-radius: 50%; background: conic-gradient(var(--accent) var(--success-angle), color-mix(in srgb, var(--accent) 12%, var(--surface-muted)) 0); color: var(--ink); isolation: isolate; position: relative; }
+.analytics-success-ring::before { position: absolute; z-index: -1; inset: 6px; border-radius: inherit; background: var(--surface); content: ''; }
+.analytics-success-ring > strong { font-size: 17px; font-weight: 760; font-variant-numeric: tabular-nums; line-height: 1; }
+.analytics-success-ring > small { margin-top: 4px; color: var(--ink-muted); font-size: 8px; }
+.analytics-overall-context { grid-column: 1 / -1; margin: 4px 0 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.analytics-summary-consistency .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.analytics-summary-consistency .analytics-summary-stat { padding: 9px 0; }
+.analytics-summary-consistency .analytics-summary-stat:nth-child(3) { grid-column: 1 / -1; }
+.analytics-consistency-context { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 10px; margin: 2px 0 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.analytics-consistency-context > span { display: flex; min-width: 0; align-items: center; gap: 4px; color: var(--ink-muted); font-size: 9px; line-height: 1.3; }
+.analytics-consistency-context > span strong { flex: 0 0 auto; color: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; }
+.analytics-summary-rewards .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.analytics-summary-rewards .analytics-summary-stat { padding: 8px 0; }
+.analytics-summary-rewards .analytics-summary-stat > strong { font-size: 19px; }
+.analytics-rewards-link { display: flex; min-height: 38px; grid-column: 1 / -1; align-items: center; justify-content: flex-end; gap: 6px; border-top: 1px solid var(--line); color: var(--accent-strong); font-size: 11px; font-weight: 700; text-decoration: none; }
+.analytics-rewards-link svg { width: 14px; height: 14px; transform: rotate(-90deg); }
+.analytics-rewards-link:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.analytics-activity-card { margin: 0 0 13px; padding: 14px; border-radius: 15px; }
+.analytics-activity-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.analytics-activity-heading > div { min-width: 0; }
+.analytics-activity-title-line { display: flex; align-items: center; gap: 8px; }
+.analytics-activity-title-line svg { width: 19px; height: 19px; color: var(--accent-strong); }
+.analytics-activity-title-line h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; }
+.analytics-activity-heading p { margin: 3px 0 0 27px; color: var(--ink-muted); font-size: 10px; }
+.analytics-activity-chart { display: grid; min-width: 0; grid-template-columns: 22px minmax(0, 1fr); gap: 5px; }
+.analytics-chart-scale { display: flex; flex-direction: column; justify-content: space-between; padding: 0 0 17px; color: var(--ink-subtle); font-size: 9px; font-variant-numeric: tabular-nums; text-align: right; }
+.analytics-chart-plot { display: flex; min-width: 0; height: 98px; align-items: end; gap: 3px; padding: 4px 2px 0; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, color-mix(in srgb, var(--line) 76%, transparent) 32px); }
+.analytics-chart-column { display: flex; min-width: 0; height: 100%; flex: 1 1 0; align-items: end; justify-content: center; }
+.analytics-chart-bar { display: block; width: min(100%, 12px); min-height: 0; border-radius: 5px 5px 1px 1px; background: var(--accent); }
+.analytics-chart-ticks { display: flex; min-width: 0; grid-column: 2; justify-content: space-between; gap: 4px; overflow: hidden; color: var(--ink-muted); font-size: 9px; white-space: nowrap; }
+.analytics-chart-ticks span { min-width: 0; }
+.analytics-activity-empty { margin: 14px 0 4px; color: var(--ink-muted); font-size: 12px; }
+.analytics-activity-data { margin-top: 8px; color: var(--ink-muted); font-size: 10px; }
+.analytics-activity-data summary { width: fit-content; min-height: 32px; display: flex; align-items: center; color: var(--accent-strong); font-weight: 650; cursor: pointer; }
+.analytics-activity-data ul { display: grid; max-height: 220px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; overflow: auto; margin: 4px 0 0; padding: 0; list-style: none; }
+.analytics-activity-data li { display: flex; min-width: 0; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.analytics-activity-data li span { min-width: 0; overflow-wrap: anywhere; }
+.analytics-activity-data li strong { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+.analytics-context-summary { margin-top: 8px; }
+.analytics-context-summary > p { margin: 7px 0 0; }
+.analytics-tracker { border-radius: 15px; }
+.progression-overview { display: grid; gap: 10px; margin-top: 12px; }
+.progression-overview-heading { align-items: center; margin: 0; }
+.progression-overview-heading h2 { font-family: var(--font-sans); font-size: 15px; font-weight: 700; }
+.progression-authority { font-size: 10px; }
+.progression-level-card-shell { grid-column: auto; border-radius: 15px; box-shadow: var(--shadow-card); }
+.progression-xp-header { min-height: 44px; padding: 0 12px; }
+.progression-xp-header > strong { font-family: var(--font-sans); font-size: 14px; font-weight: 700; }
+.progression-level-card { gap: 8px; padding: 4px 12px 13px; }
+.progression-level-top { justify-content: flex-start; }
+.progression-level-pill { border-color: transparent; padding: 0; font-size: 18px; font-weight: 750; letter-spacing: 0; }
+.progression-level-track { height: 8px; background: var(--surface-muted); }
+.progression-level-track > span { background: var(--accent); transition: width 180ms ease; }
+.progression-level-caption { font-size: 11px; }
+.progression-recent-unlocks { gap: 10px; margin-top: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.progression-recent-unlocks-heading { align-items: center; gap: 8px; }
+.progression-recent-unlocks-heading h3 { color: var(--ink); font-size: 15px; }
+.progression-recent-unlocks-grid { gap: 9px; }
+.progression-recent-unlocks-grid button { min-height: 130px; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 5px; padding: 10px; border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); transition: border-color 140ms ease, transform 140ms ease, background-color 140ms ease; }
+.progression-recent-unlocks-grid button:hover { transform: translateY(-1px); background: var(--surface-raised); }
+.progression-recent-unlocks-grid button:active { transform: translateY(0); }
+.progression-recent-unlocks-grid button .progression-badge { width: 48px; flex-basis: 48px; }
+.progression-recent-unlocks-grid button > span { gap: 3px; font-size: 12px; line-height: 1.25; }
+.progression-recent-unlocks-grid button small { font-size: 10px; line-height: 1.35; }
+.progression-recent-unlocks-heading .progression-text-button { min-height: 40px; }
+.progression-activity { margin-top: 14px; }
+.progression-activity-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.progression-activity-heading h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; }
+.progression-activity-heading p { margin: 3px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.progression-activity-heading .progression-text-button { min-height: 40px; flex: 0 0 auto; }
+.progression-activity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.progression-activity-stat { display: grid; min-width: 0; min-height: 82px; grid-template-columns: 36px minmax(0, 1fr); align-content: center; align-items: center; gap: 2px 9px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
+.progression-activity-stat:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--surface-raised); }
+.progression-activity-stat:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.progression-activity-stat > span:first-child { display: grid; width: 34px; height: 34px; grid-row: 1 / span 2; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); }
+.progression-activity-stat svg { width: 18px; height: 18px; }
+.progression-activity-stat strong { min-width: 0; overflow-wrap: anywhere; font-size: clamp(14px, 2vw, 18px); font-variant-numeric: tabular-nums; }
+.progression-activity-stat small { min-width: 0; color: var(--ink-muted); font-size: 9px; line-height: 1.3; }
+.progression-explore { margin-top: 14px; }
+.progression-explore h2 { margin: 0 0 7px; color: var(--ink); font-size: 15px; font-weight: 700; }
+.progression-explore-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.progression-explore-list .progression-detail-card { min-height: 62px; grid-template-columns: 38px minmax(0, 1fr) 16px; gap: 10px; padding: 9px 11px; border-radius: 13px; box-shadow: none; }
+.progression-explore-list .progression-detail-symbol { width: 36px; height: 36px; border-radius: 11px; }
+.progression-explore-list .progression-detail-card strong { font-size: 12px; }
+.progression-explore-list .progression-detail-card small { font-size: 10px; }
+.progression-section[aria-labelledby='progression-history-heading'],
+.progression-section[aria-labelledby='progression-streak-heading'],
+.progression-section[aria-labelledby='progression-badges-heading'] { margin-top: 14px; }
+.progression-section[aria-labelledby='progression-history-heading'] .progression-section-heading h2,
+.progression-section[aria-labelledby='progression-streak-heading'] .progression-section-heading h2,
+.progression-section[aria-labelledby='progression-badges-heading'] .progression-section-heading h2 { font-family: var(--font-sans); font-size: 15px; font-weight: 700; }
+.progression-badge-grid { gap: 8px; }
+@media (min-width: 761px) {
+  .analytics-toolbar { grid-template-columns: minmax(155px, .72fr) minmax(330px, 1.35fr) minmax(195px, 1fr); }
+  .progression-overview { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+  .progression-overview-heading { grid-column: 1 / -1; }
+  .progression-level-card-shell { grid-column: 1 / -1; }
+  .progression-recent-unlocks { grid-column: 1 / -1; }
+  .progression-activity, .progression-explore { grid-column: 1 / -1; }
+  .progression-recent-unlocks-grid button { min-height: 100px; flex-direction: row; align-items: center; gap: 14px; padding: 12px 15px; }
+  .progression-recent-unlocks-grid button .progression-badge { width: 52px; flex-basis: 52px; }
+  .progression-recent-unlocks-grid button > span { align-content: center; }
+}
+@media (max-width: 760px) {
+  .analytics-toolbar { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .analytics-toolbar .history-filter { width: 100%; min-width: 0; }
+  .analytics-period-control { width: 100%; }
+  .analytics-range { grid-column: 1; }
+  .analytics-summary-groups { grid-template-columns: minmax(0, 1fr); gap: 9px; margin-top: 10px; }
+  .analytics-summary-group { padding: 12px; }
+  .analytics-activity-card { padding: 12px; }
+  .analytics-chart-plot { height: 88px; }
+  .analytics-summary-consistency .analytics-summary-list,
+  .analytics-summary-rewards .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .progression-overview { grid-template-columns: minmax(0, 1fr); }
+  .progression-recent-unlocks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .progression-recent-unlocks-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+  .progression-recent-unlocks-grid button { min-height: 124px; padding: 9px; }
+  .progression-recent-unlocks-grid button .progression-badge { width: 42px; flex-basis: 42px; }
+  .progression-explore-list { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 360px) {
+  .analytics-consistency-context { grid-template-columns: minmax(0, 1fr); }
+  .progression-recent-unlocks-grid { gap: 7px; }
+  .progression-recent-unlocks-grid button { min-height: 119px; gap: 4px; padding: 8px; }
+  .progression-recent-unlocks-grid button .progression-badge { width: 38px; flex-basis: 38px; }
+  .progression-recent-unlocks-grid button > span { font-size: 11px; }
+  .analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 74px; gap: 0 6px; }
+  .analytics-success-ring { width: 68px; height: 68px; }
+  .analytics-success-ring > strong { font-size: 15px; }
+  .analytics-activity-data ul { grid-template-columns: minmax(0, 1fr); }
+  .progression-activity-stat { grid-template-columns: 30px minmax(0, 1fr); gap: 3px 6px; padding: 8px; }
+  .progression-activity-stat > span:first-child { width: 29px; height: 29px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progression-recent-unlocks-grid button,
+  .analytics-period-control button,
+  .progression-level-track > span { transition: none; }
+}
+@media (min-width: 761px) and (max-width: 1000px) {
+  .analytics-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .analytics-toolbar .history-filter,
+  .analytics-period-control { width: 100%; min-width: 0; }
+  .analytics-range { grid-column: 1; }
+  .analytics-summary-groups { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Keep the analytics overview content-led: help belongs to each card heading,
+   and values sit below their labels so narrow metric cells never collide. */
+.analytics-summary-groups { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.analytics-summary-group { min-width: 0; align-self: start; padding: 14px; }
+.analytics-summary-group-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.analytics-summary-group-heading h2 { min-width: 0; margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.analytics-summary-group-heading .info-button { width: 30px; height: 30px; min-width: 30px; min-height: 30px; flex: 0 0 30px; }
+.analytics-summary-group-heading .info-button-icon { width: 17px; height: 17px; }
+.analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1px 12px; }
+.analytics-summary-stat { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-areas: "label" "value" "detail"; align-content: start; align-items: start; gap: 3px; padding: 7px 0; border: 0; }
+.analytics-summary-label { display: block; min-width: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.3; overflow-wrap: anywhere; }
+.analytics-summary-stat > strong { min-width: 0; color: var(--ink); font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.05; text-align: left; overflow-wrap: anywhere; }
+.analytics-summary-stat > small { min-width: 0; color: var(--ink-subtle); font-size: 9px; line-height: 1.3; overflow-wrap: anywhere; }
+.analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 78px; gap: 0 9px; }
+.analytics-summary-activity .analytics-summary-stat { padding: 5px 0; }
+.analytics-success-ring { grid-column: 3; grid-row: 1 / span 2; width: 74px; height: 74px; justify-self: center; }
+.analytics-success-ring > strong { font-size: 17px; }
+.analytics-success-ring > small { font-size: 8px; }
+.analytics-summary-consistency .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.analytics-consistency-context { grid-column: 1 / -1; margin: 4px 0 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 10px; line-height: 1.35; }
+.analytics-summary-rewards .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.analytics-period-xp-note { grid-column: 1 / -1; margin: 3px 0 0; color: var(--positive); font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.analytics-summary-rewards .analytics-rewards-link { grid-column: 1 / -1; min-height: 36px; border-top: 1px solid var(--line); }
+.analytics-xp-information { max-width: 100%; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.analytics-xp-information p { margin: 0 0 10px; }
+.analytics-xp-information dl { display: grid; gap: 5px; margin: 0 0 10px; }
+.analytics-xp-information dl > div { display: flex; min-width: 0; justify-content: space-between; gap: 12px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.analytics-xp-information dt { min-width: 0; overflow-wrap: anywhere; }
+.analytics-xp-information dd { flex: 0 0 auto; margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 700; }
+.progression-level-detail { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: 3px 6px; color: var(--ink); }
+.progression-level-detail strong { font-size: 19px; font-variant-numeric: tabular-nums; line-height: 1; }
+.progression-level-detail > span { color: var(--ink-muted); font-size: 12px; line-height: 1.35; }
+.progression-xp-header > h2 { min-width: 0; margin: 0; color: var(--ink); font-family: var(--font-sans); font-size: 14px; font-weight: 700; }
+[data-theme='dark'] .progression-level-pill { border-color: transparent; }
+
+@media (min-width: 761px) and (max-width: 1150px) {
+  .analytics-summary-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-summary-activity { grid-column: 1 / -1; }
+  .analytics-summary-rewards { grid-column: auto; }
+}
+@media (max-width: 900px) {
+  .analytics-summary-groups { grid-template-columns: minmax(0, 1fr); }
+  .analytics-summary-activity { grid-column: auto; }
+}
+@media (max-width: 760px) {
+  .analytics-summary-groups { gap: 9px; margin-top: 10px; }
+  .analytics-summary-group { padding: 12px; }
+  .analytics-summary-group-heading { margin-bottom: 5px; }
+  .analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px; gap: 0 7px; }
+  .analytics-success-ring { width: 68px; height: 68px; }
+  .analytics-summary-stat > strong { font-size: 21px; }
+  .analytics-activity-card { padding: 12px; }
+  .analytics-chart-plot { height: 88px; }
+}
+@media (max-width: 360px) {
+  .analytics-summary-group { padding: 11px; }
+  .analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 66px; gap: 0 5px; }
+  .analytics-success-ring { width: 62px; height: 62px; }
+  .analytics-success-ring > strong { font-size: 15px; }
+  .analytics-summary-stat > strong { font-size: 19px; }
+}
+
+/* Shared spacing and compact rows for the four Insights destinations. */
+.dashboard-stats { gap: 12px; margin: 16px 0 10px; }
+.dashboard-stat { gap: 7px; padding: 16px; }
+.dashboard-stat-label { min-width: 0; align-items: center; justify-content: space-between; gap: 6px; line-height: 1.3; }
+.dashboard-stat-label .info-button { flex: 0 0 40px; width: 40px; height: 40px; }
+.dashboard-reward-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px auto;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 0 0 16px;
+  padding: 13px 17px;
+  background: color-mix(in srgb, var(--surface) 80%, var(--joy-sun-soft));
+}
+.dashboard-reward-copy { display: grid; min-width: 0; gap: 3px; }
+.dashboard-reward-copy > strong { color: var(--ink); font-size: 12px; }
+.dashboard-reward-copy > small { color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.dashboard-reward-summary > .info-button { grid-column: 2; grid-row: 1; width: 40px; height: 40px; }
+.dashboard-reward-summary > p { display: flex; align-items: baseline; gap: 5px; margin: 0; white-space: nowrap; }
+.dashboard-reward-summary > p > strong { color: var(--joy-sun); font-size: 24px; font-variant-numeric: tabular-nums; }
+.dashboard-reward-summary > p > span { color: var(--ink-muted); font-size: 10px; }
+.history-toolbar { gap: 10px; margin: 18px 0 15px; }
+.history-missing-section { gap: 10px; margin: 14px 0 18px; padding: 16px; }
+.history-missing-heading h2 { font-family: var(--font-sans); font-size: 17px; font-weight: 700; letter-spacing: -.25px; }
+.history-missing-heading p, .history-missing-empty, .history-missing-note { font-size: 11px; }
+.history-missing-day { gap: 3px; }
+.history-missing-day h3 { font-size: 11px; }
+.history-missing-day ul { gap: 1px; }
+.history-missing-day li { align-items: center; gap: 12px; padding: 6px 0; }
+.history-missing-day li > span { flex: 1 1 auto; }
+.history-missing-day .button { min-width: 76px; min-height: 44px; }
+.history-missing-note { padding-top: 6px; }
+.insights-progression-link { margin: 0 0 12px; color: var(--ink-subtle); font-size: 11px; line-height: 1.45; }
+.history-timeline { gap: 17px; }
+.history-day-heading { align-items: center; margin-bottom: 7px; }
+.history-day-heading h2 { font-family: var(--font-sans); font-size: 15px; font-weight: 700; letter-spacing: -.15px; }
+.history-entry-list { gap: 7px; }
+.history-entry-card { padding: 14px 16px; }
+.history-entry-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; }
+.history-entry-header > div:first-child { min-width: 0; }
+.history-entry-header h3 { margin-top: 6px; font-family: var(--font-sans); font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.history-outcome { max-width: 145px; white-space: normal; text-align: center; line-height: 1.35; }
+.history-entry-card > .button { min-height: 44px; margin-top: 10px; }
+.history-values { gap: 7px 15px; margin-top: 10px; }
+.history-entry-note { margin-top: 8px; padding-top: 8px; }
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .insights-page > .page-header { gap: 7px; margin-bottom: 10px; }
+  .insights-page .page-title { margin-top: 10px; font-size: clamp(32px, 8.5vw, 38px); letter-spacing: -1.2px; }
+  .insights-page .page-description { margin-top: 6px; font-size: 12px; line-height: 1.45; }
+  .insights-page > .section-tabs { margin-bottom: 12px; }
+  .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 13px 0 9px; }
+  .dashboard-stat { gap: 6px; padding: 12px; }
+  .dashboard-stat-label { gap: 3px; font-size: 10px !important; }
+  .dashboard-stat-label .info-button { flex-basis: 38px; width: 38px; height: 38px; }
+  .dashboard-stat > strong { font-size: 26px; }
+  .dashboard-stat > small { font-size: 9px; }
+  .dashboard-reward-summary { grid-template-columns: minmax(0, 1fr) 38px auto; gap: 5px 7px; margin-bottom: 13px; padding: 11px 12px; }
+  .dashboard-reward-copy > small { max-width: 28ch; font-size: 9px; }
+  .dashboard-reward-summary > .info-button { width: 38px; height: 38px; }
+  .dashboard-reward-summary > p > strong { font-size: 21px; }
+  .history-missing-section { gap: 9px; margin: 12px 0 15px; padding: 12px; }
+  .history-missing-heading h2 { font-size: 16px; }
+  .history-missing-heading p { max-width: 36ch; font-size: 10px; }
+  .history-missing-day li { align-items: center; padding: 5px 0; }
+  .history-missing-day li strong { font-size: 11px; line-height: 1.4; }
+  .history-missing-day .button { min-width: 72px; min-height: 44px; }
+  .history-entry-card { padding: 12px; }
+  .history-entry-header { gap: 7px; }
+  .history-entry-header h3 { margin-top: 5px; font-size: 15px; }
+  .history-outcome { max-width: 122px; padding: 5px 7px; font-size: 9px; }
+  .history-timeline { gap: 14px; }
+  .history-day-heading h2 { font-size: 14px; }
+}
+
+@media (max-width: 380px) {
+  .dashboard-stat { padding: 10px; }
+  .dashboard-stat-label .info-button { flex-basis: 36px; width: 36px; height: 36px; }
+  .dashboard-reward-summary { grid-template-columns: minmax(0, 1fr) 36px auto; padding-inline: 10px; }
+  .dashboard-reward-summary > .info-button { width: 36px; height: 36px; }
+  .history-outcome { max-width: 106px; font-size: 8px; }
+}
+
+/* Recent awards remain in one scrollable row, with stable card sizes at every count. */
+.progression-recent-unlocks-heading { flex-wrap: wrap; }
+.progression-recent-unlocks-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
+.progression-recent-unlocks-scroll-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+.progression-recent-unlocks-scroll-actions button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.progression-recent-unlocks-scroll-actions button:hover:not(:disabled), .progression-recent-unlocks-scroll-actions button:focus-visible { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); outline-offset: 1px; }
+.progression-recent-unlocks-scroll-actions button:disabled { color: var(--ink-subtle); cursor: default; opacity: .55; }
+.progression-recent-unlocks-scroll-actions button:first-child [data-icon='chevron-down'] { transform: rotate(90deg); }
+.progression-recent-unlocks-scroll-actions button:last-child [data-icon='chevron-down'] { transform: rotate(-90deg); }
+.progression-recent-unlocks-grid { display: grid; box-sizing: border-box; width: 100%; height: 104px; min-width: 0; grid-auto-flow: column; grid-auto-columns: minmax(178px, 205px); grid-template-columns: none; grid-template-rows: minmax(0, 1fr); align-content: start; gap: 10px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scroll-snap-type: inline mandatory; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink-subtle) 38%, transparent) transparent; }
+.progression-recent-unlocks-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.progression-recent-unlocks-grid button { box-sizing: border-box; height: 100%; min-height: 104px; scroll-snap-align: start; }
+.progression-recent-unlocks-grid.is-single { grid-template-columns: none; }
+.progression-recent-unlocks-grid button .progression-badge { flex: 0 0 46px; width: 46px; }
+.progression-recent-unlocks-grid button > span { min-width: 0; }
+@media (max-width: 760px) {
+  .progression-recent-unlocks-actions { flex-wrap: wrap; }
+  .progression-recent-unlocks-grid { height: 120px; grid-auto-columns: clamp(132px, calc((100% - 9px) / 2), 185px); grid-template-rows: minmax(0, 1fr); gap: 9px; }
+  .progression-recent-unlocks-grid button { height: 100%; min-height: 120px; flex-direction: column; align-items: flex-start; gap: 5px; padding: 9px; }
+  .progression-recent-unlocks-grid button .progression-badge { flex-basis: 42px; width: 42px; }
+  .progression-recent-unlocks-grid button > span { gap: 3px; font-size: 11px; }
+  .progression-recent-unlocks-grid button small { font-size: 9px; line-height: 1.3; }
+}
+@media (max-width: 380px) {
+  .progression-recent-unlocks-grid { height: 118px; gap: 7px; grid-auto-columns: clamp(128px, calc((100% - 7px) / 2), 175px); }
+  .progression-recent-unlocks-grid button { height: 100%; min-height: 118px; padding: 8px; }
+}
+
+/* Summary cards share a row height; the progress ring moves below its metrics
+   whenever the card itself is too narrow for a third column. */
+.analytics-summary-groups { align-items: stretch; }
+.analytics-summary-group { display: flex; min-width: 0; align-self: stretch; flex-direction: column; }
+.analytics-summary-list { display: grid; flex: 1 1 auto; }
+.analytics-summary-rewards .analytics-summary-list,
+.analytics-summary-consistency .analytics-summary-list { align-content: space-between; }
+.analytics-summary-activity { container-name: analytics-activity-card; container-type: inline-size; }
+.analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px; gap: 0 10px; }
+.analytics-success-meter { display: grid; box-sizing: border-box; width: 90px; height: 90px; grid-column: 3; grid-row: 1 / span 2; justify-self: center; align-content: center; justify-items: center; }
+.analytics-success-ring { display: grid; box-sizing: border-box; width: 86px; height: 86px; grid-column: auto; grid-row: auto; grid-template-rows: auto auto; align-content: center; justify-items: center; gap: 4px; padding: 7px; overflow: hidden; }
+.analytics-success-ring > strong { font-size: 16px; line-height: 1; white-space: nowrap; }
+.analytics-success-ring > small { max-width: 100%; margin: 0; font-size: 8px; line-height: 1.15; text-align: center; }
+@container analytics-activity-card (max-width: 359px) {
+  .analytics-summary-activity .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+  .analytics-success-meter { grid-column: 1 / -1; grid-row: auto; justify-self: center; margin-top: 5px; }
+}
+.dashboard-reward-summary { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+.dashboard-reward-heading { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.dashboard-reward-heading > strong { min-width: 0; color: var(--ink); font-size: 12px; }
+.dashboard-reward-heading .info-button { width: 44px; height: 44px; flex: 0 0 44px; }
+.dashboard-reward-summary > .info-button { display: none; }
+.dashboard-reward-summary > p { justify-self: end; }
+@media (max-width: 760px) {
+  .dashboard-reward-summary { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progression-recent-unlocks-grid { scroll-behavior: auto; }
+}
+
+/* Compact controls keep the carousel actions secondary while retaining 44px targets. */
+.progression-recent-unlocks-heading { align-items: center; }
+.progression-recent-unlocks-actions { gap: 4px; }
+.progression-recent-unlocks-scroll-actions { gap: 0; }
+.progression-recent-unlocks-scroll-actions button { position: relative; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; }
+.progression-recent-unlocks-scroll-actions button [data-icon='chevron-down'] { width: 14px; height: 14px; }
+.progression-recent-unlocks-scroll-actions button:hover:not(:disabled) { background: var(--surface-muted); }
+.progression-recent-unlocks-scroll-actions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -4px; }
+.progression-recent-unlocks-scroll-actions button:disabled { background: transparent; }
+@media (max-width: 420px) {
+  .progression-recent-unlocks-heading { align-items: flex-start; }
+  .progression-recent-unlocks-heading > h3 { flex: 1 1 100%; }
+  .progression-recent-unlocks-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* Badge artwork keeps a readable minimum size in a responsive collection. */
+.progression-badge-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.progression-badge-card .progression-badge { width: 68px; height: 68px; flex: 0 0 68px; }
+.progression-badge-card-shell > .info-button { border: 0; border-radius: 50%; background: transparent; }
+.progression-badge-card-shell > .info-button .info-button-icon { width: 17px; height: 17px; }
+@media (max-width: 900px) {
+  .progression-badge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+}
+@media (max-width: 560px) {
+  .progression-badge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .progression-badge-card { padding-right: 5px; padding-left: 5px; }
+}
+
+.progression-calendar-progress { display: grid; gap: 5px; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.progression-calendar-progress > strong { color: var(--ink); }
+.progression-calendar-progress > p { margin: 0; }
+.progression-calendar-progress .progression-level-track { width: 100%; margin-top: 2px; }
+.progression-calendar-progress-note { color: var(--ink-subtle); font-size: 10px; }
+
+/* Metric detail cells use the same label/value stack even when a label has help. */
+.analytics-tracker-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+.analytics-tracker-stats > div { min-width: 0; min-height: 82px; align-content: start; gap: 3px; }
+.analytics-tracker-stats dt { display: flex; min-width: 0; min-height: 44px; flex-wrap: wrap; align-items: center; gap: 0 3px; color: var(--ink-muted); font-size: 10px; line-height: 1.35; }
+.analytics-tracker-stats dt > span { min-width: 0; }
+.analytics-tracker-stats dd { align-self: start; color: var(--ink); font-size: 12px; line-height: 1.4; font-weight: 650; }
+.analytics-tracker-stats > div:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+@media (max-width: 900px) {
+  .analytics-tracker-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .analytics-tracker-stats > div:last-child:nth-child(2n + 1) { grid-column: 1 / -1; }
+}
+
+/* Summary cards share compact top aligned content and a smaller connected rate ring. */
+.analytics-summary-group { padding: 14px; }
+.analytics-summary-list { flex: 0 1 auto; align-content: start; }
+.analytics-summary-rewards .analytics-summary-list,
+.analytics-summary-consistency .analytics-summary-list { align-content: start; }
+.analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px; gap: 0 9px; }
+.analytics-success-meter { width: 76px; height: 76px; }
+.analytics-success-ring { width: 72px; height: 72px; gap: 3px; padding: 6px; }
+.analytics-success-ring::before { inset: 5px; }
+.analytics-success-ring > strong { font-size: clamp(13px, 1.4vw, 16px); }
+.analytics-success-ring > small { font-size: 7px; }
+@container analytics-activity-card (max-width: 359px) {
+  .analytics-summary-activity .analytics-summary-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-success-meter { grid-column: 1 / -1; grid-row: auto; justify-self: center; margin-top: 4px; }
+}
+.analytics-summary-activity .analytics-summary-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 64px; gap: 0 6px; }
+.analytics-success-meter { width: 64px; height: 64px; grid-column: 3; grid-row: 1; align-self: center; justify-self: center; margin-top: 0; }
+.analytics-success-ring { width: 60px; height: 60px; gap: 2px; padding: 5px; }
+.analytics-success-ring::before { inset: 4px; }
+
+/* Keep the collection as one vertical scroller and let rows fit their tallest card. */
+.progression-dialog-content { overflow-x: hidden; overflow-y: auto; padding-bottom: max(28px, env(safe-area-inset-bottom, 0px)); }
+.progression-badge-grid { grid-template-columns: repeat(5, minmax(112px, 1fr)); align-items: stretch; padding-bottom: 12px; }
+.progression-badge-card { height: auto; max-height: none; }
+.progression-badge-card .progression-badge { display: block; width: 68px; height: 68px; flex: 0 0 68px; margin-inline: auto; }
+.progression-badge-card > strong { display: -webkit-box; width: 100%; min-height: 2.6em; max-height: none; flex: 0 0 auto; align-self: stretch; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; line-height: 1.3; text-align: center; }
+.progression-badge-card > span { min-height: 1.2em; flex: 0 0 auto; line-height: 1.2; overflow-wrap: anywhere; }
+.progression-badge-card > .progression-badge-percent { min-height: 1.2em; }
+@media (max-width: 900px) {
+  .progression-badge-grid { grid-template-columns: repeat(3, minmax(112px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .progression-badge-grid { grid-template-columns: repeat(2, minmax(112px, 1fr)); }
+  .progression-badge-card { padding-right: 5px; padding-left: 5px; }
+}
+.analytics-success-ring > strong { font-size: clamp(12px, 1.2vw, 14px); }
+.analytics-success-ring > small { font-size: 6px; }
+.analytics-tracker-stats > div { min-height: 86px; }
+
+/* Keep recent badge cards compact and let card details drive the desktop height. */
+.progression-recent-unlocks-grid { height: 82px; grid-auto-columns: minmax(178px, 205px); overflow-y: hidden; }
+.progression-recent-unlocks-grid button { min-height: 76px; height: 76px; flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px 6px 6px; border-color: var(--line); transition: border-color 140ms ease, background-color 140ms ease; }
+.progression-recent-unlocks-grid button .progression-badge { flex-basis: 40px; width: 40px; }
+.progression-recent-unlocks-grid button > span { gap: 2px; font-size: 11px; }
+.progression-recent-unlocks-grid button:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: var(--surface-muted); }
+.progression-recent-unlocks-grid button:focus-visible, .progression-badge-card:focus-visible { outline: 0; box-shadow: inset 0 0 0 3px var(--focus-ring); }
+.progression-badge-card:hover { transform: none; border-color: color-mix(in srgb, var(--accent) 52%, var(--line)); background: var(--surface-muted); }
+.progression-badge-card { transition: border-color 140ms ease, background-color 140ms ease; }
+.progression-badge-card-shell { min-width: 0; }
+.progression-badge-grid { gap: 12px; padding: 4px 4px 16px; }
+.history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, auto); align-items: end; gap: 14px; margin: 22px 0 8px; }
+.history-toolbar-filters { display: flex; min-width: 0; flex-wrap: wrap; align-items: end; gap: 10px; }
+.history-toolbar-filters > .history-filter { flex: 1 1 150px; }
+.history-custom-dates { display: flex; min-width: 0; flex: 2 1 280px; gap: 10px; }
+.history-custom-dates .history-filter { min-width: 0; flex: 1 1 120px; }
+.history-edit-controls { display: grid; min-width: 0; gap: 4px; }
+.history-add-checkin { width: 100%; min-width: 0; }
+.history-edit-guidance { color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
+.history-count { margin: 0 0 16px; }
+.progression-badge-reward-rule { display: grid; gap: 4px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
+.progression-badge-reward-rule strong, .progression-badge-occurrence-summary > strong { color: var(--ink); font-size: 11px; }
+.progression-badge-reward-rule p { margin: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.55; }
+.progression-badge-occurrence-summary { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
+.progression-badge-occurrence-summary .progression-badge-earned-periods { margin-bottom: 0; }
+.progression-badge-detail { grid-template-columns: minmax(112px, 150px) minmax(0, 1fr); gap: 16px; }
+.progression-badge-detail > .progression-badge { justify-self: center; }
+.progression-badge-requirement { margin-top: 11px; }
+.progression-badge-history { padding: 0 3px; }
+@media (max-width: 760px) {
+  .progression-recent-unlocks-grid { height: 88px; grid-auto-columns: calc((100% - 9px) / 2); gap: 9px; }
+  .progression-recent-unlocks-grid button { min-height: 82px; height: 82px; flex-direction: row; align-items: center; gap: 6px; padding: 6px; }
+  .progression-recent-unlocks-grid button .progression-badge { flex-basis: 34px; width: 34px; }
+  .history-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .history-toolbar-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .history-toolbar-filters > .history-filter { min-width: 0; }
+  .history-custom-dates { grid-column: 1 / -1; }
+  .history-edit-controls { grid-template-columns: minmax(0, 1fr); }
+  .history-add-checkin { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (max-width: 420px) {
+  .progression-recent-unlocks-grid { height: 84px; grid-auto-columns: calc((100% - 7px) / 2); gap: 7px; }
+  .progression-recent-unlocks-grid button { height: 78px; min-height: 78px; padding: 5px; }
+  .progression-recent-unlocks-grid button .progression-badge { flex-basis: 30px; width: 30px; }
+  .progression-recent-unlocks-grid button > span { font-size: 10px; }
+  .progression-recent-unlocks-grid button small { font-size: 9px; }
+  .history-toolbar-filters { grid-template-columns: minmax(0, 1fr); }
+  .history-custom-dates { grid-column: 1; }
+  .history-add-checkin { grid-template-columns: minmax(0, 1fr); }
+  .history-add-checkin .button { width: 100%; }
+  .progression-badge-detail { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }
+  .progression-badge-detail > div { justify-content: center; }
+  .progression-badge-detail > div p { text-align: center; }
 }

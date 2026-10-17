@@ -14,9 +14,16 @@ export function ProgressionDetailDialog({ title, eyebrow, onClose, onBack, child
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const hasBack = Boolean(onBack)
   useModalLayer(true, dialogRef, onBack ?? onClose)
   useVisualViewportBounds(true, backdropRef)
-  useEffect(() => { closeRef.current?.focus() }, [])
+  useEffect(() => {
+    const content = dialogRef.current?.querySelector<HTMLElement>('.progression-dialog-content')
+    if (content) content.scrollTop = 0
+    const backButton = dialogRef.current?.querySelector<HTMLButtonElement>('.progression-dialog-back')
+    const target = hasBack ? backButton : closeRef.current
+    target?.focus({ preventScroll: true })
+  }, [title, hasBack])
 
   return createPortal(<div ref={backdropRef} className="modal-backdrop progression-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section ref={dialogRef} className="progression-dialog" role="dialog" aria-modal="true" aria-labelledby="progression-dialog-title" tabIndex={-1}>

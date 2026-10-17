@@ -31,8 +31,16 @@ describe('local progress dashboard', () => {
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { pages: 2 }, note: '' })
 
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Insights.' })).toBeInTheDocument()
+    expect(screen.getByText('YOUR PROGRESS')).toBeInTheDocument()
+    expect(screen.getByText('A quick view of your saved activity and progress.')).toBeInTheDocument()
+    expect(document.querySelector('.dashboard-page')?.children[1]).toHaveClass('section-tabs')
     expect(await screen.findByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
-    expect(screen.getByText('Reward points')).toBeInTheDocument()
+    const rewardSummary = screen.getByRole('group', { name: 'Reward points' })
+    expect(rewardSummary).toHaveTextContent('points')
+    expect(within(rewardSummary.querySelector('.dashboard-reward-heading')!).getByRole('button', { name: 'More about Reward points' })).toBeInTheDocument()
+    expect(rewardSummary.querySelector(':scope > .info-button')).not.toBeInTheDocument()
+    expect(rewardSummary.querySelector(':scope > p strong')).toBeInTheDocument()
     expect(screen.getByText('Weekly consistency')).toBeInTheDocument()
     expect(screen.getByText('personal best')).toBeInTheDocument()
   })
@@ -53,7 +61,7 @@ describe('local progress dashboard', () => {
 
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
     const summary = await screen.findByRole('group', { name: 'Recent progress summary' })
-    expect(within(summary).getByText('Successes · 7 days').closest('.dashboard-stat')).toHaveTextContent('0')
+    expect(within(summary).getByText('Successful check-ins').closest('.dashboard-stat')).toHaveTextContent('0')
     expect(within(summary).getByText('Weekly consistency').closest('.dashboard-stat')).toHaveTextContent('0%')
     const card = (await screen.findByRole('heading', { name: 'Read a book' })).closest('.dashboard-tracker-card')!
     expect(card).toHaveTextContent(/1\s*current streak/)
@@ -147,8 +155,9 @@ describe('local progress dashboard', () => {
       overview.querySelector('.dashboard-tracker-section')!,
     ]
     const childOrder = Array.from(overview.children)
-    expect(regions.map((region) => childOrder.indexOf(region))).toEqual([2, 3, 4, 5])
-    expect(overview.querySelector('.dashboard-stats')?.children).toHaveLength(5)
+    expect(regions.map((region) => childOrder.indexOf(region))).toEqual([2, 3, 5, 6])
+    expect(overview.querySelector('.dashboard-stats')?.children).toHaveLength(4)
+    expect(overview.querySelector('.dashboard-reward-summary')).toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Show activity for' }), first.id)
     expect(screen.getByRole('heading', { name: 'Read a book' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Drink water' })).not.toBeInTheDocument()
@@ -191,8 +200,8 @@ describe('local progress dashboard', () => {
     const definition = tracker()
     await localRepository.saveTracker(definition)
     render(<MemoryRouter><DashboardPage /></MemoryRouter>)
-    await screen.findByText('Successes · 7 days')
-    const successValue = () => screen.getByText('Successes · 7 days').closest('.dashboard-stat')?.querySelector('strong')
+    await screen.findByText('Successful check-ins')
+    const successValue = () => screen.getByText('Successful check-ins').closest('.dashboard-stat')?.querySelector('strong')
     await waitFor(() => expect(successValue()).toHaveTextContent('0'))
 
     await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { pages: 5 }, note: '' })
