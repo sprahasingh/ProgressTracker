@@ -3796,3 +3796,78 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .effective-day-counting-options label { display: inline-flex; align-items: center; gap: 7px; min-height: 28px; color: var(--ink-muted); font-size: 12px; cursor: pointer; }
 .effective-day-counting-options input { accent-color: var(--accent); }
 .effective-day-counting small { color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
+
+/* Compact account sync overview and progressively disclosed recovery tools. */
+.account-sync-page { display: grid; gap: 12px; min-width: 0; text-align: left; }
+.account-sync-overview { display: grid; gap: 8px; min-width: 0; }
+.account-sync-identity { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
+.account-sync-identity > div { min-width: 0; }
+.account-sync-identity h2 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 21px; font-weight: 500; letter-spacing: -.25px; }
+.account-sync-identity .auth-account-email { max-width: 100%; margin: 3px 0 0; overflow-wrap: anywhere; color: var(--ink-muted) !important; font-size: 12px; line-height: 1.45; }
+.account-sync-badge { flex: 0 0 auto; max-width: 48%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); color: var(--ink); font-size: 11px; font-weight: 700; line-height: 1.25; text-align: center; }
+.account-sync-badge-good { border-color: color-mix(in srgb, var(--positive) 28%, var(--line)); background: var(--positive-soft); color: var(--positive); }
+.account-sync-badge-alert { border-color: color-mix(in srgb, var(--warning) 42%, var(--line)); background: var(--warning-soft); color: var(--ink); }
+.account-sync-description { margin: 0; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.account-sync-counts { display: flex; flex-wrap: wrap; gap: 6px; min-height: 0; }
+.account-sync-counts:empty { display: none; }
+.account-sync-counts span { padding: 4px 8px; border-radius: 999px; background: var(--surface-muted); color: var(--ink-muted); font-size: 10px; font-weight: 650; }
+.account-sync-primary { width: 100%; min-height: 46px; margin-top: 2px; }
+.account-inspection-notice { margin: 2px 0; padding: 9px 11px; border-left: 3px solid var(--accent); border-radius: 0 9px 9px 0; background: var(--accent-soft); color: var(--ink); font-size: 12px; line-height: 1.45; }
+.account-secondary-actions { justify-content: flex-start; gap: 6px 12px; margin-top: 2px; }
+.account-secondary-actions .button { min-height: 40px; }
+.account-sync-issues { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--warning) 46%, var(--line)); border-radius: var(--radius-card); background: color-mix(in srgb, var(--warning-soft) 46%, var(--surface)); text-align: left; }
+.account-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.account-section-heading > div { min-width: 0; }
+.account-section-heading h3, .account-sync-conflict-list h4 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; }
+.account-section-heading p, .account-sync-conflict-list > p { margin: 3px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.account-section-heading a { flex: 0 0 auto; min-height: 44px; display: inline-flex; align-items: center; padding: 4px 2px; color: var(--accent-strong); font-size: 11px; font-weight: 700; text-align: right; text-decoration: underline; text-underline-offset: 3px; }
+.account-sync-issues .sync-conflicts { margin: 0; }
+.account-sync-issues .sync-conflicts h4 { margin: 0; color: var(--ink); font-size: 12px; }
+.account-sync-issues .sync-conflicts > p { margin: 4px 0 0; }
+.account-sync-issues .sync-conflict { margin-top: 8px; padding: 11px; border-radius: var(--radius-control); background: var(--surface-raised); }
+.account-sync-issues .blocked-sync-operation h4 { margin: 0; font-size: 12px; }
+.account-sync-issues .blocked-sync-operation > p { margin: 4px 0 0; color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.account-sync-issues details > summary, .account-disclosure > summary { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 10px; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
+.account-sync-issues details > summary::-webkit-details-marker, .account-disclosure > summary::-webkit-details-marker { display: none; }
+.account-sync-issues details > summary::after, .account-disclosure > summary::after { content: '+'; color: var(--accent-strong); font-size: 18px; font-weight: 500; }
+.account-sync-issues details[open] > summary::after, .account-disclosure[open] > summary::after { content: '−'; }
+.account-sync-issues details > summary:focus-visible, .account-disclosure > summary:focus-visible, .account-advanced-disclosure a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-radius: 5px; }
+.account-sync-issues details p { overflow-wrap: anywhere; }
+.account-history-list { margin: 0 0 10px; }
+.account-history-list h3 { margin: 0 0 5px; color: var(--ink); font-size: 12px; }
+.account-history-list ul { margin: 0; padding-left: 18px; color: var(--ink-muted); font-size: 11px; line-height: 1.55; }
+.account-history-list li { overflow-wrap: anywhere; }
+.account-sync-issues pre { max-width: 100%; max-height: 240px; overflow: auto; padding: 9px; border-radius: 8px; background: var(--surface-muted); color: var(--ink); font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.account-sync-conflict-list { display: grid; gap: 7px; }
+.account-sync-conflict-list > p { margin: -4px 0 2px; }
+.account-sync-conflict-list .sync-conflict { margin-top: 0; }
+.account-sync-conflict-list .auth-actions { justify-content: flex-start; gap: 8px; margin-top: 10px; }
+.account-sync-conflict-list .auth-actions .button { flex: 1 1 auto; min-height: 44px; }
+.account-disclosure { min-width: 0; border-top: 1px solid var(--line); }
+.account-disclosure > summary { min-height: 48px; }
+.account-disclosure[open] > summary { margin-bottom: 8px; }
+.account-backup-disclosure .workspace-backup { margin: 0; padding: 0 0 10px; border: 0; }
+.account-backup-disclosure .workspace-backup h3 { font-size: 16px; }
+.account-backup-disclosure .workspace-backup p, .account-backup-disclosure .workspace-restore > p { font-size: 12px; }
+.account-advanced-disclosure { scroll-margin-top: 18px; }
+.account-advanced-disclosure .sync-diagnostics-export { margin: 0 0 10px; }
+.account-advanced-disclosure .tracker-recovery-preview { margin-top: 8px; }
+.account-technical-error { margin: 0 0 10px; color: var(--ink-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.account-technical-error strong { color: var(--ink); }
+.account-sync-page .auth-success, .account-sync-page .auth-error { margin: 3px 0 0; }
+.auth-card:has(.account-sync-page) { max-width: none; margin-top: 8px; }
+.auth-page-embedded .auth-card:has(.account-sync-page) { padding: 0; border: 0; background: transparent; box-shadow: none; }
+@media (max-width: 430px) {
+  .account-sync-page { gap: 9px; }
+  .account-sync-overview { gap: 7px; }
+  .account-sync-identity h2 { font-size: 19px; }
+  .account-sync-badge { max-width: 44%; padding: 6px 8px; }
+  .account-sync-issues { gap: 7px; padding: 10px; }
+  .account-section-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .account-section-heading a { min-height: 44px; }
+  .account-sync-issues .auth-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .account-sync-issues .auth-actions .button { width: 100%; }
+  .account-secondary-actions { display: flex; }
+  .account-secondary-actions .button { flex: 0 1 auto; }
+  .account-sync-conflict-list .sync-conflict-versions { grid-template-columns: minmax(0, 1fr); }
+}

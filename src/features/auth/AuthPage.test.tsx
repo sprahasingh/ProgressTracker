@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthPage } from './AuthPage'
+import accountStyles from '../../styles.css?raw'
 
 const authMocks = vi.hoisted(() => ({
   sendSignInLink: vi.fn(), signInWithPassword: vi.fn(), signUpWithPassword: vi.fn(),
   sendPasswordReset: vi.fn(), updateAccountPassword: vi.fn(), useAuth: vi.fn(),
   listSyncConflicts: vi.fn(), resolveSyncConflict: vi.fn(),
   listBlockedSyncOperations: vi.fn(), listSyncRecoveryOperations: vi.fn(), retryBlockedSyncOperation: vi.fn(),
+  pendingOperationCount: vi.fn(),
 }))
 
 vi.mock('./authService', () => ({
@@ -17,6 +19,7 @@ vi.mock('./authService', () => ({
 }))
 vi.mock('./AuthProvider', () => ({ useAuth: authMocks.useAuth }))
 vi.mock('../../services/supabase/client', () => ({ supabaseConfiguration: { status: 'ready' } }))
+vi.mock('../../db/database', () => ({ countPendingWorkspaceSyncOperations: authMocks.pendingOperationCount }))
 vi.mock('../../db/syncConflictRepository', () => ({ listSyncConflicts: authMocks.listSyncConflicts, resolveSyncConflict: authMocks.resolveSyncConflict }))
 vi.mock('../../db/syncRecoveryRepository', () => ({ listBlockedSyncOperations: authMocks.listBlockedSyncOperations, listSyncRecoveryOperations: authMocks.listSyncRecoveryOperations, retryBlockedSyncOperation: authMocks.retryBlockedSyncOperation }))
 vi.mock('./WorkspaceBackup', () => ({ WorkspaceBackup: ({ ownerUserId }: { ownerUserId: string | null }) => <div data-testid="backup-workspace">{ownerUserId ?? 'guest'}</div> }))
@@ -29,6 +32,7 @@ describe('AuthPage', () => {
     authMocks.listSyncConflicts.mockResolvedValue([])
     authMocks.listBlockedSyncOperations.mockResolvedValue([])
     authMocks.listSyncRecoveryOperations.mockResolvedValue([])
+    authMocks.pendingOperationCount.mockResolvedValue(0)
     authMocks.useAuth.mockReturnValue({ status: 'signed-out', user: null, signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
   })
 
@@ -134,8 +138,35 @@ describe('AuthPage', () => {
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { email: 'person@example.com' }, signOut: vi.fn(), passwordRecovery: false, syncNow, syncStatus: 'idle' })
     render(<AuthPage />)
     expect(syncNow).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: 'Sync this account' }))
+    await user.click(screen.getByRole('button', { name: 'Sync now' }))
     expect(syncNow).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['offline', { isOnline: false, syncStatus: 'idle' }, 'Offline'],
+    ['syncing', { isOnline: true, syncStatus: 'syncing' }, 'Syncing'],
+    ['pending', { isOnline: true, syncStatus: 'idle' }, 'Changes waiting to sync'],
+    ['synced', { isOnline: true, syncStatus: 'complete', syncSummary: { uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 } }, 'Synced'],
+  ])('shows the truthful %s account status', async (_caseName, authState, label) => {
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, ...authState })
+    authMocks.pendingOperationCount.mockResolvedValue(label === 'Changes waiting to sync' ? 3 : 0)
+    render(<AuthPage embedded />)
+    expect(await screen.findByText(label, { selector: '.account-sync-badge' })).toBeInTheDocument()
+    if (label === 'Changes waiting to sync') expect(screen.getByText('3 changes waiting')).toBeInTheDocument()
+  })
+
+  it('shows blocked operations as action needed and links to recovery tools', async () => {
+    const user = userEvent.setup()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncStatus: 'complete', syncSummary: { uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 } })
+    authMocks.listSyncRecoveryOperations.mockResolvedValue([{ id: 'blocked-1', ownerUserId: 'account-1', entity: 'tracker', entityId: 'tracker-1', operation: 'upsert', expectedRevision: 1, payload: { id: 'tracker-1', name: 'Reading' }, createdAt: '2026-01-01T00:00:00.000Z', attempts: 1, status: 'blocked', lastError: 'Rejected', failureCode: '23514' }])
+    render(<AuthPage embedded />)
+    expect(await screen.findByText('Action needed', { selector: '.account-sync-badge' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sync issues' })).toBeInTheDocument()
+    expect(screen.queryByText('Synced', { selector: '.account-sync-badge' })).not.toBeInTheDocument()
+    const advanced = screen.getByText('Advanced tools', { selector: 'summary' })
+    expect(advanced.parentElement).not.toHaveAttribute('open')
+    await user.click(screen.getByRole('link', { name: 'Review recovery tools' }))
+    expect(advanced.parentElement).toHaveAttribute('open')
   })
 
   it('keeps the recovery inspection route read-only and skips legacy conflict migration', () => {
@@ -144,12 +175,13 @@ describe('AuthPage', () => {
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, syncNow, syncStatus: 'idle' })
     render(<AuthPage embedded />)
 
-    expect(screen.getByText(/automatic and manual cloud sync are paused/i)).toBeInTheDocument()
+    expect(screen.getByText(/automatic and manual sync are paused on this page/i)).toBeInTheDocument()
     expect(screen.getByText('Recovery Preview')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sync this account' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sync now' })).not.toBeInTheDocument()
     expect(authMocks.listSyncConflicts).not.toHaveBeenCalled()
     expect(authMocks.listSyncRecoveryOperations).not.toHaveBeenCalled()
     expect(syncNow).not.toHaveBeenCalled()
+    expect(screen.getByText('Advanced tools', { selector: 'summary' }).parentElement).toHaveAttribute('open')
   })
 
   it('offers guest backup only after the guest workspace is ready', () => {
@@ -162,14 +194,53 @@ describe('AuthPage', () => {
     expect(screen.getByTestId('backup-workspace')).toHaveTextContent('guest')
   })
 
-  it('offers backup only for the workspace matching the signed-in account', () => {
+  it('offers backup only for the workspace matching the signed-in account', async () => {
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-b' })
     const view = render(<AuthPage />)
     expect(screen.queryByTestId('backup-workspace')).not.toBeInTheDocument()
 
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-a' })
     view.rerender(<AuthPage />)
+    // The signed-in workspace backup stays collapsed until requested.
+    const backupDisclosure = screen.getByText('Backup & Restore', { selector: 'summary' })
+    expect(backupDisclosure.parentElement).not.toHaveAttribute('open')
+    await userEvent.setup().click(backupDisclosure)
     expect(screen.getByTestId('backup-workspace')).toHaveTextContent('account-a')
+  })
+
+  it('keeps backup and advanced tools collapsed until keyboard or pointer activation', async () => {
+    const user = userEvent.setup()
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-a', syncStatus: 'idle' })
+    render(<AuthPage embedded />)
+    const backupSummary = screen.getByText('Backup & Restore', { selector: 'summary' })
+    const advancedSummary = screen.getByText('Advanced tools', { selector: 'summary' })
+    expect(backupSummary.parentElement).not.toHaveAttribute('open')
+    expect(advancedSummary.parentElement).not.toHaveAttribute('open')
+    backupSummary.focus()
+    expect(backupSummary).toHaveFocus()
+    expect(backupSummary.tabIndex).toBe(0)
+    await user.click(backupSummary)
+    expect(backupSummary.parentElement).toHaveAttribute('open')
+    await user.click(advancedSummary)
+    expect(advancedSummary.parentElement).toHaveAttribute('open')
+    expect(screen.getByRole('button', { name: 'Export Sync Diagnostics' })).toBeInTheDocument()
+    expect(screen.getByText('Recovery Preview')).toBeInTheDocument()
+  })
+
+  it.each([320, 360, 390, 430])('keeps account controls responsive at %ipx in light and dark themes', (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-a', email: 'person-with-a-long-address@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-a' })
+    for (const theme of ['light', 'dark']) {
+      document.documentElement.dataset.theme = theme
+      const { unmount } = render(<AuthPage embedded />)
+      expect(screen.getByText('person-with-a-long-address@example.com')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Sync now' })).toBeInTheDocument()
+      expect(accountStyles).toMatch(/@media \(max-width:\s*430px\)[\s\S]*?\.account-sync-issues/)
+      expect(accountStyles).toMatch(/\.account-sync-identity \.auth-account-email[^}]*overflow-wrap:\s*anywhere/s)
+      expect(accountStyles).toMatch(/\.account-sync-badge[^}]*background:\s*var\(--surface-muted\)/s)
+      unmount()
+    }
+    delete document.documentElement.dataset.theme
   })
 
   it('shows owner-scoped conflict choices and requires an explicit selection', async () => {
@@ -180,7 +251,7 @@ describe('AuthPage', () => {
     authMocks.resolveSyncConflict.mockResolvedValue(undefined)
     render(<AuthPage />)
 
-    expect(await screen.findByRole('heading', { name: 'Sync conflicts' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Conflicting versions' })).toBeInTheDocument()
     expect(screen.getByText(/Local version/)).toBeInTheDocument()
     expect(screen.getByText('Cloud version', { selector: 'summary' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Use cloud version' }))
@@ -200,7 +271,7 @@ describe('AuthPage', () => {
     authMocks.resolveSyncConflict.mockResolvedValue(undefined)
     render(<AuthPage />)
 
-    expect(await screen.findByRole('heading', { name: 'Sync conflicts' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Conflicting versions' })).toBeInTheDocument()
     expect(screen.getByText('Tracker conflict · tracker-1')).toBeInTheDocument()
     expect(screen.getByText('Daily entry conflict · entry-1')).toBeInTheDocument()
     expect(screen.getByText('Holiday conflict · holiday-1')).toBeInTheDocument()
@@ -232,16 +303,17 @@ describe('AuthPage', () => {
     authMocks.listBlockedSyncOperations.mockResolvedValue([blocked])
     authMocks.listSyncRecoveryOperations.mockResolvedValue([blocked, { ...blocked, id: 'older-blocked', entityId: 'older-id', status: 'superseded', supersededByRevision: 4 }])
     render(<AuthPage />)
-    const card = await screen.findByRole('heading', { name: /100 Days Of MERN.*tracker-1-with-a-very-long-identifier/ })
+    const card = await screen.findByRole('heading', { name: '100 Days Of MERN' })
+    await user.click(within(card.closest('article')!).getByText('Technical details and saved payload'))
     expect(card.closest('article')).toHaveTextContent('23514')
     expect(card.closest('article')).toHaveTextContent('trackers_streak_rule_v8_check')
-    expect(card.closest('article')).toHaveTextContent('Correct the tracker and save a new version')
+    expect(card.closest('article')).toHaveTextContent('will not be retried unchanged')
     expect(within(card.closest('article')!).queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
-    await user.click(within(card.closest('article')!).getByText('Rejected payload retained on this device'))
     const payload = within(card.closest('article')!).getByLabelText('Rejected payload for 100 Days Of MERN')
     expect(payload).toHaveTextContent('100 Days Of MERN')
     expect(payload).toHaveTextContent('x'.repeat(600))
     expect(card.closest('article')).toHaveClass('blocked-sync-operation')
+    await user.click(screen.getByText('Advanced tools', { selector: 'summary' }))
     expect(screen.getByText(/Historical rejection · superseded by successful revision 4/)).toBeInTheDocument()
   })
 
@@ -250,6 +322,8 @@ describe('AuthPage', () => {
     authMocks.listSyncConflicts.mockResolvedValueOnce([privateConflict]).mockResolvedValueOnce([])
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-1', email: 'one@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-1', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
     const view = render(<AuthPage />)
+    const localVersion = await screen.findByText('This device’s version', { selector: 'summary' })
+    await userEvent.setup().click(localVersion)
     expect(await screen.findByText(/Account one secret/)).toBeInTheDocument()
 
     authMocks.useAuth.mockReturnValue({ status: 'signed-in', user: { id: 'account-2', email: 'two@example.com' }, workspaceStatus: 'ready', workspaceUserId: 'account-2', signOut: vi.fn(), passwordRecovery: false, completePasswordRecovery: vi.fn() })
