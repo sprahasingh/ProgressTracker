@@ -411,7 +411,7 @@ export function ProgressionAchievementsPage() {
   }
 
   return <section className="tracker-page progression-page" aria-labelledby="achievements-title">
-    <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Wins" description="Your lifetime progression, rewards, and achievements." />
+    <PageHeader headingId="achievements-title" eyebrow="YOUR PROGRESS" title="Wins" description="Lifetime XP, rewards, and achievements at a glance." />
     <SectionTabs label="Insights sections" items={insightsSectionTabs} />
     {error && <div role="alert" className="form-alert progression-error"><div><span>{pageData ? `Could not refresh progression data. Cards below show the last server-confirmed state. ${progressionFailureMessage(error).summary}` : progressionFailureMessage(error).summary}</span><details className="progression-error-details"><summary>Technical details</summary><code>{progressionFailureMessage(error).detail}</code></details></div><Button variant="secondary" size="small" onClick={() => void refresh(true)}>Try again</Button></div>}
     {refreshing && <p role="status" className="progression-refresh-indicator">Refreshing confirmed Wins…</p>}
@@ -424,10 +424,10 @@ export function ProgressionAchievementsPage() {
     </p>}
     {!workspaceReady && !error ? <p role="status" className="tracker-loading">Opening your account workspace…</p> : pageData && <>
       <section className="progression-overview" aria-labelledby="progression-overview-title">
-        <div className="progression-section-heading"><div><span className="eyebrow">OVERVIEW</span><h2 id="progression-overview-title">Progress at a glance</h2></div><span className="progression-authority"><AppIcon name="privacy" /> Server-confirmed rewards</span></div>
+        <div className="progression-section-heading progression-overview-heading"><h2 id="progression-overview-title">Lifetime progress</h2><span className="progression-authority"><AppIcon name="privacy" /> Server-confirmed rewards</span></div>
         <div className="progression-overview-grid">
           <section className="progression-level-card-shell" aria-label="Your experience">
-          <div className="progression-xp-header"><strong>Your Experience</strong><div><span className="progression-level-pill">LEVEL {pageData.overview.officialLevel.level}</span><InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={pageData.overview} />} /></div></div>
+          <div className="progression-xp-header"><strong>Experience</strong><div><span className="progression-level-pill">LEVEL {pageData.overview.officialLevel.level}</span><InfoButton title="How XP and levels work" label="XP and level information" compact content={<XpInformation overview={pageData.overview} />} /></div></div>
           <button type="button" className="progression-level-card" onClick={openHistory} aria-label={`${pageData.overview.confirmedXp} confirmed XP at level ${pageData.overview.officialLevel.level}. Open score history`}>
             <strong className="progression-xp-total">{pageData.overview.confirmedXp.toLocaleString()} <small>XP</small></strong>
             {pageData.overview.legacyXpStatus === 'reconstructed' && <span className="progression-history-estimate">XP reconstructed from past activity</span>}
@@ -447,15 +447,14 @@ export function ProgressionAchievementsPage() {
           </button>
         </div>
         <p className="progression-insights-link">See period activity and tracker statistics in <Link to="/analytics">Insights</Link>.</p>
-        <div className="progression-recent-unlocks" aria-label="Recently unlocked achievements">
-          <strong>Recently unlocked</strong>
-          {recentUnlocks.length ? recentUnlocks.map((badge) => {
+        <div className={`progression-recent-unlocks${recentUnlocks.length ? '' : ' is-empty'}`} aria-label="Recently unlocked achievements">
+          {recentUnlocks.length ? <><strong>Recently unlocked</strong>{recentUnlocks.map((badge) => {
             const definition = achievementDefinition(badge.achievementId)
             const earnedDate = definition ? badgeEarnedDate(badge) : badge.unlockedAt?.slice(0, 10)
             const activeOccurrences = activeAchievementOccurrences(badge.history)
             const earnedCount = badge.validAwardCount ?? activeOccurrences.length
             return <button type="button" key={badge.achievementId} onClick={() => setSelectedBadge(badge)}><ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, earnedCount) : 1} /><span>{definition?.name ?? 'Achievement'}<small>{earnedDate ? formatCalendarDate(earnedDate) : 'Earned'}</small></span></button>
-          }) : <p>Your first confirmed badge will appear here when earned.</p>}
+          })}</> : <p>Your first confirmed badge will appear here when earned.</p>}
         </div>
       </section>
 

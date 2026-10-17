@@ -106,4 +106,15 @@ describe('tracker analytics', () => {
     expect(result).toMatchObject({ entryCount: 1, historicalCount: 2, recordedCount: 1, qualifiedCount: 1 })
     expect(result.metrics.map(({ observationCount, latestValue }) => [observationCount, latestValue])).toEqual([[1, 5], [1, 20]])
   })
+
+  it('treats custom dates as inclusive calendar dates across a DST change and keeps current streak anchored to today', () => {
+    const dstTracker = { ...tracker, schedule: { kind: 'every-day' as const }, startDate: '2026-03-07' }
+    const history = ['2026-03-07', '2026-03-08', '2026-03-09', '2026-03-10'].map((date) =>
+      entry(date, { distance: 5, pages: 20 }, undefined, { trackerId: dstTracker.id }),
+    )
+    const result = calculateTrackerAnalytics(dstTracker, history, '2026-03-07', '2026-03-09', new Set(), 'America/Los_Angeles', history, '2026-03-10')
+
+    expect(result).toMatchObject({ entryCount: 3, recordedCount: 3, scheduledCount: 3, currentStreak: 4, longestStreak: 4, lifetimeEntryCount: 4 })
+    expect(result.metrics[0]?.observations.map((item) => item.date)).toEqual(['2026-03-07', '2026-03-08', '2026-03-09'])
+  })
 })
