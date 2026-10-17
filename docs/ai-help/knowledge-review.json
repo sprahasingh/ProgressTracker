@@ -1,27 +1,27 @@
 {
   "offline-sync": {
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "cross-device-sync": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913"
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d"
   },
   "sync-conflicts": {
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/db/syncConflictRepository.ts": "a616ff1a8ed5d9e13483addaa64eb53fdf93c3172bb916c23f1b10a97493ea44",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
   "account-signin": {
-    "src/features/auth/AuthPage.tsx": "2f44635f747c75897f14de87d1481eacf4268fc9c580c49f3305737e73036123",
+    "src/features/auth/AuthPage.tsx": "516c9c48d412962b42cf81f33dc96e626a932aaf5985c4e5c3cc7b3c3c68cce6",
     "src/features/auth/authService.ts": "b389188217a4d06f8e5c867474ea60ebd83709f233af7d72612293f5b24e17b5",
-    "src/features/auth/AuthPage.test.tsx": "d8157c9d964687668c962deb3fec51c91d4385c7c2d0e7f0d04c685ad2e59e91"
+    "src/features/auth/AuthPage.test.tsx": "224150f7630e4d8ac3f1f6f8e2aadb5797532912c4ac4da76233307d5bbba111"
   },
   "workspace-backup": {
     "src/features/auth/WorkspaceBackup.tsx": "ac59b739aed87f63d90196c5d5d0a96abeb0069e969f47916a8fbafee5b15a29",
-    "src/db/workspaceBackup.ts": "06f62a0cbfc7c19c0ff9d88c33934fae846010f06d4d9019464977063a62d19f",
-    "src/db/workspaceBackup.test.ts": "3dfa07a175cb86ed110b5a2818124fb136c6ee1d2ae8d619024d4a3cc4c479ed"
+    "src/db/workspaceBackup.ts": "dcf65d083bdfadea2830023c5ad4f2028afeb318261f86c6f954dcd177257e24",
+    "src/db/workspaceBackup.test.ts": "1c4db214d23e4e64dd17f438e3193d06a706d050e615ad4dfacb21a63852f60a"
   },
   "signout-local-data": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
@@ -29,15 +29,15 @@
   },
   "offline-sync-later": {
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561"
   },
   "sync-deletion": {
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913"
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d"
   },
   "sync-conflict-preserves-versions": {
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/db/syncConflictRepository.ts": "a616ff1a8ed5d9e13483addaa64eb53fdf93c3172bb916c23f1b10a97493ea44",
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
@@ -145,7 +145,7 @@
   "guest-mode": {
     "src/features/auth/AuthProvider.tsx": "bff64ce3bfaadf983f8f94db808db7be441fbb41325f2669aecd53bf5d377561",
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/features/auth/AuthPage.tsx": "2f44635f747c75897f14de87d1481eacf4268fc9c580c49f3305737e73036123",
+    "src/features/auth/AuthPage.tsx": "516c9c48d412962b42cf81f33dc96e626a932aaf5985c4e5c3cc7b3c3c68cce6",
     "src/features/auth/AuthProvider.test.tsx": "b9ad2765fa2bb4b68d27573f7bf78a704f48cd4322b32d580768ebffe201808f"
   },
   "create-tracker": {
@@ -164,7 +164,7 @@
     "src/domain/trackers/allocationPreview.test.ts": "d0dde6d4cc6af1865d4985c75afb4fa003c41ce683cce1476d519c84431da682",
     "src/features/goals/CumulativeAllocationPreview.tsx": "d8ea1c969b7909df811011af2adbaef0f6aa60a2af746ac8137320f5a1365433",
     "src/features/goals/CumulativeAllocationPreview.test.tsx": "f6d850f90798ae5f26ff5b4c04b02112bdcedca8bc24e63ea2c2211069dec670",
-    "src/services/supabase/syncEngine.test.ts": "4f3f2a337b32aa703ae3928bdc4b1be2346702dff2d31d9895ce097370448b75",
+    "src/services/supabase/syncEngine.test.ts": "6ecc244981b4c3efeaf6232784d0a258dabb9bdb75d53fd59ad1c9bd3fd10f25",
     "supabase/migrations/20261107000100_tracker_manual_goal_allocations_v5.sql": "644b93cabee8028aabe3adbfe3d973abfdc0f970177c83dbcfee8663764a7e66"
   },
   "milestones": {
@@ -178,7 +178,7 @@
     "src/features/goals/GoalsPage.tsx": "dd52c4b74834486a48d33776d3e91d0fd86d2ba403f74731cc1719fb29fd3349",
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22",
     "src/features/calendar/CalendarPage.tsx": "ee1682f4966de2dbb7709a78554f9b34b703dcf4c8bdc13113f2cb415ed8b99f",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql": "d242e25bd8461cbe65757a1c60192be8c6994bc7ca5a23dae243e4b393ac2ff3"
   },
   "goal-deadline": {
@@ -226,7 +226,7 @@
   },
   "history-clear-sync": {
     "src/db/localRepository.ts": "d6d7131c85efb2b46eb4f73b673ff366ce98d85b136a12e38c4e0ea4ed5d20d3",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/features/history/HistoryPage.tsx": "cbc2415f7e20cf53cb0799019f6ca921b2c432e28163d133449f0094fc2aaf22"
   },
   "history-reenter-cleared": {
@@ -374,7 +374,7 @@
   "local-settings": {
     "src/features/settings/appearance.ts": "c569932db9d5693c2cd06bd1676852395db49f3e9fe8f7d540e4021c6e81148c",
     "src/features/settings/WorkspaceTimeZone.tsx": "2855cc6677532c5e2620d085bed13461284f3865065ea7590f94f22f405c41d9",
-    "src/services/supabase/syncEngine.ts": "62edc62acd75746b3cd932ce2b3cd284e35dc14cc6927d555d5322766ea1c913",
+    "src/services/supabase/syncEngine.ts": "23b94919354d07b72a1a8b78db705d80d1efd681e1774100ed83db03af0d457d",
     "src/features/settings/appearance.test.ts": "554dfe730f1cc496ae35502d57373d22d2bb793e59c7d4101e69760b662dbfb6",
     "src/features/settings/WorkspaceAppearance.test.tsx": "544ace6e6a697be95cdb38748c2b93c80c7e8a887f5ab53460d1119464ab1ec6"
   },

@@ -756,10 +756,10 @@ describe('account-scoped sync engine', () => {
     await localRepository.saveTracker(rejected)
     const rejectedOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', definition.id]).first()
     if (!rejectedOperation) throw new Error('Expected a queued tracker write')
-    const { client, rpc } = fakeClient({ rpcError: { message: 'check constraint rejected the record', code: '23514' } })
+    const { client, rpc } = fakeClient({ rpcError: { message: 'new row for relation "trackers" violates check constraint "trackers_streak_rule_v8_check"', code: '23514' } })
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 0, failed: 1 })
-    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23514', payload: { name: 'Rejected local plan' }, lastError: expect.stringContaining('23514') })
+    await expect(db.syncOperations.get(rejectedOperation.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23514', failureDiagnostic: { code: '23514', table: 'trackers', constraint: 'trackers_streak_rule_v8_check', message: expect.stringContaining('trackers_streak_rule_v8_check') }, payload: { name: 'Rejected local plan' }, lastError: expect.stringContaining('23514') })
     await expect(db.syncConflicts.where('ownerUserId').equals('sync-user').count()).resolves.toBe(0)
     const independent = tracker('independent-queued-tracker')
     await localRepository.saveTracker(independent)
