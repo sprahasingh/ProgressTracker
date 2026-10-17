@@ -168,17 +168,22 @@ export function HistoryPage() {
       <PageHeader headingId="history-title" eyebrow="YOUR RECORD" title="History" description="Review and update previous check-ins." help={{ title: 'History', summary: 'Find, review, and correct saved check-ins.', description: 'Use the date range and tracker filters to narrow the timeline. Editing an entry changes that saved entry and may change calculated streaks or goal progress. Deleting a check-in removes that local entry and queues the change for account sync when available.' }} />
       <SectionTabs label="Insights sections" items={insightsSectionTabs} />
       <p className="insights-progression-link">Reward and XP history: <Link to="/achievements">Wins</Link>.</p>
-      <section className="history-missing-section" id="missing-checkins" aria-labelledby="missing-checkins-title">
-        <div className="history-missing-heading"><div><h2 id="missing-checkins-title">Missing Check-Ins</h2><p>Required past dates without a saved check-in.</p></div><span className="history-missing-count" aria-label={`${missing.length} unresolved check-ins`}>{missing.length}</span></div>
-        {missing.length === 0 ? <p className="history-missing-empty">No missing check-ins in the previous seven completed days.</p> : groupMissingByDate(missing).map(([date, dayItems]) => <div className="history-missing-day" key={date}><h3>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3><ul>{dayItems.map(({ tracker }) => <li key={tracker.id}><span><strong>{tracker.name}</strong></span><button type="button" className="button button-secondary button-small" onClick={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date } } })}>Review</button></li>)}</ul></div>)}
-        <p className="history-missing-note">Holidays apply to the whole workspace. <Link to="/calendar">View older dates in Calendar</Link></p>
+      <section className={`history-missing-section${missing.length === 0 ? ' is-clear' : ''}`} id="missing-checkins" aria-labelledby="missing-checkins-title">
+        <div className="history-missing-heading"><div><h2 id="missing-checkins-title">Missing Check-Ins</h2>{missing.length > 0 && <p>Required past dates without a saved check-in.</p>}</div><span className="history-missing-count" aria-label={`${missing.length} unresolved check-ins`}>{missing.length}</span></div>
+        {missing.length === 0 ? <p className="history-missing-empty">You’re all caught up for the last seven completed days.</p> : groupMissingByDate(missing).map(([date, dayItems]) => <div className="history-missing-day" key={date}><h3>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h3><ul>{dayItems.map(({ tracker }) => <li key={tracker.id}><span><strong>{tracker.name}</strong></span><button type="button" className="button button-secondary button-small" onClick={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date } } })}>Review</button></li>)}</ul></div>)}
+        <p className="history-missing-note"><Link to="/calendar">View older dates in Calendar</Link></p>
       </section>
+      <section className="history-filters-section" aria-labelledby="history-filters-title">
+      <h2 id="history-filters-title" className="history-section-title">Check-in History and Filters</h2>
       <div className="history-toolbar">
         <div className="history-filter history-range-filter"><span>Date range</span><select aria-label="Date range" className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select>{range === 'custom' && <div className="history-custom-dates"><label className="history-filter"><span>From</span><input className="auth-input" type="date" max={today} value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="history-filter"><span>Through</span><input className="auth-input" type="date" max={today} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>
         <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
         <div className="history-edit-controls"><div className="history-add-checkin"><label className="history-filter"><span>Add or edit a date</span><input className="auth-input" type="date" max={today} value={addDate} onChange={(event) => setAddDate(event.target.value)} /></label><button type="button" className="button button-secondary button-small" disabled={Boolean(addIssue) || loading || addLookupLoading || existingCheckIn.status === 'error'} aria-describedby={loading || addIssue || addLookupLoading || existingCheckIn.status === 'error' ? 'history-edit-guidance' : undefined} onClick={() => addTracker && navigate('/', { state: { openActivity: { trackerId: addTracker.id, date: addDate } } })}>{loading && !addTracker ? 'Loading trackers…' : !addTracker ? 'Select a tracker first' : addIssue || existingCheckIn.status === 'error' ? 'Check-in unavailable' : addLookupLoading ? 'Checking check-in…' : existingCheckIn.exists ? 'Edit check-in' : 'Add check-in'}</button></div>{(loading || addIssue || addLookupLoading || existingCheckIn.status === 'error') && <small id="history-edit-guidance" className="history-edit-guidance" role="status">{loading ? 'Loading tracker and check-in availability…' : addIssue || (addLookupLoading ? 'Checking this date’s saved check-in…' : 'Could not verify this check-in. Try changing the date or tracker and try again.')}</small>}</div>
       </div>
       {!loading && <p className="history-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} check-ins · {qualifiedCount} met the current success rule{historicalCount ? ` · ${historicalCount} outside the current tracker period` : ''}</p>}
+      </section>
+      <section className="history-records-section" aria-labelledby="history-records-title">
+      <h2 id="history-records-title" className="history-section-title">Historical check-in records</h2>
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}
       {error && <div role="alert" className="form-alert">{error}</div>}
       {holidays.length > 0 && <section className="history-holiday-list" aria-label="Holidays in this date range"><h2>Holidays & breaks</h2>{holidays.map((holiday) => <p key={holiday.id}><span className="status-mark holiday"><ActivityStatusIcon status="holiday" /></span> <strong>{calendarDateLabel(holiday.date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>{holiday.reason ? ` · ${holiday.reason}` : ''} · scheduled opportunities paused; any saved check-ins below remain unchanged.</p>)}</section>}
@@ -192,6 +197,7 @@ export function HistoryPage() {
           return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={challengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
+      </section>
       <p className="history-local-note"><span className="sync-dot" /> Your entries are saved offline on this device and sync to your signed-in account when available. Guest activity stays in its separate workspace.</p>
     </section>
   )
@@ -214,9 +220,6 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holidays, o
   const statusClass = status === 'rest-day' || status === 'unscheduled' ? 'rest' : status
   const challengeDay = getChallengeDayDisplay(tracker, entry.date, timeZone, holidays)
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}</div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>
-    {tracker.status === 'active' && tracker.deletedAt === null
-      ? <button className="button button-secondary button-medium" type="button" aria-label={`Edit check-in for ${calendarDateLabel(entry.date, { month: 'long', day: 'numeric' })}`} onClick={onEdit}>Edit check-in</button>
-      : <p className="history-entry-note">{tracker.deletedAt !== null ? 'Deleted trackers’ check-ins are read-only.' : tracker.status === 'archived' ? 'Archived trackers’ check-ins are read-only.' : tracker.status === 'paused' ? 'Paused trackers’ check-ins are read-only until the tracker is resumed.' : 'Completed trackers’ check-ins are read-only.'}</p>}
     <>
     {entry.outcome === 'recorded' && <dl className="history-values">{tracker.metrics.map((metric) => {
       const value = entry.values[metric.id]
@@ -229,6 +232,9 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holidays, o
     })}</dl>}
     {entry.note && <p className="history-entry-note">{entry.note}</p>}
     </>
+    {tracker.status === 'active' && tracker.deletedAt === null
+      ? <button className="button button-secondary button-medium" type="button" aria-label={`Edit check-in for ${calendarDateLabel(entry.date, { month: 'long', day: 'numeric' })}`} onClick={onEdit}>Edit check-in</button>
+      : <p className="history-entry-note">{tracker.deletedAt !== null ? 'Deleted trackers’ check-ins are read-only.' : tracker.status === 'archived' ? 'Archived trackers’ check-ins are read-only.' : tracker.status === 'paused' ? 'Paused trackers’ check-ins are read-only until the tracker is resumed.' : 'Completed trackers’ check-ins are read-only.'}</p>}
   </Surface>
 }
 
