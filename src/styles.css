@@ -1580,7 +1580,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .goal-plan-status.behind, .goal-plan-status.overdue { background: var(--danger-soft); color: var(--danger); }
 .goal-plan-status.behind, .goal-plan-status.overdue { background: transparent; }
 .history-outcome.muted, .today-state.skipped, .tracker-archived-chip { background: var(--warning-soft); color: var(--warning); }
-.analytics-page .eyebrow, .analytics-page .analytics-value-chart span { color: var(--info); }
+.analytics-page .analytics-value-chart span { color: var(--info); }
 .analytics-page .analytics-value-chart span { background: var(--analytics); }
 .today-overview { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin: 5px 0 22px; padding: 21px 24px; }
 .today-overview-copy { min-width: 0; }
@@ -3669,9 +3669,11 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .calendar-dot.upcoming { background: var(--status-pending-surface); color: var(--status-upcoming); }
 
 /* Calendar layout: keep the month near the top while preserving every control. */
-.calendar-page .page-header { gap: 12px; margin-bottom: 14px; }
+.calendar-page .page-header { display: block; margin-bottom: 14px; }
+.calendar-page .page-header-copy { display: block; }
 .calendar-page .page-header .page-title { margin-top: 10px; }
 .calendar-page .page-description { margin-top: 6px; }
+.calendar-page .page-header-action { margin-top: 12px; }
 .calendar-page .calendar-holiday-action { min-height: 44px; }
 .calendar-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(155px, 220px) auto; align-items: end; gap: 8px; margin: 8px 0 10px; }
 .calendar-toolbar > .tracker-filter { min-width: 0; }
@@ -3712,14 +3714,10 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .activity-calendar .calendar-cell-status.upcoming { border-color: color-mix(in srgb, var(--status-upcoming) 24%, transparent); }
 .activity-calendar .calendar-cell-status.outside-period, .activity-calendar .calendar-cell-status.historical, .activity-calendar .calendar-cell-status.inactive, .activity-calendar .calendar-cell-status.no-trackers { border-color: color-mix(in srgb, var(--status-outside) 20%, transparent); }
 @media (max-width: 760px) {
-  .calendar-page .page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; margin-bottom: 10px; }
-  .calendar-page .page-header-copy { display: contents; }
-  .calendar-page .page-header-copy > .eyebrow, .calendar-page .page-description { display: none; }
-  .calendar-page .page-title-row { grid-column: 1; grid-row: 1; gap: 6px; }
-  .calendar-page .page-title { margin: 0; font-size: 32px; letter-spacing: -1.2px; }
-  .calendar-page .page-title-row .info-button { width: 36px; height: 36px; }
-  .calendar-page .page-header-action { grid-column: 2; grid-row: 1; align-self: center; }
-  .calendar-page .calendar-holiday-action { padding: 0 11px; font-size: 11px; }
+  .calendar-page .page-header { margin-bottom: 10px; }
+  .calendar-page .page-title { margin: 10px 0 0; font-size: 38px; letter-spacing: -1.8px; }
+  .calendar-page .page-header-action { margin-top: 10px; }
+  .calendar-page .calendar-holiday-action { padding-inline: 14px; }
   .calendar-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin: 6px 0 8px; }
   .calendar-toolbar > .tracker-filter { grid-column: 1 / -1; }
   .calendar-toolbar > .tracker-filter select { width: 100%; }
@@ -3732,8 +3730,6 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .calendar-activity-list li > a { min-height: 44px; padding-inline: 8px; font-size: 11px; }
 }
 @media (max-width: 380px) {
-  .calendar-page .page-header { grid-template-columns: minmax(0, 1fr); }
-  .calendar-page .page-header-action { grid-column: 1; grid-row: 2; justify-self: start; }
   .calendar-status-guide-row { min-height: 48px; gap: 6px; padding-inline: 9px; }
   .calendar-status-guide-title { font-size: 11px; }
   .calendar-status-guide-action { font-size: 10px; }
@@ -3994,10 +3990,10 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 
 /* Insights destinations share the established page-header scale and alignment. */
 .insights-page > .page-header { align-items: flex-start; gap: 16px; margin-bottom: 12px; }
-.insights-page .page-title { margin-top: 14px; font-size: clamp(36px, 5vw, 54px); letter-spacing: -1.8px; line-height: 1.08; }
+.insights-page .page-title { margin-top: 16px; font-size: clamp(36px, 5vw, 54px); letter-spacing: -1.8px; line-height: 1.08; }
 .insights-page .page-title-row { gap: 8px; }
 .insights-page .page-title-row .info-button { width: 44px; height: 44px; flex: 0 0 44px; }
-.insights-page .page-description { margin-top: 8px; font-size: 13px; line-height: 1.5; }
+.insights-page .page-description { margin-top: 10px; font-size: 14px; line-height: 1.55; }
 .insights-page > .section-tabs { margin: 0 0 14px; }
 .analytics-toolbar { display: grid; grid-template-columns: minmax(145px, .72fr) minmax(300px, 1.35fr) minmax(190px, 1fr); align-items: center; gap: 10px; margin: 12px 0 14px; }
 .analytics-toolbar > * { min-width: 0; }
@@ -4276,8 +4272,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 
 @media (max-width: 760px) {
   .insights-page > .page-header { gap: 7px; margin-bottom: 10px; }
-  .insights-page .page-title { margin-top: 10px; font-size: clamp(32px, 8.5vw, 38px); letter-spacing: -1.2px; }
-  .insights-page .page-description { margin-top: 6px; font-size: 12px; line-height: 1.45; }
+  .insights-page .page-title { margin-top: 10px; font-size: 38px; letter-spacing: -1.8px; }
+  .insights-page .page-description { margin-top: 6px; font-size: 14px; line-height: 1.5; }
   .insights-page > .section-tabs { margin-bottom: 12px; }
   .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 13px 0 9px; }
   .dashboard-stat { gap: 6px; padding: 12px; }
