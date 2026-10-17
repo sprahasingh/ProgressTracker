@@ -14,9 +14,9 @@
     "src/db/syncConflictRepository.test.ts": "b856bbc69d54fa462c4572c4222a6d8e2d4d40faa935c0a11558b7a4a7c53015"
   },
   "account-signin": {
-    "src/features/auth/AuthPage.tsx": "554639d7e7438565804c0fb205e4ec102e94d7394e3e1ec40c6d8400a4551a70",
+    "src/features/auth/AuthPage.tsx": "04a91ec1fa9f01db00368ec55f615b675ef80f60312082801ca480ed5ba4d1f9",
     "src/features/auth/authService.ts": "b389188217a4d06f8e5c867474ea60ebd83709f233af7d72612293f5b24e17b5",
-    "src/features/auth/AuthPage.test.tsx": "0e86dd32edcaa83ad3d4a5c939a082c645713c4e2647e7545967d871be5f3790"
+    "src/features/auth/AuthPage.test.tsx": "4455e7685dff9958be2601540974fbf42bfb77a23af18475c47cb06f1c6d75f9"
   },
   "workspace-backup": {
     "src/features/auth/WorkspaceBackup.tsx": "ac59b739aed87f63d90196c5d5d0a96abeb0069e969f47916a8fbafee5b15a29",
@@ -145,7 +145,7 @@
   "guest-mode": {
     "src/features/auth/AuthProvider.tsx": "c877776e60369c8bef05477f78883f619b689d5db96637d921fa4eccb61b52f9",
     "src/db/localRepository.ts": "9e43da2af98169879cac1d4f792433855181b704b349d4793f21adf6dd07a965",
-    "src/features/auth/AuthPage.tsx": "554639d7e7438565804c0fb205e4ec102e94d7394e3e1ec40c6d8400a4551a70",
+    "src/features/auth/AuthPage.tsx": "04a91ec1fa9f01db00368ec55f615b675ef80f60312082801ca480ed5ba4d1f9",
     "src/features/auth/AuthProvider.test.tsx": "0b881a16655238e6d176c884b9aa1dfb8564fe7234bb0be134bc9cedb9079565"
   },
   "create-tracker": {
