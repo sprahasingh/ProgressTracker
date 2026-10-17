@@ -70,6 +70,8 @@ export type AchievementHistoryEvent = {
   sourceReference?: Record<string, unknown> | null
   reversesEventId: string | null
   retainedAfterTrackerDeletion: boolean
+  trackerId?: string | null
+  trackerDeleted?: boolean
   trackerDisplayName: string | null
   rewardReasonCode: string | null
   rewardXpDelta: number | null
@@ -325,6 +327,7 @@ export function makeAchievementStates(
   history: any[],
   retainedIds: ReadonlySet<string> = new Set(),
   retainedContexts: ReadonlyMap<string, RetainedRewardContext> = new Map(),
+  trackerIdsByEvent: ReadonlyMap<string, string> = new Map(),
 ): AchievementState[] {
   const historyById = new Map<string, AchievementHistoryEvent[]>()
   for (const row of history) {
@@ -334,6 +337,8 @@ export function makeAchievementStates(
       sourceDate: row.source_date, reversesEventId: row.reverses_event_id,
       sourceReference: row.source_reference ?? null,
       retainedAfterTrackerDeletion: retainedIds.has(row.id),
+      trackerId: trackerIdsByEvent.get(row.id) ?? null,
+      trackerDeleted: retainedContexts.get(row.id)?.deleted_tracker ?? false,
       trackerDisplayName: retainedContexts.get(row.id)?.tracker_display_name ?? null,
       rewardReasonCode: retainedContexts.get(row.id)?.reward_reason_code ?? null,
       rewardXpDelta: retainedContexts.get(row.id)?.xp_delta ?? null,
@@ -476,7 +481,23 @@ async function readEarnedAndLockedBadges(client: NonNullable<ReturnType<typeof g
   if (retained.error) throw progressionReadError('progression_retained_achievement_unlocks', retained.error)
   const historyRows = history.data ?? []
   const contexts = await getRetainedRewardContexts(client, userId, historyRows.map((row: { id: string }) => row.id), 'achievement')
-  return makeAchievementStates(progress.data ?? [], historyRows, new Set((retained.data ?? []).map((row: { achievement_event_id: string }) => row.achievement_event_id)), contexts)
+  const sourceEventIds = [...new Set(historyRows.map((row: { id: string; source_event_id: string | null }) => row.source_event_id).filter((id: string | null): id is string => Boolean(id)))]
+  const trackerIdsByEvent = new Map<string, string>()
+  for (let offset = 0; offset < sourceEventIds.length; offset += 200) {
+    const ids = sourceEventIds.slice(offset, offset + 200)
+    if (!ids.length) continue
+    countDevPerformance('supabase.achievement-source-tracker-request')
+    const { data, error } = await client.from('progression_event_sources').select('event_id,tracker_id')
+      .eq('user_id', userId).in('event_id', ids).not('tracker_id', 'is', null)
+    if (error) throw progressionReadError('progression_event_sources (achievement attribution)', error)
+    for (const row of (data ?? []) as Array<{ event_id: string; tracker_id: string | null }>) {
+      if (row.tracker_id) trackerIdsByEvent.set(row.event_id, row.tracker_id)
+    }
+  }
+  const trackerIdsByAchievement = new Map(historyRows.map((row: { id: string; source_event_id: string | null }) => [row.id, row.source_event_id ? trackerIdsByEvent.get(row.source_event_id) : undefined]))
+  return makeAchievementStates(progress.data ?? [], historyRows, new Set((retained.data ?? []).map((row: { achievement_event_id: string }) => row.achievement_event_id)), contexts,
+    new Map([...trackerIdsByAchievement].filter((entry): entry is [string, string] => Boolean(entry[1])))
+  )
 }
 
 export async function getEarnedAndLockedBadges(userId: string): Promise<AchievementState[]> {

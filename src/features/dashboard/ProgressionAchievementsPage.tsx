@@ -17,7 +17,7 @@ import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveSta
 import { activeAchievementOccurrences, fullyReversedProgressionEventIds, getProgressionHistory, getProgressionOverview, invalidateProgressionOverview, type AchievementState, type ProgressionEvent, type ProgressionOverview } from '../../services/supabase/progressionRepository'
 import { localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
-import { achievementDefinition } from './achievementCatalog'
+import { achievementDefinition, achievementRewardExplanation } from './achievementCatalog'
 import { calendarBadgeProgress, type CalendarBadgeProgress } from './calendarBadgeProgress'
 import { ProgressionBadge } from './ProgressionBadge'
 import { ProgressionDetailDialog } from './ProgressionDetailDialog'
@@ -537,7 +537,7 @@ export function ProgressionAchievementsPage() {
     </ProgressionDetailDialog>}
 
     {allBadgesOpen && pageData && <ProgressionDetailDialog title={selectedBadge ? achievementDefinition(selectedBadge.achievementId)?.name ?? 'Badge details' : 'All badges'} eyebrow="BADGE COLLECTION" onClose={() => { setSelectedBadge(null); setAllBadgesOpen(false) }} onBack={selectedBadge ? () => setSelectedBadge(null) : undefined}>
-      {selectedBadge ? <BadgeDetailContent badge={selectedBadge} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} /> : <>
+      {selectedBadge ? <BadgeDetailContent badge={selectedBadge} trackers={pageData?.trackers ?? []} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} /> : <>
       {pageData.overview.achievements.length === 0
         ? <EmptyState title="Your badge shelf is ready" description="Badges will appear here when achievement data is available." />
         : <div className="progression-badge-grid">{pageData.overview.achievements.map((badge) => <BadgeCard key={badge.achievementId} badge={badge} calendarProgress={calendarBadgeProgressById.get(badge.achievementId)} onOpen={() => setSelectedBadge(badge)} />)}</div>}
@@ -579,7 +579,7 @@ export function ProgressionAchievementsPage() {
       <p className="progression-dialog-footnote">For live goal target progress and plan details, open <Link to="/goals" onClick={() => setDetail(null)}>Goals &amp; planning</Link>.</p>
     </ProgressionDetailDialog>}
 
-    {selectedBadge && !allBadgesOpen && <BadgeDetailDialog badge={selectedBadge} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} onClose={() => setSelectedBadge(null)} />}
+    {selectedBadge && !allBadgesOpen && <BadgeDetailDialog badge={selectedBadge} trackers={pageData?.trackers ?? []} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} onClose={() => setSelectedBadge(null)} />}
   </section>
 }
 
@@ -617,6 +617,8 @@ function BadgeInformation({ badge, calendarProgress }: { badge: AchievementState
   const occurrences = activeAchievementOccurrences(badge.history)
   return <div className="badge-information">
     <p>{definition.description}</p><strong>Unlock requirement</strong><p>{definition.requirement}</p>
+    {definition.attribution === 'account' && <p className="progression-achievement-attribution">Account-wide achievement{badge.achievementId === 'perfect-day' ? ' · This achievement considers all eligible trackers for that date.' : ''}</p>}
+    {definition.attribution === 'account' && <p className="progression-achievement-attribution">Account-wide achievement{badge.achievementId === 'perfect-day' ? ' · This achievement considers all eligible trackers for that date.' : ''}</p>}
     {badge.earned && badge.repeatable && <p>{occurrences.length} active confirmed {occurrences.length === 1 ? 'occurrence' : 'occurrences'}.</p>}
     {badge.earned && occurrences.length > 0 && <ul className="badge-information-dates">{occurrences.map((event) => <li key={event.id}>{badgeOccurrencePeriod(badge, event)}</li>)}</ul>}
     {calendarProgress && <CalendarBadgeProgressView achievementName={definition.name} progress={calendarProgress} />}
@@ -624,13 +626,13 @@ function BadgeInformation({ badge, calendarProgress }: { badge: AchievementState
     {!badge.earned && !details.label && !periodBadge && <p>Current progress: {progress.toLocaleString()} / {target.toLocaleString()} {definition.progressUnit}.</p>}
     {canShowProgress && percentage !== null && <><div className="badge-information-progress-label"><span>{progress.toLocaleString()} / {target.toLocaleString()}</span><strong>{percentage}%</strong></div><span className="progression-level-track" role="progressbar" aria-label={`${definition.name} qualification progress`} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={target}><span style={{ width: `${percentage}%` }} /></span></>}
     {periodBadge && details.status !== 'unavailable' && details.period_start && details.period_end && <p>Period: {formatCalendarDate(details.period_start)} – {formatCalendarDate(details.period_end)} (account timezone)</p>}
-    <BadgeXpExplanation />
+    <BadgeRewardExplanation achievementId={badge.achievementId} />
   </div>
 }
 
-function BadgeXpExplanation() {
-  const streaks = PROGRESSION_REWARDS.streakMilestones.map(({ days, xp }) => `${days} days (+${xp} XP)`).join(', ')
-  return <div className="progression-badge-reward-rule"><strong>XP and rewards</strong><p>Unlocking a badge adds no separate XP. Its qualifying action may earn XP separately: a qualifying check-in earns {PROGRESSION_REWARDS.checkIn} XP; a Perfect Day adds {PROGRESSION_REWARDS.perfectDay} XP; streak milestones earn {streaks}; a goal milestone earns {PROGRESSION_REWARDS.goalMilestone} XP and completing a goal earns {PROGRESSION_REWARDS.goalCompleted} XP. Only applicable rewards are recorded, and reversals can remove XP when an action stops qualifying.</p></div>
+function BadgeRewardExplanation({ achievementId }: { achievementId: AchievementState['achievementId'] }) {
+  const explanation = achievementRewardExplanation(achievementId)
+  return explanation ? <div className="progression-badge-reward-rule"><strong>Related XP</strong><p>{explanation}</p></div> : null
 }
 
 function qualificationStatusLabel(status: string | undefined) {
@@ -690,13 +692,13 @@ function BadgeCard({ badge, calendarProgress, onOpen }: { badge: AchievementStat
   </div>
 }
 
-function BadgeDetailDialog({ badge, calendarProgress, onClose }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress; onClose: () => void }) {
+function BadgeDetailDialog({ badge, trackers, calendarProgress, onClose }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress; onClose: () => void }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
-  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}><BadgeDetailContent badge={badge} calendarProgress={calendarProgress} /></ProgressionDetailDialog>
+  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}><BadgeDetailContent badge={badge} trackers={trackers} calendarProgress={calendarProgress} /></ProgressionDetailDialog>
 }
 
-function BadgeDetailContent({ badge, calendarProgress }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress }) {
+function BadgeDetailContent({ badge, trackers, calendarProgress }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
   const repeatable = badge.repeatable
@@ -708,15 +710,28 @@ function BadgeDetailContent({ badge, calendarProgress }: { badge: AchievementSta
   return <>
     <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Unlocked' : 'Locked'}</span>{badge.earned && repeatable && <span className="progression-status-pill is-tier">Earned {earnedCount === 1 ? 'once' : `${earnedCount} times`}</span>}<p>{definition.description}</p></div></div>
     <div className="progression-badge-requirement"><strong>Unlock requirement</strong><p>{definition.requirement}</p></div>
+    {definition.attribution === 'account' && <div className="progression-badge-requirement progression-achievement-attribution"><strong>Account-wide achievement</strong>{badge.achievementId === 'perfect-day' && <p>This achievement considers all eligible trackers for that date.</p>}</div>}
     {calendarProgress && <div className="progression-badge-requirement progression-calendar-progress"><strong>Current confirmed progress</strong><p>{calendarProgress.label}</p>{calendarProgress.secondaryLabel && <p>{calendarProgress.secondaryLabel}</p>}<span className="progression-level-track" role="progressbar" aria-label={`${definition.name} confirmed calendar progress`} aria-valuenow={calendarProgress.progress} aria-valuemin={0} aria-valuemax={calendarProgress.target} aria-valuetext={calendarProgress.label}><span style={{ width: `${Math.min(100, calendarProgress.progress / calendarProgress.target * 100)}%` }} /></span><p className="progression-calendar-progress-note">Progress counts confirmed Perfect Days; badge unlocks still require the full calendar period.</p>{calendarProgress.unavailableMessage && <p className="progression-calendar-progress-note">{calendarProgress.unavailableMessage}</p>}</div>}
     {badge.achievementId === 'consistency-star' && <div className="progression-badge-requirement progression-consistency-qualification"><strong>Qualification progress</strong>{consistencyDetails ? <><p>{consistencyDetails.eligibleDays}</p><p>{consistencyDetails.adherence}</p></> : <p>Authoritative qualification progress is unavailable.</p>}</div>}
     {badge.earned && earnedDate && !repeatable && <p className="progression-unlock-date">Earned · {formatCalendarDate(earnedDate)}</p>}
     {badge.earned && repeatable && <div className="progression-badge-occurrence-summary"><strong>{occurrences.length} confirmed unlock{occurrences.length === 1 ? '' : 's'}</strong><ul className="progression-badge-earned-periods">{occurrences.map((event) => <li key={event.id}>{badgeOccurrencePeriod(badge, event)}</li>)}</ul></div>}
-    <BadgeXpExplanation />
+    <BadgeRewardExplanation achievementId={badge.achievementId} />
     {!badge.earned && !['perfect-day', 'perfect-week', 'perfect-month', 'perfect-year', 'the-comeback', 'milestone-maker', 'goal-crusher', 'consistency-star'].includes(badge.achievementId) && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{achievementProgressLabel(badge, definition.progressUnit)}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}
     {badge.qualificationDetails?.label && badge.achievementId !== 'consistency-star' && !['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId) && <div className="progression-badge-requirement"><strong>{badge.qualificationDetails.label}</strong><p>{badge.qualificationDetails.message}</p>{badge.qualificationDetails.status === 'in_progress' && badge.qualificationDetails.progress !== undefined && badge.qualificationDetails.target !== undefined && <span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.qualificationDetails.progress / badge.qualificationDetails.target * 100)}%` }} /></span>}</div>}
     <h3 className="progression-subheading">Achievement history</h3>
-    {badge.history.length ? <ul className="progression-badge-history">{[...new Map(badge.history.map((event) => [event.id, event])).values()].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {repeatable ? `Award ${event.tier}` : 'First award'}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}{event.trackerDisplayName && <><br /><span>{event.trackerDisplayName}</span><span className="progression-deleted-tracker-tag">Deleted tracker</span><small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small></>}</span><time dateTime={event.recordedAt}>{formatRecordedTimestamp(event.recordedAt)}</time></li>)}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
+    {badge.history.length ? <ul className="progression-badge-history">{[...new Map(badge.history.map((event) => [event.id, event])).values()].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => {
+      const attribution = achievementAttribution(badge.achievementId, event, trackers)
+      return <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {repeatable ? `Award ${event.tier}` : 'First award'}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}{attribution && <><br /><span>{attribution.name}</span>{attribution.deleted && <span className="progression-deleted-tracker-tag">Deleted tracker</span>}{attribution.archived && <span className="progression-archived-tracker-tag">Archived tracker</span>}<small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small></>}</span><time dateTime={event.recordedAt}>{formatRecordedTimestamp(event.recordedAt)}</time></li>
+    })}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
   </>
+}
+
+function achievementAttribution(achievementId: AchievementState['achievementId'], event: AchievementState['history'][number], trackers: StoredTrackerDefinition[]) {
+  const definition = achievementDefinition(achievementId)
+  if (!definition || definition.attribution === 'account') return null
+  if (event.trackerDeleted) return { name: event.trackerDisplayName ?? 'Tracker unavailable', deleted: true, archived: false }
+  const tracker = event.trackerId ? trackers?.find((candidate) => candidate.id === event.trackerId) : undefined
+  if (tracker) return { name: tracker.name, deleted: false, archived: tracker.status === 'archived' }
+  return { name: 'Tracker unavailable', deleted: false, archived: false }
 }
 

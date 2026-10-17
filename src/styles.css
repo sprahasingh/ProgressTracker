@@ -4312,7 +4312,7 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 }
 
 /* Recent awards remain in one scrollable row, with stable card sizes at every count. */
-.progression-recent-unlocks-heading { flex-wrap: wrap; }
+.progression-recent-unlocks-heading { flex-wrap: nowrap; }
 .progression-recent-unlocks-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
 .progression-recent-unlocks-scroll-actions { display: flex; flex: 0 0 auto; gap: 2px; }
 .progression-recent-unlocks-scroll-actions button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--ink); cursor: pointer; }
@@ -4379,9 +4379,20 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .progression-recent-unlocks-scroll-actions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -4px; }
 .progression-recent-unlocks-scroll-actions button:disabled { background: transparent; }
 @media (max-width: 420px) {
-  .progression-recent-unlocks-heading { align-items: flex-start; }
-  .progression-recent-unlocks-heading > h3 { flex: 1 1 100%; }
-  .progression-recent-unlocks-actions { width: 100%; justify-content: flex-end; }
+  .progression-recent-unlocks-heading { flex-wrap: nowrap; align-items: center; gap: 4px; }
+  .progression-recent-unlocks-heading > h3 { min-width: 0; flex: 1 1 auto; font-size: 13px; white-space: nowrap; }
+  .progression-recent-unlocks-actions { width: auto; flex: 0 0 auto; gap: 0; }
+  .progression-recent-unlocks-actions > .progression-text-button { padding-inline: 5px; font-size: 11px; white-space: nowrap; }
+  .progression-recent-unlocks-grid { height: 88px; grid-auto-columns: calc((100% - 7px) / 2); gap: 7px; }
+  .progression-recent-unlocks-grid button { height: 82px; min-height: 82px; padding: 5px; }
+  .progression-recent-unlocks-grid button .progression-badge { flex-basis: 36px; width: 36px; }
+  .progression-recent-unlocks-grid button > span { font-size: 10px; }
+  .progression-recent-unlocks-grid button small { font-size: 9px; }
+}
+@media (max-width: 340px) {
+  .progression-recent-unlocks-heading > h3 { font-size: 12px; }
+  .progression-recent-unlocks-actions > .progression-text-button { font-size: 10px; }
+  .progression-recent-unlocks-scroll-actions button { width: 44px; height: 44px; }
 }
 
 /* Badge artwork keeps a readable minimum size in a responsive collection. */
@@ -4477,6 +4488,8 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .progression-badge-reward-rule { display: grid; gap: 4px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
 .progression-badge-reward-rule strong, .progression-badge-occurrence-summary > strong { color: var(--ink); font-size: 11px; }
 .progression-badge-reward-rule p { margin: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.55; }
+.progression-achievement-attribution { color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.progression-archived-tracker-tag { display: inline-flex; width: fit-content; margin-inline-start: 7px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink-muted); font-size: 9px; font-weight: 650; line-height: 1.3; vertical-align: middle; }
 .progression-badge-occurrence-summary { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
 .progression-badge-occurrence-summary .progression-badge-earned-periods { margin-bottom: 0; }
 .progression-badge-detail { grid-template-columns: minmax(112px, 150px) minmax(0, 1fr); gap: 16px; }
@@ -4495,11 +4508,6 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .history-add-checkin { grid-template-columns: minmax(0, 1fr) auto; }
 }
 @media (max-width: 420px) {
-  .progression-recent-unlocks-grid { height: 84px; grid-auto-columns: calc((100% - 7px) / 2); gap: 7px; }
-  .progression-recent-unlocks-grid button { height: 78px; min-height: 78px; padding: 5px; }
-  .progression-recent-unlocks-grid button .progression-badge { flex-basis: 30px; width: 30px; }
-  .progression-recent-unlocks-grid button > span { font-size: 10px; }
-  .progression-recent-unlocks-grid button small { font-size: 9px; }
   .history-toolbar-filters { grid-template-columns: minmax(0, 1fr); }
   .history-custom-dates { grid-column: 1; }
   .history-add-checkin { grid-template-columns: minmax(0, 1fr); }
