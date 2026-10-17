@@ -4476,15 +4476,24 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
 .progression-badge-card { transition: border-color 140ms ease, background-color 140ms ease; }
 .progression-badge-card-shell { min-width: 0; }
 .progression-badge-grid { gap: 12px; padding: 4px 4px 16px; }
-.history-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, auto); align-items: end; gap: 14px; margin: 22px 0 8px; }
-.history-toolbar-filters { display: flex; min-width: 0; flex-wrap: wrap; align-items: end; gap: 10px; }
-.history-toolbar-filters > .history-filter { flex: 1 1 150px; }
-.history-custom-dates { display: flex; min-width: 0; flex: 2 1 280px; gap: 10px; }
-.history-custom-dates .history-filter { min-width: 0; flex: 1 1 120px; }
-.history-edit-controls { display: grid; min-width: 0; gap: 4px; }
-.history-add-checkin { width: 100%; min-width: 0; }
-.history-edit-guidance { color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
-.history-count { margin: 0 0 16px; }
+.history-toolbar { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) minmax(330px, 1.65fr); align-items: start; gap: 12px; margin: 22px 0 8px; }
+.history-toolbar > .history-filter, .history-edit-controls { min-width: 0; }
+.history-toolbar .history-filter { gap: 6px; font-size: 11px; }
+.history-toolbar .history-filter > span { min-height: 16px; line-height: 16px; }
+.history-toolbar .auth-input { width: 100%; min-width: 0; min-height: 42px; border-radius: var(--radius-control); font-size: 12px; }
+.history-range-filter { align-content: start; }
+.history-custom-dates { display: flex; min-width: 0; gap: 8px; margin-top: 8px; }
+.history-custom-dates .history-filter { min-width: 0; flex: 1 1 0; }
+.history-edit-controls { display: grid; align-content: start; gap: 6px; }
+.history-add-checkin { display: grid; min-width: 0; grid-template-columns: minmax(110px, .9fr) minmax(148px, 1.1fr); align-items: end; gap: 8px; }
+.history-add-checkin .history-filter { min-width: 0; }
+.history-add-checkin .button { min-width: 0; min-height: 42px; padding-inline: 10px; white-space: normal; line-height: 1.2; }
+.history-edit-guidance { color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
+.history-count { margin: 12px 0 16px; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (min-width: 761px) and (max-width: 980px) {
+  .history-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .history-edit-controls { grid-column: 1 / -1; }
+}
 .progression-badge-reward-rule { display: grid; gap: 4px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
 .progression-badge-reward-rule strong, .progression-badge-occurrence-summary > strong { color: var(--ink); font-size: 11px; }
 .progression-badge-reward-rule p { margin: 0; color: var(--ink-muted); font-size: 10px; line-height: 1.55; }
@@ -4500,16 +4509,10 @@ button.heatmap-cell:focus-visible { outline: 3px solid var(--focus-ring); outlin
   .progression-recent-unlocks-grid { height: 88px; grid-auto-columns: calc((100% - 9px) / 2); gap: 9px; }
   .progression-recent-unlocks-grid button { min-height: 82px; height: 82px; flex-direction: row; align-items: center; gap: 6px; padding: 6px; }
   .progression-recent-unlocks-grid button .progression-badge { flex-basis: 34px; width: 34px; }
-  .history-toolbar { grid-template-columns: minmax(0, 1fr); }
-  .history-toolbar-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .history-toolbar-filters > .history-filter { min-width: 0; }
-  .history-custom-dates { grid-column: 1 / -1; }
-  .history-edit-controls { grid-template-columns: minmax(0, 1fr); }
-  .history-add-checkin { grid-template-columns: minmax(0, 1fr) auto; }
+  .history-toolbar { grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 18px; }
+  .history-custom-dates { gap: 8px; }
 }
 @media (max-width: 420px) {
-  .history-toolbar-filters { grid-template-columns: minmax(0, 1fr); }
-  .history-custom-dates { grid-column: 1; }
   .history-add-checkin { grid-template-columns: minmax(0, 1fr); }
   .history-add-checkin .button { width: 100%; }
   .progression-badge-detail { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }

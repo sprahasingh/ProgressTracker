@@ -44,6 +44,7 @@ export function HistoryPage() {
   const [challengeHolidays, setChallengeHolidays] = useState<ReadonlySet<string>>(new Set())
   const [missing, setMissing] = useState<MissingCheckIn[]>([])
   const [loading, setLoading] = useState(true)
+  const [existingCheckIn, setExistingCheckIn] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; exists: boolean }>({ key: '', status: 'loading', exists: false })
   const [error, setError] = useState('')
   const startDate = (range === 'custom' ? customStart : shiftCalendarDate(today, -(Number(range) - 1))) as CalendarDate
   const endDate = (range === 'custom' ? customEnd : today) as CalendarDate
@@ -138,7 +139,7 @@ export function HistoryPage() {
   const addTracker = trackerMap.get(trackerFilter)
   const parsedAddDate = Date.parse(`${addDate}T00:00:00.000Z`)
   const addDateValid = /^\d{4}-\d{2}-\d{2}$/.test(addDate) && Number.isFinite(parsedAddDate) && new Date(parsedAddDate).toISOString().slice(0, 10) === addDate && addDate <= today
-  const addIssue = !addTracker ? 'Choose a tracker to add a check-in.'
+  const addIssue = !addTracker ? 'Select a tracker to add or edit a check-in.'
     : !addDateValid ? 'Choose a valid date that is today or earlier in this workspace time zone.'
       : addTracker.deletedAt !== null ? 'Deleted trackers cannot receive check-ins.'
         : addTracker.status === 'archived' ? 'Archived trackers are read-only. Restore the tracker to edit its check-ins.'
@@ -147,6 +148,20 @@ export function HistoryPage() {
         : addDate < trackerActiveStartDate(addTracker, timeZone) ? `Choose the tracker start date or later (${calendarDateLabel(trackerActiveStartDate(addTracker, timeZone))}).`
           : addTracker.deadline && addDate > addTracker.deadline ? `Choose a date on or before the tracker deadline (${calendarDateLabel(addTracker.deadline)}).`
             : ''
+  const addLookupKey = addTracker && !addIssue ? `${addTracker.id}:${addDate}` : ''
+  const addLookupLoading = Boolean(addLookupKey) && (existingCheckIn.key !== addLookupKey || existingCheckIn.status === 'loading')
+
+  useEffect(() => {
+    if (!addLookupKey || !addTracker) return
+    let active = true
+    setExistingCheckIn({ key: addLookupKey, status: 'loading', exists: false })
+    void localRepository.getTrackerEntry(addTracker.id, addDate as CalendarDate).then((entry) => {
+      if (active) setExistingCheckIn({ key: addLookupKey, status: 'ready', exists: Boolean(entry) })
+    }).catch(() => {
+      if (active) setExistingCheckIn({ key: addLookupKey, status: 'error', exists: false })
+    })
+    return () => { active = false }
+  }, [addLookupKey, addTracker, addDate])
 
   return (
     <section className="tracker-page history-page insights-page" aria-labelledby="history-title">
@@ -159,12 +174,9 @@ export function HistoryPage() {
         <p className="history-missing-note">Holidays apply to the whole workspace. <Link to="/calendar">View older dates in Calendar</Link></p>
       </section>
       <div className="history-toolbar">
-        <div className="history-toolbar-filters" aria-label="History filters">
-          <label className="history-filter"><span>Date range</span><select className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select></label>
-          {range === 'custom' && <div className="history-custom-dates"><label className="history-filter"><span>From</span><input className="auth-input" type="date" max={today} value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="history-filter"><span>Through</span><input className="auth-input" type="date" max={today} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
-          <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
-        </div>
-        <div className="history-edit-controls"><div className="history-add-checkin"><label className="history-filter"><span>Add or edit a date</span><input className="auth-input" type="date" max={today} value={addDate} onChange={(event) => setAddDate(event.target.value)} /></label><button type="button" className="button button-secondary button-small" disabled={Boolean(addIssue)} aria-describedby={addIssue ? 'history-edit-guidance' : undefined} title={addIssue || 'Open the shared check-in editor'} onClick={() => addTracker && navigate('/', { state: { openActivity: { trackerId: addTracker.id, date: addDate } } })}>Add / edit check-in</button></div>{addIssue && <small id="history-edit-guidance" className="history-edit-guidance" role="status">{addIssue}</small>}</div>
+        <div className="history-filter history-range-filter"><span>Date range</span><select aria-label="Date range" className="auth-input" value={range} onChange={(event) => setRange(event.target.value as HistoryRange)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom dates</option></select>{range === 'custom' && <div className="history-custom-dates"><label className="history-filter"><span>From</span><input className="auth-input" type="date" max={today} value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="history-filter"><span>Through</span><input className="auth-input" type="date" max={today} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>
+        <label className="history-filter"><span>Tracker</span><select className="auth-input" value={trackerFilter} onChange={(event) => setTrackerFilter(event.target.value)}><option value="all">All trackers</option>{trackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
+        <div className="history-edit-controls"><div className="history-add-checkin"><label className="history-filter"><span>Add or edit a date</span><input className="auth-input" type="date" max={today} value={addDate} onChange={(event) => setAddDate(event.target.value)} /></label><button type="button" className="button button-secondary button-small" disabled={Boolean(addIssue) || loading || addLookupLoading || existingCheckIn.status === 'error'} aria-describedby={loading || addIssue || addLookupLoading || existingCheckIn.status === 'error' ? 'history-edit-guidance' : undefined} onClick={() => addTracker && navigate('/', { state: { openActivity: { trackerId: addTracker.id, date: addDate } } })}>{loading && !addTracker ? 'Loading trackers…' : !addTracker ? 'Select a tracker first' : addIssue || existingCheckIn.status === 'error' ? 'Check-in unavailable' : addLookupLoading ? 'Checking check-in…' : existingCheckIn.exists ? 'Edit check-in' : 'Add check-in'}</button></div>{(loading || addIssue || addLookupLoading || existingCheckIn.status === 'error') && <small id="history-edit-guidance" className="history-edit-guidance" role="status">{loading ? 'Loading tracker and check-in availability…' : addIssue || (addLookupLoading ? 'Checking this date’s saved check-in…' : 'Could not verify this check-in. Try changing the date or tracker and try again.')}</small>}</div>
       </div>
       {!loading && <p className="history-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} check-ins · {qualifiedCount} met the current success rule{historicalCount ? ` · ${historicalCount} outside the current tracker period` : ''}</p>}
       {rangeIssue && <div role="alert" className="form-alert">{rangeIssue}</div>}

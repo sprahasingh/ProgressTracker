@@ -27,20 +27,36 @@ function HistoryWithTodayEditor() {
 }
 
 describe('local check-in history', () => {
-  it('explains why Add / edit is disabled for All Trackers and enables it for a valid active tracker/date', async () => {
+  it('explains the tracker requirement and labels the action for a valid active tracker/date', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(definition)
     render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
-    const action = await screen.findByRole('button', { name: 'Add / edit check-in' })
+    const action = await screen.findByRole('button', { name: 'Select a tracker first' })
     expect(action).toBeDisabled()
-    expect(screen.getByText('Choose a tracker to add a check-in.')).toBeInTheDocument()
+    expect(screen.getByText('Select a tracker to add or edit a check-in.')).toBeInTheDocument()
 
     await screen.findByRole('option', { name: 'Morning run' })
     await user.selectOptions(screen.getByLabelText('Tracker'), definition.id)
-    await waitFor(() => expect(action).toBeEnabled())
-    expect(action).not.toHaveAttribute('aria-describedby')
-    await user.click(action)
+    const addAction = await screen.findByRole('button', { name: 'Add check-in' })
+    await waitFor(() => expect(addAction).toBeEnabled())
+    expect(addAction).not.toHaveAttribute('aria-describedby')
+    await user.click(addAction)
     expect(await screen.findByRole('spinbutton', { name: 'Distance' })).toBeInTheDocument()
+  })
+
+  it('uses Edit check-in when the selected tracker and date already have a saved entry', async () => {
+    const user = userEvent.setup()
+    const date = localCalendarDate()
+    await localRepository.saveTracker(definition)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { distance: 4 }, note: '' })
+    render(<ToastProvider><HistoryWithTodayEditor /></ToastProvider>)
+    await screen.findByRole('option', { name: 'Morning run' })
+    await user.selectOptions(screen.getByLabelText('Tracker'), definition.id)
+    const action = await screen.findByRole('button', { name: 'Edit check-in' })
+    await waitFor(() => expect(action).toBeEnabled())
+    await user.click(action)
+    expect(await screen.findByRole('spinbutton', { name: 'Distance' })).toHaveValue('4')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument()
   })
 
   it('confirms a historical check-in edit after the local write succeeds', async () => {
@@ -108,7 +124,7 @@ describe('local check-in history', () => {
     await screen.findByText('No check-ins in this range')
     await user.selectOptions(screen.getByLabelText('Tracker'), createdToday.id)
     fireEvent.change(screen.getByLabelText('Add or edit a date'), { target: { value: activityDate } })
-    await user.click(screen.getByRole('button', { name: 'Add / edit check-in' }))
+    await user.click(await screen.findByRole('button', { name: 'Add check-in' }))
     const distance = await screen.findByRole('spinbutton', { name: 'Distance' })
     expect(distance).toHaveValue('')
     expect(within(screen.getByRole('dialog')).getAllByText(calendarDateLabel(activityDate), { exact: false }).length).toBeGreaterThan(0)
@@ -166,12 +182,11 @@ describe('local check-in history', () => {
     expect(screen.queryByRole('button', { name: /Edit check-in for/ })).not.toBeInTheDocument()
 
     await screen.findByRole('option', { name: 'Paused tracker' })
-    const action = screen.getByRole('button', { name: 'Add / edit check-in' })
     await user.selectOptions(screen.getByLabelText('Tracker'), paused.id)
-    expect(action).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Check-in unavailable' })).toBeDisabled()
     expect(screen.getByText('Paused trackers cannot receive check-ins. Resume the tracker to continue.')).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Tracker'), completed.id)
-    expect(action).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Check-in unavailable' })).toBeDisabled()
     expect(screen.getByText('Completed trackers cannot receive new check-ins.')).toBeInTheDocument()
   })
 
