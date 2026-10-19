@@ -485,3 +485,37 @@ export function evaluateTrackerEntry(tracker: TrackerDefinition, entry: TrackerE
   }
   return evaluateQualificationRule(tracker.qualificationRule, activeTrackerMetrics(tracker.metrics), entry.values)
 }
+
+/** Plain-language detail for the failed leaves of the date-effective success rule. */
+export function describeFailedTrackerConditions(tracker: TrackerDefinition, entry: TrackerEntry): string[] {
+  type LeafRule = Extract<TrackerRule, { kind: 'threshold' }> | Extract<TrackerRule, { kind: 'comparison' }>
+  const evaluation = trackerDefinitionForDate(tracker, entry.date)
+  if (evaluateTrackerEntry(tracker, entry).qualified || !evaluation.qualificationRule) return []
+  const conditions: LeafRule[] = []
+  const collect = (rule: TrackerRule) => {
+    if (rule.kind === 'all' || rule.kind === 'any' || rule.kind === 'at-least') rule.operands.forEach(collect)
+    else {
+      const leaf = rule as LeafRule
+      if (!evaluateQualificationRule(leaf, activeTrackerMetrics(evaluation.metrics ?? []), entry.values).qualified) conditions.push(leaf)
+    }
+  }
+  collect(evaluation.qualificationRule)
+  return conditions.map((condition) => {
+    const metric = evaluation.metrics?.find((item) => item.id === condition.metricId)
+    const name = metric?.name ?? 'Measure'
+    const value = entry.values[condition.metricId]
+    const saved = typeof value === 'number' ? ` (saved ${value}${metric?.unit ? ` ${metric.unit}` : ''})` : value === undefined ? ' (no value saved)' : ` (saved ${String(value)})`
+    if (condition.kind === 'threshold') {
+      const threshold = metric?.thresholds?.[condition.level]
+      if (threshold !== undefined) {
+        const comparator = metric?.thresholds?.direction === 'decrease' ? 'at most' : 'at least'
+        return `${name} must be ${comparator} ${threshold}${metric?.unit ? ` ${metric.unit}` : ''}${saved}`
+      }
+    }
+    if (condition.kind === 'comparison') {
+      const comparator = condition.operator === 'equals' ? 'equal' : condition.operator === 'greater-than' ? 'greater than' : condition.operator === 'at-least' ? 'at least' : 'at most'
+      return `${name} must be ${comparator} ${condition.value}${metric?.unit && typeof condition.value === 'number' ? ` ${metric.unit}` : ''}${saved}`
+    }
+    return `${name} did not meet its success condition${saved}`
+  })
+}

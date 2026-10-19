@@ -61,6 +61,7 @@ jobs:
           VITE_ENABLE_TRACKER_SCHEMA_V8: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V8 }}
           VITE_ENABLE_TRACKER_SCHEMA_V9: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V9 }}
           VITE_ENABLE_TRACKER_SCHEMA_V10: ${{ vars.VITE_ENABLE_TRACKER_SCHEMA_V10 }}
+          VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS: ${{ vars.VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS }}
           VITE_ENABLE_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_PERMANENT_DELETION }}
           VITE_ENABLE_HOLIDAY_PERMANENT_DELETION: ${{ vars.VITE_ENABLE_HOLIDAY_PERMANENT_DELETION }}
           VITE_ENABLE_PROGRESSION_UI: ${{ vars.VITE_ENABLE_PROGRESSION_UI }}
@@ -101,6 +102,13 @@ jobs:
             echo "::error::Set the repository variable VITE_ENABLE_TRACKER_SCHEMA_V10 to true only after the hosted V10 rule history migration, downgrade guard, and SQL regressions are verified."
             exit 1
           fi
+          if [ -z "$VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS" ]; then
+            VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=false
+            export VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS
+          elif [ "$VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS" != "true" ] && [ "$VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS" != "false" ]; then
+            echo "::error::VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS must be exactly true or false when configured."
+            exit 1
+          fi
           if [ "$VITE_ENABLE_PERMANENT_DELETION" != "true" ]; then
             echo "::error::Set the repository variable VITE_ENABLE_PERMANENT_DELETION to true to include the verified manual deletion control in the production build. This flag does not enable scheduled cleanup."
             exit 1
@@ -110,6 +118,30 @@ jobs:
             exit 1
           fi
           npm run build
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises'
+          import { transform } from 'esbuild'
+
+          const source = await readFile('src/domain/trackers/schemaVersionGate.ts', 'utf8')
+          const flagNames = [
+            'VITE_ENABLE_TRACKER_SCHEMA_V3', 'VITE_ENABLE_TRACKER_SCHEMA_V4',
+            'VITE_ENABLE_TRACKER_SCHEMA_V5', 'VITE_ENABLE_TRACKER_SCHEMA_V6',
+            'VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8',
+            'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10',
+            'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS',
+          ]
+          const define = { 'import.meta.env.PROD': 'true' }
+          for (const name of flagNames) {
+            define[`import.meta.env.${name}`] = JSON.stringify(process.env[name] ?? '')
+          }
+          const compiled = await transform(source, { loader: 'ts', format: 'esm', define })
+          const gate = await import(`data:text/javascript;base64,${Buffer.from(compiled.code).toString('base64')}`)
+          const expected = process.env.VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS === 'true'
+          if (gate.isTrackerEditHistorySyncGuardEnabled() !== expected) {
+            throw new Error('The production tracker-edit guard gate does not match the validated build setting.')
+          }
+          console.log('Verified the production tracker-edit guard gate matches the validated build setting.')
+          NODE
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

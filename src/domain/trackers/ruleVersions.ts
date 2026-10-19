@@ -1,7 +1,7 @@
 import type { TrackerDefinition, TrackerEvaluationSnapshot, TrackerRule, TrackerRuleVersion } from './types'
 import { calendarDateInTimeZone } from '../../db/calendarDate'
 
-export type RuleApplicationMode = 'apply-from-today' | 'recalculate-all-history'
+export type RuleApplicationMode = 'apply-from-today' | 'after-last-check-in' | 'recalculate-all-history'
 
 type VersionedTracker = Pick<TrackerDefinition, 'ruleVersions'> & Partial<TrackerEvaluationSnapshot>
 
@@ -42,8 +42,11 @@ export function trackerEvaluationSignature(evaluation: Partial<TrackerEvaluation
     startDate: evaluation.startDate ?? null,
     deadline: evaluation.deadline ?? null,
     scheduling: evaluation.scheduling ?? null,
-    metrics: (evaluation.metrics ?? []).filter((metric) => referencedMetricIds.has(metric.id)).map((metric) => ({
+    // Capture every measure, including retired/unreferenced measures. Structural
+    // edits change which values can be recorded and must create a date boundary.
+    metrics: (evaluation.metrics ?? []).map((metric) => ({
       id: metric.id,
+      retiredAt: metric.retiredAt ?? null,
       valueType: metric.valueType,
       unit: metric.unit ?? null,
       thresholds: metric.thresholds ?? null,
@@ -130,6 +133,7 @@ export function versionTrackerRuleChange(input: {
   application: RuleApplicationMode
   today: string
   historyStartDate: string
+  effectiveFrom?: string
   recordedAt: string
 }): TrackerDefinition {
   const { before, after, application, today, historyStartDate, recordedAt } = input
@@ -142,20 +146,23 @@ export function versionTrackerRuleChange(input: {
     evaluation: trackerEvaluationSnapshot(before),
   }] : [])
   const revision = Math.max(0, ...prior.map((version) => version.revision)) + 1
-  const effectiveFrom = application === 'apply-from-today'
-    ? today
-    : historyStartDate
+  const effectiveFrom = application === 'apply-from-today' ? today
+    : application === 'after-last-check-in' ? (input.effectiveFrom ?? today)
+      : historyStartDate
   const version: TrackerRuleVersion = {
     id: crypto.randomUUID(),
     effectiveFrom,
     revision,
-    application,
+    // Persist within the v10 enum understood by existing clients; the exact
+    // date, rather than this descriptive marker, defines the effective policy.
+    application: application === 'after-last-check-in' ? 'apply-from-today' : application,
+    historyPolicy: application,
     recordedAt,
     evaluation: trackerEvaluationSnapshot(after),
   }
   const ruleVersions = application === 'recalculate-all-history'
     ? [version]
-    : [...prior.filter((item) => item.effectiveFrom < today), version]
+    : [...prior.filter((item) => item.effectiveFrom < effectiveFrom), version]
 
   return { ...after, schemaVersion: 10, ruleVersions }
 }

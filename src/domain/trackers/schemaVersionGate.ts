@@ -37,6 +37,11 @@ export function isSchemaV10WriteEnabled(): boolean {
   return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V10 === 'true' && isSchemaV9WriteEnabled())
 }
 
+/** Three-option tracker edits also require the serialized boundary guard migration. */
+export function isTrackerEditHistorySyncGuardEnabled(): boolean {
+  return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS === 'true' && isSchemaV10WriteEnabled())
+}
+
 export function isTrackerSchemaWriteEnabled(version: number): boolean {
   if (version >= 10) return isSchemaV10WriteEnabled()
   if (version >= 9) return isSchemaV9WriteEnabled()

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db, queueSyncMutation } from './database'
 import { localRepository } from './localRepository'
+import { calendarDateInTimeZone } from './calendarDate'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
 import type { StoredTrackerDefinition } from './models'
+import { versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'local-event-tracker', name: 'Local event test', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -23,6 +25,164 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('rejects all-history rule edits when a referenced measure was introduced later, preserving local history', async () => {
+    const ownerUserId = 'historical-dependency-owner'
+    await activateWorkspace(ownerUserId)
+    const base = {
+      ...tracker, id: 'historical-dependency-local', schemaVersion: 10 as const,
+      startDate: '2026-01-01',
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+      scheduling: { mode: 'ongoing' as const },
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+      streakRuleMode: 'same-as-success' as const,
+      ruleVersions: [{ id: 'baseline', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline' as const,
+        recordedAt: '2026-01-01T00:00:00.000Z', evaluation: {
+          schedule: { kind: 'every-day' as const }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' as const },
+          metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }],
+          qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+          streakRuleMode: 'same-as-success' as const, streakRule: null, strictMode: false,
+        } }],
+    }
+    await localRepository.saveTracker(base)
+    await localRepository.saveTrackerEntry({ trackerId: base.id, date: '2026-01-02', outcome: 'recorded', values: { done: true }, note: 'retain' })
+    const added = { id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages' }
+    const structural = versionTrackerRuleChange({
+      before: base, after: { ...base, metrics: [...base.metrics, added] }, application: 'apply-from-today',
+      today: '2026-01-03', historyStartDate: '2026-01-01', effectiveFrom: '2026-01-03', recordedAt: '2026-01-03T00:00:00Z',
+    }) as StoredTrackerDefinition
+    await localRepository.saveTracker(structural)
+    const recalculated = versionTrackerRuleChange({
+      before: structural,
+      after: { ...structural, qualificationRule: { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 } },
+      application: 'recalculate-all-history', today: '2026-01-04', historyStartDate: '2026-01-01', recordedAt: '2026-01-04T00:00:00Z',
+    }) as StoredTrackerDefinition
+
+    await expect(localRepository.saveTracker(recalculated)).rejects.toThrow(/measure was unavailable during part of the selected period/i)
+    await expect(localRepository.getTracker(base.id)).resolves.toMatchObject({ ruleVersions: structural.ruleVersions, metrics: structural.metrics })
+    await expect(localRepository.getTrackerEntry(base.id, '2026-01-02')).resolves.toMatchObject({ values: { done: true }, note: 'retain' })
+    await expect(db.syncOperations.where('ownerUserId').equals(ownerUserId).toArray()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ entity: 'tracker_entry', entityId: expect.any(String), status: 'pending', payload: expect.objectContaining({ values: { done: true }, note: 'retain' }) }),
+    ]))
+  })
+
+  it('rejects all-history when a historical check-in lacks an active measure value', async () => {
+    await activateWorkspace('missing-historical-measure-input-owner')
+    const baseline: StoredTrackerDefinition = {
+      ...tracker, id: 'missing-historical-measure-input', schemaVersion: 10, startDate: '2026-01-01',
+      scheduling: { mode: 'ongoing' },
+      metrics: [
+        { id: 'done', name: 'Done', valueType: 'boolean' },
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' },
+      ],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+      streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'baseline-missing-input', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: {
+        schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: [
+          { id: 'done', name: 'Done', valueType: 'boolean' },
+          { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages' },
+        ],
+        qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+        streakRuleMode: 'same-as-success', streakRule: null, strictMode: false,
+      } }],
+    }
+    await localRepository.saveTracker(baseline)
+    await localRepository.saveTrackerEntry({ trackerId: baseline.id, date: '2026-01-02', outcome: 'recorded', values: { done: true }, note: 'No pages value was saved' })
+    const recalculated = versionTrackerRuleChange({
+      before: baseline,
+      after: { ...baseline, qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: false } },
+      application: 'recalculate-all-history', today: '2026-01-04', historyStartDate: '2026-01-01', recordedAt: '2026-01-04T00:00:00Z',
+    }) as StoredTrackerDefinition
+
+    await expect(localRepository.saveTracker(recalculated)).rejects.toThrow(/all-history recalculation is unsafe/i)
+    await expect(localRepository.getTracker(baseline.id)).resolves.toMatchObject({ ruleVersions: baseline.ruleVersions })
+    await expect(localRepository.getTrackerEntry(baseline.id, '2026-01-02')).resolves.toMatchObject({ values: { done: true }, note: 'No pages value was saved' })
+  })
+
+  it('rejects a newly effective rule referencing a retired measure in local persistence', async () => {
+    await activateWorkspace('retired-rule-dependency-owner')
+    const baseline: StoredTrackerDefinition = {
+      ...tracker, id: 'retired-rule-dependency', schemaVersion: 10, startDate: '2026-01-01',
+      scheduling: { mode: 'ongoing' },
+      metrics: [
+        { id: 'done', name: 'Done', valueType: 'boolean' },
+        { id: 'extra', name: 'Extra', valueType: 'boolean' },
+      ],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+      streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'baseline-retired-rule', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: {
+        schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: [
+          { id: 'done', name: 'Done', valueType: 'boolean' },
+          { id: 'extra', name: 'Extra', valueType: 'boolean' },
+        ],
+        qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+        streakRuleMode: 'same-as-success', streakRule: null, strictMode: false,
+      } }],
+    }
+    await localRepository.saveTracker(baseline)
+    const retired = { ...baseline, metrics: [{ ...baseline.metrics[0]!, retiredAt: '2026-01-03T00:00:00.000Z' }, baseline.metrics[1]!], strictMode: true }
+    const versioned = versionTrackerRuleChange({
+      before: baseline, after: retired, application: 'apply-from-today', today: '2026-01-03',
+      historyStartDate: '2026-01-01', recordedAt: '2026-01-03T00:00:00Z',
+    }) as StoredTrackerDefinition
+
+    await expect(localRepository.saveTracker(versioned)).rejects.toThrow(/rule depends on a measure that is no longer available/i)
+    await expect(localRepository.getTracker(baseline.id)).resolves.toMatchObject({ metrics: baseline.metrics, ruleVersions: baseline.ruleVersions })
+  })
+
+  it('allows a compatible rule-only version to start today when today already has a check-in', async () => {
+    await activateWorkspace('rule-edit-with-today-checkin')
+    await localRepository.setTimeZone('Asia/Kolkata', 'rule-edit-with-today-checkin')
+    const today = calendarDateInTimeZone(new Date(), 'Asia/Kolkata')
+    const existing: StoredTrackerDefinition = {
+      ...tracker,
+      id: 'rule-edit-today-checkin',
+      schemaVersion: 9,
+      scheduling: { mode: 'ongoing' },
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+    }
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: today, outcome: 'recorded', values: { done: true }, note: 'Keep this check-in' })
+    const versioned = versionTrackerRuleChange({
+      before: existing,
+      after: { ...existing, strictMode: true },
+      application: 'apply-from-today',
+      today,
+      historyStartDate: '2026-01-01',
+      recordedAt: new Date().toISOString(),
+    }) as StoredTrackerDefinition
+    versioned.schemaVersion = 10
+
+    await expect(localRepository.saveTracker(versioned)).resolves.toMatchObject({ ruleVersions: [{ effectiveFrom: '2026-01-01' }, { effectiveFrom: today, historyPolicy: 'apply-from-today' }] })
+    await expect(localRepository.getTrackerEntry(existing.id, today)).resolves.toMatchObject({ values: { done: true }, note: 'Keep this check-in' })
+  })
+
+  it('does not save milestone requirement edits on an existing tracker without historical milestone versions', async () => {
+    const existing = { ...tracker, milestones: [{ id: 'step', title: 'Step', description: '', position: 0 }] }
+    await localRepository.saveTracker(existing)
+    await expect(localRepository.saveTracker({ ...existing, milestones: [{ ...existing.milestones[0]!, title: 'Changed requirement' }] }))
+      .rejects.toThrow(/milestone requirements cannot be edited because historical milestone results are not versioned/i)
+    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({ milestones: [{ title: 'Step' }] })
+  })
+
+  it('rejects future check-ins against the saved workspace timezone while allowing that timezone’s current day', async () => {
+    await activateWorkspace('future-checkin-timezone-owner')
+    await localRepository.setTimeZone('Asia/Kolkata', 'future-checkin-timezone-owner')
+    const definition = { ...tracker, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }] }
+    await localRepository.saveTracker(definition)
+    const today = calendarDateInTimeZone(new Date(), 'Asia/Kolkata')
+    const nextDate = new Date(`${today}T00:00:00.000Z`)
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+    const futureDate = nextDate.toISOString().slice(0, 10)
+
+    await expect(localRepository.saveTrackerEntry({ trackerId: definition.id, date: futureDate, outcome: 'recorded', values: { done: true }, note: '' }))
+      .rejects.toThrow('You can only record check-ins for today or earlier.')
+    await expect(localRepository.saveTrackerEntry({ trackerId: definition.id, date: today, outcome: 'recorded', values: { done: true }, note: '' }))
+      .resolves.toMatchObject({ date: today })
+  })
+
   it('keeps archived history readable but prevents check-in edits until unarchived', async () => {
     await activateWorkspace('archive-edit-owner')
     const definition = { ...tracker, metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' as const }] }
@@ -73,7 +233,7 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.toArray()).resolves.toEqual(queuedBefore)
   })
 
-  it('locks custom-field meaning after use, retires fields without losing values, and allows old entries to be resaved', async () => {
+  it('preserves custom-field meaning and historical values by blocking definition edits', async () => {
     await activateWorkspace('historical-custom-field-owner')
     const original: StoredTrackerDefinition = { ...tracker,
       metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
@@ -82,17 +242,54 @@ describe('workspace mutation notifications', () => {
     await localRepository.saveTracker(original)
     const entry = await localRepository.saveTrackerEntry({ trackerId: original.id, date: '2026-10-10', outcome: 'recorded', values: { done: true, 'field:mood': 'Focused' }, note: 'Before retirement' })
 
-    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/saved check-in values/i)
-    await expect(localRepository.saveTracker({ ...original, customFields: [] })).rejects.toThrow(/saved check-in values/i)
-    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, options: ['Calm', 'Tired'] }] })).rejects.toThrow(/saved check-in values/i)
-    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, required: true }] })).rejects.toThrow(/saved check-in values/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, options: ['Calm', 'Tired'] }] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...original, customFields: [{ ...original.customFields[0]!, required: true }] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
 
     const retired = { ...original, customFields: [{ ...original.customFields[0]!, retiredAt: '2026-10-11T00:00:00.000Z' }] }
-    await localRepository.saveTracker(retired)
+    await expect(localRepository.saveTracker(retired)).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
     await localRepository.saveTrackerEntry({ trackerId: original.id, date: entry.date, outcome: 'recorded', values: { done: false, 'field:mood': 'Focused' }, note: 'Other historical detail edited' })
     await expect(localRepository.getTrackerEntry(original.id, '2026-10-10')).resolves.toMatchObject({ values: { done: false, 'field:mood': 'Focused' }, note: 'Other historical detail edited' })
-    await expect(localRepository.saveTrackerEntry({ trackerId: original.id, date: entry.date, outcome: 'recorded', values: { done: false, 'field:mood': 'Calm' }, note: '' })).rejects.toThrow(/retired custom fields/i)
-    await expect(localRepository.saveTracker({ ...retired, customFields: [] })).rejects.toThrow(/original definition/i)
+    await expect(localRepository.saveTrackerEntry({ trackerId: original.id, date: entry.date, outcome: 'recorded', values: { done: false, 'field:mood': 'Tired' }, note: '' })).resolves.toMatchObject({ values: { 'field:mood': 'Tired' } })
+    await expect(localRepository.getTracker(original.id)).resolves.toMatchObject({ customFields: [{ id: 'mood', name: 'Mood', options: ['Focused', 'Tired'] }] })
+  })
+
+  it('blocks custom-field definition changes when historical availability is not recorded', async () => {
+    const today = calendarDateInTimeZone(new Date(), 'UTC')
+    const legacy: StoredTrackerDefinition = {
+      ...tracker,
+      id: 'v10-custom-field-history-boundary',
+      schemaVersion: 9,
+      schedule: { kind: 'every-day' },
+      scheduling: { mode: 'ongoing' },
+      metrics: [{ id: 'done', name: 'Done', valueType: 'boolean' }],
+      qualificationRule: { kind: 'comparison', metricId: 'done', operator: 'equals', value: true },
+      customFields: [{ id: 'mood', name: 'Mood', type: 'single-select', required: false, position: 0, options: ['Focused', 'Tired'] }],
+    }
+    const versioned = versionTrackerRuleChange({
+      before: legacy,
+      after: legacy,
+      application: 'apply-from-today',
+      today,
+      historyStartDate: '2026-01-01',
+      recordedAt: new Date().toISOString(),
+    }) as StoredTrackerDefinition
+    await localRepository.saveTracker(versioned)
+
+    await expect(localRepository.saveTracker({ ...versioned, customFields: [
+      ...versioned.customFields,
+      { id: 'energy', name: 'Energy', type: 'text', required: false, position: 1 },
+    ] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...versioned, customFields: [
+      { ...versioned.customFields[0]!, retiredAt: new Date().toISOString() },
+    ] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...versioned, customFields: [
+      { ...versioned.customFields[0]!, options: ['Calm', 'Tired'] },
+    ] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
+    await expect(localRepository.saveTracker({ ...versioned, customFields: [
+      { ...versioned.customFields[0]!, position: 3 },
+    ] })).resolves.toMatchObject({ customFields: [{ id: 'mood', position: 3 }] })
   })
 
   it('keeps deleted-entry values as historical definitions for edit guards', async () => {
@@ -106,7 +303,7 @@ describe('workspace mutation notifications', () => {
     await localRepository.deleteTrackerEntry(definition.id, '2026-10-10')
 
     await expect(localRepository.listTrackerHistoricalValueKeys(definition.id)).resolves.toEqual(expect.arrayContaining(['done', 'field:mood']))
-    await expect(localRepository.saveTracker({ ...definition, customFields: [{ ...definition.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/saved check-in values/i)
+    await expect(localRepository.saveTracker({ ...definition, customFields: [{ ...definition.customFields[0]!, name: 'Energy' }] })).rejects.toThrow(/custom-field definitions cannot be edited because their historical availability is not saved/i)
     await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ deletedAt: expect.any(String), values: { 'field:mood': 'Focused' } })
   })
 

@@ -10,6 +10,8 @@ import styles from '../../styles.css?raw'
 import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
+import { calendarDateLabel, shiftCalendarDate } from '../shared/localDates'
+import { calendarDateInTimeZone } from '../../db/calendarDate'
 import type { TrackerDefinition, TrackerKind } from '../../domain/trackers/types'
 
 const { navigation, routeParams } = vi.hoisted(() => ({ navigation: vi.fn(), routeParams: { trackerId: undefined as string | undefined } }))
@@ -100,7 +102,7 @@ describe('tracker setup flow', () => {
     await user.selectOptions(streakSection.querySelector<HTMLSelectElement>('.rule-leaf-controls select:not([aria-label])')!, 'target')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    const dialog = await screen.findByRole('alertdialog', { name: 'How should your new rules apply?' })
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     expect(within(dialog).getByRole('radio', { name: /Apply from today \(recommended\)/ })).toBeChecked()
     expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 6 })
     await user.click(within(dialog).getByRole('button', { name: 'Apply from today' }))
@@ -385,7 +387,7 @@ describe('tracker setup flow', () => {
     expect(await localRepository.listTrackers()).toMatchObject([{ strictMode: true }])
   })
 
-  it('offers prospective, retrospective, and cancel choices for an evaluation change while preserving form values', async () => {
+  it('offers a forward choice and explains why legacy history cannot be recalculated', async () => {
     const existing = {
       schemaVersion: 1 as const, id: 'strict-history', name: 'Read', description: '', kind: 'habit' as const,
       status: 'active' as const, categoryId: null, tags: [], icon: '', accent: '', schedule: { kind: 'weekdays' as const },
@@ -400,18 +402,20 @@ describe('tracker setup flow', () => {
     await user.click(await screen.findByText('Activity schedule & holidays'))
     await user.click(await screen.findByRole('checkbox', { name: /Strict Mode/ }))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(await screen.findByRole('heading', { name: 'How should your new rules apply?' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'How should your tracker changes apply?' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /Apply from today \(recommended\)/ })).toBeChecked()
-    expect(screen.getByText(/including any activity already recorded today/)).toBeInTheDocument()
+    expect(screen.getByText(/Use the saved workspace date/)).toBeInTheDocument()
     expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('strictMode')
-    const ruleDialog = screen.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+    const ruleDialog = screen.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     await user.click(within(ruleDialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('checkbox', { name: /Strict Mode/ })).toBeChecked()
     expect(await localRepository.getTracker(existing.id)).not.toHaveProperty('strictMode')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    await user.click(screen.getByRole('radio', { name: /Recalculate all history/ }))
-    await user.click(screen.getByRole('button', { name: 'Recalculate all history' }))
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 10, strictMode: true, ruleVersions: [{ application: 'recalculate-all-history' }] }))
+    const historyDialog = screen.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    expect(within(historyDialog).getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
+    expect(within(historyDialog).getByText('Unavailable: Historical measure settings can’t be verified.')).toBeInTheDocument()
+    await user.click(within(historyDialog).getByRole('button', { name: 'Apply from today' }))
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ schemaVersion: 10, strictMode: true, ruleVersions: [{ application: 'baseline' }, { application: 'apply-from-today' }] }))
   })
 
   it('offers compact numeric unit, target, and precision controls and saves them', async () => {
@@ -459,10 +463,10 @@ describe('tracker setup flow', () => {
     await user.type(within(successRule).getByRole('spinbutton', { name: 'Value' }), '5')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    const dialog = await screen.findByRole('alertdialog', { name: 'How should your new rules apply?' })
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     expect(within(dialog).getByRole('radio', { name: /Apply from today/ })).toBeChecked()
-    await user.click(within(dialog).getByRole('radio', { name: /Recalculate all history/ }))
-    await user.click(within(dialog).getByRole('button', { name: 'Recalculate all history' }))
+    await user.click(within(dialog).getByRole('radio', { name: /Apply to all history/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Apply to all history' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
       schemaVersion: 10,
       qualificationRule: { value: 5 },
@@ -525,7 +529,69 @@ describe('tracker setup flow', () => {
     await user.selectOptions(newType, 'boolean')
     expect(newType).toHaveValue('boolean')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const changeDialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    expect(within(changeDialog).getByRole('radio', { name: /Apply from today/ })).toBeChecked()
+    await user.click(within(changeDialog).getByRole('button', { name: 'Apply from today' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done', valueType: 'boolean' }, { id: 'pages', valueType: 'quantity' }, { valueType: 'boolean' }] }))
+  })
+
+  it('defers a structural edit past today’s check-in and keeps all-history disabled', async () => {
+    const legacy = { ...datedTracker('structural-edit-after-today-checkin', 'habit'), scheduling: { mode: 'calendar' as const } }
+    const existing: TrackerDefinition = {
+      ...legacy,
+      schemaVersion: 10,
+      ruleVersions: [{ id: 'baseline', effectiveFrom: legacy.startDate!, revision: 1, application: 'baseline', recordedAt: legacy.createdAt, evaluation: trackerEvaluationSnapshot(legacy) }],
+    }
+    await activateWorkspace('structural-edit-owner')
+    await localRepository.setTimeZone('Asia/Kolkata', 'structural-edit-owner')
+    await localRepository.saveTracker(existing)
+    const today = calendarDateInTimeZone(new Date(), 'Asia/Kolkata')
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: today, outcome: 'recorded', values: { done: true }, note: 'Keep this check-in' })
+
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Measures, precision & targets'))
+    await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    const applyToday = within(dialog).getByRole('radio', { name: /Apply from today/ })
+    const allHistory = within(dialog).getByRole('radio', { name: 'Apply to all history' })
+    expect(applyToday).toBeDisabled()
+    expect(applyToday).toHaveAccessibleDescription('Unavailable: a check-in exists today. Structural changes start after it.')
+    expect(allHistory).toBeDisabled()
+    expect(allHistory).toHaveAccessibleDescription('Unavailable: This measure wasn’t available for earlier check-ins.')
+    expect(within(dialog).getByText('Unavailable: This measure wasn’t available for earlier check-ins.')).toBeInTheDocument()
+    expect(within(dialog).getByRole('radio', { name: 'After the last check-in' })).toBeChecked()
+    expect(dialog).toHaveTextContent(calendarDateLabel(shiftCalendarDate(today, 1)))
+    await user.click(within(dialog).getByRole('button', { name: 'After the last check-in' }))
+
+    await waitFor(async () => expect((await localRepository.getTracker(existing.id))?.ruleVersions?.at(-1)).toMatchObject({
+      historyPolicy: 'after-last-check-in', effectiveFrom: shiftCalendarDate(today, 1),
+    }))
+    await expect(localRepository.getTrackerEntry(existing.id, today)).resolves.toMatchObject({ values: { done: true }, note: 'Keep this check-in' })
+  })
+
+  it('announces a blocked milestone edit with a specific accessible explanation', async () => {
+    const legacy = { ...datedTracker('blocked-milestone-edit', 'habit'), scheduling: { mode: 'calendar' as const } }
+    const existing: TrackerDefinition = {
+      ...legacy,
+      schemaVersion: 10,
+      ruleVersions: [{ id: 'baseline', effectiveFrom: legacy.startDate!, revision: 1, application: 'baseline', recordedAt: legacy.createdAt, evaluation: trackerEvaluationSnapshot(legacy) }],
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Milestones', { selector: 'summary' }))
+    const name = screen.getByLabelText('Milestone name')
+    await user.clear(name)
+    await user.type(name, 'Changed requirement')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const blockedMessages = await screen.findAllByText('Milestone requirements cannot be edited because historical milestone results are not versioned.')
+    expect(blockedMessages.some((message) => message.closest('[role="alert"]'))).toBe(true)
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ milestones: [{ title: 'First step' }] })
   })
 
   it('locks checklist item editing when saved values use the checklist definition', async () => {
@@ -541,7 +607,9 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     await user.click(await screen.findByText('More options'))
     await user.click(screen.getByText('Measures, precision & targets'))
-    expect(screen.getByRole('textbox', { name: 'Checklist item 1' })).toBeDisabled()
+    const checklistItem = screen.getByRole('textbox', { name: 'Checklist item 1' })
+    expect(checklistItem).toBeDisabled()
+    expect(checklistItem).toHaveAccessibleDescription('Saved checklist values keep these item IDs and labels. Retire this measure and add a new checklist to change its items.')
     expect(screen.getAllByRole('button', { name: 'Remove' }).every((button) => button.hasAttribute('disabled'))).toBe(true)
     expect(screen.getByRole('button', { name: '＋ Add checklist item' })).toBeDisabled()
     expect(screen.getByText(/Saved checklist values keep these item IDs and labels/)).toBeInTheDocument()
@@ -550,7 +618,7 @@ describe('tracker setup flow', () => {
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ checklistItems: [{ id: 'read', label: 'Read' }, { id: 'review', label: 'Review' }] }] }))
   })
 
-  it('locks a historical custom field and retires it while preserving its saved value', async () => {
+  it('preserves a historical custom field and blocks edits without dated field history', async () => {
     const existing = datedTracker('custom-field-history-lock', 'habit')
     existing.customFields = [{ id: 'mood', name: 'Mood', type: 'single-select', required: false, position: 0, options: ['Focused', 'Tired'] }]
     await localRepository.saveTracker(existing)
@@ -560,15 +628,24 @@ describe('tracker setup flow', () => {
     renderSetup(`/trackers/${existing.id}/edit`)
     await user.click(await screen.findByText('More options'))
     await user.click(screen.getByText('Extra check-in details'))
-    expect(screen.getByRole('textbox', { name: 'Field name' })).toBeDisabled()
-    expect(screen.getByRole('combobox', { name: 'Field type' })).toBeDisabled()
-    expect(screen.getByRole('textbox', { name: /Options/ })).toBeDisabled()
-    expect(screen.getByRole('checkbox', { name: /Required/ })).toBeDisabled()
+    const fieldName = screen.getByRole('textbox', { name: 'Field name' })
+    const fieldType = screen.getByRole('combobox', { name: 'Field type' })
+    const options = screen.getByRole('textbox', { name: /Options/ })
+    const required = screen.getByRole('checkbox', { name: /Required/ })
+    expect(fieldName).toBeDisabled()
+    expect(fieldName).toHaveAccessibleDescription('Saved values depend on this field’s current definition. Retire it to stop collecting future values.')
+    expect(fieldType).toBeDisabled()
+    expect(fieldType).toHaveAccessibleDescription('Saved values depend on this field’s current definition. Retire it to stop collecting future values.')
+    expect(options).toBeDisabled()
+    expect(options).toHaveAccessibleDescription('Saved values depend on this field’s current definition. Retire it to stop collecting future values.')
+    expect(required).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Retire field' })).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: 'Retire field' }))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ customFields: [{ id: 'mood', name: 'Mood', retiredAt: expect.any(String) }] }))
+    const blockedMessage = await screen.findByText('Custom-field definitions cannot be edited because their historical availability is not saved.')
+    expect(blockedMessage.closest('[role="alert"]')).toBeInTheDocument()
+    await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ customFields: [{ id: 'mood', name: 'Mood', options: ['Focused', 'Tired'] }] }))
     await expect(localRepository.getTrackerEntry(existing.id, '2026-10-10')).resolves.toMatchObject({ values: { 'field:mood': 'Focused' } })
   })
 
@@ -697,6 +774,8 @@ describe('tracker setup flow', () => {
     await user.click(retireButtons.find((button) => !button.hasAttribute('disabled'))!)
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Retired measures won't appear in new check-ins"))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const changeDialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    await user.click(within(changeDialog).getByRole('button', { name: 'Apply from today' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done' }, { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', retiredAt: expect.any(String) }] }))
     await expect(localRepository.getTrackerEntry(existing.id, '2026-10-10')).resolves.toMatchObject({ id: savedEntry.id, values: { pages: 12 }, note: 'Keep this value' })
     confirm.mockRestore()
@@ -713,6 +792,8 @@ describe('tracker setup flow', () => {
     const removeButtons = screen.getAllByRole('button', { name: 'Remove' })
     await user.click(removeButtons.find((button) => !button.hasAttribute('disabled'))!)
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const changeDialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    await user.click(within(changeDialog).getByRole('button', { name: 'Apply from today' }))
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({ metrics: [{ id: 'done' }], qualificationRule: { kind: 'comparison', metricId: 'done', value: true } }))
   })
 
@@ -1050,6 +1131,46 @@ describe('tracker setup flow', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
 
+  it('disables all-history when a selected rule measure was introduced in a later snapshot', async () => {
+    const base = {
+      ...datedTracker('late-measure-rule-dependency', 'habit'),
+      scheduling: { mode: 'ongoing' as const },
+      deadline: undefined,
+      metrics: [
+        { id: 'done', name: 'Done', valueType: 'boolean' as const },
+        { id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages' },
+      ],
+      qualificationRule: { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true },
+      streakRuleMode: 'same-as-success' as const,
+      strictMode: false,
+    } satisfies TrackerDefinition
+    const initial = { ...base, metrics: [base.metrics[0]!] }
+    const existing: TrackerDefinition = {
+      ...base,
+      schemaVersion: 10,
+      ruleVersions: [
+        { id: 'baseline', effectiveFrom: '2026-01-05', revision: 1, application: 'baseline', recordedAt: '2026-01-05T00:00:00Z', evaluation: trackerEvaluationSnapshot(initial) },
+        { id: 'pages-added', effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today', recordedAt: '2026-02-01T00:00:00Z', evaluation: trackerEvaluationSnapshot(base) },
+      ],
+    }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Success rule', { selector: 'summary' }))
+    const successRule = screen.getByRole('region', { name: 'Success rule' })
+    await user.selectOptions(within(successRule).getByRole('combobox', { name: 'Measure' }), 'pages')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    expect(within(dialog).getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
+    expect(within(dialog).getByText('Unavailable: This measure was unavailable during part of the selected period.')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({
+      qualificationRule: { metricId: 'done' }, ruleVersions: existing.ruleVersions,
+    })
+  })
+
   it.each([
     { kind: 'challenge' as const, deadlineLabel: 'Tracker deadline' },
     { kind: 'project' as const, deadlineLabel: 'Tracker deadline' },
@@ -1109,10 +1230,12 @@ describe('tracker setup flow', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Problems recording precision' }), '1')
     expect(screen.getByRole('combobox', { name: 'Problems allowed increment' })).toHaveValue('0.1')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const historyDialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    await user.click(within(historyDialog).getByRole('button', { name: 'Apply from today' }))
 
     await waitFor(() => expect(navigation).toHaveBeenCalled())
     expect(await localRepository.getTracker(existing.id)).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 10,
       metrics: [{ precision: { decimalPlaces: 1, increment: 0.1 }, thresholds: { target: 1.2 } }],
     })
   })
@@ -1133,9 +1256,11 @@ describe('tracker setup flow', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Pages recording precision' }), String(to))
     expect(screen.getByRole('combobox', { name: 'Pages allowed increment' })).toHaveValue(String(toIncrement))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const historyDialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    await user.click(within(historyDialog).getByRole('button', { name: 'Apply from today' }))
 
     await waitFor(async () => expect(await localRepository.getTracker(existing.id)).toMatchObject({
-      schemaVersion: 4, metrics: [{ precision: { decimalPlaces: to, increment: toIncrement } }],
+      schemaVersion: 10, metrics: [{ precision: { decimalPlaces: to, increment: toIncrement } }],
       goalPlanning: { cumulativeTargets: { pages: 10 }, allocations: { pages: allocations } },
     }))
   })
@@ -1151,7 +1276,6 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByText('Measures, precision & targets'))
     await user.selectOptions(screen.getByRole('combobox', { name: 'Pages recording precision' }), '1')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-
     const alert = await screen.findByRole('alert', { name: 'Tracker details need attention' })
     expect(alert).toHaveTextContent('Saved daily allocations for Pages (increments of 0.1) do not match the selected precision.')
     expect(alert).toHaveTextContent('Your goal total, allocations, and recorded progress have not changed.')

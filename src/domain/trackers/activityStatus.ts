@@ -1,6 +1,6 @@
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
-import { trackerStrictModeForDate } from './ruleVersions'
+import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersions'
 
 export type ActivityStatus = 'pending' | 'upcoming' | 'completed' | 'partial' | 'no-progress' | 'historical' | 'outside-period' | 'missed' | 'skipped' | 'holiday' | 'rest-day' | 'inactive' | 'no-trackers' | 'unscheduled'
 
@@ -63,6 +63,10 @@ export function getTrackerActivityStatus(input: {
 
 /** A saved value counts as progress only when it records a positive/affirmative action. */
 function hasPositiveProgress(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
+  // The entry is classified using the same date-effective measure definitions
+  // that evaluate its success rule. Current definitions may have retired the
+  // measure (or added a replacement) since this entry was recorded.
+  tracker = trackerDefinitionForDate(tracker, entry.date)
   return tracker.metrics.some((metric) => {
     if (metric.retiredAt) return false
     const value = entry.values[metric.id]

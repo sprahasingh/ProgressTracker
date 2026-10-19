@@ -116,44 +116,39 @@ select is((public.apply_tracker_sync_operation(
  jsonb_build_object('id','00000000-0000-4000-8000-000000000953','tracker_id','00000000-0000-4000-8000-000000000951','entry_date',current_date::text,
   'outcome','recorded','entry_values',jsonb_build_object('done',true,'field:mood','Focused'),'created_at',clock_timestamp())
 ))->>'status','applied'::text,'historical custom field value is accepted');
-select throws_ok($$select public.apply_tracker_sync_operation(
+select is((public.apply_tracker_sync_operation(
  '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000954','tracker',1,
  (select jsonb_build_object('id',tracker.id,'schema_version',tracker.schema_version,'kind',tracker.kind,'status',tracker.status,'name',tracker.name,
   'created_at',tracker.created_at,'updated_at',clock_timestamp(),'deleted_at',tracker.deleted_at,
   'definition',jsonb_set(tracker.definition,'{customFields,0,name}','"Energy"'))
   from public.trackers tracker where tracker.id='00000000-0000-4000-8000-000000000951')
-)$$,
- '23514','A custom field with saved check-ins must keep its original name, type, options, and required setting. Retire it and add a new field instead.',
- 'custom field meaning cannot be changed through the sync RPC');
+))->>'status','conflict'::text,
+ 'custom field meaning cannot be changed through the sync RPC when historical availability is unversioned');
 select is((public.apply_tracker_sync_operation(
  '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000955','tracker',1,
  (select jsonb_build_object('id',tracker.id,'schema_version',tracker.schema_version,'kind',tracker.kind,'status',tracker.status,'name',tracker.name,
   'created_at',tracker.created_at,'updated_at',clock_timestamp(),'deleted_at',tracker.deleted_at,
   'definition',jsonb_set(tracker.definition,'{customFields,0,retiredAt}',to_jsonb(clock_timestamp()::text)))
   from public.trackers tracker where tracker.id='00000000-0000-4000-8000-000000000951')
-))->>'status','applied'::text,'custom field with saved values can be safely retired');
+))->>'status','conflict'::text,'custom field retirement is blocked when availability dates are unknown');
 reset role;
 select is((select entry_values->>'field:mood' from public.tracker_entries where id='00000000-0000-4000-8000-000000000953'),'Focused',
- 'custom field retirement preserves its historical value');
+ 'blocked field edits preserve the historical value');
 set local role authenticated;
-select throws_ok($$select public.apply_tracker_sync_operation(
- '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000956','tracker',2,
+select is((public.apply_tracker_sync_operation(
+ '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000956','tracker',1,
  (select jsonb_build_object('id',tracker.id,'schema_version',tracker.schema_version,'kind',tracker.kind,'status',tracker.status,'name',tracker.name,
   'created_at',tracker.created_at,'updated_at',clock_timestamp(),'deleted_at',tracker.deleted_at,
   'definition',jsonb_set(tracker.definition,'{customFields,0,type}','"number"'))
   from public.trackers tracker where tracker.id='00000000-0000-4000-8000-000000000951')
-)$$,
- '23514','Retired custom fields must keep their original definition so their history keeps its meaning.',
- 'retired custom field definition remains immutable');
-select throws_ok($$select public.apply_tracker_sync_operation(
- '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000957','tracker',2,
+))->>'status','conflict'::text,'custom-field value type edits remain recoverable conflicts');
+select is((public.apply_tracker_sync_operation(
+ '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000957','tracker',1,
  (select jsonb_build_object('id',tracker.id,'schema_version',tracker.schema_version,'kind',tracker.kind,'status',tracker.status,'name',tracker.name,
   'created_at',tracker.created_at,'updated_at',clock_timestamp(),'deleted_at',tracker.deleted_at,
   'definition',jsonb_set(tracker.definition,'{customFields}','[]'::jsonb))
   from public.trackers tracker where tracker.id='00000000-0000-4000-8000-000000000951')
-)$$,
- '23514','Custom field mood has saved check-ins and cannot be removed. Retire it to preserve its history.',
- 'retired custom field cannot be removed while history references it');
+))->>'status','conflict'::text,'custom fields cannot be removed when historical availability is not versioned');
 
 select * from finish();
 rollback;

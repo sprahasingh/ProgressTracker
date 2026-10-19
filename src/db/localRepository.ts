@@ -1,14 +1,16 @@
 import { openDatabase, queueSyncMutation } from './database'
-import { assertCalendarDate, assertDateRange } from './calendarDate'
+import { assertCalendarDate, assertDateRange, calendarDateInTimeZone } from './calendarDate'
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
+import { trackerDefinitionForDate } from '../domain/trackers/ruleVersions'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
-import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { isHolidayPermanentDeletionEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled, isTrackerEditHistorySyncGuardEnabled } from '../domain/trackers/schemaVersionGate'
 import { assertHolidayDate, isHolidayReason } from '../domain/holidays'
 import { historicalCustomFieldMeaningChange, historicalMetricMeaningChange, retiredCustomFieldMeaningChange, retiredMetricMeaningChange, trackerMetricTypeChange } from '../domain/trackers/invariants'
 import { activeTrackerMetrics } from '../domain/trackers/types'
+import { currentRuleDependencyIssue, historicalRuleDependencyIssue } from '../domain/trackers/historicalDependencies'
 import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
 import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
@@ -453,7 +455,7 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.permanentDeletionLedger, database.trackerVerification], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.settings, database.permanentDeletionLedger, database.trackerVerification], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       const activeOwner = workspace?.userId ?? null
       await assertTrackerVerificationComplete(database, activeOwner, draft.id)
@@ -463,6 +465,36 @@ export const localRepository = {
       const existing = await database.trackers.get(draft.id)
       if (existing?.deletedAt) throw new Error('Restore this tracker from the Bin before editing it.')
       if (existing) {
+        if (stableCustomFieldConfiguration(existing.customFields) !== stableCustomFieldConfiguration(draft.customFields)) {
+          throw new Error('Custom-field definitions cannot be edited because their historical availability is not saved.')
+        }
+        if (draft.schemaVersion === 10 && draft.ruleVersions?.at(-1)?.historyPolicy && !isTrackerEditHistorySyncGuardEnabled()) {
+          throw new Error('Safe tracker history edits need migration 20261119000100_tracker_edit_sync_guards.sql and VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.')
+        }
+        const savedEntries = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).toArray()
+        if (existing.schemaVersion === 10 && stableTrackerJson(existing.metrics) !== stableTrackerJson(draft.metrics)
+          && existing.ruleVersions?.at(-1)?.id === draft.ruleVersions?.at(-1)?.id) {
+          throw new Error('Measure configuration changes need a confirmed effective date. Existing measure snapshots cannot be changed in place.')
+        }
+        const historyTimeZone = normalizeSettings(await database.settings.get('general')).timezone
+        assertRuleHistoryTransition(existing, draft, savedEntries, historyTimeZone)
+        if (stableTrackerJson(existing.milestones) !== stableTrackerJson(draft.milestones)) {
+          throw new Error('Milestone requirements cannot be edited because historical milestone results are not versioned.')
+        }
+        const latestSavedDate = savedEntries.filter((entry) => entry.deletedAt === null)
+          .reduce<string | null>((latest, entry) => latest === null || entry.date > latest ? entry.date : latest, null)
+        const proposedHead = draft.ruleVersions?.at(-1)?.effectiveFrom
+        const nextRuleHead = draft.ruleVersions?.at(-1)
+        const sameDayCompatibleRuleEdit = nextRuleHead?.historyPolicy === 'apply-from-today'
+          && proposedHead !== undefined
+          && proposedHead === calendarDateInTimeZone(new Date(), normalizeSettings(await database.settings.get('general')).timezone)
+          && latestSavedDate === proposedHead
+          && stableTrackerJson(existing.metrics) === stableTrackerJson(draft.metrics)
+          && stableTrackerJson(existing.customFields) === stableTrackerJson(draft.customFields)
+        if (proposedHead && existing.ruleVersions?.at(-1)?.id !== nextRuleHead?.id && latestSavedDate && proposedHead <= latestSavedDate
+          && nextRuleHead?.application !== 'recalculate-all-history' && !sameDayCompatibleRuleEdit) {
+          throw new Error('A check-in was saved on or after the confirmed effective date. Review the latest check-in and confirm a new date before saving these changes.')
+        }
         if (activeTrackerMetrics(existing.metrics).length > 0 && activeTrackerMetrics(draft.metrics).length === 0) throw new Error('Keep at least one active measure so this tracker can record future check-ins.')
         const metricsChanged = JSON.stringify(existing.metrics) !== JSON.stringify(draft.metrics)
         const customFieldsChanged = JSON.stringify(existing.customFields) !== JSON.stringify(draft.customFields)
@@ -491,6 +523,10 @@ export const localRepository = {
         await migrateLegacyRejectedConflicts(database, activeOwner)
         const conflict = await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([activeOwner, 'tracker', draft.id]).first()
         if (conflict) throw new Error('Resolve this tracker’s cloud conflict before saving a plan. Both versions are preserved.')
+      }
+      if (existing?.kind === 'goal' && (existing.schemaVersion === 10 || draft.schemaVersion === 10)
+        && stableTrackerJson(existing.goalPlanning ?? null) !== stableTrackerJson(draft.goalPlanning ?? null)) {
+        throw new Error('Goal plans cannot be edited because historical goal progress is not versioned.')
       }
       const record: StoredTrackerDefinition = {
         ...draft,
@@ -551,9 +587,16 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Check-in details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata, database.permanentDeletionLedger, database.trackerVerification], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.workspaceMetadata, database.permanentDeletionLedger, database.trackerVerification, database.settings], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       const activeOwner = workspace?.userId ?? null
+      // Keep the offline write boundary aligned with the selected workspace
+      // timezone. Supabase independently enforces this against its clock when
+      // the operation syncs; this check gives offline users immediate feedback.
+      const timeZone = normalizeSettings(await database.settings.get('general')).timezone
+      if (draft.date > calendarDateInTimeZone(new Date(), timeZone)) {
+        throw new Error('You can only record check-ins for today or earlier.')
+      }
       await assertTrackerVerificationComplete(database, activeOwner, draft.trackerId)
       const tracker = await database.trackers.get(draft.trackerId)
       if (!tracker || tracker.deletedAt !== null || tracker.status === 'archived') throw new Error('This tracker is not available for check-ins.')
@@ -561,7 +604,7 @@ export const localRepository = {
         throw new Error('This tracker was permanently deleted from the account and cannot receive check-ins.')
       }
       const existing = await database.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
-      const valueIssue = validateTrackerEntryValues(tracker, draft.values, { existingValues: existing?.values })
+      const valueIssue = validateTrackerEntryValues(trackerDefinitionForDate(tracker, draft.date), draft.values, { existingValues: existing?.values })
       if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
       const now = new Date().toISOString()
       const entry = trackerEntrySchema.parse({
@@ -894,4 +937,69 @@ export const localRepository = {
     const goals = await database.goals.filter((goal) => goal.deletedAt === null).toArray()
     return goals.filter((goal) => includeArchived || goal.status !== 'archived')
   },
+}
+
+function stableTrackerJson(value: unknown): string {
+  const sort = (item: unknown): unknown => Array.isArray(item) ? item.map(sort) : item && typeof item === 'object'
+    ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item
+  return JSON.stringify(sort(value))
+}
+
+function stableCustomFieldConfiguration(fields: StoredTrackerDefinition['customFields']): string {
+  return stableTrackerJson([...fields]
+    .sort((left, right) => String(left.id ?? '').localeCompare(String(right.id ?? '')))
+    .map((field) => Object.fromEntries(Object.entries(field).filter(([key]) => key !== 'position'))))
+}
+
+function assertRuleHistoryTransition(
+  before: StoredTrackerDefinition,
+  after: StoredTrackerDefinition,
+  entries: StoredTrackerEntry[],
+  timeZone: string,
+): void {
+  if (after.schemaVersion !== 10 || !after.ruleVersions?.length) return
+  if (before.schemaVersion !== 10 || !before.ruleVersions?.length) {
+    if (after.ruleVersions.at(-1)?.historyPolicy === 'recalculate-all-history') {
+      throw new Error('Historical measure settings can’t be verified. Choose a forward effective date instead.')
+    }
+    return
+  }
+  const previousHead = before.ruleVersions.at(-1)!
+  const nextHead = after.ruleVersions.at(-1)!
+  if (previousHead.id === nextHead.id) {
+    if (stableTrackerJson(before.ruleVersions) !== stableTrackerJson(after.ruleVersions)) {
+      throw new Error('Saved tracker history snapshots cannot be edited in place. Add a newly confirmed effective date instead.')
+    }
+    return
+  }
+  const policy = nextHead.historyPolicy
+  if (!policy) throw new Error('Confirm a tracker history policy before saving a new rule version.')
+  const currentDependencyIssue = currentRuleDependencyIssue(nextHead.evaluation)
+  if (currentDependencyIssue) throw new Error(`${currentDependencyIssue} Choose a measure available on the effective date.`)
+  if (policy === 'recalculate-all-history') {
+    const affectedStartDate = before.startDate ?? calendarDateInTimeZone(new Date(before.createdAt), timeZone)
+    const dependencyIssue = historicalRuleDependencyIssue(before, after, affectedStartDate)
+    if (dependencyIssue) throw new Error(`${dependencyIssue} Choose a forward effective date instead.`)
+    const structuralSettingsChanged = stableTrackerJson([
+      before.schedule, before.startDate, before.deadline, before.scheduling, before.metrics, before.customFields, before.milestones,
+    ]) !== stableTrackerJson([
+      after.schedule, after.startDate, after.deadline, after.scheduling, after.metrics, after.customFields, after.milestones,
+    ])
+    const missingHistoryInput = entries.some((entry) => entry.outcome === 'recorded'
+      && trackerMetricIdsForDate(after, entry.date).some((metricId) => !Object.hasOwn(entry.values, metricId)))
+    if (structuralSettingsChanged || missingHistoryInput) {
+      throw new Error('All-history recalculation is unsafe for this saved configuration or history. Choose a forward effective date instead.')
+    }
+    return
+  }
+  const expectedPrior = before.ruleVersions.filter((version) => version.effectiveFrom < nextHead.effectiveFrom)
+  const proposedPrior = after.ruleVersions.filter((version) => version.effectiveFrom < nextHead.effectiveFrom)
+  if (stableTrackerJson(expectedPrior) !== stableTrackerJson(proposedPrior)) {
+    throw new Error('Existing historical rule snapshots must remain unchanged. Choose a later effective date or resolve the saved history first.')
+  }
+}
+
+function trackerMetricIdsForDate(tracker: StoredTrackerDefinition, date: string): string[] {
+  const evaluation = tracker.ruleVersions?.filter((version) => version.effectiveFrom <= date).at(-1)?.evaluation
+  return (evaluation?.metrics ?? tracker.metrics).filter((metric) => metric.retiredAt === undefined).map((metric) => metric.id)
 }

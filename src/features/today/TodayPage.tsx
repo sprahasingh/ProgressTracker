@@ -22,6 +22,7 @@ import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker } from '../../domain/trackers/lifecycle'
 import { activeTrackerMetrics, type TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
+import { trackerDefinitionForDate } from '../../domain/trackers/ruleVersions'
 import { calculateCumulativeMetricPlan, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { createCumulativeAllocationPreview } from '../../domain/trackers/allocationPreview'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
@@ -417,7 +418,8 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
     if (baseline.values[completionMetric.id] === true) return { heading: today === currentDate ? 'Completed for today' : 'Completed', supportingText: 'Your check-in is saved.' }
     return { heading: today === currentDate ? 'Not completed today' : 'Not completed', supportingText: 'Your check-in is saved.' }
   })() : null
-  const expectedDetails = useMemo(() => getTodayMetricDetails(tracker, entry, today, entries, holidays, timeZone), [tracker, entry, today, entries, holidays, timeZone])
+  const effectiveTracker = trackerDefinitionForDate(tracker, today)
+  const expectedDetails = useMemo(() => getTodayMetricDetails(effectiveTracker, entry, today, entries, holidays, timeZone), [effectiveTracker, entry, today, entries, holidays, timeZone])
   const expectedAmounts = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expected]]))
   const expectedLabels = Object.fromEntries(expectedDetails.flatMap((metric) => metric.expected === undefined ? [] : [[metric.id, metric.expectedLabel?.replace(/^Today’s /, '').replace(/ threshold$/, '').toLowerCase() ?? 'target']]))
 
@@ -453,7 +455,7 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
   async function submit(outcome: 'recorded' | 'skipped', payload = values): Promise<boolean> {
     if (saving) return false
     if (outcome === 'recorded' && invalidInputs.size > 0) { setIssue('Finish or correct the highlighted number fields before saving.'); return false }
-    const validation = outcome === 'recorded' ? validateTrackerEntryValues(tracker, payload, { existingValues: baseline.values }) : undefined
+    const validation = outcome === 'recorded' ? validateTrackerEntryValues(effectiveTracker, payload, { existingValues: baseline.values }) : undefined
     if (validation) { setIssue(validation.replace(/^[^ ]+ is required\.$/, 'Please complete all required fields.')); return false }
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current)
     feedbackTimer.current = null
@@ -503,7 +505,7 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>
           {(holidays.has(today) || status === 'rest-day') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
           {entry?.outcome === 'skipped' && !isBinaryCompletion && <p className="today-detail-notice">This check-in was intentionally skipped. Recording progress will replace the skipped outcome.</p>}
-          <TrackerEntryFields tracker={tracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} showDraftPreview={dirty} completionStatus={completionStatus} />
+          <TrackerEntryFields tracker={effectiveTracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} showDraftPreview={dirty} completionStatus={completionStatus} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {!isBinaryCompletion && entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'The configured success rule is not met yet.'}</p>}

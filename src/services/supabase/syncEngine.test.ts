@@ -72,7 +72,7 @@ describe('account-scoped sync engine', () => {
     await localRepository.saveTracker(tracker('timezone-required-for-sync'))
     const { client, rpc } = fakeClient({ timezoneConfigured: false, timezoneWriteError: true })
 
-    await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('workspace time zone could not be saved')
+    await expect(synchronizeWorkspace('sync-user', client)).rejects.toThrow('Unable to save the account workspace time zone: timezone write rejected')
     expect(rpc).not.toHaveBeenCalled()
   })
 
@@ -512,6 +512,42 @@ describe('account-scoped sync engine', () => {
     expect(sent[1]?.ruleVersions).toEqual(v10.ruleVersions)
     await expect(db.syncRecords.get(`tracker:${v9.id}`)).resolves.toMatchObject({ serverRevision: 1 })
     await expect(db.syncRecords.get(`tracker:${v10.id}`)).resolves.toMatchObject({ serverRevision: 1 })
+  })
+
+  it('keeps a history-policy edit queued when the server guard contract is unavailable', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V7', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V8', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V9', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V10', 'true')
+    vi.stubEnv('VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS', 'true')
+    await activateWorkspace('sync-user')
+    const before: StoredTrackerDefinition = {
+      ...tracker('guard-contract-offline'), schemaVersion: 10, scheduling: { mode: 'ongoing' }, streakRuleMode: 'same-as-success',
+    }
+    before.ruleVersions = [{
+      id: 'guard-contract-baseline', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z',
+      evaluation: trackerEvaluationSnapshot({ ...before, schemaVersion: 9 }),
+    }]
+    await localRepository.saveTracker(before)
+    await db.syncRecords.put({ key: `tracker:${before.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: before.id, serverRevision: 1 })
+    const edited = {
+      ...before,
+      ...({ strictMode: true } as const),
+    }
+    const { versionTrackerRuleChange } = await import('../../domain/trackers/ruleVersions')
+    const versioned = versionTrackerRuleChange({
+      before, after: edited, application: 'apply-from-today', today: '2026-01-02', historyStartDate: '2026-01-01', recordedAt: '2026-01-02T10:00:00.000Z',
+    })
+    await localRepository.saveTracker(versioned)
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', before.id]).first()
+    const { client, rpc } = fakeClient()
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, uploaded: 0 })
+    expect(rpc).not.toHaveBeenCalled()
+    const retained = await db.syncOperations.get(operation!.id)
+    expect(retained?.status).toBe('pending')
+    expect((retained?.payload as StoredTrackerDefinition).ruleVersions?.at(-1)?.historyPolicy).toBe('apply-from-today')
   })
 
   it('preserves every non-empty Custom Days combination through IndexedDB edits and schema v6 sync', async () => {
