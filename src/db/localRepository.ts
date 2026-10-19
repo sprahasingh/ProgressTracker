@@ -761,8 +761,14 @@ export const localRepository = {
       if (!tracker?.deletedAt) throw new Error('Move this tracker to the Bin before permanently deleting it.')
       trackerName = tracker.name
       const existing = await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, id]).first()
-      if (existing?.winsRetention && existing.winsRetention !== winsRetention) throw new Error('This tracker already has a confirmed deletion request with a different Wins choice. Its original choice is preserved.')
-      const deletionRequest = existing ?? { id: newId(), ownerUserId, trackerId: id, requestedAt: new Date().toISOString(), status: 'pending' as const, lastError: null, winsRetention }
+      const rejectedForUnsafeAttribution = existing?.status === 'failed' && existing.winsRetention === 'delete_wins'
+        && /server rejected the selected Wins policy:.*(reconstructed, incomplete, or unattributed rewards|cannot be removed safely)/i.test(existing.lastError ?? '')
+      const replacingRejectedDeleteWins = rejectedForUnsafeAttribution && winsRetention === 'keep_wins'
+      if (existing?.winsRetention && existing.winsRetention !== winsRetention && !replacingRejectedDeleteWins) throw new Error('This tracker already has a saved deletion request with a different Wins choice. Review its status before changing the choice.')
+      if (replacingRejectedDeleteWins) await database.permanentDeletionRequests.delete(existing!.id)
+      const deletionRequest = replacingRejectedDeleteWins
+        ? { id: newId(), ownerUserId, trackerId: id, requestedAt: new Date().toISOString(), status: 'pending' as const, lastError: null, winsRetention }
+        : existing ?? { id: newId(), ownerUserId, trackerId: id, requestedAt: new Date().toISOString(), status: 'pending' as const, lastError: null, winsRetention }
       await database.permanentDeletionRequests.put({ ...deletionRequest, status: 'pending', lastError: null, winsRetention: deletionRequest.winsRetention ?? winsRetention })
       const entries = await database.trackerEntries.where('trackerId').equals(id).toArray()
       const entryIds = new Set(entries.map((entry) => entry.id))

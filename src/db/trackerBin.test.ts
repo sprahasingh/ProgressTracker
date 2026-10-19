@@ -239,6 +239,23 @@ describe('synchronized tracker Bin', () => {
     await expect(db.trackerEntries.where('trackerId').equals('request-tracker').count()).resolves.toBe(1)
   })
 
+  it('replaces only a definitively rejected Delete Wins request with a new Keep Wins operation', async () => {
+    await activateWorkspace('bin-rejected-policy-owner')
+    await localRepository.saveTracker({ ...tracker, id: 'rejected-policy-tracker' })
+    await localRepository.deleteTracker('rejected-policy-tracker')
+    const rejected = { id: 'rejected-delete-wins', ownerUserId: 'bin-rejected-policy-owner', trackerId: 'rejected-policy-tracker', requestedAt: '2026-10-10T00:00:00.000Z', status: 'failed' as const, lastError: 'The server rejected the selected Wins policy: Wins history contains reconstructed, incomplete, or unattributed rewards and cannot be removed safely.', winsRetention: 'delete_wins' as const }
+    await db.permanentDeletionRequests.put(rejected)
+
+    await expect(localRepository.requestPermanentDeletion('rejected-policy-tracker', 'keep_wins')).resolves.toBe('queued')
+
+    const requests = await db.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals(['bin-rejected-policy-owner', 'rejected-policy-tracker']).toArray()
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ status: 'pending', winsRetention: 'keep_wins' })
+    expect(requests[0]!.id).not.toBe(rejected.id)
+    await expect(db.permanentDeletionRequests.get(rejected.id)).resolves.toBeUndefined()
+    await expect(db.trackers.get('rejected-policy-tracker')).resolves.toMatchObject({ deletedAt: expect.any(String) })
+  })
+
   it('removes guest tracker child records and queued references without touching other trackers', async () => {
     vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
     await activateWorkspace(null)

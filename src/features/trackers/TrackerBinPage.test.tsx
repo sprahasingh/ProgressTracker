@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { TrackerBinPage } from './TrackerBinPage'
+import styles from '../../styles.css?raw'
 
 const mocks = vi.hoisted(() => ({
   listDeletedTrackers: vi.fn(), listPendingTrackerRestores: vi.fn(), listPermanentDeletionRequests: vi.fn(), restoreTracker: vi.fn(), requestPermanentDeletion: vi.fn(), syncNow: vi.fn(),
@@ -193,13 +194,63 @@ describe('Tracker Bin', () => {
     const user = userEvent.setup()
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    expect(await screen.findByText(/The cloud changed during deletion/)).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/The cloud changed during deletion/)
     expect(screen.getByRole('button', { name: 'Restore' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Review and retry deletion' }))
     expect(screen.getByRole('radio', { name: /Delete Tracker and Wins/ })).toBeChecked()
     expect(screen.getByRole('radio', { name: /Delete Tracker and Wins/ })).toBeDisabled()
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Permanently Delete' }))
     expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith(deletedTracker.id, 'delete_wins')
+  })
+
+  it('offers an explicit Keep Wins recovery after an attribution rejection', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([{
+      id: 'rejected-delete-wins', ownerUserId: 'bin-account', trackerId: deletedTracker.id, requestedAt: new Date().toISOString(), status: 'failed',
+      lastError: 'The server rejected the selected Wins policy: Wins history contains reconstructed, incomplete, or unattributed rewards and cannot be removed safely. Choose Keep my Wins history.',
+      winsRetention: 'delete_wins',
+    }])
+    mocks.requestPermanentDeletion.mockResolvedValue('queued')
+    const user = userEvent.setup()
+    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+
+    expect(await screen.findByText(/Some past rewards can’t be reliably linked to this tracker/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete tracker, keep Wins' })).toBeEnabled()
+    expect(screen.getByText(/Deletion details/)).toBeInTheDocument()
+    expect(screen.getByText(/reconstructed, incomplete, or unattributed rewards/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Delete tracker, keep Wins' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Can’t remove Wins safely' })
+    expect(dialog).toHaveClass('tracker-rule-application-dialog', 'tracker-deletion-dialog')
+    expect(dialog.querySelector('.confirm-action-header')).toBeInTheDocument()
+    expect(dialog.querySelector('.confirm-action-content')).toBeInTheDocument()
+    expect(dialog.querySelector('.confirm-action-footer')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Close dialog' })).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('Your tracker and history stay in the Bin until the server confirms deletion.')
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete tracker, keep Wins' }))
+    expect(mocks.requestPermanentDeletion).toHaveBeenCalledWith(deletedTracker.id, 'keep_wins')
+  })
+
+  it('keeps the deletion dialog footer visible and content independently scrollable on small screens', async () => {
+    vi.stubEnv('VITE_ENABLE_PERMANENT_DELETION', 'true')
+    mocks.listDeletedTrackers.mockResolvedValue([deletedTracker])
+    mocks.listPermanentDeletionRequests.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: 'Permanently Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveClass('tracker-rule-application-dialog', 'tracker-deletion-dialog')
+    expect(dialog.closest('.modal-backdrop')).toHaveClass('tracker-rule-application-backdrop')
+    expect(dialog.querySelector('.confirm-action-header')).toBeInTheDocument()
+    expect(dialog.querySelector('.confirm-action-content')).toBeInTheDocument()
+    expect(dialog.querySelector('.confirm-action-footer')).toBeInTheDocument()
+    expect(styles).toMatch(/\.tracker-rule-application-dialog\s*\{[^}]*max-height:[^}]*overflow:\s*hidden/s)
+    expect(styles).toMatch(/\.tracker-rule-application-dialog\s*>\s*\.confirm-action-content\s*\{[^}]*overflow-y:\s*auto[^}]*-webkit-overflow-scrolling:\s*touch/s)
+    expect(styles).toMatch(/\.tracker-rule-application-dialog\s*>\s*\.confirm-action-footer\s*\{[^}]*flex:\s*0\s+0\s+auto[^}]*env\(safe-area-inset-bottom/s)
+    expect(styles).toMatch(/\.tracker-deletion-dialog\s*\{[^}]*64px[^}]*100dvh/s)
   })
 
   it('explains queued deletion supersedes blocked configuration without backup or repair', async () => {
@@ -213,7 +264,7 @@ describe('Tracker Bin', () => {
     }])
     render(<MemoryRouter><TrackerBinPage /></MemoryRouter>)
 
-    expect(await screen.findByText(/rejected configuration will be skipped/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Deletion is saved on this device/)).toHaveTextContent(/rejected configuration will be skipped/i)
     expect(screen.queryByRole('button', { name: /backup|repair|finish deleting tracker/i })).not.toBeInTheDocument()
     expect(screen.getByText(/original Wins choice is saved/)).toBeInTheDocument()
     expect(mocks.requestPermanentDeletion).not.toHaveBeenCalled()
