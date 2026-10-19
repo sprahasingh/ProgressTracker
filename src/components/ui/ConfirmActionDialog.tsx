@@ -2,11 +2,12 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { AppIcon } from './AppIcon'
 import { Button } from './Button'
+import { IconButton } from './IconButton'
 import { useModalLayer } from './useModalLayer'
 import { useVisualViewportBounds } from './useVisualViewportBounds'
 import type { ReactNode } from 'react'
 
-export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant, className, children }: {
+export function ConfirmActionDialog({ title, description, actionLabel, onCancel, onConfirm, destructive = false, actionDisabled = false, cancelDisabled = false, details, layer = 'default', actionVariant, className, backdropClassName, showCloseButton = false, dismissOnBackdrop = false, children }: {
   title: string
   description: string
   actionLabel: string
@@ -19,21 +20,26 @@ export function ConfirmActionDialog({ title, description, actionLabel, onCancel,
   layer?: 'default' | 'checkin'
   actionVariant?: 'primary' | 'secondary' | 'destructive'
   className?: string
+  backdropClassName?: string
+  showCloseButton?: boolean
+  dismissOnBackdrop?: boolean
   children?: ReactNode
 }) {
   const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
+  const trackerHistoryLayout = className?.split(/\s+/).includes('tracker-rule-application-dialog') === true
   useModalLayer(true, dialogRef, onCancel, { manageHistoryEntry: layer === 'checkin' })
-  useVisualViewportBounds(layer === 'checkin', backdropRef)
+  useVisualViewportBounds(layer === 'checkin' || trackerHistoryLayout, backdropRef)
   useEffect(() => { dialogRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus() }, [])
   const variant = actionVariant ?? (destructive ? 'destructive' : 'primary')
-  const dialog = <div ref={backdropRef} className={`modal-backdrop tracker-discard-backdrop${layer === 'checkin' ? ' checkin-confirm-backdrop' : ''}`} role="presentation">
+  const dialog = <div ref={backdropRef} className={`modal-backdrop tracker-discard-backdrop${layer === 'checkin' ? ' checkin-confirm-backdrop' : ''}${backdropClassName ? ` ${backdropClassName}` : ''}`} role="presentation" onPointerDown={(event) => { if (dismissOnBackdrop && event.target === event.currentTarget && !cancelDisabled) onCancel() }}>
     <section ref={dialogRef} className={`tracker-discard-dialog${className ? ` ${className}` : ''}${layer === 'checkin' ? ' checkin-confirm-dialog' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-description" tabIndex={-1}>
-      <h2 id="confirm-action-title">{title}</h2>
-      <p id="confirm-action-description">{description}</p>
-      {children}
-      {details && <details className="confirm-action-details"><summary><AppIcon name="info" />More details</summary><p>{details}</p></details>}
-      <div className="confirm-action-buttons">
+      {trackerHistoryLayout ? <header className="confirm-action-header"><h2 id="confirm-action-title">{title}</h2>{showCloseButton && <IconButton label="Close dialog" disabled={cancelDisabled} onClick={onCancel}><AppIcon name="close" /></IconButton>}</header> : <h2 id="confirm-action-title">{title}</h2>}
+      <p className={trackerHistoryLayout ? 'confirm-action-description' : undefined} id="confirm-action-description">{description}</p>
+      {trackerHistoryLayout
+        ? <div className="confirm-action-content">{children}{details && <details className="confirm-action-details"><summary><AppIcon name="info" />More details</summary><p>{details}</p></details>}</div>
+        : <>{children}{details && <details className="confirm-action-details"><summary><AppIcon name="info" />More details</summary><p>{details}</p></details>}</>}
+      <div className="confirm-action-buttons confirm-action-footer">
         <Button type="button" variant={layer === 'checkin' ? 'secondary' : 'quiet'} disabled={cancelDisabled} onClick={onCancel}>Cancel</Button>
         <Button type="button" variant={variant} disabled={actionDisabled} onClick={onConfirm}>{actionLabel}</Button>
       </div>
