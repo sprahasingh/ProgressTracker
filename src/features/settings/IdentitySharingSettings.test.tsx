@@ -2,19 +2,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IdentitySharingSettings } from './IdentitySharingSettings'
-import { getIdentitySharingPreference, setIdentitySharingPreference } from './identitySharing'
+import { getIdentitySharingPreferenceState, setIdentitySharingPreference } from './identitySharing'
 
-vi.mock('./identitySharing', () => ({ getIdentitySharingPreference: vi.fn(), setIdentitySharingPreference: vi.fn() }))
+vi.mock('./identitySharing', () => ({ getIdentitySharingPreferenceState: vi.fn(), setIdentitySharingPreference: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('IdentitySharingSettings', () => {
   it('shows the enabled default for an account without a saved preference and lets the user opt out', async () => {
-    vi.mocked(getIdentitySharingPreference).mockResolvedValue(true)
+    vi.mocked(getIdentitySharingPreferenceState).mockResolvedValue({ enabled: true, explicitlyChosen: false })
     vi.mocked(setIdentitySharingPreference).mockImplementation(async (value) => value)
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)
     const checkbox = await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })
     expect(checkbox).toBeChecked()
+    expect(screen.getByText(/enabled by default, but you have not explicitly saved/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Confirm sharing preference' }))
+    expect(setIdentitySharingPreference).toHaveBeenCalledWith(true)
+    expect(await screen.findByText('Privacy setting saved.')).toBeInTheDocument()
     await user.click(checkbox)
     expect(setIdentitySharingPreference).toHaveBeenCalledWith(false)
     expect(await screen.findByText('Privacy setting saved.')).toBeInTheDocument()
@@ -22,13 +26,13 @@ describe('IdentitySharingSettings', () => {
   })
 
   it('loads the saved preference and persists opt in and opt out', async () => {
-    vi.mocked(getIdentitySharingPreference).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    vi.mocked(getIdentitySharingPreferenceState).mockResolvedValueOnce({ enabled: false, explicitlyChosen: true }).mockResolvedValueOnce({ enabled: true, explicitlyChosen: true })
     vi.mocked(setIdentitySharingPreference).mockImplementation(async (value) => value)
     const user = userEvent.setup()
     const { unmount } = render(<IdentitySharingSettings />)
     const checkbox = await screen.findByRole('checkbox', { name: 'Share my details with maintainers' })
     expect(checkbox).not.toBeChecked()
-    expect(screen.getByText(/Allow maintainers to see your name and email/)).toBeInTheDocument()
+    expect(screen.getByText(/Allow maintainers to see your name and eligible email/)).toBeInTheDocument()
     const infoButton = screen.getByRole('button', { name: 'How identity sharing works' })
     expect(infoButton.parentElement).toBe(screen.getByRole('checkbox').parentElement?.parentElement)
     await user.click(infoButton)
@@ -55,7 +59,7 @@ describe('IdentitySharingSettings', () => {
   })
 
   it('opens the compact privacy explanation with keyboard activation and dismisses outside', async () => {
-    vi.mocked(getIdentitySharingPreference).mockResolvedValue(false)
+    vi.mocked(getIdentitySharingPreferenceState).mockResolvedValue({ enabled: false, explicitlyChosen: true })
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)
     const infoButton = await screen.findByRole('button', { name: 'How identity sharing works' })
@@ -69,7 +73,7 @@ describe('IdentitySharingSettings', () => {
   })
 
   it('shows a load error, keeps sharing disabled, and retries the cloud read', async () => {
-    vi.mocked(getIdentitySharingPreference).mockRejectedValueOnce(new Error('Your privacy setting could not be loaded. Try again.')).mockResolvedValueOnce(true)
+    vi.mocked(getIdentitySharingPreferenceState).mockRejectedValueOnce(new Error('Your privacy setting could not be loaded. Try again.')).mockResolvedValueOnce({ enabled: true, explicitlyChosen: true })
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
@@ -79,7 +83,7 @@ describe('IdentitySharingSettings', () => {
   })
 
   it('preserves the last saved value and explains a save failure', async () => {
-    vi.mocked(getIdentitySharingPreference).mockResolvedValue(true)
+    vi.mocked(getIdentitySharingPreferenceState).mockResolvedValue({ enabled: true, explicitlyChosen: true })
     vi.mocked(setIdentitySharingPreference).mockRejectedValue(new Error('Your privacy setting could not be saved. Try again.'))
     const user = userEvent.setup()
     render(<IdentitySharingSettings />)

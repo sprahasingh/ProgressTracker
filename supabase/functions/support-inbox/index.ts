@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isMaintainer, normalizeMaintainerEmails } from '../ai-help/learningCore.ts'
 import { deliverPendingSupportEmail } from '../_shared/supportFeedbackDelivery.ts'
 import { PUBLIC_SUPPORT_EMAIL } from '../_shared/supportContact.ts'
+import { hasExplicitIdentitySharingConsent } from '../_shared/identityConsent.ts'
 import { buildMaintainerReplyResponse, buildSupportMaintainerMessage, buildSupportMaintainerThread, consentedMaintainerEmail, supportReplyRpc, supportStatusRpcFailure } from './supportInboxCore.ts'
 
 const allowedOrigins = new Set((Deno.env.get('SUPPORT_FEEDBACK_ALLOWED_ORIGINS') ?? Deno.env.get('AI_HELP_ALLOWED_ORIGINS') ?? '').split(',').map((item) => {
@@ -99,9 +100,9 @@ Deno.serve(async (request) => {
       if (messageError) return json(503, { error: 'Conversation messages could not be loaded.' }, origin)
       if (body.action === 'get_admin') {
         const { data: preference, error: preferenceError } = thread.user_id
-          ? await admin.from('app_settings').select('share_identity').eq('user_id', thread.user_id).maybeSingle()
+          ? await admin.from('app_settings').select('share_identity,identity_sharing_preference_set').eq('user_id', thread.user_id).maybeSingle()
           : { data: null, error: null }
-        const currentPreference = !preferenceError && preference?.share_identity === true
+        const currentPreference = hasExplicitIdentitySharingConsent(preference, Boolean(preferenceError))
         const identity = await supportIdentity(thread, currentPreference)
         const reviewedThread = { ...thread, maintainer_seen_at: new Date().toISOString() }
         return json(200, {
@@ -141,8 +142,8 @@ Deno.serve(async (request) => {
       const userIds = [...new Set(threadRows.map((thread) => thread.user_id).filter((id): id is string => typeof id === 'string'))]
       const currentConsentedUsers = new Set<string>()
       if (userIds.length) {
-        const { data: preferences, error: preferenceError } = await admin.from('app_settings').select('user_id,share_identity').in('user_id', userIds)
-        if (!preferenceError) for (const preference of preferences ?? []) if (preference.share_identity === true) currentConsentedUsers.add(preference.user_id)
+        const { data: preferences, error: preferenceError } = await admin.from('app_settings').select('user_id,share_identity,identity_sharing_preference_set').in('user_id', userIds)
+        if (!preferenceError) for (const preference of preferences ?? []) if (hasExplicitIdentitySharingConsent(preference)) currentConsentedUsers.add(preference.user_id)
       }
       const threads = await Promise.all((data ?? []).map(async (thread) =>
         buildSupportMaintainerThread(thread, await supportIdentity(thread, currentConsentedUsers.has(thread.user_id)), currentConsentedUsers.has(thread.user_id))))

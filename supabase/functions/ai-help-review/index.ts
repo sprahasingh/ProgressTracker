@@ -3,6 +3,7 @@ import { evidenceFingerprints, sourcePaths, sourceVersion } from '../ai-help/_ge
 import { sourceIndex } from '../ai-help/_generated/sourceIndex.ts'
 import { candidateHasEvidenceOverlap, createKnowledgeFingerprint, isMaintainer, normalizeMaintainerEmails, validateReviewEdits } from '../ai-help/learningCore.ts'
 import { mergeKnowledgePage } from '../_shared/knowledgePagination.ts'
+import { hasExplicitIdentitySharingConsent } from '../_shared/identityConsent.ts'
 import { buildAnswerFeedbackListPayload, buildMaintainerAnswerFeedback } from './feedbackResponse.ts'
 import { logReviewStage, reviewFailureLog, reviewFailureResponse } from './diagnostics.ts'
 import { runKnowledgeReconciliation } from './reconciliation.ts'
@@ -206,11 +207,11 @@ Deno.serve(async (request) => {
       const currentConsentedUsers = new Set<string>()
       if (feedbackUserIds.length) {
         const { data: preferences, error: preferenceError } = await admin.from('app_settings')
-          .select('user_id,share_identity').in('user_id', feedbackUserIds)
+          .select('user_id,share_identity,identity_sharing_preference_set').in('user_id', feedbackUserIds)
         // A missing row or failed lookup must hide identity, while preserving
         // the feedback listing itself.
         if (!preferenceError) {
-          for (const preference of preferences ?? []) if (preference.share_identity === true) currentConsentedUsers.add(preference.user_id)
+          for (const preference of preferences ?? []) if (hasExplicitIdentitySharingConsent(preference)) currentConsentedUsers.add(preference.user_id)
         }
       }
       const feedback = await Promise.all((rows.data ?? []).map(async (row) => buildMaintainerAnswerFeedback({
