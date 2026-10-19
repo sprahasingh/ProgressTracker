@@ -145,6 +145,18 @@ describe('Calendar page', () => {
     expect(screen.getByText(/1 completed · 0 partial/)).toBeInTheDocument()
   })
 
+  it('shows Partial when a completed tracker shares a day with a recorded zero', async () => {
+    const zeroTracker = { ...tracker, id: 'calendar-zero', name: 'Water' }
+    const zeroEntry = { ...entry, id: 'calendar-zero-entry', trackerId: zeroTracker.id, values: { done: false } }
+    mocks.listTrackers.mockResolvedValue([tracker, zeroTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry, zeroEntry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByText(/1 completed · 0 partial · 1 no progress/)).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.partial')).toBeInTheDocument()
+  })
+
   it('changes the displayed month and keeps the selected day within that month', async () => {
     mocks.listTrackers.mockResolvedValue([tracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([])

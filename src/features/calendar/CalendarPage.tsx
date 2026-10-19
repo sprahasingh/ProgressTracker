@@ -18,6 +18,7 @@ import { mondayFirstWeekday } from '../../db/calendarDate'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { calculateStreak } from '../../domain/trackers/progression'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
+import { getDailyActivityStatus } from '../../domain/trackers/dailyActivityStatus'
 import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { InfoButton } from '../../components/ui/InfoButton'
 
@@ -129,17 +130,8 @@ export function CalendarPage() {
         if (status === 'inactive') inactive += 1
       }
       const holiday = holidays.has(date)
+      const visualStatus = getDailyActivityStatus([...trackerStatuses], holiday)
       const outcomeKinds = [completed, partial, noProgress, missed, skipped, pending, upcoming].filter((count) => count > 0).length
-      const visualStatus: ActivityStatus = holiday ? 'holiday'
-        : outcomeKinds === 0 ? historical > 0 ? 'historical' : outsidePeriod > 0 ? 'outside-period' : inactive > 0 ? 'inactive' : trackers.length === 0 ? 'no-trackers' : 'rest-day'
-          : missed > 0 ? 'missed'
-            : partial > 0 ? 'partial'
-              : skipped > 0 ? 'skipped'
-                : pending > 0 ? 'pending'
-                : upcoming > 0 ? 'upcoming'
-                : noProgress > 0 ? 'no-progress'
-                  : completed > 0 ? 'completed'
-                  : historical > 0 ? 'historical' : 'rest-day'
       return { date, completed, partial, noProgress, historical, outsidePeriod, missed, skipped, pending, upcoming, restDay, inactive, entries: entries.filter((entry) => entry.date === date && visibleTrackerIds.has(entry.trackerId)).length, holiday, mixed: trackerStatuses.size > 1 || outcomeKinds > 1, visualStatus }
     })
   }, [month, today, visibleData, selectedTracker, timeZone])
