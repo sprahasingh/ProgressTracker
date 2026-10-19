@@ -104,9 +104,10 @@ Custom check-in fields add context to an entry, such as a note or selected answe
 **Sources:**
 - src/domain/trackers/types.ts
 - src/features/trackers/trackerSetupSchema.ts
+- src/features/trackers/TrackerConfigurationEditor.tsx
 - src/features/shared/TrackerEntryFields.tsx
 **Answer:**
-Every measure, including the primary measure, can use Yes/No, Quantity, Duration, or Checklist values. Each type keeps its own input and comparison behavior. Once history exists, the measure’s saved meaning is protected; checklist item IDs and labels also stay fixed so past checked states are not reinterpreted. Retire the measure and add a new one to track something differently.
+Every measure, including the primary measure, can use Yes/No, Quantity, Duration, or Checklist values. Yes/No is entered and displayed as **Done** or **Not Done**; Quantity and Duration record numbers; Checklist stores each named item's checked state. New primary-measure names default to **Status**, **Progress**, **Time Spent**, and **Items** for those four types, respectively, but names are saved labels, not status values. A secondary measure starts with a generic **Measure N** name. Once saved, a measure's type is locked; once it has history, its name is also locked. Checklist item IDs and labels stay fixed after history exists so past checked states are not reinterpreted. Retire the measure and add a new one to track something differently.
 
 ### ID: checkin-empty-versus-zero-status
 **Category:** check-ins

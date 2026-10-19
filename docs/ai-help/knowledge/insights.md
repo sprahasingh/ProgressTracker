@@ -11,8 +11,9 @@
 **Sources:**
 - src/features/dashboard/DashboardPage.tsx
 - src/features/dashboard/DashboardPage.test.tsx
+- src/domain/trackers/entryPresentation.ts
 **Answer:**
-Each active tracker card is a snapshot for the workspace-local current date. It shows today’s status, that tracker’s current streak and personal best, and its latest saved check-in with that entry’s date, outcome, and values. These refer to separate dates and purposes.
+Each active tracker card is a snapshot for the workspace-local current date. It shows today’s derived status, that tracker’s current streak and personal best, and its latest saved check-in with that entry’s date, outcome, and values. The saved measure names accompany the values; Yes/No values are shown as **Done** or **Not Done**, including false. Checklist summaries use a date-effective item total only when the saved definition reliably matches the recorded value; otherwise they show the checked count without a guessed total. A value such as **Not Done** is not itself the tracker status. These refer to separate dates and purposes.
 
 ### ID: insight-all-trackers-streak
 **Category:** insights
@@ -39,8 +40,9 @@ It is the consecutive run of account days on which every required tracker meets 
 **Sources:**
 - src/features/dashboard/DashboardPage.tsx
 - src/features/dashboard/DashboardPage.test.tsx
+- src/domain/trackers/entryPresentation.ts
 **Answer:**
-The card’s status and streak are a snapshot as of today in your workspace time zone. The separate “Latest check-in” area shows the newest saved entry and its actual date, which may be earlier.
+The card’s status and streak are a snapshot as of today in your workspace time zone. The separate “Latest check-in” area shows the newest saved entry and its actual date, which may be earlier. That entry’s saved values are labeled with the saved measure names; **Done** and **Not Done** describe a recorded Yes/No value, while the card’s status describes the tracker’s derived outcome.
 
 ### ID: insight-latest-checkin
 **Category:** insights
@@ -53,8 +55,9 @@ The card’s status and streak are a snapshot as of today in your workspace time
 **Sources:**
 - src/features/dashboard/DashboardPage.tsx
 - src/db/localRepository.ts
+- src/domain/trackers/entryPresentation.ts
 **Answer:**
-It is the date of the most recent active saved check-in for that tracker. The outcome says whether the entry met the success rule that applies to that date; when a condition fails, the card names the measure, requirement, and saved value when available. The saved values remain visible. It does not imply that you checked in today. Cleared entries are excluded; if no active entry exists, the card says “No check-ins yet.”
+It is the date of the most recent active saved check-in for that tracker. The outcome says whether the entry met the success rule that applies to that date; when a condition fails, the card names the measure, requirement, and saved value when available. The saved measure names and values remain visible, including a Boolean **Not Done** value. A recorded value and the derived tracker outcome are separate; for example, **Not Done** can accompany **No progress**. Checklist values show “N of M checked” only when the date-effective checklist definition is reliable, otherwise a count without a total. It does not imply that you checked in today. Cleared entries are excluded; if no active entry exists, the card says “No check-ins yet.”
 
 ### ID: insight-empty-tracker
 **Category:** insights
