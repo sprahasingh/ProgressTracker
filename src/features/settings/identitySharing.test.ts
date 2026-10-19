@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { getIdentitySharingPreference, setIdentitySharingPreference } from './identitySharing'
+import { getIdentitySharingPreference, getIdentitySharingPreferenceState, setIdentitySharingPreference } from './identitySharing'
 
 function clientFor({ preference = null, preferenceSet = preference !== null, readError = null, saveResult = true, saveError = null, userId = 'user-1' }: {
   preference?: boolean | null
@@ -19,6 +19,13 @@ function clientFor({ preference = null, preferenceSet = preference !== null, rea
 }
 
 describe('identity sharing preference', () => {
+  it('distinguishes an enabled default from an explicitly saved choice', async () => {
+    await expect(getIdentitySharingPreferenceState(clientFor().client)).resolves.toEqual({ enabled: true, explicitlyChosen: false })
+    await expect(getIdentitySharingPreferenceState(clientFor({ preference: true, preferenceSet: null }).client)).resolves.toEqual({ enabled: true, explicitlyChosen: false })
+    await expect(getIdentitySharingPreferenceState(clientFor({ preference: true, preferenceSet: true }).client)).resolves.toEqual({ enabled: true, explicitlyChosen: true })
+    await expect(getIdentitySharingPreferenceState(clientFor({ preference: false, preferenceSet: true }).client)).resolves.toEqual({ enabled: false, explicitlyChosen: true })
+  })
+
   it('loads the preference from the signed-in account across sessions', async () => {
     const { client, from, eq, getSession } = clientFor({ preference: true })
     await expect(getIdentitySharingPreference(client)).resolves.toBe(true)

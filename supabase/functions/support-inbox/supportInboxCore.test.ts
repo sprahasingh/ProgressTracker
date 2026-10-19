@@ -62,6 +62,15 @@ describe('maintainer-safe support DTOs', () => {
       .toMatchObject({ identity: { display_name: 'Ada', email: 'ada@example.com' } })
   })
 
+  it('supports name-only and confirmed-email-only identity while respecting separate email consent', () => {
+    expect(buildSupportMaintainerThread({ ...thread, share_identity: true }, { display_name: 'Ada', email: null }, true).identity)
+      .toEqual({ display_name: 'Ada', email: null })
+    expect(consentedMaintainerEmail(true, 'confirmed-address')).toBe('confirmed-address')
+    expect(consentedMaintainerEmail(false, 'confirmed-address')).toBeNull()
+    expect(consentedMaintainerEmail(true, null)).toBeNull()
+    expect(buildSupportMaintainerThread({ ...thread, share_identity: false }, { display_name: 'Ada', email: null }, true).identity).toBeNull()
+  })
+
   it('withdraws identity when current consent is disabled even if the submission snapshot is true', () => {
     const dto = buildSupportMaintainerThread({ ...thread, share_identity: true }, { display_name: 'Ada', email: 'ada@example.com' }, false)
     expect(dto.identity).toBeNull()

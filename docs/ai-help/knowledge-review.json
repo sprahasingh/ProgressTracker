@@ -399,9 +399,9 @@
     "src/db/calendarDate.test.ts": "2dd0c85314beae636eeae4ff6fae52e1ab0d79287f493af90ae3cc7ab2184e79"
   },
   "feedback-identity-sharing": {
-    "src/features/settings/IdentitySharingSettings.tsx": "bf4382c762f6627930428ca02e716dd6ca0aace2bcf5d07b291c5db01cd3fcc5",
-    "src/features/settings/identitySharing.ts": "e75ee18f04f0974a69ec376e4a67517d7c8b9a2c9e39cedee81f686750d5bafe",
-    "src/features/feedback/SendFeedback.tsx": "c1495ce90f0479593fce11dfd0ecadf2750cfa4a1c86ed259ef0117d56bb6419",
+    "src/features/settings/IdentitySharingSettings.tsx": "85696adf1e1118e2bcb695e0d28832b1c35ffc2396fb552804535a88cdf110fe",
+    "src/features/settings/identitySharing.ts": "68fe8a0ca9a7f73ce87144f9da34e58ee43d2dedd8a19246efbd4baf4ca8d9d3",
+    "src/features/feedback/SendFeedback.tsx": "4df5774203c20ae859651f1bdd24e5650cb1dc3935df44b1c8d537c5bbbf7723",
     "supabase/migrations/20261118000300_default_identity_sharing_to_on.sql": "c43c020ac8adebf546d6a045b5cf9e5183124807e1dce8274386df678111ff8c",
     "supabase/migrations/20261031000200_identity_sharing_privacy.sql": "c1f652a39e9a00d270a1946f27fa2bf4f84106a7cc653ccb0786368b2dfbfac4"
   },

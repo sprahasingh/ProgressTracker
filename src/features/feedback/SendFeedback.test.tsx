@@ -6,11 +6,11 @@ import { FeedbackSubmissionError } from './feedbackService'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import feedbackStyles from '../../styles.css?raw'
 
-const mocks = vi.hoisted(() => ({ submit: vi.fn(), identityPreference: vi.fn(), auth: { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } } }))
+const mocks = vi.hoisted(() => ({ submit: vi.fn(), identityPreference: vi.fn(), auth: { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com', email_confirmed_at: '2026-01-01T00:00:00Z' } } }))
 vi.mock('./feedbackService', async (importOriginal) => ({ ...await importOriginal<typeof import('./feedbackService')>(), submitGeneralFeedback: mocks.submit }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => mocks.auth }))
 vi.mock('../../services/supabase/client', () => ({ getSupabaseClient: () => ({}) }))
-vi.mock('../settings/identitySharing', () => ({ getIdentitySharingPreference: mocks.identityPreference }))
+vi.mock('../settings/identitySharing', () => ({ getIdentitySharingPreferenceState: mocks.identityPreference }))
 
 function CurrentPath() { return <div data-testid="current-path">{useLocation().pathname}</div> }
 function renderAction(initialEntries = ['/settings']) {
@@ -21,8 +21,8 @@ describe('Send Feedback', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
   beforeEach(() => {
     mocks.submit.mockReset().mockResolvedValue({ deliveryStatus: 'accepted', feedbackId: 'feedback-123' })
-    mocks.identityPreference.mockReset().mockResolvedValue(false)
-    mocks.auth = { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com' } }
+    mocks.identityPreference.mockReset().mockResolvedValue({ enabled: false, explicitlyChosen: true })
+    mocks.auth = { status: 'signed-in', user: { id: 'user-1', email: 'person@example.com', email_confirmed_at: '2026-01-01T00:00:00Z' } }
   })
 
   it('uses a centered, blurred overlay and keeps the modal itself outside the backdrop filter', () => {
@@ -56,11 +56,11 @@ describe('Send Feedback', () => {
   })
 
   it('shows the account email only when the cloud privacy preference is enabled', async () => {
-    mocks.identityPreference.mockResolvedValue(true)
+    mocks.identityPreference.mockResolvedValue({ enabled: true, explicitlyChosen: true })
     const user = userEvent.setup()
     renderAction()
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
-    expect(await screen.findByText('Your account name and email (person@example.com) will be visible to maintainers. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
+    expect(await screen.findByText('Your account name and email (person@example.com) can be visible to maintainers for this request. Replies remain available in Notifications and My Support Queries. Avoid passwords or access tokens.')).toBeInTheDocument()
   })
 
   it('does not claim a message is anonymous when the saved privacy preference cannot be loaded', async () => {
@@ -68,7 +68,7 @@ describe('Send Feedback', () => {
     const user = userEvent.setup()
     renderAction()
     await user.click(screen.getByRole('button', { name: 'Send Feedback' }))
-    expect(await screen.findByText(/If no preference has been saved, sharing your details is enabled by default/i)).toBeInTheDocument()
+    expect(await screen.findByText(/If it cannot be confirmed, your identity will remain hidden from maintainers/i)).toBeInTheDocument()
     expect(screen.queryByText(/submitted anonymously to maintainers/i)).not.toBeInTheDocument()
   })
 
@@ -117,7 +117,7 @@ describe('Send Feedback', () => {
   })
 
   it('keeps an email and copy fallback available while signed out', async () => {
-    mocks.auth = { status: 'signed-out', user: null as unknown as { id: string; email: string } }
+    mocks.auth = { status: 'signed-out', user: null as unknown as { id: string; email: string; email_confirmed_at: string } }
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: writeText })

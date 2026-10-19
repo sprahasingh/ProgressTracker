@@ -49,6 +49,10 @@ describe('AI Help answer feedback response', () => {
       knowledge_decision: 'create_candidate', candidate: { id: 'candidate-1', status: 'pending' },
     })
     expect(buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: null }).identity).toEqual({ display_name: null, email: null })
+    expect(buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: { display_name: 'Ada', email: null } }).identity)
+      .toEqual({ display_name: 'Ada', email: null })
+    expect(buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: { display_name: null, email: 'confirmed-address' } }).identity)
+      .toEqual({ display_name: null, email: 'confirmed-address' })
   })
 
   it('withdraws disclosure when the current account preference is off or missing', () => {
@@ -63,5 +67,17 @@ describe('AI Help answer feedback response', () => {
       expect(dto.identity).toBeNull()
       expect(dto).not.toHaveProperty('response_id')
     }
+  })
+
+  it('keeps historical anonymous submissions anonymous after a later opt-in', () => {
+    const row = {
+      id: 'feedback-old', user_id: 'account-secret', response_id: 'response-secret', category: 'outdated',
+      explanation: null, topic: 'settings', knowledge_version: 'bundle-1', status: 'pending',
+      created_at: '2026-10-12T00:00:00Z', reviewed_at: null, share_identity: false,
+      knowledge_decision: 'not_decided', knowledge_candidate_id: null,
+    }
+    const dto = buildMaintainerAnswerFeedback({ row, currentPreference: true, identity: { display_name: 'Ada', email: 'confirmed-address' } })
+    expect(dto.identity).toBeNull()
+    expect(dto).not.toHaveProperty('response_id')
   })
 })

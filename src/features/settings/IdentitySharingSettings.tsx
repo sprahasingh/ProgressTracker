@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { InfoButton } from '../../components/ui/InfoButton'
-import { getIdentitySharingPreference, setIdentitySharingPreference } from './identitySharing'
+import { getIdentitySharingPreferenceState, setIdentitySharingPreference } from './identitySharing'
 
 export function IdentitySharingSettings() {
   const [shareIdentity, setShareIdentity] = useState<boolean | null>(null)
+  const [explicitlyChosen, setExplicitlyChosen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -14,8 +15,8 @@ export function IdentitySharingSettings() {
     let active = true
     setLoading(true)
     setError('')
-    void getIdentitySharingPreference().then((value) => {
-      if (active) setShareIdentity(value)
+    void getIdentitySharingPreferenceState().then((value) => {
+      if (active) { setShareIdentity(value.enabled); setExplicitlyChosen(value.explicitlyChosen) }
     }).catch((cause: unknown) => {
       if (active) {
         setShareIdentity(null)
@@ -33,6 +34,7 @@ export function IdentitySharingSettings() {
     try {
       const confirmed = await setIdentitySharingPreference(next)
       setShareIdentity(confirmed)
+      setExplicitlyChosen(true)
       setSaved(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Your privacy setting could not be saved. Try again.')
@@ -68,9 +70,13 @@ export function IdentitySharingSettings() {
         </ul>}
       />}
     </div>
-      <small className="settings-privacy-description" id="identity-sharing-description">Allow maintainers to see your name and email when reviewing your AI feedback or support requests. Sharing is on by default until you choose otherwise.</small>
+      <small className="settings-privacy-description" id="identity-sharing-description">Allow maintainers to see your name and eligible email when reviewing your AI feedback or support requests. The enabled default does not authorize identity disclosure until you explicitly confirm it.</small>
     {loading && <p className="settings-hint" role="status">Loading privacy setting…</p>}
     {saving && <p className="settings-hint" role="status">Saving privacy setting…</p>}
+    {!loading && !error && !explicitlyChosen && shareIdentity === true && <div className="settings-hint">
+      <p>Sharing is enabled by default, but you have not explicitly saved this choice. Maintainers will not see your identity until you confirm it.</p>
+      <button type="button" className="button button-secondary button-small" disabled={saving} onClick={() => void save(true)}>Confirm sharing preference</button>
+    </div>}
     {saved && <p className="settings-hint" role="status">Privacy setting saved.</p>}
     {error && <div className="settings-privacy-error"><p className="auth-error" role="alert">{error}</p><button type="button" className="button button-secondary button-small" onClick={() => { setError(''); setLoadAttempt((value) => value + 1) }}>Try again</button></div>}
   </div>
