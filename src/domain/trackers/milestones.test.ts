@@ -71,12 +71,12 @@ describe('typed milestone calculations', () => {
     expect(availableMilestoneTypes(baseTracker({ kind: 'challenge', scheduling: { mode: 'ongoing' } }))).not.toContain('challenge-day')
   })
 
-  it('counts Yes days, selected checklist items, and fully complete checklist dates', () => {
+  it('counts Done days, selected checklist items, and fully complete checklist dates', () => {
     const yesNo: TrackerMetricDefinition = { id: 'theory', name: 'Studied theory', valueType: 'boolean' }
     const yesMilestone = milestone('measure-completion-count', 2, { metricId: 'theory', measureTypeSnapshot: 'boolean', unitSnapshot: undefined, completionCondition: 'true-day' })
     const booleanTracker = baseTracker({ metrics: [yesNo], qualificationRule: { kind: 'comparison', metricId: 'theory', operator: 'equals', value: true }, milestones: [yesMilestone] })
     const boolEntries = [entry('2026-01-01', true, { values: { theory: true } }), entry('2026-01-02', false, { values: { theory: false } }), entry('2026-01-03', true, { values: { theory: true } })]
-    expect(evaluateMilestones({ tracker: booleanTracker, entries: boolEntries, asOfDate: '2026-01-03' })[0]).toMatchObject({ current: 2, completed: true, reachedDate: '2026-01-03', progressLabel: '2 / 2 Yes days' })
+    expect(evaluateMilestones({ tracker: booleanTracker, entries: boolEntries, asOfDate: '2026-01-03' })[0]).toMatchObject({ current: 2, completed: true, reachedDate: '2026-01-03', progressLabel: '2 / 2 Done days' })
 
     const checklist: TrackerMetricDefinition = { id: 'routine', name: 'Routine', valueType: 'checklist', checklistItems: [{ id: 'theory', label: 'Theory', position: 0 }, { id: 'review', label: 'Review', position: 1 }] }
     const checklistTracker = baseTracker({ metrics: [checklist], qualificationRule: undefined, milestones: [

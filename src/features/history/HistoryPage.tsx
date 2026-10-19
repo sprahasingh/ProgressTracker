@@ -239,7 +239,7 @@ function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holidays, o
 }
 
 function formatMetric(metric: StoredTrackerDefinition['metrics'][number], value: unknown): string {
-  if (typeof value === 'boolean') return value ? 'Done' : 'Not done'
+  if (typeof value === 'boolean') return value ? 'Done' : 'Not Done'
   if (typeof value === 'number') return formatTrackerNumber(value)
   if (metric.valueType === 'checklist' && Array.isArray(value)) return `${value.filter((item) => item === true).length} items done`
   if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null) return `${Object.values(value).filter((item) => item === true).length} items done`

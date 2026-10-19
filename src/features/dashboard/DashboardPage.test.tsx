@@ -23,6 +23,26 @@ function tracker(): StoredTrackerDefinition {
 }
 
 describe('local progress dashboard', () => {
+  it('shows recorded Not Done values separately from the tracker outcome and missing check-ins', async () => {
+    const definition: StoredTrackerDefinition = {
+      ...tracker(), id: 'dashboard-binary-values', name: 'Meditation',
+      metrics: [{ id: 'state', name: 'Completed', valueType: 'boolean' }, { id: 'secondary', name: 'Breathing', valueType: 'boolean' }],
+      qualificationRule: { kind: 'comparison', metricId: 'state', operator: 'equals', value: true },
+    }
+    const noEntry = { ...tracker(), id: 'dashboard-no-entry', name: 'Unrecorded tracker' }
+    await localRepository.saveTracker(definition)
+    await localRepository.saveTracker(noEntry)
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: localCalendarDate(), outcome: 'recorded', values: { state: false, secondary: false }, note: '' })
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+    const card = (await screen.findByRole('heading', { name: 'Meditation' })).closest('.dashboard-tracker-card')!
+    expect(card.querySelector('.dashboard-current-status strong')).toHaveTextContent('No progress')
+    expect(card.querySelector('.dashboard-latest-state')).toHaveTextContent('Completed: Not Done · Breathing: Not Done')
+    const missingCard = screen.getByRole('heading', { name: 'Unrecorded tracker' }).closest('.dashboard-tracker-card')!
+    expect(missingCard).toHaveTextContent('No check-ins yet')
+    expect(missingCard).not.toHaveTextContent('Not Done')
+  })
+
   it('summarizes only real scheduled entries and derives streak and reward totals', async () => {
     const definition = tracker()
     await localRepository.saveTracker(definition)

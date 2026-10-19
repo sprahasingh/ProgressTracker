@@ -13,7 +13,7 @@ import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { describeFailedTrackerConditions, evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay } from '../../domain/trackers/progression'
-import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
+import { trackerEntryMetricLabels } from '../../domain/trackers/entryPresentation'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from '../../domain/trackers/activityStatus'
@@ -226,22 +226,6 @@ function RewardSummary({ points }: { points: number }) {
 }
 
 function summarizeValues(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry): string {
-  const values = tracker.metrics.flatMap((metric) => {
-    const value = entry.values[metric.id]
-    if (typeof value === 'number') {
-      const unit = metric.unit ? ` ${metric.unit}` : ''
-      const target = metric.thresholds?.target
-      if (target === undefined) return [`${metric.name}: ${formatTrackerNumber(value)}${unit}`]
-      return metric.thresholds?.direction === 'decrease'
-        ? [`${metric.name}: ${formatTrackerNumber(value)}${unit} · target ≤ ${formatTrackerNumber(target)}${unit}`]
-        : [`${metric.name}: ${formatTrackerNumber(value)} / ${formatTrackerNumber(target)}${unit}`]
-    }
-    if (typeof value === 'boolean') return value ? [metric.name] : []
-    if (metric.valueType === 'checklist' && typeof value === 'object' && value !== null) {
-      const done = Object.values(value).filter((checked) => checked === true).length
-      return [`${metric.name}: ${done} done`]
-    }
-    return []
-  })
+  const values = trackerEntryMetricLabels(tracker, entry, { showNumericTarget: true })
   return values.join(' · ') || (entry.note ? entry.note : 'Check-in recorded')
 }

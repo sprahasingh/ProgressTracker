@@ -29,6 +29,26 @@ async function openGoalPlan(user: ReturnType<typeof userEvent.setup>, goalName: 
 }
 
 describe('Goals page allocation preview', () => {
+  it('shows Boolean values as Done / Not Done while keeping the goal state wording', async () => {
+    const user = userEvent.setup()
+    const today = localCalendarDate(new Date(), testTimeZone)
+    const tracker: StoredTrackerDefinition = {
+      schemaVersion: 4, id: 'boolean-goal-wording', name: 'Daily practice goal', description: '', kind: 'goal', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '', schedule: { kind: 'every-day' }, startDate: today, deadline: shiftCalendarDate(today, 4),
+      metrics: [{ id: 'state', name: 'Completed', valueType: 'boolean' }, { id: 'count', name: 'Count', valueType: 'quantity', unit: 'items', precision: { decimalPlaces: 0, increment: 1 } }], customFields: [], milestones: [],
+      goalPlanning: { mode: 'cumulative-deadline', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {}, planningTimeZone: testTimeZone, allocations: {} },
+      createdAt: `${today}T00:00:00.000Z`, updatedAt: `${today}T00:00:00.000Z`, archivedAt: null, deletedAt: null,
+    }
+    await localRepository.saveTracker(tracker)
+    await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: today, outcome: 'recorded', values: { state: false }, note: '' })
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>)
+    const card = await screen.findByRole('button', { name: /Daily practice goal/ })
+    expect(card).toHaveTextContent('In progress')
+    expect(card).toHaveTextContent('Not Done')
+    await user.click(card)
+    expect(screen.getByRole('list', { name: 'Daily practice goal measures' })).toHaveTextContent('Not Done')
+  })
+
   it('reaches boolean and checklist checkpoints using persisted check-in values', async () => {
     const user = userEvent.setup()
     const today = localCalendarDate(new Date(), testTimeZone)

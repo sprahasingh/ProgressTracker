@@ -73,7 +73,7 @@ describe('Calendar page', () => {
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
-    expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
+    expect(screen.getByText(/Completed · Done: Done/)).toBeInTheDocument()
     const manageHolidays = screen.getByRole('link', { name: 'Manage holidays' })
     expect(manageHolidays).toHaveClass('button-primary', 'button-medium')
     expect(manageHolidays).toHaveAttribute('href', '/holidays')
@@ -186,7 +186,7 @@ describe('Calendar page', () => {
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
     expect(screen.getByText(/Holiday · Standard Mode expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
-    expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
+    expect(screen.getByText(/Completed · Done: Done/)).toBeInTheDocument()
   })
 
   it('marks an unrecorded scheduled date as pending, rather than rest or missed', async () => {
@@ -271,19 +271,21 @@ describe('Calendar page', () => {
     expect(container.querySelector('.calendar-cell-status.no-trackers')).toBeInTheDocument()
   })
 
-  it('keeps a mixed completed and pending date identifiable as an aggregate', async () => {
+  it('keeps completed, no-progress, and pending trackers separately identifiable in aggregation', async () => {
     const secondTracker = { ...tracker, id: 'calendar-habit-two', name: 'Read a book' }
-    mocks.listTrackers.mockResolvedValue([tracker, secondTracker])
-    mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
+    const noProgressTracker = { ...tracker, id: 'calendar-no-progress', name: 'Not done today', metrics: [{ id: 'done', name: 'Status', valueType: 'boolean' }] } as unknown as StoredTrackerDefinition
+    const noProgressEntry = { ...entry, id: 'calendar-no-progress-entry', trackerId: noProgressTracker.id, values: { done: false } } as StoredTrackerEntry
+    mocks.listTrackers.mockResolvedValue([tracker, secondTracker, noProgressTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([entry, noProgressEntry])
     mocks.listAccountHolidays.mockResolvedValue([])
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
     await screen.findByText('Morning walk', { selector: 'strong' })
     const cell = container.querySelector('.calendar-day-today .calendar-cell-status')
-    expect(cell).toHaveClass('pending')
+    expect(cell).toHaveClass('partial')
     expect(cell).toHaveClass('mixed')
     expect(cell).toHaveAttribute('aria-label', expect.stringContaining('mixed statuses across active trackers'))
-    expect(cell).not.toHaveClass('partial')
+    expect(cell).toHaveAttribute('aria-label', expect.stringContaining('1 completed, 0 partial, 1 no progress, 1 pending'))
   })
 
   it('marks completed dates mixed when other active trackers are resting or outside their period', async () => {
@@ -302,5 +304,43 @@ describe('Calendar page', () => {
     expect(screen.getByText('Mixed statuses across active trackers; see each tracker below.')).toBeInTheDocument()
     expect(screen.getByText('Resting tracker', { selector: 'strong' }).parentElement).toHaveTextContent('Rest day')
     expect(screen.getByText('Expired tracker', { selector: 'strong' }).parentElement).toHaveTextContent('Outside period')
+  })
+
+  it('shows false Boolean values by saved measure name and keeps an unrecorded tracker distinct', async () => {
+    const falseTracker = {
+      ...tracker, id: 'calendar-false', name: 'Evening routine',
+      metrics: [{ id: 'done', name: 'Completed', valueType: 'boolean' }, { id: 'water', name: 'Water', valueType: 'boolean' }],
+    } as unknown as StoredTrackerDefinition
+    const falseEntry = { ...entry, id: 'calendar-false-entry', trackerId: falseTracker.id, values: { done: false, water: false } } as StoredTrackerEntry
+    mocks.listTrackers.mockResolvedValue([falseTracker, { ...tracker, id: 'calendar-unrecorded', name: 'Unrecorded routine' }])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([falseEntry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    const recorded = await screen.findByText('Evening routine', { selector: 'strong' })
+    expect(recorded.parentElement).toHaveTextContent('No progress · Completed: Not Done · Water: Not Done')
+    const unrecorded = screen.getByText('Unrecorded routine', { selector: 'strong' })
+    expect(unrecorded.parentElement).toHaveTextContent('Pending')
+    expect(unrecorded.parentElement).not.toHaveTextContent('Done')
+    expect(unrecorded.parentElement).not.toHaveTextContent('Progress recorded')
+  })
+
+  it('uses date-effective checklist names and totals when historical item definitions differ', async () => {
+    const oldMetric = { id: 'steps', name: 'Old items', valueType: 'checklist' as const, checklistItems: [{ id: 'a', label: 'A', position: 0 }, { id: 'b', label: 'B', position: 1 }] }
+    const currentMetric = { ...oldMetric, name: 'Items', checklistItems: [...oldMetric.checklistItems, { id: 'c', label: 'C', position: 2 }, { id: 'd', label: 'D', position: 3 }] }
+    const historicalTracker = {
+      ...tracker, id: 'calendar-historical-checklist', name: 'Historical checklist', schemaVersion: 10,
+      metrics: [currentMetric], qualificationRule: { kind: 'comparison', metricId: 'steps', operator: 'at-least', value: 1 },
+      ruleVersions: [{ id: 'checklist-v1', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: `${today}T00:00:00.000Z`, evaluation: { schedule: { kind: 'every-day' }, metrics: [oldMetric], qualificationRule: { kind: 'comparison', metricId: 'steps', operator: 'at-least', value: 1 } } }],
+    } as unknown as StoredTrackerDefinition
+    const historicalEntry = { ...entry, id: 'calendar-historical-checklist-entry', trackerId: historicalTracker.id, values: { steps: { a: true, b: false } } } as StoredTrackerEntry
+    mocks.listTrackers.mockResolvedValue([historicalTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([historicalEntry])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    const card = await screen.findByText('Historical checklist', { selector: 'strong' })
+    expect(card.parentElement).toHaveTextContent('Old items: 1 of 2 checked')
+    expect(card.parentElement).not.toHaveTextContent('1 of 4 checked')
   })
 })

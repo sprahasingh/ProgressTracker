@@ -432,7 +432,7 @@ describe('Analytics page', () => {
     expect(screen.queryByText(/View \d+ daily values?/)).not.toBeInTheDocument()
   })
 
-  it('announces boolean metric observations as Yes and No', async () => {
+  it('announces Boolean metric observations as Done and Not Done', async () => {
     const user = userEvent.setup()
     const yesterday = shiftCalendarDate(localCalendarDate(), -1)
     const tracker: StoredTrackerDefinition = {
@@ -449,9 +449,11 @@ describe('Analytics page', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Show details' }))
     const region = await screen.findByRole('region', { name: 'Completed analysis' })
+    expect(within(region).getByText(/Latest in range: Not Done/)).toBeInTheDocument()
+    expect(region).not.toHaveTextContent(/average 0\.[0-9]/)
     await user.click(within(region).getByText('View 2 daily values'))
     const buttons = within(region).getAllByRole('button')
-    expect(buttons[0]).toHaveAccessibleName(new RegExp(`${calendarDateLabel(yesterday, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}: Yes`))
-    expect(buttons[1]).toHaveAccessibleName(new RegExp(`${calendarDateLabel(localCalendarDate(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}: No`))
+    expect(buttons[0]).toHaveAccessibleName(new RegExp(`${calendarDateLabel(yesterday, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}: Done`))
+    expect(buttons[1]).toHaveAccessibleName(new RegExp(`${calendarDateLabel(localCalendarDate(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}: Not Done`))
   })
 })

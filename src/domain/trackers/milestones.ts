@@ -85,7 +85,7 @@ export function milestonePreview(tracker: Pick<TrackerDefinition, 'metrics'>, mi
     case 'streak-length': return `Achieve a streak of ${number} qualifying days using this tracker’s Streak Rule.`
     case 'challenge-day': return `Reach Day ${number} of this challenge using its configured day-counting method.`
     case 'measure-completion-count':
-      if (milestone.completionCondition === 'true-day') return `Record ${name} as Yes on ${number} eligible dates.`
+      if (milestone.completionCondition === 'true-day') return `Record ${name} as Done on ${number} eligible dates.`
       if (milestone.completionCondition === 'checklist-item-day') return `Complete “${milestone.checklistItemLabelSnapshot ?? metric?.checklistItems?.find((item) => item.id === milestone.checklistItemId)?.label ?? 'the selected item'}” on ${number} eligible days.`
       return `Fully complete ${name} on ${number} eligible days.`
     case undefined:
@@ -278,7 +278,7 @@ export function evaluateMilestones(input: {
     }
     if (type === 'measure-completion-count') {
       const condition = milestone.completionCondition
-      if (metric.valueType !== 'boolean' && metric.valueType !== 'checklist') return { ...result, configurationIssue: `“${metric.name}” is no longer a Yes/No or checklist measure.` }
+      if (metric.valueType !== 'boolean' && metric.valueType !== 'checklist') return { ...result, configurationIssue: `“${metric.name}” is no longer a Done / Not Done or checklist measure.` }
       const dates = entries.filter((entry) => (() => {
         const value = entry.values[metric.id]
         if (condition === 'true-day') return metric.valueType === 'boolean' && value === true
@@ -289,7 +289,7 @@ export function evaluateMilestones(input: {
         return false
       })()).map((entry) => entry.date)
       const current = dates.length
-      const wording = condition === 'true-day' ? 'Yes days' : condition === 'checklist-item-day' ? 'completed-item days' : 'fully completed days'
+      const wording = condition === 'true-day' ? 'Done days' : condition === 'checklist-item-day' ? 'completed-item days' : 'fully completed days'
       return { ...withProgress(result, current, target, wording, `${formatValue(current)} / ${formatValue(target)} ${wording}`, current >= target ? dates[target - 1] ?? null : null), configurationIssue: issue }
     }
     return { ...result, configurationIssue: 'This milestone type is not supported.' }

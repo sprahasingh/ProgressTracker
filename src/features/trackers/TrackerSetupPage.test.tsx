@@ -491,11 +491,11 @@ describe('tracker setup flow', () => {
   })
 
   it.each([
-    ['boolean', 'Yes / no'],
-    ['quantity', 'Quantity'],
-    ['duration', 'Duration'],
-    ['checklist', 'Checklist'],
-  ] as const)('creates a tracker with %s as its primary measure type', async (valueType, _label) => {
+    ['boolean', 'Done / Not Done', 'Status'],
+    ['quantity', 'Quantity', 'Progress'],
+    ['duration', 'Duration', 'Time Spent'],
+    ['checklist', 'Checklist', 'Items'],
+  ] as const)('creates a tracker with %s as its primary measure type and %s name', async (valueType, _label, name) => {
     const user = userEvent.setup()
     renderSetup()
     await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), `Primary ${valueType}`)
@@ -503,7 +503,7 @@ describe('tracker setup flow', () => {
     await user.click(screen.getByRole('button', { name: 'Create tracker' }))
 
     expect(await screen.findByRole('heading', { name: /You’re ready to begin/ })).toBeInTheDocument()
-    expect(await localRepository.listTrackers()).toMatchObject([{ metrics: [{ valueType }] }])
+    expect(await localRepository.listTrackers()).toMatchObject([{ metrics: [{ valueType, name }] }])
   })
 
   it('offers all four primary types and keeps independent type choices available in advanced configuration', async () => {
@@ -511,7 +511,7 @@ describe('tracker setup flow', () => {
     renderSetup()
     await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read daily')
     const primaryType = screen.getByRole('combobox', { name: 'Measure 1 value type' })
-    expect(within(primaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity', 'Duration', 'Checklist'])
+    expect(within(primaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Done / Not Done', 'Quantity', 'Duration', 'Checklist'])
     await user.selectOptions(primaryType, 'quantity')
     await user.type(screen.getByRole('textbox', { name: 'Numeric measure unit' }), 'pages')
     await user.type(screen.getByRole('spinbutton', { name: 'Per-check-in target' }), '5')
@@ -524,10 +524,38 @@ describe('tracker setup flow', () => {
     expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ Add measure' }))
     const secondaryType = screen.getByRole('combobox', { name: 'Measure 2 value type' })
-    expect(within(secondaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Yes / no', 'Quantity', 'Duration', 'Checklist'])
+    expect(within(secondaryType).getAllByRole('option').map((option) => option.textContent)).toEqual(['Done / Not Done', 'Quantity', 'Duration', 'Checklist'])
+    expect(screen.getAllByRole('textbox', { name: 'Name' })[1]).toHaveValue('Measure 2')
     await user.selectOptions(secondaryType, 'checklist')
     expect(secondaryType).toHaveValue('checklist')
     expect(screen.getByLabelText('Checklist item 1')).toBeInTheDocument()
+  })
+
+  it('preserves a manually named primary measure across type and tracker-kind changes', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.type(screen.getByRole('textbox', { name: 'What habit do you want to build?' }), 'Read daily')
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await user.clear(name)
+    await user.type(name, 'Reading')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Measure 1 value type' }), 'duration')
+    expect(name).toHaveValue('Reading')
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    expect(name).toHaveValue('Reading')
+    expect(screen.getByRole('combobox', { name: 'Measure 1 value type' })).toHaveValue('quantity')
+  })
+
+  it('updates an untouched primary default when switching tracker kinds', async () => {
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(screen.getByRole('radio', { name: /Goal/ }))
+    await user.click(screen.getByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Progress')
+    await user.click(screen.getByRole('radio', { name: /Habit/ }))
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Status')
   })
 
   it('locks the type of every existing measure while allowing a type choice for a newly added measure', async () => {

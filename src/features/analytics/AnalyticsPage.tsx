@@ -428,9 +428,9 @@ export function AnalyticsPage() {
                   const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
                   const latest = metricSummary.latestValue
                   return <section className="analytics-metric" key={metric.id} aria-label={`${metric.name} analysis`}>
-                    <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values in range{metricSummary.averageValue === null ? '' : ` · average ${formatTrackerNumber(metricSummary.averageValue)}${unit}`}</span></div>
+                    <div className="analytics-metric-heading"><h3>{metric.name}</h3><span>{metricSummary.observationCount} values in range{metric.valueType === 'boolean' || metricSummary.averageValue === null ? '' : ` · average ${formatTrackerNumber(metricSummary.averageValue)}${unit}`}</span></div>
                     {visibleObservations.length === 0 ? hasNoMetricObservations && recordedCount === 0 ? null : <p className="analytics-empty-metric">No values recorded in this range.</p> : <>
-                      <p className="analytics-latest">Latest in range: {latest === null ? '—' : metric.valueType === 'boolean' ? latest : formatTrackerNumber(latest)}{latest === null ? '' : unit}{metric.valueType === 'boolean' && latest !== null ? latest === 1 ? ' · yes' : ' · no' : ''}</p>
+                      <p className="analytics-latest">Latest in range: {latest === null ? '—' : metric.valueType === 'boolean' ? latest === 1 ? 'Done' : 'Not Done' : `${formatTrackerNumber(latest)}${unit}`}</p>
                       <div className="analytics-value-chart" aria-hidden="true">
                         {visibleObservations.map((item) => <span key={item.date} style={{ height: `${Math.max(5, item.value / maxValue * 100)}%` }} />)}
                       </div>
@@ -459,7 +459,7 @@ function MetricDailyValues({ metricName, valueType, unit, observations }: {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const selected = observations.find((item) => item.date === selectedDate)
   const dateLabel = (date: string) => calendarDateLabel(date, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-  const valueLabel = (value: number) => valueType === 'boolean' ? value === 1 ? 'Yes' : 'No' : `${formatTrackerNumber(value)}${unit}`
+  const valueLabel = (value: number) => valueType === 'boolean' ? value === 1 ? 'Done' : 'Not Done' : `${formatTrackerNumber(value)}${unit}`
 
   return <details className="analytics-daily-values">
     <summary aria-controls={id} aria-label={`View ${observations.length} daily ${observations.length === 1 ? 'value' : 'values'} for ${metricName}`}>View {observations.length} daily {observations.length === 1 ? 'value' : 'values'}</summary>

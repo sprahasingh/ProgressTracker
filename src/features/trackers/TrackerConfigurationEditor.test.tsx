@@ -77,7 +77,7 @@ describe('Tracker configuration explanations', () => {
     expect(screen.getByText('Target completed days')).toBeInTheDocument()
     const target = screen.getByRole('spinbutton', { name: 'Target completed days' })
     await user.type(target, '20')
-    expect(screen.getByText('Record Studied Theory as Yes on 20 eligible dates.')).toBeInTheDocument()
+    expect(screen.getByText('Record Studied Theory as Done on 20 eligible dates.')).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'Total quantity recorded' })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'Quantity in a single day' })).not.toBeInTheDocument()
   })
