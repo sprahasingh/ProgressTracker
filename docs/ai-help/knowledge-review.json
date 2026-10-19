@@ -68,20 +68,20 @@
     "supabase/functions/ai-help/assistantCore.ts": "7444e0e4e7c737f0ed301f0f75ed52eb3874656403f8b65780925fb01bc91790"
   },
   "calendar-content": {
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199",
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d",
     "src/domain/trackers/activityHeatmap.ts": "208ca0dacd8493836a76a1d063e14012440527e44787da2d06ace5c1908332f8"
   },
   "calendar-activity-statuses": {
     "src/domain/trackers/activityStatus.ts": "1c9a82fd85ed631aa0f6cb94fb95c68d44dc4b9782073bb9e951c7f13f63bba9",
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199"
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d"
   },
   "calendar-inspect-past-date": {
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199",
-    "src/features/calendar/CalendarPage.test.tsx": "4e4547ac902d6cb6cb79830919dfeae4be59b180decb432f2d9b3d1210998968"
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d",
+    "src/features/calendar/CalendarPage.test.tsx": "047fb843f13a408507465ea8b2002595b86a537210f0be38445ed551b3eae41b"
   },
   "calendar-rest-day": {
     "src/domain/trackers/activityStatus.ts": "1c9a82fd85ed631aa0f6cb94fb95c68d44dc4b9782073bb9e951c7f13f63bba9",
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199"
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d"
   },
   "calendar-zero-activity": {
     "src/domain/trackers/activityStatus.ts": "1c9a82fd85ed631aa0f6cb94fb95c68d44dc4b9782073bb9e951c7f13f63bba9",
@@ -89,14 +89,14 @@
   },
   "calendar-holiday-entry": {
     "src/domain/trackers/activityStatus.ts": "1c9a82fd85ed631aa0f6cb94fb95c68d44dc4b9782073bb9e951c7f13f63bba9",
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199"
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d"
   },
   "heatmap-normalized": {
     "src/domain/trackers/activityHeatmap.ts": "208ca0dacd8493836a76a1d063e14012440527e44787da2d06ace5c1908332f8",
     "src/features/dashboard/DashboardPage.tsx": "4e02b594ef15db6fb6b24a77cfdfcd8fa982f9a30dd3d45328cf029be920163b"
   },
   "calendar-versus-history": {
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199",
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d",
     "src/features/history/HistoryPage.tsx": "c6fc2880f2bf3658b5853807e511d93c8c50c52262ea4c3f46885f52e05ba0bd"
   },
   "skipped-vs-unchecked": {
@@ -138,7 +138,7 @@
   },
   "checkin-empty-versus-zero-status": {
     "src/domain/trackers/activityStatus.ts": "1c9a82fd85ed631aa0f6cb94fb95c68d44dc4b9782073bb9e951c7f13f63bba9",
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199"
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d"
   },
   "checkin-resave-same-date": {
     "src/db/localRepository.ts": "d0a60ecd8e7e9a868641ebde6e8e5c47e4638a1e52946e9ba83c62f27bca9428",
@@ -184,7 +184,7 @@
     "src/features/trackers/MilestoneProgressList.tsx": "5ff92a11437dc032f61f980c5474c3a05663b1fdc9d6d97e8212e74c37250b47",
     "src/features/goals/GoalsPage.tsx": "b7251aaa116d18fed1dec6d3a7da06f649260cf29c3e840b1076ef756186ea87",
     "src/features/history/HistoryPage.tsx": "c6fc2880f2bf3658b5853807e511d93c8c50c52262ea4c3f46885f52e05ba0bd",
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199",
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d",
     "src/services/supabase/syncEngine.ts": "b7ef632b9b11c5dd8af0b02798c5210b89ea7f35f17018b9b1d23db9a343577a",
     "supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql": "d242e25bd8461cbe65757a1c60192be8c6994bc7ca5a23dae243e4b393ac2ff3"
   },
@@ -290,7 +290,7 @@
     "src/domain/trackers/analytics.ts": "593594d774acb73d06d9f92de0af94853f32464795e4bf4cafa7d81bf25f800b"
   },
   "holiday-log-progress": {
-    "src/features/calendar/CalendarPage.tsx": "f9938446d672fa352cc2657dd983ec83ed847679a318a4514b6602f8c3cbd199",
+    "src/features/calendar/CalendarPage.tsx": "acfdad0d1cec155a48348e0672865717561e7278ab7c72d16edc8aeeff99087d",
     "src/features/today/TodayPage.tsx": "25ca8ac04fff9c73316155cb19743a4534f6d2c599808dd9af8cceebbc26b8e0",
     "src/domain/trackers/progression.ts": "a90c3684451075cad153657bccb7a2fde23c3a1fa225cea41affca0a14cb3bba"
   },
