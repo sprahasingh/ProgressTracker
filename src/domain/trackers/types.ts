@@ -148,6 +148,8 @@ export type TrackerRuleVersion = {
   effectiveFrom: string
   revision: number
   application: 'baseline' | 'apply-from-today' | 'recalculate-all-history'
+  /** User-confirmed boundary policy; effectiveFrom remains authoritative. */
+  historyPolicy?: 'apply-from-today' | 'after-last-check-in' | 'recalculate-all-history'
   recordedAt: string
   evaluation: TrackerEvaluationSnapshot
 }

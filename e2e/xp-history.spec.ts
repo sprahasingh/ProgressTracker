@@ -112,7 +112,10 @@ async function signIn(page: Page, fixture: Fixture): Promise<void> {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 50_000 })
   await page.goto('/#/achievements')
-  await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
+  // The route remains /achievements, while its user-facing page was renamed
+  // to Wins. Keep the test anchored to the current accessible page title.
+  await expect(page).toHaveURL(/#\/achievements$/)
+  await expect(page.getByRole('heading', { name: 'Wins.', exact: true })).toBeVisible()
 }
 
 async function openHistory(page: Page) {
@@ -142,7 +145,9 @@ test('hides complete reversals across history pages and the toggle restores both
   await expect(toggle).toBeChecked()
   await expect(rows).toHaveCount(30)
   await expect(dialog.getByText('Award reversed', { exact: true })).toBeVisible()
-  await expect(dialog.getByText(reversalName, { exact: true })).toBeVisible()
+  const reversalRow = rows.filter({ hasText: 'Award reversed' })
+  await expect(reversalRow.getByText(originalAwardName, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(reversalName, { exact: true })).toHaveCount(0)
 
   await dialog.getByRole('button', { name: 'Load more history' }).click()
   await expect(rows).toHaveCount(31)
@@ -161,10 +166,12 @@ test('resets the reversed transaction filter to hidden after a full page reload'
   let dialog = await openHistory(page)
   const toggle = dialog.getByRole('checkbox', { name: 'Show reversed transactions' })
   await toggle.check()
-  await expect(dialog.getByText(reversalName, { exact: true })).toBeVisible()
+  const reversalRow = dialog.locator('.progression-dialog-event-list > li').filter({ hasText: 'Award reversed' })
+  await expect(reversalRow.getByText(originalAwardName, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(reversalName, { exact: true })).toHaveCount(0)
 
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Wins.', exact: true })).toBeVisible()
   dialog = await openHistory(page)
   await expect(dialog.getByRole('checkbox', { name: 'Show reversed transactions' })).not.toBeChecked()
   await expect(dialog.getByText(originalAwardName, { exact: true })).toHaveCount(0)

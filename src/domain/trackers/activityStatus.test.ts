@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus } from './activityStatus'
+import { versionTrackerRuleChange } from './ruleVersions'
 import { localCalendarDate } from '../../features/shared/localDates'
 import tokens from '../../styles/tokens.css?raw'
 import styles from '../../styles.css?raw'
@@ -74,6 +75,37 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09', quantityTracker, quantityEntry(3))).toBe('completed')
     const explicitZeroRule = { ...quantityTracker, qualificationRule: { kind: 'threshold' as const, metricId: 'sessions', level: 'minimum' as const }, metrics: [{ ...quantityTracker.metrics[0]!, thresholds: { direction: 'decrease' as const, minimum: 0, streakQualification: 'minimum' as const } }] }
     expect(state('2026-10-09', explicitZeroRule, quantityEntry(0))).toBe('completed')
+  })
+
+  it('classifies an older entry with the date-effective measure after that measure is retired', () => {
+    const before: TrackerDefinition = {
+      ...baseTracker,
+      schemaVersion: 9,
+      metrics: [{ id: 'hours', name: 'Progress', valueType: 'quantity', unit: 'Hours', thresholds: { direction: 'increase', target: 3, streakQualification: 'target' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'hours', level: 'target' },
+      startDate: '2026-10-01',
+    }
+    const after: TrackerDefinition = {
+      ...before,
+      schemaVersion: 10,
+      metrics: [
+        { id: 'hours', name: 'Progress', valueType: 'quantity', unit: 'Hours', retiredAt: '2026-10-10', thresholds: { direction: 'increase', target: 3, streakQualification: 'target' } },
+        { id: 'sessions', name: 'Sessions', valueType: 'quantity', thresholds: { direction: 'increase', target: 1, streakQualification: 'target' } },
+      ],
+      qualificationRule: { kind: 'threshold', metricId: 'sessions', level: 'target' },
+    }
+    const versioned = versionTrackerRuleChange({
+      before,
+      after,
+      application: 'apply-from-today',
+      today: '2026-10-10',
+      historyStartDate: '2026-10-01',
+      recordedAt: '2026-10-10T12:00:00Z',
+    })
+    const saved: TrackerEntry = { ...entry('2026-10-09', true), values: { hours: 2 } }
+
+    expect(state('2026-10-09', versioned, saved, undefined, '2026-10-10')).toBe('partial')
+    expect(saved.values).toEqual({ hours: 2 })
   })
 
   it('marks saved records outside the inclusive start/deadline window as historical', () => {

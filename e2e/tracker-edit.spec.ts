@@ -116,7 +116,7 @@ function legacyV6Challenge(id: string): TrackerDefinition {
   }
 }
 
-async function setCustomStreakRule(page: Page, trackerId: string, application: 'apply-from-today' | 'recalculate-all-history') {
+async function setCustomStreakRule(page: Page, trackerId: string) {
   await page.goto(`/#/trackers/${trackerId}/edit`)
   await page.locator('.advanced-setup > summary').click()
   await page.locator('.advanced-subsection').filter({ hasText: 'Streak rule mode' }).locator('summary').click()
@@ -124,10 +124,10 @@ async function setCustomStreakRule(page: Page, trackerId: string, application: '
   await streak.getByRole('combobox', { name: 'Streak rule mode' }).selectOption('custom')
   await streak.locator('.rule-leaf-controls select:not([aria-label])').selectOption('target')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  const dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('radio', { name: application === 'apply-from-today' ? /Apply from today/ : /Recalculate all history/ }).check()
-  await dialog.getByRole('button', { name: application === 'apply-from-today' ? 'Apply from today' : 'Recalculate all history' }).click()
+  await expect(dialog.getByRole('radio', { name: /Apply from today/ })).toBeEnabled()
+  await dialog.getByRole('button', { name: 'Apply from today' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
 }
 
@@ -238,7 +238,7 @@ test('saves an existing custom Streak Rule offline, then syncs and reloads it wi
 
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Save changes' }).click()
-  const ruleHistoryDialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const ruleHistoryDialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(ruleHistoryDialog).toBeVisible()
   await ruleHistoryDialog.getByRole('button', { name: 'Apply from today' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
@@ -308,7 +308,7 @@ test('supports switching a saved custom rule off and back on', async ({ page }) 
   const mode = page.getByRole('region', { name: 'Streak rule' }).getByRole('combobox', { name: 'Streak rule mode' })
   await mode.selectOption('same-as-success')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  const sameAsSuccessDialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const sameAsSuccessDialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(sameAsSuccessDialog).toBeVisible()
   await sameAsSuccessDialog.getByRole('button', { name: 'Apply from today' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
@@ -328,7 +328,7 @@ test('supports switching a saved custom rule off and back on', async ({ page }) 
   const reenabledMode = page.getByRole('region', { name: 'Streak rule' }).getByRole('combobox', { name: 'Streak rule mode' })
   await reenabledMode.selectOption('custom')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  const customRuleDialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const customRuleDialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(customRuleDialog).toBeVisible()
   await customRuleDialog.getByRole('button', { name: 'Apply from today' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
@@ -359,7 +359,7 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
   expect(emptySeed.record?.definition).not.toHaveProperty('streakRuleMode')
   expect(emptySeed.record?.definition.scheduling).not.toHaveProperty('effectiveDayCounting')
 
-  await setCustomStreakRule(page, emptyTracker.id, 'apply-from-today')
+  await setCustomStreakRule(page, emptyTracker.id)
   const emptySaved = await syncAndReadRemote(page, fixture.userId, emptyTracker.id, emptyTracker.name, 'custom')
   const today = await page.evaluate(() => {
     const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Calcutta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
@@ -435,7 +435,7 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
   expect(hydratedTombstone.entry).toMatchObject({ outcome: 'skipped', values: {}, deletedAt: '2026-10-16T16:04:23.431Z' })
   expect(hydratedTombstone.revision).toMatchObject({ serverRevision: 2 })
 
-  await setCustomStreakRule(page, deletedTracker.id, 'apply-from-today')
+  await setCustomStreakRule(page, deletedTracker.id)
   const deletedSaved = await syncAndReadRemote(page, fixture.userId, deletedTracker.id, deletedTracker.name, 'custom')
   expect(deletedSaved.summary).toMatchObject({ failed: 0, conflicts: 0 })
   const deletedRemoteEntry = await page.evaluate(async ({ entryId }) => {
@@ -458,13 +458,28 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
   await seedTracker(page, activeTracker, fixture.userId, { date: '2026-10-16', values: { progress: 0.5 } })
   const activeSeed = await syncAndReadRemote(page, fixture.userId, activeTracker.id, activeTracker.name)
   expect(activeSeed.summary).toMatchObject({ failed: 0, conflicts: 0 })
-  const progressionBeforeRecalculation = await readProgressionLedger(page, fixture.userId)
-  await setCustomStreakRule(page, activeTracker.id, 'recalculate-all-history')
+  const progressionBeforeEdit = await readProgressionLedger(page, fixture.userId)
+  await page.goto(`/#/trackers/${activeTracker.id}/edit`)
+  await page.locator('.advanced-setup > summary').click()
+  await page.locator('.advanced-subsection').filter({ hasText: 'Streak rule mode' }).locator('summary').click()
+  const activeStreak = page.getByRole('region', { name: 'Streak rule' })
+  await activeStreak.getByRole('combobox', { name: 'Streak rule mode' }).selectOption('custom')
+  await activeStreak.locator('.rule-leaf-controls select:not([aria-label])').selectOption('target')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  const activeDialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+  await expect(activeDialog).toBeVisible()
+  await expect(activeDialog.getByRole('radio', { name: /Apply from today/ })).toBeEnabled()
+  await expect(activeDialog.getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
+  await expect(activeDialog.locator('#all-history-help')).toContainText('Unavailable: historical compatibility cannot be proven')
+  await activeDialog.getByRole('button', { name: 'Apply from today' }).click()
   const activeSaved = await syncAndReadRemote(page, fixture.userId, activeTracker.id, activeTracker.name, 'custom')
   expect(activeSaved.summary).toMatchObject({ failed: 0, conflicts: 0 })
   expect(activeSaved.record).toMatchObject({
     schema_version: 10,
-    definition: { ruleVersions: [{ effectiveFrom: '2026-10-16', revision: 2, application: 'recalculate-all-history' }] },
+    definition: { ruleVersions: [
+      { effectiveFrom: '2026-10-16', revision: 1, application: 'baseline' },
+      { effectiveFrom: today, revision: 2, application: 'apply-from-today' },
+    ] },
   })
   const activeEntry = await page.evaluate(async ({ trackerId }) => {
     const { getSupabaseClient } = await import('/ProgressTracker/src/services/supabase/client.ts')
@@ -475,7 +490,7 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
     return data
   }, { trackerId: activeTracker.id })
   expect(activeEntry).toMatchObject({ entry_date: '2026-10-16', outcome: 'recorded', entry_values: { progress: 0.5 }, deleted_at: null, server_revision: 1 })
-  await expect.poll(() => readProgressionLedger(page, fixture.userId)).toEqual(progressionBeforeRecalculation)
+  await expect.poll(() => readProgressionLedger(page, fixture.userId)).toEqual(progressionBeforeEdit)
 })
 
 test('preserves typed schema v9 trackers during cosmetic edits', async ({ page }) => {
@@ -496,7 +511,7 @@ test('preserves typed schema v9 trackers during cosmetic edits', async ({ page }
   expect(renamed.record).toMatchObject({ schema_version: 9, definition: { name: 'Streak Cure renamed', milestones: tracker.milestones } })
 })
 
-test('preserves historical checklist and custom-field meaning through responsive offline edits and sync', async ({ page, context }) => {
+test('preserves legacy historical values and blocks unsafe custom-field edits offline', async ({ page, context }) => {
   const fixture = readFixture()
   const tracker: TrackerDefinition = {
     schemaVersion: 1,
@@ -551,39 +566,26 @@ test('preserves historical checklist and custom-field meaning through responsive
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Retire field' }).click()
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page).toHaveURL(/#\/trackers$/)
+  await expect(page).toHaveURL(new RegExp(`#\\/trackers\\/${tracker.id}\\/edit$`))
+  await expect(page.getByText(/field availability is not saved in its history/i)).toBeVisible()
   const offlineState = await page.evaluate(async (trackerId) => {
     const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
-    return { tracker: await localRepository.getTracker(trackerId), entries: await localRepository.listTrackerEntriesForTracker(trackerId) }
+    const { db } = await import('/ProgressTracker/src/db/database.ts')
+    return {
+      tracker: await localRepository.getTracker(trackerId),
+      entries: await localRepository.listTrackerEntriesForTracker(trackerId),
+      operations: await db.syncOperations.toArray(),
+    }
   }, tracker.id)
-  expect(offlineState.tracker?.customFields).toMatchObject([{ id: 'mood', name: 'Mood', retiredAt: expect.any(String), options: ['Focused', 'Tired'] }])
+  expect(offlineState.tracker?.customFields).toMatchObject([{ id: 'mood', name: 'Mood', options: ['Focused', 'Tired'] }])
+  expect(offlineState.tracker?.customFields?.[0]).not.toHaveProperty('retiredAt')
   expect(offlineState.entries).toMatchObject([{ values: { routine: { read: true, review: false }, 'field:mood': 'Focused' }, note: 'Original checklist and detail' }])
+  const queuedEntry = offlineState.operations.find((operation) => operation.entity === 'tracker_entry'
+    && (operation.payload as { trackerId?: string }).trackerId === tracker.id)
+  expect(queuedEntry).toBeDefined()
+  expect(queuedEntry?.status).toMatch(/^(pending|conflict)$/)
+  expect((queuedEntry?.payload as { values?: Record<string, unknown> }).values?.['field:mood']).toBe('Focused')
 
-  await context.setOffline(false)
-  const synced = await syncAndReadRemote(page, fixture.userId, tracker.id, tracker.name, undefined, 'mood')
-  expect(synced.summary).toMatchObject({ failed: 0, conflicts: 0 })
-  expect(synced.record?.definition).toMatchObject({
-    metrics: [{ checklistItems: [{ id: 'read', label: 'Read' }, { id: 'review', label: 'Review' }] }],
-    customFields: [{ id: 'mood', name: 'Mood', type: 'single-select', options: ['Focused', 'Tired'], retiredAt: expect.any(String) }],
-  })
-
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.reload()
-  await page.goto(`/#/trackers/${tracker.id}/edit`)
-  const celebration = page.locator('.badge-celebration[role="dialog"]')
-  // The newly earned award can arrive after the route renders. Wait for it
-  // before checking visibility so it cannot appear over the mobile controls
-  // after the dismissal loop has already been skipped.
-  await expect(celebration).toBeVisible()
-  for (let index = 0; index < 5 && await celebration.isVisible(); index += 1) {
-    await celebration.getByRole('button', { name: /^(Next|Finish)$/ }).click()
-  }
-  await expect(celebration).toBeHidden()
-  await page.locator('.advanced-setup > summary').click()
-  await page.getByText('Extra check-in details').click()
-  await expect(page.getByRole('button', { name: 'Retired field' })).toBeDisabled()
-  await expect(page.getByRole('textbox', { name: 'Field name' })).toBeDisabled()
-  await expect(page.getByText('Saved values keep this field’s name, type, options, and required setting. Retire it to stop collecting future values while keeping its history.')).not.toBeVisible()
 })
 
 test('preserves legacy rules and tracker data when editing a schema v7 tracker', async ({ page }) => {

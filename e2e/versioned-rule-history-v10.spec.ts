@@ -49,7 +49,7 @@ async function establishSession(page: Page, context: BrowserContext, user: Fixtu
   }, user.userId)
 }
 
-async function seedTracker(page: Page, userId: string, label: string): Promise<Seed> {
+async function seedTracker(page: Page, userId: string, label: string, includeRetirableField = false, withV10History = false): Promise<Seed> {
   const today = utcToday()
   const startDate = shift(today, -10)
   const historyDates = Array.from({ length: 8 }, (_, index) => shift(today, index - 7))
@@ -73,10 +73,10 @@ async function seedTracker(page: Page, userId: string, label: string): Promise<S
       valueType: 'quantity',
       unit: 'sessions',
       thresholds: { direction: 'increase', minimum: 1, target: 5, streakQualification: 'minimum' },
-    }],
+    }, ...(includeRetirableField ? [{ id: 'bonus', name: 'Bonus', valueType: 'boolean' as const }] : [])],
     qualificationRule: { kind: 'comparison', metricId: 'sessions', operator: 'at-least', value: 3 },
     streakRuleMode: 'same-as-success',
-    customFields: [],
+    customFields: includeRetirableField ? [{ id: 'mood', name: 'Mood', type: 'single-select' as const, required: false, position: 0, options: ['Focused', 'Tired'] }] : [],
     milestones: [],
     strictMode: false,
     createdAt: `${startDate}T12:00:00.000Z`,
@@ -85,21 +85,37 @@ async function seedTracker(page: Page, userId: string, label: string): Promise<S
     deletedAt: null,
   }
 
-  await page.evaluate(async ({ userId, tracker, dates }) => {
+  await page.evaluate(async ({ userId, tracker, dates, today, includeRetirableField, withV10History }) => {
     const { activateWorkspace } = await import('/ProgressTracker/src/db/database.ts')
     const { localRepository } = await import('/ProgressTracker/src/db/localRepository.ts')
+    let savedTracker = tracker
+    if (withV10History) {
+      const { trackerEvaluationSnapshot } = await import('/ProgressTracker/src/domain/trackers/ruleVersions.ts')
+      savedTracker = {
+        ...tracker,
+        schemaVersion: 10,
+        ruleVersions: [{
+          id: crypto.randomUUID(), effectiveFrom: tracker.startDate ?? tracker.createdAt.slice(0, 10), revision: 1,
+          application: 'baseline', recordedAt: tracker.createdAt, evaluation: trackerEvaluationSnapshot(tracker),
+        }],
+      }
+    }
     await activateWorkspace(userId)
-    await localRepository.saveTracker(tracker)
+    await localRepository.saveTracker(savedTracker)
     for (const date of dates) {
       await localRepository.saveTrackerEntry({
         trackerId: tracker.id,
         date,
         outcome: 'recorded',
-        values: { sessions: 3 },
+        // The server has no date-effective custom-field definition snapshot.
+        // Only seed the field value on today's date, where the current field
+        // definition proves availability; older check-ins keep their measure
+        // data without fabricating historical field availability.
+        values: { sessions: 3, ...(includeRetirableField ? { bonus: false, ...(date === today ? { 'field:mood': 'Focused' } : {}) } : {}) },
         note: `Keep ${date} intact`,
       })
     }
-  }, { userId, tracker, dates: historyDates })
+  }, { userId, tracker, dates: historyDates, today, includeRetirableField, withV10History })
 
   return { id: tracker.id, name: tracker.name, today, startDate, historyDates, backdatedDate: shift(today, -9) }
 }
@@ -242,8 +258,13 @@ test('applies from today, preserves earlier rules, accepts a backdated value, sy
   expect(firstStepBefore.events.map((event) => event.event_type)).toEqual(['unlocked'])
 
   await editSuccessRule(page, seed, 5)
-  await expect(page.getByRole('alertdialog', { name: 'How should your new rules apply?' })).toBeVisible()
-  const dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  await expect(page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })).toBeVisible()
+  const dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+  const cards = dialog.locator('label.tracker-history-option')
+  await expect(cards).toHaveCount(3)
+  expect(await cards.evaluateAll((items) => items.map((item) => item.className))).toEqual([
+    'tracker-history-option', 'tracker-history-option', 'tracker-history-option',
+  ])
   await expect(dialog.getByRole('radio', { name: /Apply from today/ })).toBeChecked()
   await context.setOffline(true)
   await dialog.getByRole('button', { name: 'Apply from today' }).click()
@@ -321,7 +342,7 @@ test('converges an offline rule edit and another device’s backdated entry afte
       .toMatchObject({ success: true, values: { sessions: 3 }, note: `Cross-device ${seed.backdatedDate}` })
 
     await editSuccessRule(page, seed, 5)
-    const choice = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+    const choice = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     await expect(choice).toBeVisible()
     await expect(choice.getByRole('radio', { name: /Apply from today/ })).toBeChecked()
     await context.setOffline(true)
@@ -358,8 +379,8 @@ test('converges an offline rule edit and another device’s backdated entry afte
 test('recalculates all saved history explicitly and reverses only newly ineligible awards', async ({ page, context }) => {
   const user = readFixture('retrospective')
   await establishSession(page, context, user)
-  const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8))
-  const seeded = await syncTracker(page, user.userId, seed.id, 9)
+  const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8), false, true)
+  const seeded = await syncTracker(page, user.userId, seed.id, 10)
   expect(seeded.summary, `Sync diagnostics: ${JSON.stringify(seeded.syncState)}`).toMatchObject({ failed: 0, conflicts: 0 })
   await expect.poll(async () => (await readTrackerLedger(page, user.userId, seed.id)).awards).toHaveLength(8)
   await expect.poll(async () => (await readTrackerLedger(page, user.userId, seed.id)).streakAwards).toHaveLength(1)
@@ -368,12 +389,18 @@ test('recalculates all saved history explicitly and reverses only newly ineligib
   const rawBefore = before.classified.map(({ id, date, values, note }) => ({ id, date, values, note }))
 
   await editSuccessRule(page, seed, 5)
-  const dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('radio', { name: /Recalculate all history/ }).check()
-  await expect(dialog.getByRole('button', { name: 'Recalculate all history' })).toBeEnabled()
+  const cards = dialog.locator('label.tracker-history-option')
+  await expect(cards).toHaveCount(3)
+  expect(await cards.evaluateAll((items) => items.map((item) => item.className))).toEqual([
+    'tracker-history-option', 'tracker-history-option', 'tracker-history-option',
+  ])
+  await expect(dialog.getByRole('radio', { name: /Apply from today \(recommended\)/ })).toBeChecked()
+  await dialog.getByRole('radio', { name: /Apply to all history/ }).check()
+  await expect(dialog.getByRole('button', { name: 'Apply to all history' })).toBeEnabled()
   await context.setOffline(true)
-  await dialog.getByRole('button', { name: 'Recalculate all history' }).click()
+  await dialog.getByRole('button', { name: 'Apply to all history' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
   const local = await readLocalHistory(page, seed.id, seed.today)
   expect(local.tracker).toMatchObject({ schemaVersion: 10, qualificationRule: { value: 5 } })
@@ -405,10 +432,10 @@ test('recalculates all saved history explicitly and reverses only newly ineligib
   expect(afterReload.streak).toMatchObject({ current: 0, longest: 0 })
 
   await editSuccessRule(page, seed, 3)
-  const reapplyDialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  const reapplyDialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(reapplyDialog).toBeVisible()
-  await reapplyDialog.getByRole('radio', { name: /Recalculate all history/ }).check()
-  await reapplyDialog.getByRole('button', { name: 'Recalculate all history' }).click()
+  await reapplyDialog.getByRole('radio', { name: /Apply to all history/ }).check()
+  await reapplyDialog.getByRole('button', { name: 'Apply to all history' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
   const requalified = await syncTracker(page, user.userId, seed.id, 10)
   expect(requalified.summary).toMatchObject({ failed: 0, conflicts: 0 })
@@ -427,6 +454,52 @@ test('recalculates all saved history explicitly and reverses only newly ineligib
   expect(requalifiedLocal.streak).toMatchObject({ current: 8, longest: 8 })
 })
 
+test('structural v10 edits defer past today’s check-in and explain disabled choices', async ({ page }) => {
+  const user = readFixture()
+  await establishSession(page, page.context(), user)
+  const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8), true)
+  const initialSync = await syncTracker(page, user.userId, seed.id, 9)
+  expect(initialSync.summary).toMatchObject({ failed: 0, conflicts: 0 })
+  // The seed history can create a real level-up celebration during initial sync;
+  // dismiss it before exercising the independent tracker editor flow.
+  await dismissAchievementCelebrations(page)
+
+  await editSuccessRule(page, seed, 5)
+  const compatible = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+  await expect(compatible).toBeVisible()
+  await compatible.getByRole('button', { name: 'Apply from today' }).click()
+  await expect(page).toHaveURL(/#\/trackers$/)
+  const v10Sync = await syncTracker(page, user.userId, seed.id, 10)
+  expect(v10Sync.summary).toMatchObject({ failed: 0, conflicts: 0 })
+
+  await page.goto(`/#/trackers/${seed.id}/edit`)
+  await page.locator('.advanced-setup > summary').click()
+  await page.locator('details.advanced-subsection').filter({ hasText: 'Measures, precision & targets' }).locator('summary').click()
+  const retireMeasureButtons = page.getByRole('button', { name: 'Retire measure' })
+  await expect(retireMeasureButtons).toHaveCount(2)
+  page.once('dialog', (dialog) => dialog.accept())
+  await retireMeasureButtons.nth(1).click()
+  await expect(page.getByRole('article', { name: 'Bonus measure' }).locator('strong')).toContainText('Retired')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  const structural = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+  await expect(structural).toBeVisible()
+  await expect(structural.getByRole('radio', { name: 'After the last check-in' })).toBeChecked()
+  const today = seed.today
+  const tomorrow = shift(today, 1)
+  const displayedDate = await page.evaluate((date) => new Date(`${date}T12:00:00.000Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }), tomorrow)
+  await expect(structural.getByText(`Your changes will start on ${displayedDate} in UTC. Starting earlier would require removing conflicting check-ins through the normal check-in workflow.`)).toBeVisible()
+  await expect(structural.getByRole('radio', { name: /Apply from today/ })).toBeDisabled()
+  await expect(structural.getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
+  await expect(structural.locator('#apply-today-help')).toContainText('Unavailable:')
+  await expect(structural.locator('#all-history-help')).toContainText('Unavailable:')
+  await structural.getByRole('button', { name: 'After the last check-in' }).click()
+  await expect(page).toHaveURL(/#\/trackers$/)
+  const result = await readLocalHistory(page, seed.id, tomorrow)
+  expect(result.tracker?.ruleVersions?.at(-1)).toMatchObject({ effectiveFrom: tomorrow, application: 'apply-from-today', historyPolicy: 'after-last-check-in' })
+  expect(result.tracker?.metrics?.[1]).toMatchObject({ id: 'bonus', retiredAt: expect.any(String) })
+  expect(result.classified.find((entry) => entry.date === today)).toMatchObject({ values: { sessions: 3, bonus: false, 'field:mood': 'Focused' } })
+})
+
 test('Escape and Cancel discard no local fields and do not persist the pending rule change', async ({ page, context }) => {
   const user = readFixture()
   await establishSession(page, context, user)
@@ -435,7 +508,7 @@ test('Escape and Cancel discard no local fields and do not persist the pending r
   await dismissAchievementCelebrations(page)
 
   await editSuccessRule(page, seed, 5)
-  let dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  let dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -443,7 +516,7 @@ test('Escape and Cancel discard no local fields and do not persist the pending r
   expect((await readLocalHistory(page, seed.id, seed.today)).tracker).toMatchObject({ schemaVersion: 9, qualificationRule: { value: 3 } })
 
   await page.getByRole('button', { name: 'Save changes' }).click()
-  dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(dialog).toBeHidden()
@@ -454,12 +527,12 @@ test('Escape and Cancel discard no local fields and do not persist the pending r
 test('keeps both rule modes readable and operable at desktop and mobile widths', async ({ page, context }) => {
   const user = readFixture()
   await establishSession(page, context, user)
-  const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8))
-  await syncTracker(page, user.userId, seed.id, 9)
+  const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8), false, true)
+  await syncTracker(page, user.userId, seed.id, 10)
   await dismissAchievementCelebrations(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await editSuccessRule(page, seed, 5)
-  let dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  let dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
   const mobileBounds = await dialog.evaluate((element) => ({
     left: element.getBoundingClientRect().left,
@@ -468,13 +541,13 @@ test('keeps both rule modes readable and operable at desktop and mobile widths',
   }))
   expect(mobileBounds.left).toBeGreaterThanOrEqual(0)
   expect(mobileBounds.right).toBeLessThanOrEqual(mobileBounds.viewport + 1)
-  await dialog.getByRole('radio', { name: /Recalculate all history/ }).check()
-  await expect(dialog.getByRole('button', { name: 'Recalculate all history' })).toBeVisible()
+  await dialog.getByRole('radio', { name: /Apply to all history/ }).check()
+  await expect(dialog.getByRole('button', { name: 'Apply to all history' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByRole('button', { name: 'Save changes' }).click()
-  dialog = page.getByRole('alertdialog', { name: 'How should your new rules apply?' })
+  dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
   const desktopBounds = await dialog.evaluate((element) => ({
     left: element.getBoundingClientRect().left,

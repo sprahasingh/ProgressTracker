@@ -54,7 +54,7 @@ The card’s status and streak are a snapshot as of today in your workspace time
 - src/features/dashboard/DashboardPage.tsx
 - src/db/localRepository.ts
 **Answer:**
-It is the date of the most recent active saved check-in for that tracker. It does not imply that you checked in today. Cleared entries are excluded; if no active entry exists, the card says “No check-ins yet.”
+It is the date of the most recent active saved check-in for that tracker. The outcome says whether the entry met the success rule that applies to that date; when a condition fails, the card names the measure, requirement, and saved value when available. The saved values remain visible. It does not imply that you checked in today. Cleared entries are excluded; if no active entry exists, the card says “No check-ins yet.”
 
 ### ID: insight-empty-tracker
 **Category:** insights

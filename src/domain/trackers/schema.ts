@@ -154,6 +154,7 @@ const trackerRuleVersionSchema = z.object({
   effectiveFrom: calendarDate,
   revision: z.number().int().positive(),
   application: z.enum(['baseline', 'apply-from-today', 'recalculate-all-history']),
+  historyPolicy: z.enum(['apply-from-today', 'after-last-check-in', 'recalculate-all-history']).optional(),
   recordedAt: z.iso.datetime(),
   evaluation: evaluationSnapshotSchema,
 })

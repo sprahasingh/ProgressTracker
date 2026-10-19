@@ -11,15 +11,17 @@ import { localRepository } from '../../db/localRepository'
 import { trackerDefinitionSchema } from '../../domain/trackers/schema'
 import type { CustomFieldDefinition, GoalPlanningConfiguration, TrackerDefinition, TrackerKind, TrackerMetricDefinition, TrackerMilestoneDefinition, TrackerRule, TrackerSchedulingMode } from '../../domain/trackers/types'
 import { trackerEvaluationChanged, versionTrackerRuleChange, type RuleApplicationMode } from '../../domain/trackers/ruleVersions'
+import { currentRuleDependencyIssue, historicalRuleDependencyIssue } from '../../domain/trackers/historicalDependencies'
 import { TrackerConfigurationEditor } from './TrackerConfigurationEditor'
 import { GoalPlanningEditor } from './GoalPlanningEditor'
 import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
-import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
+import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
-import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../../domain/trackers/schemaVersionGate'
+import { hasTrackerEditSyncGuardsContract } from '../../services/supabase/trackerEditSyncGuards'
+import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled, isTrackerEditHistorySyncGuardEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
 
@@ -27,7 +29,7 @@ type FormValues = { name: string; description: string; kind: TrackerKind; schedu
 
 type Configuration = { metrics: TrackerMetricDefinition[]; rule?: TrackerRule; streakRuleMode: TrackerDefinition['streakRuleMode'] | 'legacy'; streakRule?: TrackerRule; customFields: CustomFieldDefinition[]; milestones: TrackerMilestoneDefinition[] }
 type HistoricalPeriodConfirmation = { count: number; dateRange: string; resolve: (keep: boolean) => void }
-type PendingRuleChange = { candidate: TrackerDefinition; mode: RuleApplicationMode; historyStartDate: string }
+type PendingRuleChange = { candidate: TrackerDefinition; mode: RuleApplicationMode; historyStartDate: string; today: CalendarDate; latestCheckInDate: CalendarDate | null; structural: boolean; allHistoryAvailable: boolean; allHistoryReason: string | null }
 const emptyGoalPlanning = (): GoalPlanningConfiguration => ({ mode: 'daily-recurring', progressSemantics: {}, dailyTargets: {}, cumulativeTargets: {} })
 const kindOptions: Array<{ kind: TrackerKind; title: string; description: string; icon: AppIconName }> = [
   { kind: 'habit', title: 'Habit', description: 'Build a regular routine.', icon: 'habit' },
@@ -71,6 +73,18 @@ function rebaseMetricRule(rule: TrackerRule | undefined, metric: TrackerMetricDe
 
 function todayLocal(timeZone: string): CalendarDate {
   return localCalendarDate(new Date(), timeZone)
+}
+
+function stableJson(value: unknown): string {
+  const sort = (item: unknown): unknown => Array.isArray(item) ? item.map(sort) : item && typeof item === 'object'
+    ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item
+  return JSON.stringify(sort(value))
+}
+
+function stableCustomFieldConfiguration(fields: TrackerDefinition['customFields']): string {
+  return stableJson([...fields]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((field) => Object.fromEntries(Object.entries(field).filter(([key]) => key !== 'position'))))
 }
 
 const weekdayChoices = [['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4], ['Fri', 5], ['Sat', 6], ['Sun', 0]] as const
@@ -640,11 +654,13 @@ export function TrackerSetupPage() {
         createdAt: existing?.createdAt ?? now, updatedAt: now, archivedAt: existing?.status === 'archived' && archivedStatusAfterSave === 'archived' ? existing.archivedAt : null, deletedAt: null,
       }
       const evaluationChanged = Boolean(existing && trackerEvaluationChanged(existing, candidate, timeZone))
+      const measureConfigurationChanged = Boolean(existing && stableJson(existing.metrics) !== stableJson(candidate.metrics))
+      const historyPolicyChangeNeeded = evaluationChanged || measureConfigurationChanged
       // A schema v10 draft cannot satisfy the stored-history/head invariant
       // until its version list is rebuilt after the user chooses how to apply
       // the edit. Validate changed evaluation fields against the v9 shape,
       // which contains the same tracker settings without that history invariant.
-      const validationCandidate = existing?.schemaVersion === 10 && evaluationChanged
+      const validationCandidate = existing?.schemaVersion === 10 && historyPolicyChangeNeeded
         ? { ...candidate, schemaVersion: 9 as const, ruleVersions: undefined }
         : candidate
       const checked = trackerDefinitionSchema.safeParse(validationCandidate)
@@ -698,7 +714,29 @@ export function TrackerSetupPage() {
       }))
         return
       }
-      if (existing && evaluationChanged) {
+      if (existing && stableCustomFieldConfiguration(existing.customFields) !== stableCustomFieldConfiguration(checked.data.customFields)) {
+        const message = 'Custom-field definitions cannot be edited because their historical availability is not saved.'
+        setError(message)
+        return
+      }
+      if (existing && historyPolicyChangeNeeded) {
+        const currentDependencyIssue = currentRuleDependencyIssue(checked.data as TrackerDefinition)
+        if (currentDependencyIssue) {
+          setError(`${currentDependencyIssue} Restore the measure or choose a currently available measure.`)
+          return
+        }
+        if (!isTrackerEditHistorySyncGuardEnabled()) {
+          const message = 'Safe tracker history edits need migration 20261119000100_tracker_edit_sync_guards.sql and VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.'
+          setError(message)
+          notify({ kind: 'error', title: 'Safe tracker history edits are not enabled yet', description: message, duration: 0, dedupeKey: 'tracker-edit-sync-guards' })
+          return
+        }
+        if (!await hasTrackerEditSyncGuardsContract()) {
+          const message = 'This server does not advertise the tracker edit sync guard required for safe history updates. The three history choices are unavailable.'
+          setError(message)
+          notify({ kind: 'error', title: 'Safe tracker history edits are unavailable', description: message, duration: 0, dedupeKey: 'tracker-edit-server-contract' })
+          return
+        }
         if (!isSchemaV10WriteEnabled()) {
           reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'editor-validation', schemaVersion: 10 })
           const message = 'Versioned tracker rules need the schema v10 migration and VITE_ENABLE_TRACKER_SCHEMA_V10 in this production build. No tracker changes were saved.'
@@ -707,7 +745,34 @@ export function TrackerSetupPage() {
           return
         }
         const earliestStart = [trackerActiveStartDate(existing, timeZone), trackerActiveStartDate(checked.data, timeZone)].sort()[0]!
-        setPendingRuleChange({ candidate: checked.data as TrackerDefinition, mode: 'apply-from-today', historyStartDate: earliestStart })
+        const today = todayLocal(timeZone)
+        const history = await localRepository.listTrackerEntriesForTracker(existing.id)
+        const latestCheckInDate = history.reduce<CalendarDate | null>((latest, entry) => latest === null || entry.date > latest ? entry.date as CalendarDate : latest, null)
+        const structural = stableJson(existing.metrics) !== stableJson(checked.data.metrics)
+          || stableCustomFieldConfiguration(existing.customFields) !== stableCustomFieldConfiguration(checked.data.customFields)
+        const milestonesChanged = stableJson(existing.milestones) !== stableJson(checked.data.milestones)
+        if (milestonesChanged) {
+          setError('Milestone requirements cannot be edited because historical milestone results are not versioned.')
+          return
+        }
+        if (existing.kind === 'goal' && stableJson(existing.goalPlanning ?? null) !== stableJson(checked.data.goalPlanning ?? null)) {
+          setError('Goal plans cannot be edited because historical goal progress is not versioned.')
+          return
+        }
+        // Historical recalculation is deliberately limited to rule-only edits
+        // with a value for every measure used by the new rules on every saved day.
+        const ruleOnly = stableJson([existing.schedule, trackerActiveStartDate(existing, timeZone), existing.deadline, existing.scheduling ?? trackerScheduling(existing), existing.metrics])
+          === stableJson([checked.data.schedule, trackerActiveStartDate(checked.data as TrackerDefinition, timeZone), checked.data.deadline, checked.data.scheduling ?? trackerScheduling(checked.data as TrackerDefinition), checked.data.metrics])
+        const requiredHistoricalMeasures = new Set([...existing.metrics, ...checked.data.metrics].map((metric) => metric.id))
+        const allHistoryAvailable = ruleOnly && !structural && !milestonesChanged && (latestCheckInDate === null || latestCheckInDate <= today)
+          && history.every((entry) => [...requiredHistoricalMeasures].every((metricId) => Object.hasOwn(entry.values, metricId)))
+        const dependencyIssue = historicalRuleDependencyIssue(existing, checked.data as TrackerDefinition, earliestStart)
+        const addedMeasure = checked.data.metrics.some((metric) => !existing.metrics.some((current) => current.id === metric.id))
+        const allHistoryReason = dependencyIssue ?? (structural
+          ? addedMeasure ? 'This measure wasn’t available for earlier check-ins.' : 'Historical measure settings can’t be verified.'
+          : !allHistoryAvailable ? 'Historical check-ins are missing inputs needed to evaluate this rule.' : null)
+        const todayConflict = latestCheckInDate !== null && (latestCheckInDate > today || structural && latestCheckInDate >= today)
+        setPendingRuleChange({ candidate: checked.data as TrackerDefinition, mode: todayConflict ? 'after-last-check-in' : 'apply-from-today', historyStartDate: earliestStart, today, latestCheckInDate, structural, allHistoryAvailable: allHistoryAvailable && !dependencyIssue, allHistoryReason })
         return
       }
       writePhase = 'local-save'
@@ -729,7 +794,7 @@ export function TrackerSetupPage() {
         phase: writePhase,
         ...(existing ? { schemaVersion: existing.schemaVersion } : {}),
       })
-      const recoverableMessage = /measure type|retired measure|saved check-ins|active measure/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
+      const recoverableMessage = /measure type|retired measure|saved check-ins|active measure|milestone requirements|custom-field definitions|goal plans/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
       setError(recoverableMessage)
       notify({ kind: 'error', title: existing ? 'Couldn’t update tracker' : 'Couldn’t create tracker', description: recoverableMessage, duration: 0, dedupeKey: existing?.id ? `tracker:${existing.id}` : `tracker-create:${values.name}` })
     } finally {
@@ -749,6 +814,16 @@ export function TrackerSetupPage() {
     let writeSchemaVersion: number | undefined
     try {
       const candidate = pendingRuleChange.candidate
+      const latestEntries = await localRepository.listTrackerEntriesForTracker(existing.id)
+      const latestNow = latestEntries.reduce<CalendarDate | null>((latest, entry) => latest === null || entry.date > latest ? entry.date as CalendarDate : latest, null)
+      const todayNow = todayLocal(timeZone)
+      if (latestNow !== pendingRuleChange.latestCheckInDate || todayNow !== pendingRuleChange.today) {
+        setPendingRuleChange({ ...pendingRuleChange, today: todayNow, latestCheckInDate: latestNow, mode: latestNow !== null && (latestNow > todayNow || pendingRuleChange.structural && latestNow >= todayNow) ? 'after-last-check-in' : 'apply-from-today' })
+        setError(latestNow !== pendingRuleChange.latestCheckInDate
+          ? 'A check-in was saved while you were choosing this date. Review and confirm the updated effective date before saving.'
+          : 'The workspace calendar date changed while you were choosing this option. Review and confirm the updated date before saving.')
+        return
+      }
       const inferredScheduling = candidate.scheduling ?? trackerScheduling(candidate)
       const currentScheduling = inferredScheduling.mode === 'effective'
         ? {
@@ -763,12 +838,16 @@ export function TrackerSetupPage() {
         trackerActiveStartDate(versionReadyCandidate, timeZone),
         pendingRuleChange.historyStartDate,
       ].sort()[0]!
+      const effectiveFrom = pendingRuleChange.mode === 'after-last-check-in'
+        ? pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today
+        : pendingRuleChange.today
       const versioned = versionTrackerRuleChange({
         before: existing,
         after: versionReadyCandidate,
         application: pendingRuleChange.mode,
         today: todayLocal(timeZone),
         historyStartDate,
+        effectiveFrom,
         recordedAt: new Date().toISOString(),
       })
       writeSchemaVersion = versioned.schemaVersion
@@ -778,6 +857,12 @@ export function TrackerSetupPage() {
         const message = checked.error.issues[0]?.message ?? 'The versioned tracker configuration is invalid.'
         setError(message)
         notify({ kind: 'error', title: 'Tracker details need attention', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
+        return
+      }
+      if (!await hasTrackerEditSyncGuardsContract()) {
+        const message = 'This server does not advertise the tracker edit sync guard required for safe history updates. No tracker changes were saved.'
+        setError(message)
+        notify({ kind: 'error', title: 'Safe tracker history edits are unavailable', description: message, duration: 0, dedupeKey: 'tracker-edit-server-contract' })
         return
       }
       writePhase = 'local-save'
@@ -794,7 +879,7 @@ export function TrackerSetupPage() {
         phase: writePhase,
         ...(writeSchemaVersion ? { schemaVersion: writeSchemaVersion } : {}),
       })
-      const recoverableMessage = /measure type|retired measure|saved check-ins|active measure|conflict|schema v10/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
+      const recoverableMessage = /measure type|retired measure|saved check-ins|active measure|milestone requirements|custom-field definitions|goal plans|conflict|schema v10/i.test(detail) ? detail : 'Your changes were not saved. Please try again.'
       setError(recoverableMessage)
       notify({ kind: 'error', title: 'Couldn’t update tracker', description: recoverableMessage, duration: 0, dedupeKey: `tracker:${existing.id}` })
     } finally {
@@ -827,6 +912,21 @@ export function TrackerSetupPage() {
   const typedMilestonesNeedV9 = configuration.milestones.some((item) => item.type !== undefined) || existing?.schemaVersion === 9
   const milestoneV9WriteBlocked = typedMilestonesNeedV9 && !isSchemaV9WriteEnabled()
   const ruleV10WriteBlocked = existing?.schemaVersion === 10 && !isSchemaV10WriteEnabled()
+  const streakV8WriteBlocked = (configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled()
+  const saveBlockReason = ruleV10WriteBlocked
+    ? 'Saving this tracker needs schema v10 enabled for this production build.'
+    : milestoneV9WriteBlocked
+      ? 'Saving these milestones needs schema v9 enabled for this production build.'
+      : streakV8WriteBlocked ? 'Saving this streak rule needs schema v8 enabled for this production build.' : null
+  const applyTodayUnavailable = pendingRuleChange?.latestCheckInDate !== null && pendingRuleChange !== null && (
+    pendingRuleChange.latestCheckInDate > pendingRuleChange.today
+    || pendingRuleChange.structural && pendingRuleChange.latestCheckInDate >= pendingRuleChange.today
+  )
+  const applyTodayUnavailableReason = pendingRuleChange?.latestCheckInDate && pendingRuleChange.latestCheckInDate > pendingRuleChange.today
+    ? 'Unavailable: a future-dated check-in exists.'
+    : pendingRuleChange?.structural && pendingRuleChange.latestCheckInDate === pendingRuleChange.today
+      ? 'Unavailable: a check-in exists today. Structural changes start after it.'
+      : 'Unavailable: a saved check-in conflicts with today’s effective date.'
   const targetNumber = Number(goalAmount)
   const hasShortcutTarget = Boolean(goalAmount) && Number.isFinite(targetNumber) && targetNumber > 0
   let planningForEditor = goalPlanning
@@ -906,16 +1006,18 @@ export function TrackerSetupPage() {
           </details>
           {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="goal-plan-setup" open={existing?.kind === 'goal'}><summary><span><strong>Plan targets and pace</strong><small>Choose a daily target or a total to reach by a deadline</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary><GoalPlanningEditor metrics={configuration.metrics} planning={planningForEditor} deadline={selectedDeadline} onChange={changeGoalPlanning} /></details>}
           <footer className="tracker-form-actions">
-            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" disabled={saving || ruleV10WriteBlocked || milestoneV9WriteBlocked || ((configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled())}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
+            <Button data-ai-capability={existing ? 'trackers.measure_configuration' : 'trackers.create'} type="submit" aria-describedby={saveBlockReason ? 'tracker-save-block-reason' : undefined} disabled={saving || Boolean(saveBlockReason)}>{saving ? 'Saving…' : existing ? 'Save changes' : 'Create tracker'}</Button>
             <Button type="button" variant="quiet" data-discard-trigger onClick={() => { if (!dirty) navigate('/trackers'); else { setPendingNavigation(null); setConfirmDiscard(true) } }}>Cancel</Button>
+            {saveBlockReason && <small className="field-hint form-field-wide" id="tracker-save-block-reason" role="note">{saveBlockReason}</small>}
           </footer>
         </form>
       </Surface>
       {pendingRuleChange && <ConfirmActionDialog
         className="tracker-rule-application-dialog"
-        title="How should your new rules apply?"
-        description="Changing these rules may affect your past progress, streaks, milestones, and rewards."
-        actionLabel={pendingRuleChange.mode === 'apply-from-today' ? 'Apply from today' : 'Recalculate all history'}
+        title="How should your tracker changes apply?"
+        description="Choose when the saved measures and rules take effect. Existing check-ins keep their dates, values, and saved evaluation."
+        actionLabel={pendingRuleChange.mode === 'apply-from-today' ? 'Apply from today'
+          : pendingRuleChange.mode === 'after-last-check-in' ? 'After the last check-in' : 'Apply to all history'}
         actionDisabled={saving}
         cancelDisabled={saving}
         onCancel={() => { if (!saving) { setPendingRuleChange(null); setError('') } }}
@@ -923,15 +1025,20 @@ export function TrackerSetupPage() {
       >
         <fieldset className="tracker-rule-application-options" disabled={saving}>
           <legend>Choose how to apply these changes</legend>
-          <label>
-            <input type="radio" name="rule-application" value="apply-from-today" checked={pendingRuleChange.mode === 'apply-from-today'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'apply-from-today' } : current)} />
-            <span><strong>Apply from today (recommended)</strong><small>Keep earlier days under their previous rules. Use the new rules starting today, including any activity already recorded today.</small></span>
+          <label className="tracker-history-option">
+            <input type="radio" name="rule-application" value="apply-from-today" aria-label={`Apply from today${!applyTodayUnavailable ? ' (recommended)' : ''}`} aria-describedby="apply-today-help" disabled={applyTodayUnavailable} checked={pendingRuleChange.mode === 'apply-from-today'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'apply-from-today' } : current)} />
+            <span><strong>Apply from today{!applyTodayUnavailable ? ' (recommended)' : ''}</strong><small id="apply-today-help">{applyTodayUnavailable ? applyTodayUnavailableReason : `Use the saved workspace date, ${calendarDateLabel(pendingRuleChange.today)} (${timeZone}). Earlier dates keep their previous configuration.`}{(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}{pendingRuleChange.allHistoryAvailable && pendingRuleChange.historyStartDate === pendingRuleChange.today ? ' This also has the same effective date as another option.' : ''}</small></span>
           </label>
-          <label>
-            <input type="radio" name="rule-application" value="recalculate-all-history" checked={pendingRuleChange.mode === 'recalculate-all-history'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'recalculate-all-history' } : current)} />
-            <span><strong>Recalculate all history</strong><small>Apply the new rules to previous activity too. Your streaks, statistics, milestones, XP, and achievements may change.</small></span>
+          <label className="tracker-history-option">
+            <input type="radio" name="rule-application" value="after-last-check-in" aria-label="After the last check-in" aria-describedby="after-check-in-help" checked={pendingRuleChange.mode === 'after-last-check-in'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'after-last-check-in' } : current)} />
+            <span><strong>After the last check-in</strong><small id="after-check-in-help">Your changes start {calendarDateLabel(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today)} in {timeZone}. Recorded activity and its history stay intact{pendingRuleChange.latestCheckInDate ? `; the latest check-in is ${calendarDateLabel(pendingRuleChange.latestCheckInDate)}.` : ' because there are no check-ins yet.'}{(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}{pendingRuleChange.allHistoryAvailable && pendingRuleChange.historyStartDate === (pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) ? ' This also has the same effective date as another option.' : ''}</small></span>
+          </label>
+          <label className="tracker-history-option">
+            <input type="radio" name="rule-application" value="recalculate-all-history" aria-label="Apply to all history" aria-describedby="all-history-help" disabled={!pendingRuleChange.allHistoryAvailable} checked={pendingRuleChange.mode === 'recalculate-all-history'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'recalculate-all-history' } : current)} />
+            <span><strong>Apply to all history</strong><small id="all-history-help">{pendingRuleChange.allHistoryAvailable ? `Re-evaluate historical results using the new rules. This is available because the change is rule-only and saved inputs are present.${pendingRuleChange.historyStartDate === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}${pendingRuleChange.historyStartDate === (pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) ? ' This has the same effective date as another option.' : ''}` : `Unavailable: ${pendingRuleChange.allHistoryReason ?? 'historical compatibility cannot be proven for this edit.'}`}</small></span>
           </label>
         </fieldset>
+        {pendingRuleChange.mode !== 'apply-from-today' && <p className="field-hint" role="note">Your changes will start on {calendarDateLabel(pendingRuleChange.mode === 'recalculate-all-history' ? pendingRuleChange.historyStartDate : pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today)} in {timeZone}. Starting earlier would require removing conflicting check-ins through the normal check-in workflow.</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
       </ConfirmActionDialog>}
       {confirmDiscard && <div className="modal-backdrop tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description"><h2 id="discard-title">Discard unsaved changes?</h2><p id="discard-description">Your tracker setup will be lost if you leave now.</p><div><Button type="button" variant="quiet" onClick={() => { setConfirmDiscard(false); setPendingNavigation(null) }}>Keep editing</Button><Button type="button" variant="destructive" onClick={discardAndLeave}>Discard changes</Button></div></section></div>}

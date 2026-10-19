@@ -28,9 +28,15 @@ describe('account workspace timezone persistence', () => {
     expect(mock.upsert).toHaveBeenCalledWith({ id: 'general', user_id: 'user-1', timezone: 'Asia/Kolkata', timezone_configured: true }, { onConflict: 'user_id' })
   })
 
-  it('reports account write failures so the UI can explain that local settings did not sync', async () => {
+  it('preserves account write failures so sync diagnostics expose the underlying error', async () => {
     const mock = clientFor({ writeError: new Error('offline') })
-    await expect(ensureAccountWorkspaceTimeZone('user-1', 'UTC', mock.client)).resolves.toBeNull()
+    await expect(ensureAccountWorkspaceTimeZone('user-1', 'UTC', mock.client)).rejects.toThrow('Unable to save the account workspace time zone: offline')
     await expect(saveAccountWorkspaceTimeZone('user-1', 'UTC', mock.client)).resolves.toBe(false)
+  })
+
+  it('preserves account read failures instead of reporting them as write failures', async () => {
+    const mock = clientFor({ readError: Object.assign(new Error('permission denied'), { code: '42501' }) })
+    await expect(ensureAccountWorkspaceTimeZone('user-1', 'UTC', mock.client)).rejects.toThrow('Unable to read the account workspace time zone (42501): permission denied')
+    expect(mock.upsert).not.toHaveBeenCalled()
   })
 })

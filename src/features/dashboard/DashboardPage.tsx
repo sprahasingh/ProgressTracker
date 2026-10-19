@@ -11,7 +11,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
+import { describeFailedTrackerConditions, evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { calculateAllTrackersStreak, calculateProgressRewards, calculateStreak, evaluateAllTrackersDay } from '../../domain/trackers/progression'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -180,7 +180,8 @@ export function DashboardPage() {
                 const latestStatus = latest ? getTrackerActivityStatus({ tracker, entry: latest, date: latest.date, today, holidays: new Set(data.holidays), timeZone }) : null
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
                 const latestStatusClass = latest?.outcome === 'skipped' ? 'skipped' : latestStatus === 'historical' ? 'status-historical' : latestStatus === 'partial' ? 'status-partial' : latestStatus === 'no-progress' ? 'status-no-progress' : latestResult ? 'status-completed' : 'status-no-progress'
-                const latestStatusLabel = latest?.outcome === 'skipped' ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Skipped · intentionally saved` : latestResult ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Recorded · success rule met` : latestStatus === 'partial' ? 'Partial · progress saved, success rule not met' : latestStatus === 'historical' ? 'Historical entry · recorded, success rule not met' : 'No progress · saved, success rule not met'
+                const latestFailureDetails = latest?.outcome === 'recorded' ? describeFailedTrackerConditions(tracker, latest) : []
+                const latestStatusLabel = !latest ? '' : latest.outcome === 'skipped' ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Skipped · intentionally saved` : latestResult ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Recorded · success rule met` : latestFailureDetails.length ? `Success rule not met · ${latestFailureDetails.join('; ')}` : latestStatus === 'historical' ? 'Historical entry · recorded, success rule not met' : latestStatus === 'no-progress' ? 'Recorded · no qualifying progress' : ACTIVITY_STATUS_PRESENTATION[latestStatus!].label
                 const currentEntry = history.find((entry) => entry.date === today)
                 const calculatedStatus = getTrackerActivityStatus({ tracker, entry: currentEntry, date: today, today, holidays: new Set(data.holidays), timeZone })
                 const status = calculatedStatus

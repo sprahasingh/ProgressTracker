@@ -15,6 +15,7 @@ import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrack
 import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
 import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { publishHolidayDeletionNotification } from '../holidayDeletionNotifications'
+import { hasTrackerEditSyncGuardsContract } from './trackerEditSyncGuards'
 import { isNetworkFailure, isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -72,13 +73,15 @@ function entryFromServer(row: ServerEntry): StoredTrackerEntry {
 
 async function assertUser(client: SyncClient, expectedUserId: string) {
   const { data, error } = await client.auth.getUser()
-  if (error || data.user?.id !== expectedUserId) throw new Error('Sync stopped because the authenticated session does not match this account workspace.')
+  if (error) throw new Error(`Sync stopped because Supabase could not verify the authenticated session: ${error.code ? `(${error.code}) ` : ''}${error.message}`, { cause: error })
+  if (data.user?.id !== expectedUserId) throw new Error('Sync stopped because the authenticated user does not match this account workspace.')
 }
 
 /** Check the locally held identity between requests; the server still enforces auth.uid() and the expected owner on every RPC/read. */
 async function assertCurrentSession(client: SyncClient, expectedUserId: string) {
   const { data, error } = await client.auth.getSession()
-  if (error || data.session?.user.id !== expectedUserId) throw new Error('Sync stopped because the authenticated session does not match this account workspace.')
+  if (error) throw new Error(`Sync stopped because Supabase could not read the authenticated session: ${error.code ? `(${error.code}) ` : ''}${error.message}`, { cause: error })
+  if (data.session?.user.id !== expectedUserId) throw new Error('Sync stopped because the authenticated session user does not match this account workspace.')
 }
 
 async function accountState(database: ProgressTrackerDatabase, expectedUserId: string) {
@@ -444,6 +447,11 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       }
       await accountState(database, userId)
       await assertCurrentSession(client, userId)
+      if (operation.entity === 'tracker'
+        && (operation.payload as StoredTrackerDefinition).ruleVersions?.some((version) => version.historyPolicy)
+        && !await hasTrackerEditSyncGuardsContract()) {
+        throw new Error('The sync server does not advertise the tracker edit guard contract. The saved tracker edit remains queued on this device.')
+      }
       operation = await markInFlight(database, operation.id)
       if (!operation) continue
       // Keep the operation ID and payload durable before sending the RPC. If the

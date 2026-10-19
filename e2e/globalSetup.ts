@@ -47,9 +47,22 @@ async function fetchReady(url: string, init: RequestInit = {}, timeoutMs = 5_000
   throw lastError
 }
 
+async function assertRequestSucceeded(label: string, response: Response): Promise<void> {
+  if (response.ok) return
+  const body = await response.clone().json().catch(() => ({})) as { code?: string; message?: string; details?: string }
+  const code = body.code ? ` (${body.code})` : ''
+  const message = body.message ?? body.details ?? `HTTP ${response.status}`
+  throw new Error(`Isolated ${label} preflight failed${code}: ${message}.`)
+}
+
 export default async function globalSetup(_config: FullConfig) {
   const apiUrl = process.env.PROGRESSION_TEST_API_URL
   const anonKey = process.env.PROGRESSION_TEST_ANON_KEY
+  // The rule-history browser suite pins both its browser and saved workspace
+  // timezone to UTC. Other focused suites use Asia/Calcutta. Keep preflight's
+  // write aligned with the suite contract so it cannot seed a conflicting
+  // remote timezone before the browser signs in.
+  const preflightTimeZone = process.env.PROGRESSION_RULE_HISTORY_PROJECT_ID ? 'UTC' : 'Asia/Calcutta'
   if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(expectedApiUrl) || apiUrl !== expectedApiUrl || !anonKey) throw new Error(`Isolated Supabase preflight refused: expected only ${expectedApiUrl}.`)
 
   const dbStart = Date.now()
@@ -106,6 +119,31 @@ export default async function globalSetup(_config: FullConfig) {
     })
     if (!history.ok) throw new Error(`Authenticated ${key} RLS history preflight failed with HTTP ${history.status}.`)
     historyStatuses.push(history.status)
+
+    const authHeaders = { apikey: anonKey, authorization: `Bearer ${authBody.access_token}` }
+    const contract = await fetchReady(`${apiUrl}/rest/v1/rpc/tracker_edit_sync_guards_contract`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: '{}',
+    })
+    await assertRequestSucceeded(`${key} tracker-edit guard contract`, contract)
+    if (await contract.json().catch(() => null) !== 'tracker-edit-sync-guards:v1') {
+      throw new Error(`Authenticated ${key} tracker-edit guard probe returned an unsupported contract.`)
+    }
+
+    const settingsUrl = `${apiUrl}/rest/v1/app_settings?select=timezone,timezone_configured&user_id=eq.${userId}`
+    const settingsRead = await fetchReady(settingsUrl, { headers: authHeaders })
+    await assertRequestSucceeded(`${key} workspace timezone read`, settingsRead)
+    const timezoneWrite = await fetchReady(`${apiUrl}/rest/v1/app_settings?on_conflict=user_id`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'general', user_id: userId, timezone: preflightTimeZone, timezone_configured: true }),
+    })
+    await assertRequestSucceeded(`${key} workspace timezone write`, timezoneWrite)
+    const timezoneReadback = await fetchReady(settingsUrl, { headers: authHeaders })
+    await assertRequestSucceeded(`${key} workspace timezone verification`, timezoneReadback)
+    const savedSettings = await timezoneReadback.json().catch(() => []) as Array<{ timezone?: string; timezone_configured?: boolean }>
+    if (savedSettings.length !== 1 || savedSettings[0]?.timezone !== preflightTimeZone || savedSettings[0]?.timezone_configured !== true) {
+      throw new Error(`Authenticated ${key} workspace timezone write did not round-trip.`)
+    }
 
     for (let probe = 1; probe <= 3; probe += 1) {
       const probeStart = Date.now()

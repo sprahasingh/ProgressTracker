@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry } from './types'
 import { calculateStreak, qualifiesForStreak } from './progression'
-import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
+import { describeFailedTrackerConditions, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 import { isEffectiveDateEligible } from './scheduling'
 import { trackerDefinitionForDate, trackerEvaluationChanged, trackerEvaluationSnapshot, trackerRuleVersionForDate, versionTrackerRuleChange } from './ruleVersions'
 
@@ -136,6 +136,17 @@ describe('date-effective tracker rule history', () => {
     expect(evaluateTrackerEntry(versioned, entry('2026-10-05', 5)).qualified).toBe(true)
   })
 
+  it('keeps a same-day check-in payload intact while applying a new rule to that whole date', () => {
+    const saved = entry('2026-10-10', 5)
+    const versioned = prospective(oldTracker, changeThreshold(oldTracker, 10))
+
+    expect(versioned.ruleVersions?.at(-1)?.effectiveFrom).toBe(saved.date)
+    expect(evaluateTrackerEntry(versioned, saved).qualified).toBe(false)
+    expect(describeFailedTrackerConditions(versioned, saved)).toEqual(['Amount must be at least 10 (saved 5)'])
+    expect(saved.values).toEqual({ amount: 5 })
+    expect(saved.id).toBe('entry-2026-10-10')
+  })
+
   it('keeps scheduled-day and active-period changes date-scoped', () => {
     const before = { ...oldTracker, schedule: { kind: 'weekdays' as const }, startDate: '2026-10-01' }
     const after = { ...changeThreshold(before, 10), schedule: { kind: 'every-day' as const }, startDate: '2026-10-10', strictMode: true }
@@ -164,6 +175,23 @@ describe('date-effective tracker rule history', () => {
     expect(trackerEvaluationChanged(second, { ...second, name: 'Renamed' })).toBe(false)
   })
 
+  it('starts after the latest check-in on its calendar date and preserves earlier snapshots', () => {
+    const before = prospective(oldTracker, changeThreshold(oldTracker, 10))
+    const deferred = versionTrackerRuleChange({
+      before,
+      after: changeThreshold(before, 15),
+      application: 'after-last-check-in',
+      today: '2026-10-20',
+      effectiveFrom: '2026-10-16',
+      historyStartDate: '2026-10-01',
+      recordedAt: '2026-10-20T12:00:00.000Z',
+    })
+    expect(deferred.ruleVersions?.map((version) => version.effectiveFrom)).toEqual(['2026-10-01', '2026-10-10', '2026-10-16'])
+    expect(deferred.ruleVersions?.at(-1)?.application).toBe('apply-from-today')
+    expect(trackerDefinitionForDate(deferred, '2026-10-15').qualificationRule).toEqual(changeThreshold(oldTracker, 10).qualificationRule)
+    expect(trackerDefinitionForDate(deferred, '2026-10-16').qualificationRule).toEqual(changeThreshold(oldTracker, 15).qualificationRule)
+  })
+
   it('collapses old intervals when recalculating all history', () => {
     const prospectiveVersion = prospective(oldTracker, changeThreshold(oldTracker, 10))
     const recalculated = versionTrackerRuleChange({
@@ -182,15 +210,15 @@ describe('date-effective tracker rule history', () => {
     expect(snapshot).not.toHaveProperty('description')
   })
 
-  it('does not treat measure labels, precision, or retirement metadata as historical rule changes', () => {
+  it('detects measure configuration and retirement changes even when a rule does not reference that measure', () => {
     const cosmetic = {
       ...oldTracker,
       name: 'Renamed',
       metrics: [{ ...oldTracker.metrics[0]!, name: 'Pages', precision: { decimalPlaces: 1 as const, increment: 0.1 }, retiredAt: '2026-10-10T00:00:00.000Z' }],
     }
-    expect(trackerEvaluationChanged(oldTracker, cosmetic)).toBe(false)
+    expect(trackerEvaluationChanged(oldTracker, cosmetic)).toBe(true)
     expect(trackerEvaluationChanged(oldTracker, { ...oldTracker, metrics: [{ ...oldTracker.metrics[0]!, unit: 'minutes' }] })).toBe(true)
-    expect(trackerEvaluationChanged(oldTracker, { ...oldTracker, metrics: [...oldTracker.metrics, { id: 'unused', name: 'Unused', valueType: 'quantity' as const }] })).toBe(false)
+    expect(trackerEvaluationChanged(oldTracker, { ...oldTracker, metrics: [...oldTracker.metrics, { id: 'unused', name: 'Unused', valueType: 'quantity' as const }] })).toBe(true)
   })
 
   it('recognizes an inferred creation date as equivalent to the same explicit workspace date', () => {
