@@ -156,8 +156,8 @@
     "src/features/auth/AuthProvider.test.tsx": "0b881a16655238e6d176c884b9aa1dfb8564fe7234bb0be134bc9cedb9079565"
   },
   "create-tracker": {
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "bb67922eacce6fbaf80b2e05564c2d893134ed9cc664dfddb4d63e1b9989680a",
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "0eb1ce4b99ceeeb406b44416927e17bc3c075c15e1a4d564b85e6eb3ea9a9223",
     "src/features/trackers/trackerSetupSchema.ts": "66283bd504863adb0dd1a6e8077a1abd300037a757fd648aa4669b4564dc7726"
   },
   "daily-vs-cumulative-goal": {
@@ -521,7 +521,7 @@
     "supabase/migrations/20261119000100_tracker_edit_sync_guards.sql": "5b47f45264ed4faec2ffbb0eb9698a55e5a2974ba687128e4592f3f5f987df46"
   },
   "tracker-rule-history-choices": {
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52",
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6",
     "src/domain/trackers/historicalDependencies.ts": "c27e55fcca3aaed4c1028898e3058ce90e632f0bd8d297efec020c936f22cee9",
     "src/domain/trackers/ruleVersions.ts": "14e5ab7938cbc525ba35c3f3bdd87aaec39ef1e630be34aa8334216730c8b42f",
     "src/domain/trackers/types.ts": "e58e120086f679bc1b766352409883c1c2a9fc5c7315aeb341f32a0e13ab4b45",
@@ -535,17 +535,17 @@
   },
   "tracker-schedules": {
     "src/domain/trackers/planning.ts": "146f1eb7d16c0e590f55229ba4e6ad2fdaf6850852265b6b3c18d67cd6922aaa",
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52"
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6"
   },
   "start-date-deadline": {
     "src/domain/trackers/planning.ts": "146f1eb7d16c0e590f55229ba4e6ad2fdaf6850852265b6b3c18d67cd6922aaa",
     "src/domain/trackers/activePeriod.test.ts": "40b4e24d42e0650c6900bc4ed1e411b35c6dd88e4595427b4748ae31aa6f5916",
     "src/domain/trackers/planning.test.ts": "4269f1025bac12c978558b6690b9961f42a3b4aa7c4398fb659a298d9e49bb2a",
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52"
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6"
   },
   "tracker-duration-modes": {
     "src/domain/trackers/scheduling.ts": "e5652c0f475b91ccd7330d247f06d2c3dcc45318454b09d5c47ccaa4ffe8485a",
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52",
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6",
     "src/domain/trackers/challengeDay.ts": "01f1f73a5706736063f8c36e87994d5326e87cb33f364f227e3f622b820e2161"
   },
   "retire-measure": {
@@ -557,8 +557,8 @@
   "tracker-editing": {
     "src/features/trackers/TrackerLibraryPage.tsx": "0437b529684f3263e98768ce5fc141a32815c6023bdd4152f06d241426970138",
     "src/features/trackers/TrackerConfigurationEditor.tsx": "873363c0aba7b1237a3302ff620e652aed0a11ef59cff937a18f6dc8c729911d",
-    "src/features/trackers/TrackerSetupPage.tsx": "492a06846d669c27ad7541050f3c47319b5a3afc844a1d8bde3480ae764b4a52",
-    "src/features/trackers/TrackerSetupPage.test.tsx": "bb67922eacce6fbaf80b2e05564c2d893134ed9cc664dfddb4d63e1b9989680a"
+    "src/features/trackers/TrackerSetupPage.tsx": "b0b4793f42d69880edb7e76474922c8be25cc5cd94d55eb1215efbf9f6778de6",
+    "src/features/trackers/TrackerSetupPage.test.tsx": "0eb1ce4b99ceeeb406b44416927e17bc3c075c15e1a4d564b85e6eb3ea9a9223"
   },
   "tracker-created-active-date": {
     "src/domain/trackers/planning.ts": "146f1eb7d16c0e590f55229ba4e6ad2fdaf6850852265b6b3c18d67cd6922aaa",

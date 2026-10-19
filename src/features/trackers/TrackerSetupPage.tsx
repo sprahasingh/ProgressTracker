@@ -927,6 +927,17 @@ export function TrackerSetupPage() {
     : pendingRuleChange?.structural && pendingRuleChange.latestCheckInDate === pendingRuleChange.today
       ? 'Unavailable: a check-in exists today. Structural changes start after it.'
       : 'Unavailable: a saved check-in conflicts with today’s effective date.'
+  const sameEffectiveDateGroups = pendingRuleChange ? (() => {
+    const afterLastDate = pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today
+    const options = [
+      ...(!applyTodayUnavailable ? [{ label: 'Apply from today', date: pendingRuleChange.today }] : []),
+      { label: 'After the last check-in', date: afterLastDate },
+      ...(pendingRuleChange.allHistoryAvailable ? [{ label: 'Apply to all history', date: pendingRuleChange.historyStartDate }] : []),
+    ]
+    const byDate = new Map<string, string[]>()
+    for (const option of options) byDate.set(option.date, [...(byDate.get(option.date) ?? []), option.label])
+    return [...byDate.values()].filter((labels) => labels.length > 1)
+  })() : []
   const targetNumber = Number(goalAmount)
   const hasShortcutTarget = Boolean(goalAmount) && Number.isFinite(targetNumber) && targetNumber > 0
   let planningForEditor = goalPlanning
@@ -1014,6 +1025,9 @@ export function TrackerSetupPage() {
       </Surface>
       {pendingRuleChange && <ConfirmActionDialog
         className="tracker-rule-application-dialog"
+        backdropClassName="tracker-rule-application-backdrop"
+        showCloseButton
+        dismissOnBackdrop
         title="How should your tracker changes apply?"
         description="Choose when the saved measures and rules take effect. Existing check-ins keep their dates, values, and saved evaluation."
         actionLabel={pendingRuleChange.mode === 'apply-from-today' ? 'Apply from today'
@@ -1027,18 +1041,19 @@ export function TrackerSetupPage() {
           <legend>Choose how to apply these changes</legend>
           <label className="tracker-history-option">
             <input type="radio" name="rule-application" value="apply-from-today" aria-label={`Apply from today${!applyTodayUnavailable ? ' (recommended)' : ''}`} aria-describedby="apply-today-help" disabled={applyTodayUnavailable} checked={pendingRuleChange.mode === 'apply-from-today'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'apply-from-today' } : current)} />
-            <span><strong>Apply from today{!applyTodayUnavailable ? ' (recommended)' : ''}</strong><small id="apply-today-help">{applyTodayUnavailable ? applyTodayUnavailableReason : `Use the saved workspace date, ${calendarDateLabel(pendingRuleChange.today)} (${timeZone}). Earlier dates keep their previous configuration.`}{(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}{pendingRuleChange.allHistoryAvailable && pendingRuleChange.historyStartDate === pendingRuleChange.today ? ' This also has the same effective date as another option.' : ''}</small></span>
+            <span className="tracker-history-option-copy"><span className="tracker-history-option-heading"><strong>Apply from today</strong>{!applyTodayUnavailable && <span className="tracker-history-recommended">Recommended</span>}</span><small id="apply-today-help">{applyTodayUnavailable ? applyTodayUnavailableReason : `Starts ${calendarDateLabel(pendingRuleChange.today)} (${timeZone}). Earlier dates keep their saved configuration.`}</small></span>
           </label>
           <label className="tracker-history-option">
             <input type="radio" name="rule-application" value="after-last-check-in" aria-label="After the last check-in" aria-describedby="after-check-in-help" checked={pendingRuleChange.mode === 'after-last-check-in'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'after-last-check-in' } : current)} />
-            <span><strong>After the last check-in</strong><small id="after-check-in-help">Your changes start {calendarDateLabel(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today)} in {timeZone}. Recorded activity and its history stay intact{pendingRuleChange.latestCheckInDate ? `; the latest check-in is ${calendarDateLabel(pendingRuleChange.latestCheckInDate)}.` : ' because there are no check-ins yet.'}{(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}{pendingRuleChange.allHistoryAvailable && pendingRuleChange.historyStartDate === (pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) ? ' This also has the same effective date as another option.' : ''}</small></span>
+            <span className="tracker-history-option-copy"><span className="tracker-history-option-heading"><strong>After the last check-in</strong></span><small id="after-check-in-help">Starts {calendarDateLabel(pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today)} ({timeZone}).</small></span>
           </label>
           <label className="tracker-history-option">
             <input type="radio" name="rule-application" value="recalculate-all-history" aria-label="Apply to all history" aria-describedby="all-history-help" disabled={!pendingRuleChange.allHistoryAvailable} checked={pendingRuleChange.mode === 'recalculate-all-history'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'recalculate-all-history' } : current)} />
-            <span><strong>Apply to all history</strong><small id="all-history-help">{pendingRuleChange.allHistoryAvailable ? `Re-evaluate historical results using the new rules. This is available because the change is rule-only and saved inputs are present.${pendingRuleChange.historyStartDate === pendingRuleChange.today ? ' This has the same effective date as another option.' : ''}${pendingRuleChange.historyStartDate === (pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today) ? ' This has the same effective date as another option.' : ''}` : `Unavailable: ${pendingRuleChange.allHistoryReason ?? 'historical compatibility cannot be proven for this edit.'}`}</small></span>
+            <span className="tracker-history-option-copy"><span className="tracker-history-option-heading"><strong>Apply to all history</strong>{!pendingRuleChange.allHistoryAvailable && <InfoButton compact label="Why is Apply to all history unavailable?" title="Why is this unavailable?" description="We can't safely verify how these changes would affect earlier check-ins. This safeguard protects your recorded progress and achievements. You can still apply changes from today or after your last check-in." content={<><p className="info-dialog-description">We can't safely verify how these changes would affect earlier check-ins. This safeguard protects your recorded progress and achievements. You can still apply changes from today or after your last check-in.</p>{pendingRuleChange.allHistoryReason && <p className="tracker-history-specific-reason">{pendingRuleChange.allHistoryReason}</p>}</>} />}</span><small id="all-history-help">{pendingRuleChange.allHistoryAvailable ? `Recalculate saved results beginning ${calendarDateLabel(pendingRuleChange.historyStartDate)} (${timeZone}).` : 'Unavailable to protect your existing history.'}</small></span>
           </label>
         </fieldset>
-        {pendingRuleChange.mode !== 'apply-from-today' && <p className="field-hint" role="note">Your changes will start on {calendarDateLabel(pendingRuleChange.mode === 'recalculate-all-history' ? pendingRuleChange.historyStartDate : pendingRuleChange.latestCheckInDate ? shiftCalendarDate(pendingRuleChange.latestCheckInDate, 1) : pendingRuleChange.today)} in {timeZone}. Starting earlier would require removing conflicting check-ins through the normal check-in workflow.</p>}
+        {sameEffectiveDateGroups.map((labels) => <p key={labels.join('-')} className="field-hint tracker-history-date-equivalence" role="status">{labels.join(' and ')} have the same effective date.</p>)}
+        {pendingRuleChange.mode !== 'apply-from-today' && <p className="field-hint tracker-history-deferred-note" role="note">Starting earlier requires removing conflicting check-ins through the normal check-in workflow.</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
       </ConfirmActionDialog>}
       {confirmDiscard && <div className="modal-backdrop tracker-discard-backdrop" role="presentation"><section className="tracker-discard-dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description"><h2 id="discard-title">Discard unsaved changes?</h2><p id="discard-description">Your tracker setup will be lost if you leave now.</p><div><Button type="button" variant="quiet" onClick={() => { setConfirmDiscard(false); setPendingNavigation(null) }}>Keep editing</Button><Button type="button" variant="destructive" onClick={discardAndLeave}>Discard changes</Button></div></section></div>}

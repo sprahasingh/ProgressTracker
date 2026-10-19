@@ -487,11 +487,12 @@ test('structural v10 edits defer past today’s check-in and explain disabled ch
   const today = seed.today
   const tomorrow = shift(today, 1)
   const displayedDate = await page.evaluate((date) => new Date(`${date}T12:00:00.000Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }), tomorrow)
-  await expect(structural.getByText(`Your changes will start on ${displayedDate} in UTC. Starting earlier would require removing conflicting check-ins through the normal check-in workflow.`)).toBeVisible()
+  await expect(structural.locator('#after-check-in-help')).toContainText(`Starts ${displayedDate} (UTC).`)
+  await expect(structural.getByRole('note')).toHaveText('Starting earlier requires removing conflicting check-ins through the normal check-in workflow.')
   await expect(structural.getByRole('radio', { name: /Apply from today/ })).toBeDisabled()
   await expect(structural.getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
   await expect(structural.locator('#apply-today-help')).toContainText('Unavailable:')
-  await expect(structural.locator('#all-history-help')).toContainText('Unavailable:')
+  await expect(structural.locator('#all-history-help')).toHaveText('Unavailable to protect your existing history.')
   await structural.getByRole('button', { name: 'After the last check-in' }).click()
   await expect(page).toHaveURL(/#\/trackers$/)
   const result = await readLocalHistory(page, seed.id, tomorrow)
@@ -530,7 +531,7 @@ test('keeps both rule modes readable and operable at desktop and mobile widths',
   const seed = await seedTracker(page, user.userId, randomUUID().slice(0, 8), false, true)
   await syncTracker(page, user.userId, seed.id, 10)
   await dismissAchievementCelebrations(page)
-  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize({ width: 390, height: 430 })
   await editSuccessRule(page, seed, 5)
   let dialog = page.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
   await expect(dialog).toBeVisible()
@@ -541,6 +542,27 @@ test('keeps both rule modes readable and operable at desktop and mobile widths',
   }))
   expect(mobileBounds.left).toBeGreaterThanOrEqual(0)
   expect(mobileBounds.right).toBeLessThanOrEqual(mobileBounds.viewport + 1)
+  const mobileLayout = await dialog.evaluate((element) => {
+    const content = element.querySelector<HTMLElement>('.confirm-action-content')!
+    const footer = element.querySelector<HTMLElement>('.confirm-action-footer')!
+    const nav = document.querySelector<HTMLElement>('.mobile-nav')!
+    const footerBounds = footer.getBoundingClientRect()
+    const navBounds = nav.getBoundingClientRect()
+    const initialFooterTop = footerBounds.top
+    content.scrollTop = content.scrollHeight
+    return {
+      scrollsOnlyContent: content.scrollHeight > content.clientHeight && content.scrollTop > 0,
+      footerRemainsFixed: Math.abs(footer.getBoundingClientRect().top - initialFooterTop) < 1,
+      footerAboveNavigation: footerBounds.bottom <= navBounds.top + 1,
+      footerBottom: footerBounds.bottom,
+      navigationTop: navBounds.top,
+    }
+  })
+  expect(mobileLayout.scrollsOnlyContent).toBe(true)
+  expect(mobileLayout.footerRemainsFixed).toBe(true)
+  expect(mobileLayout.footerAboveNavigation, `footer bottom ${mobileLayout.footerBottom}; navigation top ${mobileLayout.navigationTop}`).toBe(true)
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Apply to all history' })).toBeVisible()
   await dialog.getByRole('radio', { name: /Apply to all history/ }).check()
   await expect(dialog.getByRole('button', { name: 'Apply to all history' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()

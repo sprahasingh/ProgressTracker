@@ -470,7 +470,7 @@ test('edits legacy v6 trackers with no, deleted, and active entries through real
   await expect(activeDialog).toBeVisible()
   await expect(activeDialog.getByRole('radio', { name: /Apply from today/ })).toBeEnabled()
   await expect(activeDialog.getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
-  await expect(activeDialog.locator('#all-history-help')).toContainText('Unavailable: historical compatibility cannot be proven')
+  await expect(activeDialog.locator('#all-history-help')).toHaveText('Unavailable to protect your existing history.')
   await activeDialog.getByRole('button', { name: 'Apply from today' }).click()
   const activeSaved = await syncAndReadRemote(page, fixture.userId, activeTracker.id, activeTracker.name, 'custom')
   expect(activeSaved.summary).toMatchObject({ failed: 0, conflicts: 0 })
