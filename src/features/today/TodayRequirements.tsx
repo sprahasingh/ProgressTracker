@@ -151,7 +151,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
       <div className="today-target-summary" role="group" aria-label={`${tracker.name} progress and daily expectation`}>
         {metrics.map((metric) => <div className="today-target-metric" key={metric.id}>
           <span className="today-target-name">{metric.name}</span>
-          {metric.isBoolean ? <><strong className="today-target-value">{historical ? 'Complete this activity' : 'Complete today'}</strong><small className="today-target-remaining">{metric.booleanValue === 'true' ? 'Recorded as complete' : metric.booleanValue === 'false' ? 'Recorded as not complete' : 'No value recorded'}</small></> : <>
+          {metric.isBoolean ? <><strong className="today-target-value">{historical ? 'Complete this activity' : 'Complete today'}</strong><small className="today-target-remaining">{metric.booleanValue === 'true' ? 'Recorded as Done' : metric.booleanValue === 'false' ? 'Recorded as Not Done' : 'No value recorded'}</small></> : <>
             <span className="today-requirement-label">{requirementLabel(metric.expectedLabel === 'Target threshold' ? 'Today’s target' : metric.expectedLabel === 'Minimum threshold' ? 'Today’s minimum' : metric.expectedLabel ?? 'Progress today')}</span>
             <strong className="today-target-value">{metric.expected === undefined ? amount(Number(metric.completed), metric.unit) : `${formatTrackerNumber(Number(metric.completed))} / ${amount(metric.expected, metric.unit)}`}</strong>
             {metric.remaining !== undefined && <small className="today-target-remaining">{amount(metric.remaining, metric.unit)} remaining</small>}
@@ -169,7 +169,7 @@ export function TodayRequirements({ tracker, entry, today, timeZone, entries, ho
         <div className="today-requirements-content"><section className="today-requirements-section"><h3>{historical ? `Progress · ${selectedDateLabel}` : "Today’s progress"}</h3>
           {metrics.map((metric) => <article className="today-requirements-metric" key={metric.id}><h4>{metric.name}{metric.unit && <span>{metric.unit}</span>}</h4>
             <dl>
-              <div><dt>{metric.isBoolean ? 'Saved value' : 'Completed'}</dt><dd>{metric.isBoolean ? metric.booleanValue === 'true' ? 'Complete' : metric.booleanValue === 'false' ? 'Not complete' : 'Unrecorded' : amount(Number(metric.completed), metric.unit)}</dd></div>
+              <div><dt>{metric.isBoolean ? 'Saved value' : 'Completed'}</dt><dd>{metric.isBoolean ? metric.booleanValue === 'true' ? 'Done' : metric.booleanValue === 'false' ? 'Not Done' : 'Unrecorded' : amount(Number(metric.completed), metric.unit)}</dd></div>
               {metric.isBoolean ? <div><dt>Expected</dt><dd>Complete this check-in</dd></div> : metric.expected !== undefined && <div><dt>{requirementLabel(metric.expectedLabel ?? 'Expected')}</dt><dd>{amount(metric.expected, metric.unit)}</dd></div>}
               {!metric.isBoolean && metric.remaining !== undefined && <div><dt>Remaining</dt><dd>{amount(metric.remaining, metric.unit)}</dd></div>}
             </dl>

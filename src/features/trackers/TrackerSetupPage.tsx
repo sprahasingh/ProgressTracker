@@ -53,8 +53,12 @@ function TrackerKindOption({ item, selected, onChange }: {
 function starterMetric(kind: TrackerKind): TrackerMetricDefinition {
   const id = crypto.randomUUID()
   return kind === 'habit'
-    ? { id, name: 'Completed', valueType: 'boolean' }
+    ? { id, name: 'Status', valueType: 'boolean' }
     : { id, name: 'Progress', valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
+}
+
+function defaultMeasureName(valueType: TrackerMetricDefinition['valueType']): string {
+  return valueType === 'boolean' ? 'Status' : valueType === 'duration' ? 'Time Spent' : valueType === 'checklist' ? 'Items' : 'Progress'
 }
 
 function starterRule(metric: TrackerMetricDefinition): TrackerRule {
@@ -169,6 +173,7 @@ export function TrackerSetupPage() {
     return { metrics: [metric], rule: starterRule(metric), streakRuleMode: 'same-as-success', customFields: [], milestones: [] }
   })
   const [primaryQuantityBackup, setPrimaryQuantityBackup] = useState<TrackerMetricDefinition | null>(null)
+  const [primaryMeasureNameCustomized, setPrimaryMeasureNameCustomized] = useState(false)
   const [goalPlanning, setGoalPlanning] = useState<GoalPlanningConfiguration>(emptyGoalPlanning)
   const [goalAmount, setGoalAmount] = useState('')
   const [planningEditorTouched, setPlanningEditorTouched] = useState(false)
@@ -380,10 +385,11 @@ export function TrackerSetupPage() {
     setConfiguration((current) => {
       if (current.metrics.length !== 1 || existing) return current
       const oldMetric = current.metrics[0]!
+      const nextType = kind === 'habit' ? 'boolean' as const : 'quantity' as const
       const changed = previousKind === 'habit' && kind !== 'habit'
-        ? { ...oldMetric, name: 'Progress', valueType: 'quantity' as const, unit: '', thresholds: { direction: 'increase' as const, streakQualification: 'any-recorded-value' as const } }
+        ? { ...oldMetric, name: primaryMeasureNameCustomized ? oldMetric.name : defaultMeasureName(nextType), valueType: nextType, unit: '', thresholds: { direction: 'increase' as const, streakQualification: 'any-recorded-value' as const } }
         : previousKind !== 'habit' && kind === 'habit'
-          ? { id: oldMetric.id, name: 'Completed', valueType: 'boolean' as const }
+          ? { id: oldMetric.id, name: primaryMeasureNameCustomized ? oldMetric.name : defaultMeasureName(nextType), valueType: nextType }
           : oldMetric
       const rule = starterRule(changed)
       return { ...current, metrics: [changed], rule, ...(current.streakRuleMode === 'custom' ? { streakRule: rebaseMetricRule(current.streakRule, changed) } : {}) }
@@ -396,9 +402,7 @@ export function TrackerSetupPage() {
     if (!metric || metric.valueType === valueType) return
     if (valueType === 'boolean' && ['quantity', 'duration'].includes(metric.valueType)) setPrimaryQuantityBackup(metric)
     const restored = (valueType === 'quantity' || valueType === 'duration') && primaryQuantityBackup?.id === metric.id ? primaryQuantityBackup : undefined
-    const defaultName = metric.name === 'Completed' || metric.name === 'Progress'
-      ? valueType === 'boolean' ? 'Completed' : 'Progress'
-      : metric.name
+    const defaultName = primaryMeasureNameCustomized ? metric.name : defaultMeasureName(valueType)
     const updated: TrackerMetricDefinition = valueType === 'boolean'
       ? { id: metric.id, name: defaultName, valueType: 'boolean' }
       : valueType === 'checklist'
@@ -430,7 +434,7 @@ export function TrackerSetupPage() {
         goalPlanning.allocations?.[oldMetric.id] !== undefined || goalPlanning.manualAllocations?.[oldMetric.id] !== undefined
       return hasPlanData && (!nextIds.has(oldMetric.id) || replacement?.valueType === 'boolean')
     }).map((metric) => metric.id)
-    if (invalidatedIds.length && !window.confirm('Removing or changing this measure to yes/no will also remove its planning semantics and targets. Its saved check-in history remains unchanged. Continue?')) return
+    if (invalidatedIds.length && !window.confirm('Removing or changing this measure to Done / Not Done will also remove its planning semantics and targets. Its saved check-in history remains unchanged. Continue?')) return
     if (invalidatedIds.length) {
       const nextPlanning = { ...goalPlanning, progressSemantics: { ...goalPlanning.progressSemantics }, dailyTargets: { ...goalPlanning.dailyTargets }, cumulativeTargets: { ...goalPlanning.cumulativeTargets }, allocations: { ...(goalPlanning.allocations ?? {}) }, manualAllocations: { ...(goalPlanning.manualAllocations ?? {}) } }
       for (const id of invalidatedIds) {
@@ -443,6 +447,10 @@ export function TrackerSetupPage() {
       setGoalPlanning(nextPlanning)
     }
     setConfiguration((current) => ({ ...current, metrics }))
+  }
+
+  function markPrimaryMeasureNameCustomized(metricId: string) {
+    if (!existing && configuration.metrics[0]?.id === metricId) setPrimaryMeasureNameCustomized(true)
   }
 
   function requestRemoveMetric(metricId: string) {
@@ -968,7 +976,7 @@ export function TrackerSetupPage() {
           {existing?.status === 'archived' && <fieldset className="tracker-status-after-save"><legend>Tracker status after saving</legend><label><input type="radio" name="archived-status-after-save" value="archived" checked={archivedStatusAfterSave === 'archived'} onChange={() => setArchivedStatusAfterSave('archived')} /><span>Keep archived</span></label><label><input type="radio" name="archived-status-after-save" value="active" checked={archivedStatusAfterSave === 'active'} onChange={() => setArchivedStatusAfterSave('active')} /><span>Move to active</span></label></fieldset>}
           <label className="form-field tracker-name-field"><span>{selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'}</span><input data-validation-path="name" aria-label={selectedKind === 'goal' ? 'What do you want to achieve?' : selectedKind === 'habit' ? 'What habit do you want to build?' : selectedKind === 'challenge' ? 'What challenge are you taking on?' : 'What project will you move forward?'} className="auth-input" maxLength={200} value={values.name} onChange={(event) => update('name', event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'tracker-name-error' : undefined} placeholder={selectedKind === 'goal' ? 'e.g. Solve 100 DSA problems' : selectedKind === 'habit' ? 'e.g. Read every day' : selectedKind === 'challenge' ? 'e.g. 30-day writing challenge' : 'e.g. Launch my portfolio'} />{fieldErrors.name && <small id="tracker-name-error" className="auth-error">{fieldErrors.name}</small>}</label>
           {existing && <label className="form-field tracker-name-field"><span>Description <em>optional</em> <InfoButton title="Description" summary="Keep context or motivation close to the tracker." description="This optional note appears with the tracker setup. It does not affect success rules, schedules, targets, or saved check-in values." /></span><textarea className="auth-input tracker-textarea" maxLength={2000} value={values.description} onChange={(event) => update('description', event.target.value)} placeholder="Add a note about why this matters to you." /></label>}
-          {!existing && <label className="form-field primary-measure-type"><span>How do you want to measure it?</span><select aria-label="Measure 1 value type" className="auth-input" value={configuration.metrics[0]?.valueType ?? 'boolean'} onChange={(event) => chooseSimpleMeasure(event.target.value as TrackerMetricDefinition['valueType'])}><option value="boolean">Yes / no</option><option value="quantity">Quantity</option><option value="duration">Duration</option><option value="checklist">Checklist</option></select></label>}
+          {!existing && <label className="form-field primary-measure-type"><span>How do you want to measure it?</span><select aria-label="Measure 1 value type" className="auth-input" value={configuration.metrics[0]?.valueType ?? 'boolean'} onChange={(event) => chooseSimpleMeasure(event.target.value as TrackerMetricDefinition['valueType'])}><option value="boolean">Done / Not Done</option><option value="quantity">Quantity</option><option value="duration">Duration</option><option value="checklist">Checklist</option></select></label>}
           <div className="form-grid tracker-quick-fields">
             <label className="form-field"><span>Start date</span><input data-validation-path="startDate" aria-label="Start date" className="auth-input" type="date" max={values.schedulingMode === 'calendar' ? values.deadline || undefined : undefined} value={values.startDate} onChange={(event) => update('startDate', event.target.value)} aria-invalid={Boolean(fieldErrors.startDate)} aria-describedby={fieldErrors.startDate ? 'tracker-start-date-error' : undefined} />{fieldErrors.startDate && <small id="tracker-start-date-error" className="auth-error">{fieldErrors.startDate}</small>}</label>
             <label className="form-field"><span>Duration</span><select aria-label="Schedule duration" className="auth-input" data-validation-path="schedulingMode" value={values.schedulingMode} disabled={!isSchemaV6WriteEnabled()} onChange={(event) => { setSchedulingTouched(true); update('schedulingMode', event.target.value as TrackerSchedulingMode); setValues((current) => ({ ...current, schedulingMode: event.target.value as TrackerSchedulingMode, deadline: event.target.value === 'ongoing' ? '' : current.deadline })) }}>
@@ -1007,7 +1015,7 @@ export function TrackerSetupPage() {
                 <label className="strict-mode-option"><input type="checkbox" checked={values.strictMode} onChange={(event) => update('strictMode', event.target.checked)} /><span><strong>Strict Mode</strong><small>Require a qualifying check-in on every calendar day. Holidays and rest days do not preserve your streak.</small></span><InfoButton title="Strict Mode" summary="Every calendar day becomes a streak opportunity, including weekdays, weekends, rest days, and holidays." description="A day qualifies only when progress meets this tracker’s configured streak rule. Partial progress counts if it meets that rule; a lower partial result breaks the streak after the day ends. Changing this setting recalculates current and longest streaks from past entries without changing them. Today remains open until it ends. Voluntary check-ins on rest days or holidays can keep the streak without changing the schedule or holiday." /></label>
                 <p className="field-hint form-field-wide">Marked holidays pause scheduled activity expectations and Goal Auto allocations. Recorded work remains saved.</p>
               </div></details>
-              <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" firstMetricTypeMode={existing ? 'locked' : 'setup'} persistedMetricIds={existing?.metrics.map((metric) => metric.id)} metricsWithHistory={metricsWithHistory} onRemoveMetric={requestRemoveMetric} planning={goalPlanning} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" firstMetricTypeMode={existing ? 'locked' : 'setup'} persistedMetricIds={existing?.metrics.map((metric) => metric.id)} metricsWithHistory={metricsWithHistory} onRemoveMetric={requestRemoveMetric} onMetricNameEdit={markPrimaryMeasureNameCustomized} planning={goalPlanning} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               {(configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled() && <p className="field-hint" role="note">Streak rules need the schema v8 migration and production flag before these changes can be saved.</p>}

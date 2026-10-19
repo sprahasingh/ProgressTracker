@@ -27,6 +27,16 @@ function HistoryWithTodayEditor() {
 }
 
 describe('local check-in history', () => {
+  it('shows saved Boolean values as Done and Not Done beside the saved measure name', async () => {
+    const binary: StoredTrackerDefinition = { ...definition, id: 'history-binary-values', metrics: [{ id: 'state', name: 'Completed', valueType: 'boolean' }], qualificationRule: { kind: 'comparison', metricId: 'state', operator: 'equals', value: true } }
+    await localRepository.saveTracker(binary)
+    const yesterday = shiftCalendarDate(localCalendarDate(), -1)
+    await localRepository.saveTrackerEntry({ trackerId: binary.id, date: yesterday, outcome: 'recorded', values: { state: false }, note: '' })
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+    expect(await screen.findByText('Not Done')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+
   it('explains the tracker requirement and labels the action for a valid active tracker/date', async () => {
     const user = userEvent.setup()
     await localRepository.saveTracker(definition)

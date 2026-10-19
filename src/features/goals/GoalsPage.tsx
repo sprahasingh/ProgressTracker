@@ -187,7 +187,7 @@ export function GoalsPage() {
               {tracker.metrics.map((metric) => {
                 const value = latest?.values[metric.id]
                 const target = metric.thresholds?.target
-                const valueText = typeof value === 'number' ? `${formatTrackerNumber(value)}${metric.unit ? ` ${metric.unit}` : ''}` : typeof value === 'boolean' ? (value ? 'Done' : 'Not done') : 'Not recorded yet'
+                const valueText = typeof value === 'number' ? `${formatTrackerNumber(value)}${metric.unit ? ` ${metric.unit}` : ''}` : typeof value === 'boolean' ? (value ? 'Done' : 'Not Done') : 'Not recorded yet'
                 return <li key={metric.id}><span>{metric.name}</span><strong>{valueText}{target !== undefined ? ` · target ${formatTrackerNumber(target)}${metric.unit ? ` ${metric.unit}` : ''}` : ''}</strong></li>
               })}
             </ul>}
@@ -277,7 +277,7 @@ function buildGoalProgressSummary(
     }
     const value = latestRecorded?.values[metric.id]
     const unit = metric.unit ? ` ${metric.unit}` : metric.valueType === 'checklist' ? ' items' : ''
-    const valueText = typeof value === 'number' ? `${formatTrackerNumber(value)}${unit}` : typeof value === 'boolean' ? (value ? 'Complete' : 'Not complete') : value && typeof value === 'object' ? `${Object.values(value).filter((item) => item).length} items` : 'No progress recorded'
+    const valueText = typeof value === 'number' ? `${formatTrackerNumber(value)}${unit}` : typeof value === 'boolean' ? (value ? 'Done' : 'Not Done') : value && typeof value === 'object' ? `${Object.values(value).filter((item) => item).length} items` : 'No progress recorded'
     const threshold = metric.thresholds?.target
     return { metricId: metric.id, name: metric.name, value: `${valueText}${threshold === undefined ? '' : ` · target threshold ${formatTrackerNumber(threshold)}${unit}`}`, unit }
   })

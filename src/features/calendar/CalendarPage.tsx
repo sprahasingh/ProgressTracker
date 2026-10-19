@@ -10,7 +10,7 @@ import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
-import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
+import { trackerEntryMetricLabels } from '../../domain/trackers/entryPresentation'
 import { calendarDateLabel, localCalendarDate } from '../shared/localDates'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -246,12 +246,6 @@ function CalendarStatusGuide() {
 
 function formatEntry(tracker: StoredTrackerDefinition, entry: StoredTrackerEntry): string {
   if (entry.outcome === 'skipped') return 'Skipped · intentionally saved'
-  const values = tracker.metrics.flatMap((metric) => {
-    const value = entry.values[metric.id]
-    if (typeof value === 'number') return [`${metric.name}: ${formatTrackerNumber(value)}${metric.unit ? ` ${metric.unit}` : ''}`]
-    if (typeof value === 'boolean') return value ? [metric.name] : []
-    if (metric.valueType === 'checklist' && value && typeof value === 'object') return [`${metric.name}: ${Object.values(value).filter((item) => item === true).length} done`]
-    return []
-  })
+  const values = trackerEntryMetricLabels(tracker, entry)
   return values.join(' · ') || (evaluateTrackerEntry(tracker, entry).qualified ? 'Success rule met' : 'Progress recorded')
 }

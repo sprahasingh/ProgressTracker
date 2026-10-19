@@ -82,9 +82,9 @@ function BooleanChoice({ id, label, value, setValue, required = false, contextua
   return <fieldset className="boolean-choice-field form-field" aria-describedby={`${id}-answer-hint${contextualStatus ? ` ${id}-support` : ''}`}>
     <legend>{contextualStatus?.heading ?? label}{!contextualStatus && required && <em> · required</em>}</legend>
     {contextualStatus && <p className={`boolean-choice-support${contextualStatus.feedback ? ' is-save-feedback' : ''}`} id={`${id}-support`} role="status" aria-live="polite" aria-atomic="true">{contextualStatus.supportingText}</p>}
-    <span className="sr-only" id={`${id}-answer-hint`}>{value === undefined ? 'Choose Not done or Done to record an answer.' : `Selected: ${value === true ? 'Done' : 'Not done'}.`}</span>
+    <span className="sr-only" id={`${id}-answer-hint`}>{value === undefined ? 'Choose Not Done or Done to record an answer.' : `Selected: ${value === true ? 'Done' : 'Not Done'}.`}</span>
     <div className="boolean-choice" role="group" aria-label={label}>
-      <button type="button" aria-pressed={value === false} className={value === false ? 'selected' : ''} onClick={() => setValue(false)}>Not done</button>
+      <button type="button" aria-pressed={value === false} className={value === false ? 'selected' : ''} onClick={() => setValue(false)}>Not Done</button>
       <button type="button" aria-pressed={value === true} className={value === true ? 'selected' : ''} onClick={() => setValue(true)}>Done</button>
     </div>
   </fieldset>

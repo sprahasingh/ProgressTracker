@@ -19,16 +19,16 @@ describe('shared type-aware daily entry fields', () => {
     const user = userEvent.setup()
     render(<TrackerEntryFields tracker={tracker} values={{}} setValue={setValue} />)
 
-    expect(screen.getByRole('button', { name: 'Not done' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Not Done' })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'false')
-    await user.click(screen.getByRole('button', { name: 'Not done' }))
+    await user.click(screen.getByRole('button', { name: 'Not Done' }))
     expect(setValue).toHaveBeenLastCalledWith('done', false)
     await user.click(screen.getByRole('button', { name: 'Done' }))
     expect(setValue).toHaveBeenLastCalledWith('done', true)
 
     cleanup()
     render(<TrackerEntryFields tracker={tracker} values={{ done: false }} setValue={setValue} />)
-    expect(screen.getByRole('button', { name: 'Not done' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Not Done' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'false')
   })
 
