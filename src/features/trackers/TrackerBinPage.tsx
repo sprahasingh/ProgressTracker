@@ -35,8 +35,14 @@ function deletionRequestMessage(request: PermanentDeletionRequest) {
   if (request.status === 'pending' && !request.lastError) return 'Deletion is saved on this device and waiting for server confirmation.'
   if (request.status === 'pending' && request.lastError?.startsWith('Waiting for tracker sync:')) return 'Deletion is queued. Rejected configuration will be skipped, and the request will use the latest cloud revision. Your original Wins choice is saved.'
   if (request.status === 'pending') return `${request.lastError} Your deletion request and original Wins choice are saved.`
+  if (isRejectedWinsAttributionPolicy(request)) return 'Some past rewards can’t be reliably linked to this tracker. You can still permanently delete the tracker while keeping your Wins.'
   if (request.lastError) return request.lastError
   return 'Deletion needs confirmation again. The saved Wins choice will be retained.'
+}
+
+function isRejectedWinsAttributionPolicy(request: PermanentDeletionRequest) {
+  return request.status === 'failed' && request.winsRetention === 'delete_wins'
+    && /server rejected the selected Wins policy:.*(reconstructed, incomplete, or unattributed rewards|cannot be removed safely)/i.test(request.lastError ?? '')
 }
 
 export function TrackerBinPage() {
@@ -54,6 +60,7 @@ export function TrackerBinPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pendingPermanentDeletion, setPendingPermanentDeletion] = useState<StoredTrackerDefinition | null>(null)
   const [winsRetention, setWinsRetention] = useState<TrackerWinsRetention>('keep_wins')
+  const [recoveringRejectedPolicy, setRecoveringRejectedPolicy] = useState(false)
   const trackers = snapshot?.key === workspaceKey ? snapshot.trackers : []
   const pendingRestores = snapshot?.key === workspaceKey ? snapshot.pendingRestores : []
   const requests = snapshot?.key === workspaceKey ? snapshot.requests : []
@@ -93,7 +100,14 @@ export function TrackerBinPage() {
   }
 
   function openPermanentDeletion(tracker: StoredTrackerDefinition) {
+    setRecoveringRejectedPolicy(false)
     setWinsRetention(requests.find((request) => request.trackerId === tracker.id)?.winsRetention ?? 'keep_wins')
+    setPendingPermanentDeletion(tracker)
+  }
+
+  function openKeepWinsRecovery(tracker: StoredTrackerDefinition) {
+    setRecoveringRejectedPolicy(true)
+    setWinsRetention('keep_wins')
     setPendingPermanentDeletion(tracker)
   }
 
@@ -132,7 +146,9 @@ export function TrackerBinPage() {
           <h2>{tracker.name}</h2>
           <p>Moved to Bin {new Date(tracker.deletedAt!).toLocaleString()} · {tracker.metrics.length} {tracker.metrics.length === 1 ? 'measure' : 'measures'} · progress and planning are preserved</p>
           {request && <p className="bin-pending" role={request.status === 'pending' ? 'status' : 'alert'}>{request.status === 'pending' && syncStatus === 'syncing' ? 'Deleting… waiting for server confirmation.' : request.status === 'pending' && !isOnline ? `Deletion is saved on this device and will be sent when you reconnect. ${deletionRequestMessage(request)}` : deletionRequestMessage(request)}</p>}
-          {request && request.status !== 'pending' && <Button variant="secondary" size="small" disabled={Boolean(busyId) || !isOnline} onClick={() => openPermanentDeletion(tracker)}>Review and retry deletion</Button>}
+          {request?.lastError && <details className="bin-deletion-diagnostics"><summary>Deletion details</summary><p>{request.lastError}</p></details>}
+          {request && isRejectedWinsAttributionPolicy(request) && <Button variant="secondary" size="small" disabled={Boolean(busyId)} onClick={() => openKeepWinsRecovery(tracker)}>Delete tracker, keep Wins</Button>}
+          {request && request.status !== 'pending' && !isRejectedWinsAttributionPolicy(request) && <Button variant="secondary" size="small" disabled={Boolean(busyId) || !isOnline} onClick={() => openPermanentDeletion(tracker)}>Review and retry deletion</Button>}
           <div className="tracker-card-actions">
             <Button data-ai-capability="bin.restore" variant="secondary" size="small" disabled={Boolean(busyId) || guestExpired || Boolean(request)} onClick={() => void restore(tracker)}>{guestExpired ? 'Recovery ended' : expired ? 'Check recovery status' : busyId === tracker.id ? 'Working…' : 'Restore'}</Button>
             {permanentDeletionEnabled && !request && <Button data-ai-capability="bin.permanent_delete" data-ai-availability="available" variant="destructive" size="small" aria-busy={busyId === tracker.id} disabled={Boolean(busyId)} onClick={() => openPermanentDeletion(tracker)}>{busyId === tracker.id ? 'Deleting…' : 'Permanently Delete'}</Button>}
@@ -141,14 +157,18 @@ export function TrackerBinPage() {
       })}
     </div>}
     {pendingPermanentDeletion && <ConfirmActionDialog
-      className="tracker-deletion-dialog"
-      title={`Permanently Delete “${pendingPermanentDeletion.name}”?`}
-      description="This is permanent. Unsynced changes and all tracker-owned history, including measures, goals, check-ins, journals, and rule history, may be lost. Deletion will be saved offline and sent when you reconnect. Choose what happens to this tracker’s Wins."
-      actionLabel="Permanently Delete" destructive
-      onCancel={() => setPendingPermanentDeletion(null)}
-      onConfirm={() => { const tracker = pendingPermanentDeletion; const retention = winsRetention; setPendingPermanentDeletion(null); void permanentlyDelete(tracker, retention) }}
+      className="tracker-deletion-dialog tracker-rule-application-dialog"
+      backdropClassName="tracker-rule-application-backdrop"
+      title={recoveringRejectedPolicy ? 'Can’t remove Wins safely' : `Permanently Delete “${pendingPermanentDeletion.name}”?`}
+      description={recoveringRejectedPolicy
+        ? 'Some past rewards can’t be reliably linked to this tracker. You can still permanently delete the tracker while keeping your Wins.'
+        : 'This is permanent. Unsynced changes and all tracker-owned history, including measures, goals, check-ins, journals, and rule history, may be lost. Deletion will be saved offline and sent when you reconnect. Choose what happens to this tracker’s Wins.'}
+      actionLabel={recoveringRejectedPolicy ? 'Delete tracker, keep Wins' : 'Permanently Delete'} destructive
+      showCloseButton
+      onCancel={() => { setPendingPermanentDeletion(null); setRecoveringRejectedPolicy(false) }}
+      onConfirm={() => { const tracker = pendingPermanentDeletion; const retention = winsRetention; setPendingPermanentDeletion(null); setRecoveringRejectedPolicy(false); void permanentlyDelete(tracker, retention) }}
     >
-      <fieldset className="tracker-deletion-choice">
+      {recoveringRejectedPolicy ? <p className="tracker-deletion-recovery-note">The rejected Delete Wins request has stopped. Confirming creates a new Keep My Wins request. Your tracker and history stay in the Bin until the server confirms deletion.</p> : <fieldset className="tracker-deletion-choice">
         <legend>Choose what happens to its Wins</legend>
         {requests.some((request) => request.trackerId === pendingPermanentDeletion.id) && <p role="status">The original Wins choice is locked for this saved deletion request.</p>}
         <label>
@@ -159,7 +179,7 @@ export function TrackerBinPage() {
           <input type="radio" name="tracker-wins-retention" value="delete_wins" checked={winsRetention === 'delete_wins'} disabled={requests.some((request) => request.trackerId === pendingPermanentDeletion.id)} onChange={() => setWinsRetention('delete_wins')} />
           <span><strong>Delete Tracker and Wins</strong><small>Permanently removes the tracker and its activity. Reverses only rewards linked to this tracker; other rewards and achievements stay. If rewards can’t be safely separated, nothing will be deleted.</small></span>
         </label>
-      </fieldset>
+      </fieldset>}
     </ConfirmActionDialog>}
   </section>
 }
