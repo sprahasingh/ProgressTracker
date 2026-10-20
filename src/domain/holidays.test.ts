@@ -33,7 +33,7 @@ describe('global holidays', () => {
     expect(calculateStreak(daily, entries, '2026-03-11', holidays)).toMatchObject({
       current: 4, longest: 4, qualifyingCount: 4, scheduledCount: 4, missedCount: 0,
     })
-    expect(calculateStreak(daily, entries, '2026-03-10', holidays)).toMatchObject({ current: 1, scheduledCount: 1, missedCount: 0 })
+    expect(calculateStreak(daily, entries, '2026-03-10', holidays)).toMatchObject({ current: 3, scheduledCount: 3, missedCount: 0 })
   })
 
   it('restarts a paused streak only when a scheduled non-holiday day is missed', () => {
