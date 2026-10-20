@@ -60,7 +60,7 @@ describe('tracker analytics', () => {
     const holidayProgress = calculateTrackerAnalytics(strict, [entry('2026-10-07', { distance: 5, pages: 20 })], '2026-10-07', '2026-10-07', new Set(['2026-10-07']))
     expect(holidayProgress).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 1, consistencyPercent: 100, qualifiedCount: 1 })
     const standardHolidayProgress = calculateTrackerAnalytics(tracker, [entry('2026-10-07', { distance: 5, pages: 20 })], '2026-10-07', '2026-10-07', new Set(['2026-10-07']))
-    expect(standardHolidayProgress).toMatchObject({ scheduledCount: 0, scheduledQualifiedCount: 0, consistencyPercent: null, qualifiedCount: 1 })
+    expect(standardHolidayProgress).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 1, consistencyPercent: 100, qualifiedCount: 1 })
   })
 
   it('reports Success Rule and Streak Rule matches as separate Insights counts', () => {

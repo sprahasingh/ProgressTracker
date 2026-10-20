@@ -7,7 +7,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { calendarDateLabel } from '../shared/localDates'
 import appStyles from '../../styles.css?raw'
 
-const mocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), listAccountHolidays: vi.fn() }))
+const mocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn(), listAccountHolidays: vi.fn(), listTrackerHolidays: vi.fn().mockResolvedValue([]) }))
 const auth = vi.hoisted(() => ({ value: { status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false } }))
 vi.mock('../../db/localRepository', () => ({ localRepository: mocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => auth.value }))
@@ -33,7 +33,7 @@ const entry = {
   createdAt: `${today}T09:00:00.000Z`, updatedAt: `${today}T09:00:00.000Z`, deletedAt: null,
 } as StoredTrackerEntry
 
-afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks(); mocks.listTrackerHolidays.mockResolvedValue([]) })
 
 describe('Calendar page', () => {
   it('uses the shared page-header hierarchy with visible schedule copy and the holidays action after it', async () => {
@@ -184,9 +184,24 @@ describe('Calendar page', () => {
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
 
     expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
-    expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
-    expect(screen.getByText(/Holiday · Standard Mode expectations paused · 1 saved check-in retained/)).toBeInTheDocument()
-    expect(screen.getByText(/Completed · Done: Done/)).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
+    expect(container.querySelector('.calendar-holiday-note')).toHaveTextContent('Account-wide holiday')
+    expect(screen.getByText(/Completed · Account-wide holiday · Done/)).toBeInTheDocument()
+  })
+
+  it('aggregates a selected holiday with other trackers’ actual statuses and keeps its details visible', async () => {
+    const secondTracker = { ...tracker, id: 'second-tracker', name: 'Stretching' }
+    mocks.listTrackers.mockResolvedValue([tracker, secondTracker])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([{ ...entry, trackerId: secondTracker.id }])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    mocks.listTrackerHolidays.mockResolvedValue([{ id: 'selected-holiday', trackerId: tracker.id, date: today, createdAt: '', updatedAt: '', deletedAt: null }])
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${today}`]}><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.holiday')).not.toBeInTheDocument()
+    expect(screen.getByText(/Holiday · Tracker-specific holiday/)).toBeInTheDocument()
+    expect(screen.getByText(/Completed · Done/)).toBeInTheDocument()
   })
 
   it('marks an unrecorded scheduled date as pending, rather than rest or missed', async () => {
@@ -220,7 +235,7 @@ describe('Calendar page', () => {
     const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${previousDate}`]}><CalendarPage /></MemoryRouter>)
     expect(await screen.findByText(/1 Strict Mode check-in is missed/)).toBeInTheDocument()
     expect(screen.getAllByText('Missed').length).toBeGreaterThan(0)
-    expect(container.querySelector('.calendar-cell-status.holiday')).toBeInTheDocument()
+    expect(container.querySelector('.calendar-cell-status.missed')).toBeInTheDocument()
 
     cleanup()
     const standardTracker = { ...oldTracker, strictMode: false }

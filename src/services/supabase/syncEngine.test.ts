@@ -26,14 +26,14 @@ const serverTracker = (record: StoredTrackerDefinition, owner = 'sync-user', rev
   deleted_at: record.deletedAt, server_revision: revision,
 })
 
-function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; deletionTracker?: unknown; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[]; timezoneConfigured?: boolean; timezone?: string; timezoneWriteError?: boolean } = {}) {
+function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?: Array<{ data: unknown; error: { message: string; code?: string } | null }>; rpcError?: { message: string; code?: string } | null; trackerRows?: unknown[]; deletionTracker?: unknown; trackerEntryRows?: unknown[]; holidayRows?: unknown[]; trackerHolidayRows?: unknown[]; ledgerRows?: unknown[]; holidayLedgerRows?: unknown[]; timezoneConfigured?: boolean; timezone?: string; timezoneWriteError?: boolean } = {}) {
   const requestOrder: string[] = []
   const rpc = vi.fn().mockImplementation(() => { requestOrder.push('rpc'); return options.rpcResults?.shift() ?? Promise.resolve({ data: options.rpcResult ?? null, error: options.rpcError ?? null }) })
   const getUser = vi.fn().mockResolvedValue({ data: { user: options.userId === undefined ? { id: 'sync-user' } : options.userId ? { id: options.userId } : null }, error: null })
   const getSession = vi.fn().mockResolvedValue({ data: { session: options.userId === '' ? null : { user: { id: options.userId ?? 'sync-user' } } }, error: null })
   const from = vi.fn((table: string) => {
     requestOrder.push(`from:${table}`)
-    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : table === 'account_holiday_deletion_ledger' ? options.holidayLedgerRows ?? [] : []
+    const rows = table === 'trackers' ? options.trackerRows ?? [] : table === 'tracker_entries' ? options.trackerEntryRows ?? [] : table === 'account_holidays' ? options.holidayRows ?? [] : table === 'tracker_holidays' ? options.trackerHolidayRows ?? [] : table === 'tracker_deletion_ledger' ? options.ledgerRows ?? [] : table === 'account_holiday_deletion_ledger' ? options.holidayLedgerRows ?? [] : []
     const builder = {
       select: () => builder,
       eq: () => builder,
@@ -224,6 +224,25 @@ describe('account-scoped sync engine', () => {
 
     await activateWorkspace('different-user')
     await expect(localRepository.listAccountHolidays()).resolves.toEqual([])
+  })
+
+  it('uploads and downloads tracker-specific holidays through their revisioned RPC and table', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('tracker-holiday-sync')
+    await localRepository.saveTracker(definition)
+    const row = await localRepository.saveTrackerHoliday(definition.id, '2026-10-12')
+    const serverRow = { id: row.id, user_id: 'sync-user', tracker_id: row.trackerId, holiday_date: row.date, created_at: row.createdAt, updated_at: row.updatedAt, deleted_at: null, server_revision: 1 }
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'applied', record: serverRow } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_holiday_sync_operation', expect.objectContaining({ p_expected_user_id: 'sync-user', p_expected_revision: null, p_record: expect.objectContaining({ tracker_id: definition.id, holiday_date: row.date }) }))
+    await expect(db.syncRecords.get(`tracker_holiday:${row.id}`)).resolves.toMatchObject({ ownerUserId: 'sync-user', serverRevision: 1 })
+
+    await db.trackerHolidays.clear()
+    await db.syncRecords.delete(`tracker_holiday:${row.id}`)
+    const { client: downloadClient } = fakeClient({ trackerRows: [serverTracker(definition)], trackerHolidayRows: [serverRow] })
+    await expect(synchronizeWorkspace('sync-user', downloadClient)).resolves.toMatchObject({ downloaded: 1, failed: 0 })
+    await expect(db.trackerHolidays.get(row.id)).resolves.toMatchObject({ trackerId: definition.id, date: row.date, deletedAt: null })
   })
 
   it('syncs a holiday date edit through the existing ID and server revision', async () => {
@@ -1128,10 +1147,10 @@ describe('account-scoped sync engine', () => {
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ downloaded: 50, failed: 0 })
 
-    // One initial identity check plus one RLS-page check for each of the three
+    // One initial identity check plus one RLS-page check for each of the four
     // synchronized tables. The 50 row-level checks use the cached session.
-    expect(getUser).toHaveBeenCalledTimes(4)
-    expect(getSession).toHaveBeenCalledTimes(53)
+    expect(getUser).toHaveBeenCalledTimes(5)
+    expect(getSession).toHaveBeenCalledTimes(54)
     await expect(db.trackers.count()).resolves.toBe(50)
   })
 

@@ -29,6 +29,7 @@ type AnalyticsSnapshot = {
   trackers: Awaited<ReturnType<typeof localRepository.listTrackers>>
   entries: Awaited<ReturnType<typeof localRepository.listAllTrackerEntries>>
   holidays: Awaited<ReturnType<typeof localRepository.listAccountHolidays>>
+  trackerHolidays: Awaited<ReturnType<typeof localRepository.listTrackerHolidays>>
   progression: ProgressionOverview | null
 }
 
@@ -170,6 +171,7 @@ export function AnalyticsPage() {
   const allTrackers = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.trackers : []
   const allEntries = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.entries : []
   const holidays = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.holidays : []
+  const trackerHolidays = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.trackerHolidays : []
   const progression = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot.progression : null
   const visibleError = workspaceKey && error?.workspaceKey === workspaceKey ? error.message : ''
   const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
@@ -177,8 +179,8 @@ export function AnalyticsPage() {
   const allTime = appliedPeriod.mode === 'all'
   const holidayDates = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
   const summaries = useMemo(() => allTrackers.map((tracker) =>
-    calculateTrackerAnalytics(tracker, allEntries, dateRange.startDate, dateRange.endDate, holidayDates, timeZone, allEntries, today),
-  ), [allTrackers, allEntries, dateRange, holidayDates, timeZone, today])
+    calculateTrackerAnalytics(tracker, allEntries, dateRange.startDate, dateRange.endDate, holidayDates, timeZone, allEntries, today, trackerHolidays),
+  ), [allTrackers, allEntries, dateRange, holidayDates, timeZone, today, trackerHolidays])
   const holidayCount = holidays.filter((holiday) => inRange(holiday.date, dateRange, allTime, today)).length
   const trackerFilter = useTrackerFilter(expectedOwner, summaries.map((summary) => summary.tracker), !visibleLoading)
   const selectedTracker = summaries.find((summary) => summary.tracker.id === trackerFilter.selectedId)?.tracker ?? null
@@ -205,14 +207,15 @@ export function AnalyticsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [trackers, entries, holidays, loadedProgression] = await Promise.all([
+      const [trackers, entries, holidays, trackerHolidays, loadedProgression] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listAllTrackerEntries(),
         localRepository.listAccountHolidays(),
+        localRepository.listTrackerHolidays(),
         expectedOwner ? getProgressionOverview(expectedOwner).catch(() => null) : Promise.resolve(null),
       ])
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {
-        setSnapshot({ workspaceKey: currentWorkspace.key, trackers, entries, holidays, progression: loadedProgression })
+        setSnapshot({ workspaceKey: currentWorkspace.key, trackers, entries, holidays, trackerHolidays, progression: loadedProgression })
       }
     } catch {
       if (generationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === currentWorkspace.key) {

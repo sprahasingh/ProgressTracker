@@ -78,6 +78,7 @@ export function TodayPage() {
   const [goalEntries, setGoalEntries] = useState<StoredTrackerEntry[]>([])
   const [todayHoliday, setTodayHoliday] = useState<AccountHoliday | undefined>()
   const [holidayDates, setHolidayDates] = useState<string[]>([])
+  const [trackerHolidayRows, setTrackerHolidayRows] = useState<Awaited<ReturnType<typeof localRepository.listTrackerHolidays>>>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const refreshGeneration = useRef(0)
@@ -96,11 +97,12 @@ export function TodayPage() {
       const requestedDate = focusedDateRef.current
       const queryStart = requestedDate && requestedDate < shiftCalendarDate(today, -7) ? requestedDate : shiftCalendarDate(today, -7)
       const queryEnd = requestedDate && requestedDate > shiftCalendarDate(today, 6) ? requestedDate : shiftCalendarDate(today, 6)
-      const [allTrackers, deletedTrackers, recentEntries, allHolidays] = await Promise.all([
+      const [allTrackers, deletedTrackers, recentEntries, allHolidays, trackerHolidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listDeletedTrackers(),
         localRepository.listTrackerEntriesBetween(queryStart, queryEnd),
         localRepository.listAccountHolidays(),
+        localRepository.listTrackerHolidays(queryStart as CalendarDate, queryEnd as CalendarDate),
       ])
       if (refreshGeneration.current !== generation || ownerRef.current !== requestOwner) return
       const todayEntries = recentEntries.filter((entry) => entry.date === today)
@@ -119,6 +121,7 @@ export function TodayPage() {
       setWeekEntries(recentEntries)
       setGoalEntries(historicalGoalEntries)
       setHolidayDates(allHolidays.map((holiday) => holiday.date))
+      setTrackerHolidayRows(trackerHolidays)
       setTodayHoliday(allHolidays.find((holiday) => holiday.date === today))
     } catch {
       if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoadError('Today’s check-ins could not be loaded from this device.')
@@ -140,12 +143,14 @@ export function TodayPage() {
       return
     }
     void (async () => {
-      const [dateEntries, dateHolidays] = await Promise.all([
+      const [dateEntries, dateHolidays, dateTrackerHolidays] = await Promise.all([
         localRepository.listTrackerEntriesBetween(date as CalendarDate, date as CalendarDate),
         localRepository.listAccountHolidays(date as CalendarDate, date as CalendarDate),
+        localRepository.listTrackerHolidays(date as CalendarDate, date as CalendarDate),
       ])
       setWeekEntries((current) => [...current.filter((entry) => !(entry.trackerId === tracker.id && entry.date === date)), ...dateEntries])
       setHolidayDates((current) => [...new Set([...current, ...dateHolidays.map((holiday) => holiday.date)])])
+      setTrackerHolidayRows((current) => [...current.filter((holiday) => holiday.date !== date), ...dateTrackerHolidays])
       setSelectedActivity({ trackerId: tracker.id, date: date as CalendarDate })
       navigate(location.pathname, { replace: true, state: null })
     })()
@@ -162,15 +167,16 @@ export function TodayPage() {
   const accountCheckUnavailable = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
     && (isOnline === false || syncStatus === 'offline' || syncStatus === 'error')
   const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
+  const trackerHolidayDates = (trackerId: string) => new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === trackerId && holiday.deletedAt === null).map((holiday) => holiday.date))
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
   const completedCount = trackers.filter((tracker) => {
     const entry = entryByTracker.get(tracker.id)
-    return getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, timeZone }) === 'completed'
+    return getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone }) === 'completed'
   }).length
-  const partialCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'partial').length
-  const missedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'missed').length
-  const skippedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, timeZone }) === 'skipped').length
+  const partialCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone }) === 'partial').length
+  const missedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone }) === 'missed').length
+  const skippedCount = trackers.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryByTracker.get(tracker.id), date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone }) === 'skipped').length
   const remainingCount = Math.max(0, trackers.length - completedCount - missedCount)
   const allComplete = trackers.length > 0 && completedCount === trackers.length
   const selectedTracker = activityTrackers.find((tracker) => tracker.id === selectedActivity?.trackerId)
@@ -192,9 +198,9 @@ export function TodayPage() {
     const strictRequired = activeTrackers.filter((tracker) => tracker.strictMode === true && isTrackerInActivePeriod(tracker, date, timeZone))
     const opportunities = [...new Map([...scheduled.filter(() => !isHoliday), ...strictRequired].map((tracker) => [tracker.id, tracker])).values()]
     const entryFor = (tracker: StoredTrackerDefinition) => weekEntries.find((entry) => entry.trackerId === tracker.id && entry.date === date)
-    const statuses = opportunities.map((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }))
+    const statuses = opportunities.map((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), trackerHolidays: trackerHolidayDates(tracker.id), timeZone }))
     const strictQualified = strictRequired.filter((tracker) => { const entry = entryFor(tracker); return Boolean(entry && qualifiesForStreak(tracker, entry)) }).length
-    const done = opportunities.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), timeZone }) === 'completed').length
+    const done = opportunities.filter((tracker) => getTrackerActivityStatus({ tracker, entry: entryFor(tracker), date, today, holidays: new Set(holidayDates), trackerHolidays: trackerHolidayDates(tracker.id), timeZone }) === 'completed').length
     const partial = statuses.some((status) => status === 'partial')
     const noProgress = statuses.some((status) => status === 'no-progress')
     const hasSkipped = opportunities.some((tracker) => entryFor(tracker)?.outcome === 'skipped')
@@ -306,7 +312,7 @@ export function TodayPage() {
           <div className="today-checkin-list">
           {activityTrackers.map((tracker) => {
             const entry = entryByTracker.get(tracker.id)
-            const status = getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, timeZone })
+            const status = getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone })
             const focusKey = `${tracker.id}:${today}`
             return <CheckinCard key={tracker.id} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={goalEntries} holidays={holidaySet} status={status}
               historical={false} onOpen={() => setSelectedActivity({ trackerId: tracker.id, date: today })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
@@ -322,7 +328,7 @@ export function TodayPage() {
       })}</div>}</details>}
       {selectedTracker && selectedActivity && <CheckinSheet key={`${selectedTracker.id}:${selectedActivity.date}`} tracker={selectedTracker} entry={selectedEntry} today={selectedActivity.date} currentDate={today} timeZone={timeZone} entries={goalEntries} holidays={holidaySet}
         authStatus={authStatus} isOnline={isOnline} syncStatus={syncStatus}
-        status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet, timeZone })}
+        status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(selectedTracker.id), timeZone })}
         canEdit={Boolean(selectedEntry) || selectedTracker.status === 'active' && selectedTracker.deletedAt === null && isTrackerInActivePeriod(selectedTracker, selectedActivity.date, timeZone)}
         historical={selectedActivity.date < today} onSave={save} onClear={clear} onClose={() => { const key = `${selectedTracker.id}:${selectedActivity.date}`; setSelectedActivity(null); window.setTimeout(() => cardTriggers.current.get(key)?.focus(), 0) }} />}
       {todayHoliday && entries.length > 0 && <section className="today-holiday-records" aria-label="Activity recorded on this holiday"><h2>Activity saved on this day</h2>{entries.map((entry) => <p key={entry.id}><strong>{allTrackers.find((tracker) => tracker.id === entry.trackerId)?.name ?? 'Tracker'}</strong> · {entry.outcome === 'skipped' ? 'Skipped · intentionally saved' : 'Progress recorded'}{entry.note ? ` · ${entry.note}` : ''}</p>)}<Link to={`/history?date=${today}`}>View full activity history</Link></section>}

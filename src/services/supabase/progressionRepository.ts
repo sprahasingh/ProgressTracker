@@ -3,6 +3,7 @@ import { openDatabase } from '../../db/database'
 import { getSupabaseClient } from './client'
 import { localCalendarDate } from '../../features/shared/localDates'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
+import { hasPositiveProgress } from '../../domain/trackers/activityStatus'
 import { calculateProgressionLevel, selectProvisionalRewards, summarizeProgression, type ProvisionalReward } from '../../domain/trackers/progressionModel'
 import { subscribeToWorkspaceDataChanges, subscribeToWorkspaceSyncPreparation } from '../../db/workspaceMutationEvents'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
@@ -155,6 +156,7 @@ type LocalSnapshot = {
   entries: StoredTrackerEntry[]
   pendingEntryIds: Set<string>
   holidays: Set<string>
+  trackerHolidays: Array<{ trackerId: string; date: string }>
   timeZone: string
 }
 
@@ -248,30 +250,33 @@ async function getLocalSnapshot(userId: string): Promise<LocalSnapshot> {
   const database = await openDatabase()
   const workspace = await database.workspaceMetadata.get('workspace')
   if (workspace?.userId !== userId) throw new Error('Open this account’s local workspace before loading provisional progression.')
-  const [trackers, entries, operations, holidays, settings] = await Promise.all([
+  const [trackers, entries, operations, holidays, trackerHolidays, settings] = await Promise.all([
     database.trackers.toArray(), database.trackerEntries.toArray(),
     database.syncOperations.where('ownerUserId').equals(userId).toArray(),
-    database.accountHolidays.toArray(), database.settings.get('general'),
+    database.accountHolidays.toArray(), database.trackerHolidays.toArray(), database.settings.get('general'),
   ])
   return {
     trackers: trackers.filter((tracker) => tracker.deletedAt === null),
     entries: entries.filter((entry) => entry.deletedAt === null),
     pendingEntryIds: new Set(operations.filter((op) => op.entity === 'tracker_entry' && (op.status === 'pending' || op.status === 'in-flight')).map((op) => op.entityId)),
     holidays: new Set(holidays.filter((holiday) => holiday.deletedAt === null).map((holiday) => holiday.date)),
+    trackerHolidays: trackerHolidays.filter((holiday) => holiday.deletedAt === null).map(({ trackerId, date }) => ({ trackerId, date })),
     timeZone: settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
   }
 }
 
-function eligibleAndSuccessful(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string) {
+function eligibleAndSuccessful(trackers: readonly StoredTrackerDefinition[], entries: readonly StoredTrackerEntry[], holidays: ReadonlySet<string>, date: string, timeZone?: string, trackerHolidays: readonly { trackerId: string; date: string }[] = []) {
   const byTracker = new Map(entries.filter((entry) => entry.date === date).map((entry) => [entry.trackerId, entry]))
   let eligible = 0
   let completed = 0
   for (const tracker of trackers) {
     if (tracker.deletedAt !== null || !['active', 'archived'].includes(tracker.status)) continue
     if (!isTrackerInActivePeriod(tracker, date, timeZone)) continue
-    if (tracker.strictMode !== true && (holidays.has(date) || !isTrackerScheduledOccurrence(tracker, date, timeZone))) continue
-    eligible += 1
     const entry = byTracker.get(tracker.id)
+    const holiday = holidays.has(date) || trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === date)
+    const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+    if (tracker.strictMode !== true && ((holiday && !positiveWork) || !isTrackerScheduledOccurrence(tracker, date, timeZone))) continue
+    eligible += 1
     if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) completed += 1
   }
   return { eligible, completed }
@@ -288,6 +293,7 @@ export function calculateConsistencySummary(input: {
   trackers: readonly StoredTrackerDefinition[]
   entries: readonly StoredTrackerEntry[]
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly { trackerId: string; date: string }[]
   today: string
   timeZone?: string
 }): ConsistencySummary {
@@ -306,7 +312,7 @@ export function calculateConsistencySummary(input: {
   const dailyAdherence: ConsistencySummary['dailyAdherence'] = []
   for (let day = dateValue(lastCompletedDate); day >= dateValue(start) && dailyAdherence.length < 30; day -= 86_400_000) {
     const date = dateText(day)
-    const counts = eligibleAndSuccessful(eligibleTrackers, input.entries, input.holidays ?? new Set(), date, input.timeZone)
+    const counts = eligibleAndSuccessful(eligibleTrackers, input.entries, input.holidays ?? new Set(), date, input.timeZone, input.trackerHolidays)
     if (counts.eligible > 0) dailyAdherence.push({ date, completed: counts.completed, eligible: counts.eligible })
   }
   return {
@@ -399,11 +405,11 @@ export function localProvisional(snapshot: LocalSnapshot, today: string, confirm
   const pendingEntryIds = new Set([...snapshot.pendingEntryIds].filter((id) => !activeCheckInSourceIds.has(id)))
   const rewards = selectProvisionalRewards({
     trackers: snapshot.trackers, entries: snapshot.entries, pendingEntryIds, today,
-    timeZone: snapshot.timeZone, holidays: snapshot.holidays,
+    timeZone: snapshot.timeZone, holidays: snapshot.holidays, trackerHolidays: snapshot.trackerHolidays,
   })
   const dates = new Set(snapshot.entries.filter((entry) => entry.date <= today && pendingEntryIds.has(entry.id)).map((entry) => entry.date))
   for (const date of dates) {
-    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
+    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone, snapshot.trackerHolidays)
     const hasActivePerfectDayAward = confirmedEvents.some((event) => event.reasonCode === 'PERFECT_DAY_BONUS'
       && event.effectiveDate === date && event.xpDelta > 0 && !fullyReversedIds.has(event.id))
     if (counts.eligible > 0 && counts.completed === counts.eligible && !hasActivePerfectDayAward) {
@@ -581,7 +587,7 @@ export async function getNewlyConfirmedRewards(userId: string, since: string): P
 
 export async function getPerfectDayCompletion(userId: string, date: string): Promise<PerfectDayState> {
   const snapshot = await getLocalSnapshot(userId)
-  const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
+  const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone, snapshot.trackerHolidays)
   const today = localCalendarDate(new Date(), snapshot.timeZone)
   const entryIds = new Set(snapshot.entries.filter((entry) => entry.date === date).map((entry) => entry.id))
   const provisional = date <= today && counts.eligible > 0 && counts.eligible === counts.completed && snapshot.entries.some((entry) => entry.date === date && entryIds.has(entry.id) && snapshot.pendingEntryIds.has(entry.id))
@@ -601,7 +607,7 @@ export async function getWeeklyProgressSummary(userId: string, today?: string): 
   const currentDate = today ?? localCalendarDate(new Date(), snapshot.timeZone)
   return Array.from({ length: 7 }, (_, index) => {
     const date = dateText(dateValue(currentDate) - (6 - index) * 86_400_000)
-    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone)
+    const counts = eligibleAndSuccessful(snapshot.trackers, snapshot.entries, snapshot.holidays, date, snapshot.timeZone, snapshot.trackerHolidays)
     return { date, completed: counts.completed, eligible: counts.eligible, adherence: counts.eligible ? Math.round(counts.completed / counts.eligible * 100) : null, isOpen: date === currentDate }
   })
 }

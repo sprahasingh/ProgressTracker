@@ -18,8 +18,8 @@ const entry = (date: string, done: boolean, deletedAt: string | null = null): Tr
   createdAt: `${date}T09:00:00Z`, updatedAt: `${date}T09:00:00Z`, deletedAt,
 })
 const skipped = (date: string): TrackerEntry => ({ ...entry(date, false), outcome: 'skipped', values: {} })
-const state = (date: string, overrides: Partial<TrackerDefinition> = {}, saved?: TrackerEntry, holidays?: string[], today = '2026-10-10') => getTrackerActivityStatus({
-  tracker: { ...baseTracker, ...overrides }, entry: saved, date, today, holidays: new Set(holidays),
+const state = (date: string, overrides: Partial<TrackerDefinition> = {}, saved?: TrackerEntry, holidays?: string[], today = '2026-10-10', trackerHolidays?: string[]) => getTrackerActivityStatus({
+  tracker: { ...baseTracker, ...overrides }, entry: saved, date, today, holidays: new Set(holidays), trackerHolidays: new Set(trackerHolidays),
 })
 function contrast(hexA: string, hexB: string): number {
   const luminance = (hex: string) => {
@@ -61,6 +61,19 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-12', strict)).toBe('upcoming')
     expect(state('2026-10-10', { ...strict, schedule: { kind: 'none' } })).toBe('pending')
     expect(state('2026-10-09', { schedule: { kind: 'none' } })).toBe('rest-day')
+    expect(state('2026-10-09', strict, undefined, undefined, '2026-10-10', ['2026-10-09'])).toBe('missed')
+  })
+
+  it('keeps a Standard holiday until positive work is recorded, then shows the actual outcome', () => {
+    const holiday = ['2026-10-09']
+    expect(state('2026-10-09', {}, undefined, holiday)).toBe('holiday')
+    expect(state('2026-10-09', {}, entry('2026-10-09', false), holiday)).toBe('holiday')
+    expect(state('2026-10-09', {}, skipped('2026-10-09'), holiday)).toBe('holiday')
+    expect(state('2026-10-09', {}, entry('2026-10-09', true), holiday)).toBe('completed')
+    const quantitative = { metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, thresholds: { direction: 'increase' as const, minimum: 2, target: 5, streakQualification: 'minimum' as const } }], qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const } }
+    const positivePartial = { ...entry('2026-10-09', false), values: { pages: 1 } }
+    expect(state('2026-10-09', quantitative, positivePartial, holiday)).toBe('partial')
+    expect(state('2026-10-09', { strictMode: true }, undefined, holiday)).toBe('missed')
   })
 
   it('distinguishes positive partial progress from zero while honoring explicit success rules', () => {

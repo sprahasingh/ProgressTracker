@@ -2,6 +2,7 @@ import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition } from '.
 import { assertCalendarDate, assertDateRange } from '../../db/calendarDate'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerEvaluationHistoryStartDate } from './planning'
 import { calculateStreak, qualifiesForStreak } from './progression'
+import { hasPositiveProgress } from './activityStatus'
 import { trackerStrictModeForDate } from './ruleVersions'
 
 export type MetricObservation = { date: string; value: number }
@@ -59,6 +60,7 @@ export function calculateTrackerAnalytics(
   timeZone?: string,
   historicalEntries: readonly TrackerEntry[] = entries,
   currentStreakAsOfDate: string = endDate,
+  trackerHolidays: readonly { trackerId: string; date: string }[] = [],
 ): TrackerAnalytics {
   assertDateRange(startDate, endDate)
   assertCalendarDate(currentStreakAsOfDate)
@@ -86,7 +88,10 @@ export function calculateTrackerAnalytics(
     const boundedEnd = tracker.deadline && tracker.deadline < endDate ? tracker.deadline : endDate
     for (let time = dateNumber(firstDate); time <= dateNumber(boundedEnd); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
-      const opportunity = trackerStrictModeForDate(tracker, date) ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && !holidays.has(date)
+      const holiday = holidays.has(date) || trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === date)
+      const dayEntry = entryByDate.get(date)
+      const positiveWork = dayEntry?.outcome === 'recorded' && hasPositiveProgress(tracker, dayEntry)
+      const opportunity = trackerStrictModeForDate(tracker, date) ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && (!holiday || positiveWork)
       if (!opportunity) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.
@@ -113,7 +118,7 @@ export function calculateTrackerAnalytics(
   const lifetimeEntries = [...latestHistoryByDate.values()].filter((entry) =>
     entry.deletedAt === null && entry.date <= currentStreakAsOfDate && isTrackerInActivePeriod(tracker, entry.date, timeZone),
   )
-  const streak = calculateStreak(tracker, [...latestHistoryByDate.values()].filter((entry) => entry.deletedAt === null), currentStreakAsOfDate, holidays, timeZone)
+  const streak = calculateStreak(tracker, [...latestHistoryByDate.values()].filter((entry) => entry.deletedAt === null), currentStreakAsOfDate, holidays, timeZone, trackerHolidays)
   return {
     tracker,
     entryCount: trackerEntries.length,

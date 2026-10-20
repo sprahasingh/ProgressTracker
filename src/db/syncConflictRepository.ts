@@ -1,5 +1,5 @@
 import { openDatabase, queueSyncMutation } from './database'
-import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState } from './models'
+import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncConflict, SyncOperation, SyncRecordState, TrackerHoliday } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
 import { normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from '../services/supabase/syncTimestamps'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
@@ -47,7 +47,7 @@ export async function listSyncConflicts(userId: string): Promise<SyncConflict[]>
 export async function resolveSyncConflict(userId: string, conflictId: string, choice: 'keep-local' | 'use-cloud' | 'fork-local'): Promise<void> {
   const database = await openDatabase()
   let queuedLocalChanges = false
-  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.holidayPermanentDeletionRequests, database.trackerVerification], async () => {
+  await database.transaction('rw', [database.workspaceMetadata, database.trackers, database.trackerEntries, database.accountHolidays, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.holidayPermanentDeletionRequests, database.trackerVerification], async () => {
     const metadata = await database.workspaceMetadata.get('workspace')
     if (metadata?.userId !== userId) throw new Error('The open local workspace does not belong to this account.')
     const conflict = await database.syncConflicts.get(conflictId)
@@ -65,11 +65,11 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     const remoteIsOwned = remote?.user_id === userId
     const revision = remoteIsOwned && typeof remote.server_revision === 'number' ? remote.server_revision : null
     const stateKey = `${conflict.entity}:${conflict.entityId}`
-    const supportedEntity = conflict.entity === 'tracker' || conflict.entity === 'tracker_entry' || conflict.entity === 'account_holiday'
+    const supportedEntity = conflict.entity === 'tracker' || conflict.entity === 'tracker_entry' || conflict.entity === 'account_holiday' || conflict.entity === 'tracker_holiday'
     if (!supportedEntity) throw new Error('This record type cannot be resolved by the current sync client.')
 
     if (choice === 'fork-local') {
-      if (conflict.entity === 'account_holiday') throw new Error('A holiday is unique per date and cannot be forked. Choose the local or cloud holiday.')
+      if (conflict.entity === 'account_holiday' || conflict.entity === 'tracker_holiday') throw new Error('A holiday is unique for its date and tracker. Choose the local or cloud holiday.')
       if (remoteIsOwned) throw new Error('A readable cloud record exists. Choose which version to keep instead of creating a duplicate.')
       if (remote !== null) throw new Error('The cloud record cannot be safely inspected. The local copy remains preserved.')
       if (conflict.entity === 'tracker') {
@@ -94,7 +94,15 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
           // Drop its stale snapshot; the server will produce a fresh conflict if needed.
           if (entryConflict) await database.syncConflicts.delete(entryConflict.id)
         }
-      } else {
+        const linkedHolidays = await database.trackerHolidays.where('trackerId').equals(conflict.entityId).toArray()
+        for (const holiday of linkedHolidays) {
+          const forkedHoliday: TrackerHoliday = { ...holiday, trackerId: fork.id, updatedAt: new Date().toISOString() }
+          await database.trackerHolidays.put(forkedHoliday)
+          await clearQueuedOperations(database, userId, 'tracker_holiday', holiday.id)
+          await queueSyncMutation(database, userId, 'tracker_holiday', forkedHoliday)
+          queuedLocalChanges = true
+        }
+      } else if (conflict.entity === 'tracker_entry') {
         const local = await database.trackerEntries.get(conflict.entityId) ?? parseEntry(conflict.localPayload)
         const fork = parseEntry({ ...local, id: crypto.randomUUID(), updatedAt: new Date().toISOString() })
         await clearQueuedOperations(database, userId, 'tracker_entry', conflict.entityId)
@@ -103,7 +111,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         await database.trackerEntries.put(fork)
         await queueSyncMutation(database, userId, 'tracker_entry', fork)
         queuedLocalChanges = true
-      }
+      } else throw new Error('Tracker holidays cannot be forked independently of their tracker.')
       await database.syncConflicts.delete(conflict.id)
       if (holidayDeletionRequest) {
         await database.holidayPermanentDeletionRequests.delete(holidayDeletionRequest.id)
@@ -127,7 +135,7 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
         recordId = cloudEntry.id
         if (recordId !== conflict.entityId) await database.trackerEntries.delete(conflict.entityId)
         await database.trackerEntries.put(cloudEntry)
-      } else {
+      } else if (conflict.entity === 'account_holiday') {
         if (typeof remote.holiday_date !== 'string' || !(remote.reason === null || ['travel', 'exam', 'personal', 'other'].includes(String(remote.reason)))) throw new Error('The cloud holiday is invalid; the local copy remains unchanged.')
         recordId = String(remote.id)
         const cloudDate = remote.holiday_date as AccountHoliday['date']
@@ -139,6 +147,18 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
           await database.syncRecords.delete(`account_holiday:${duplicateDate.id}`)
         }
         await database.accountHolidays.put({ id: String(remote.id), date: remote.holiday_date as AccountHoliday['date'], reason: remote.reason as AccountHoliday['reason'], createdAt: String(remote.created_at), updatedAt: String(remote.updated_at), deletedAt: remote.deleted_at === null ? null : String(remote.deleted_at) })
+      } else {
+        const date = remote.holiday_date
+        const trackerId = remote.tracker_id
+        if (typeof date !== 'string' || typeof trackerId !== 'string') throw new Error('The cloud tracker holiday is invalid; the local copy remains unchanged.')
+        recordId = String(remote.id)
+        const duplicate = await database.trackerHolidays.where('[trackerId+date]').equals([trackerId, date as TrackerHoliday['date']]).first()
+        if (duplicate && duplicate.id !== recordId) {
+          await database.trackerHolidays.delete(duplicate.id)
+          await clearQueuedOperations(database, userId, 'tracker_holiday', duplicate.id)
+          await database.syncRecords.delete(`tracker_holiday:${duplicate.id}`)
+        }
+        await database.trackerHolidays.put({ id: recordId, trackerId, date: date as TrackerHoliday['date'], createdAt: String(remote.created_at), updatedAt: String(remote.updated_at), deletedAt: remote.deleted_at === null ? null : String(remote.deleted_at) })
       }
       await database.syncRecords.put({ key: `${conflict.entity}:${recordId}`, ownerUserId: userId, entity: conflict.entity, entityId: recordId, serverRevision: revision } satisfies SyncRecordState)
       await clearQueuedOperations(database, userId, conflict.entity, conflict.entityId)
@@ -149,14 +169,18 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
     }
 
     if (!remoteIsOwned || revision === null) throw new Error('The cloud record is unavailable or not readable by this account. Both copies remain preserved; use “Save local copy as new” to resolve the ID collision safely.')
-    let payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | undefined
+    let payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday | undefined
     if (existing?.ownerUserId === userId && existing.entityId === conflict.entityId) payload = existing.payload
     if (!payload) payload = conflict.localPayload
     if (conflict.entity === 'tracker') payload = parseTracker(payload)
     else if (conflict.entity === 'tracker_entry') payload = parseEntry(payload)
-    else {
+    else if (conflict.entity === 'account_holiday') {
       const holiday = payload as AccountHoliday
       if (!holiday || holiday.id !== conflict.entityId || !/^\d{4}-\d{2}-\d{2}$/.test(holiday.date)) throw new Error('The local holiday is invalid; both copies remain preserved.')
+    }
+    else if (conflict.entity === 'tracker_holiday') {
+      const holiday = payload as TrackerHoliday
+      if (!holiday || holiday.id !== conflict.entityId || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(holiday.date) || typeof holiday.trackerId !== 'string') throw new Error('The local tracker holiday is invalid; both copies remain preserved.')
     }
     let targetEntityId = conflict.entity === 'tracker_entry' && remote.id !== conflict.entityId ? String(remote.id) : conflict.entityId
     if (conflict.entity === 'account_holiday' && remote.id !== conflict.entityId && remote.holiday_date === (payload as AccountHoliday).date) {
@@ -168,6 +192,19 @@ export async function resolveSyncConflict(userId: string, conflictId: string, ch
       if (duplicateDate && duplicateDate.id !== targetEntityId) await database.accountHolidays.delete(duplicateDate.id)
       const rebased: AccountHoliday = { ...holiday, id: targetEntityId }
       await database.accountHolidays.put(rebased)
+      payload = rebased
+    }
+    if (conflict.entity === 'tracker_holiday' && remote.id !== conflict.entityId && remote.tracker_id === (payload as TrackerHoliday).trackerId && remote.holiday_date === (payload as TrackerHoliday).date) {
+      const holiday = payload as TrackerHoliday
+      targetEntityId = String(remote.id)
+      const duplicate = await database.trackerHolidays.where('[trackerId+date]').equals([holiday.trackerId, holiday.date]).first()
+      if (duplicate && duplicate.id !== targetEntityId) {
+        await database.trackerHolidays.delete(duplicate.id)
+        await clearQueuedOperations(database, userId, 'tracker_holiday', duplicate.id)
+        await database.syncRecords.delete(`tracker_holiday:${duplicate.id}`)
+      }
+      const rebased: TrackerHoliday = { ...holiday, id: targetEntityId }
+      await database.trackerHolidays.put(rebased)
       payload = rebased
     }
     await database.syncRecords.put({ key: `${conflict.entity}:${targetEntityId}`, ownerUserId: userId, entity: conflict.entity, entityId: targetEntityId, serverRevision: revision } satisfies SyncRecordState)

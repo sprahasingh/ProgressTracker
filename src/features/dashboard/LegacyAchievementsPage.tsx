@@ -17,7 +17,7 @@ import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { TrackerFilter, useTrackerFilter } from '../shared/TrackerFilter'
 import { InfoButton } from '../../components/ui/InfoButton'
 
-type AchievementData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
+type AchievementData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[]; trackerHolidays: Array<{ trackerId: string; date: string }> }
 
 export function LegacyAchievementsPage() {
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
@@ -25,7 +25,7 @@ export function LegacyAchievementsPage() {
   const workspaceReady = !sessionTransitionPending && status !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === owner
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
-  const [data, setData] = useState<AchievementData>({ trackers: [], entries: [], holidays: [] })
+  const [data, setData] = useState<AchievementData>({ trackers: [], entries: [], holidays: [], trackerHolidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const refreshGeneration = useRef(0)
@@ -39,12 +39,13 @@ export function LegacyAchievementsPage() {
         const anchor = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return anchor < date ? anchor : date
       }, today)
-      const [entries, holidays] = await Promise.all([
+      const [entries, holidays, trackerHolidays] = await Promise.all([
         trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
         localRepository.listAccountHolidays(earliest, today),
+        localRepository.listTrackerHolidays(earliest, today),
       ])
       const trackerIds = new Set(trackers.map((tracker) => tracker.id))
-      if (refreshGeneration.current === generation) setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
+      if (refreshGeneration.current === generation) setData({ trackers, entries: entries.filter((entry) => trackerIds.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date), trackerHolidays: trackerHolidays.map(({ trackerId, date }) => ({ trackerId, date })) })
     } catch {
       if (refreshGeneration.current === generation) setError('Your achievements could not be loaded from this device.')
     } finally {
@@ -59,11 +60,11 @@ export function LegacyAchievementsPage() {
   const visibleTrackers = selectedTracker ? [selectedTracker] : data.trackers
   const achievements = useMemo(() => visibleTrackers.map((tracker) => {
     const history = data.entries.filter((entry) => entry.trackerId === tracker.id)
-    const streak = calculateStreak(tracker, history, today, new Set(data.holidays), timeZone)
+    const streak = calculateStreak(tracker, history, today, new Set(data.holidays), timeZone, data.trackerHolidays)
     const rewards = calculateProgressRewards(streak)
     const nextMilestone = DEFAULT_REWARD_POLICY.streakMilestones.find((milestone) => milestone > streak.longest)
     return { tracker, streak, rewards, nextMilestone }
-  }), [visibleTrackers, data.entries, data.holidays, today, timeZone])
+  }), [visibleTrackers, data.entries, data.holidays, data.trackerHolidays, today, timeZone])
   const totalPoints = achievements.reduce((sum, item) => sum + item.rewards.totalPoints, 0)
   const totalQualifiedEntries = achievements.reduce((sum, item) => sum + item.rewards.qualifyingEntries, 0)
   const totalMilestones = achievements.reduce((sum, item) => sum + item.rewards.earnedMilestones.length, 0)

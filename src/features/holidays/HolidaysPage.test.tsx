@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { HolidaysPage } from './HolidaysPage'
 
-const mocks = vi.hoisted(() => ({ listAccountHolidays: vi.fn(), listPermanentHolidayDeletionRequests: vi.fn(), restoreAccountHoliday: vi.fn(), updateAccountHoliday: vi.fn(), requestPermanentHolidayDeletion: vi.fn(), removeAccountHoliday: vi.fn(), syncNow: vi.fn(), auth: { status: 'local-only', user: null as { id: string } | null, workspaceStatus: 'ready', workspaceUserId: null as string | null, sessionTransitionPending: false, isOnline: true } }))
+const mocks = vi.hoisted(() => ({ listAccountHolidays: vi.fn(), listTrackerHolidays: vi.fn().mockResolvedValue([]), listTrackers: vi.fn().mockResolvedValue([]), saveTrackerHoliday: vi.fn(), setTrackerHolidaySelections: vi.fn().mockResolvedValue(undefined), removeTrackerHoliday: vi.fn(), listPermanentHolidayDeletionRequests: vi.fn(), restoreAccountHoliday: vi.fn(), updateAccountHoliday: vi.fn(), requestPermanentHolidayDeletion: vi.fn(), removeAccountHoliday: vi.fn(), syncNow: vi.fn(), auth: { status: 'local-only', user: null as { id: string } | null, workspaceStatus: 'ready', workspaceUserId: null as string | null, sessionTransitionPending: false, isOnline: true } }))
 vi.mock('../../db/localRepository', () => ({ localRepository: mocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ ...mocks.auth, syncNow: mocks.syncNow }) }))
 vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({ timeZone: 'UTC' }) }))
@@ -15,6 +15,8 @@ const removedHoliday = { id: 'removed-holiday', date: '2026-10-10' as const, rea
 beforeEach(() => {
   mocks.auth = { status: 'local-only', user: null, workspaceStatus: 'ready', workspaceUserId: null, sessionTransitionPending: false, isOnline: true }
   mocks.listAccountHolidays.mockImplementation((_start, _end, includeDeleted) => Promise.resolve(includeDeleted ? [] : []))
+  mocks.listTrackerHolidays.mockResolvedValue([])
+  mocks.listTrackers.mockResolvedValue([])
   mocks.listPermanentHolidayDeletionRequests.mockResolvedValue([])
   mocks.restoreAccountHoliday.mockResolvedValue(undefined)
   mocks.updateAccountHoliday.mockResolvedValue(undefined)
@@ -33,12 +35,95 @@ describe('Manage Holidays', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /Holidays & Breaks/ })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'About holidays' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'More about Holidays & Breaks' }))
-    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Standard Mode pauses scheduled tracker check-ins')
-    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Strict Mode still expects activity')
-    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Saved check-ins are preserved')
-    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Goal plans follow their own schedule')
+    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Global holidays apply across your workspace')
+    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Strict Mode trackers cannot be selected')
+    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('clearing the check-in restores its holiday status')
+    expect(screen.getByRole('dialog', { name: 'Holidays & Breaks' })).toHaveTextContent('Goal plans keep their existing holiday rules')
     expect(container.querySelector('.calendar-legend')).not.toBeInTheDocument()
     expect(screen.queryByText(/Blue · Holiday/)).not.toBeInTheDocument()
+  })
+
+  it('offers multi-select only for Standard Mode trackers and saves their IDs offline-first', async () => {
+    const standard = { id: 'standard-tracker', name: 'Reading', status: 'active', deletedAt: null, strictMode: false }
+    const second = { id: 'second-standard-tracker', name: 'Writing', status: 'active', deletedAt: null, strictMode: false }
+    const strict = { id: 'strict-tracker', name: 'Daily coding', status: 'active', deletedAt: null, strictMode: true }
+    mocks.auth = { status: 'signed-in', user: { id: 'holiday-owner' }, workspaceStatus: 'ready', workspaceUserId: 'holiday-owner', sessionTransitionPending: false, isOnline: true }
+    mocks.listAccountHolidays.mockResolvedValue([])
+    mocks.listTrackers.mockResolvedValue([standard, second, strict])
+    const user = userEvent.setup()
+    render(<MemoryRouter><ToastProvider><HolidaysPage /></ToastProvider></MemoryRouter>)
+
+    await screen.findByRole('radio', { name: 'Selected trackers' })
+    await user.click(screen.getByRole('radio', { name: 'Selected trackers' }))
+    const picker = screen.getByRole('group', { name: 'Choose Standard Mode trackers' })
+    expect(within(picker).getByLabelText('Reading')).toBeInTheDocument()
+    expect(within(picker).getByLabelText('Writing')).toBeInTheDocument()
+    expect(within(picker).queryByLabelText('Daily coding')).not.toBeInTheDocument()
+    await user.click(within(picker).getByLabelText('Reading'))
+    await user.click(within(picker).getByLabelText('Writing'))
+    await user.click(screen.getByRole('button', { name: 'Mark holiday' }))
+    await waitFor(() => expect(mocks.setTrackerHolidaySelections).toHaveBeenCalledWith([{ date: expect.any(String), trackerIds: [standard.id, second.id] }]))
+    expect(mocks.syncNow).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'More about Holidays & Breaks' })).toBeInTheDocument()
+  })
+
+  it('explains holiday scope and effective work rules in the accessible info popover', async () => {
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<MemoryRouter><ToastProvider><HolidaysPage /></ToastProvider></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: 'Explain holiday scope' }))
+    const dialog = screen.getByRole('dialog', { name: 'Apply holiday to' })
+    expect(dialog).toHaveTextContent('All trackers creates a global holiday, but only Standard Mode requirements are excused.')
+    expect(dialog).toHaveTextContent('Selected trackers applies only to chosen Standard Mode trackers.')
+    expect(dialog).toHaveTextContent('Strict Mode trackers cannot receive holiday exemptions and continue following their normal requirements.')
+    expect(dialog).toHaveTextContent('Positive recorded progress overrides the holiday for that tracker and date.')
+    expect(dialog).toHaveTextContent('Clearing that check-in restores the holiday.')
+    await user.click(within(dialog).getByRole('button', { name: 'Close explanation' }))
+    expect(screen.queryByRole('dialog', { name: 'Apply holiday to' })).not.toBeInTheDocument()
+  })
+
+  it('preserves selected tracker IDs when editing and allows adding another tracker', async () => {
+    const first = { id: 'selected-first', name: 'Reading', status: 'active', deletedAt: null, strictMode: false }
+    const second = { id: 'selected-second', name: 'Writing', status: 'active', deletedAt: null, strictMode: false }
+    const strict = { id: 'selected-strict', name: 'Daily coding', status: 'active', deletedAt: null, strictMode: true }
+    const selected = { id: 'selected-holiday', trackerId: first.id, date: '2026-10-10', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', deletedAt: null }
+    mocks.listTrackers.mockResolvedValue([first, second, strict])
+    mocks.listTrackerHolidays.mockResolvedValue([selected])
+    const user = userEvent.setup()
+    render(<MemoryRouter><ToastProvider><HolidaysPage /></ToastProvider></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: 'More actions for selected holiday 2026-10-10' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Edit holiday' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit holiday' })
+    const picker = within(dialog).getByRole('group', { name: 'Choose Standard Mode trackers' })
+    expect(within(dialog).getByRole('radio', { name: 'Selected trackers' })).toBeChecked()
+    expect(within(picker).getByLabelText('Reading')).toBeChecked()
+    expect(within(picker).queryByLabelText('Daily coding')).not.toBeInTheDocument()
+    await user.click(within(picker).getByLabelText('Writing'))
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mocks.setTrackerHolidaySelections).toHaveBeenCalledWith([{ date: selected.date, trackerIds: [first.id, second.id] }]))
+  })
+
+  it('requires an explicit scope change when converting a global holiday to selected trackers', async () => {
+    const active = { ...removedHoliday, deletedAt: null }
+    const standard = { id: 'convert-standard', name: 'Reading', status: 'active', deletedAt: null, strictMode: false }
+    mocks.listAccountHolidays.mockImplementation((_start, _end, includeDeleted) => Promise.resolve(includeDeleted ? [active] : [active]))
+    mocks.listTrackers.mockResolvedValue([standard])
+    const user = userEvent.setup()
+    render(<MemoryRouter><ToastProvider><HolidaysPage /></ToastProvider></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: 'More actions for 2026-10-10' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Edit holiday' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit holiday' })
+    await user.click(within(dialog).getByRole('radio', { name: 'Selected trackers' }))
+    const picker = within(dialog).getByRole('group', { name: 'Choose Standard Mode trackers' })
+    await user.click(within(picker).getByLabelText('Reading'))
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mocks.setTrackerHolidaySelections).toHaveBeenCalledWith([{ date: active.date, trackerIds: [standard.id] }]))
+    expect(mocks.removeAccountHoliday).toHaveBeenCalledWith(active.date)
   })
 
   it('shows a read-only active holiday card and exposes Edit and Remove in its menu', async () => {

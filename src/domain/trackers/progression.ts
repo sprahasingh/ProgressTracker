@@ -2,6 +2,7 @@ import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerR
 import { activeTrackerMetrics } from './types'
 import { classifyAchievement, evaluateQualificationRule, evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerCreationDate, trackerEvaluationHistoryStartDate } from './planning'
 import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersions'
+import { hasPositiveProgress } from './activityStatus'
 
 export type StreakResult = {
   asOfDate: string
@@ -34,6 +35,7 @@ export const DEFAULT_REWARD_POLICY: Readonly<RewardPolicy> = {
 export type ProgressionOpportunityState = 'qualified' | 'failed' | 'pending' | 'neutral' | 'future' | 'outside-period' | 'inactive'
 export type TrackerProgressionDay = { trackerId: string; date: string; state: ProgressionOpportunityState; required: boolean }
 export type AccountDayQualification = 'perfect' | 'failed' | 'pending' | 'neutral' | 'future' | 'unsupported'
+export type TrackerHolidayDate = { trackerId: string; date: string }
 
 /** Daily Perfect Day qualification mirrors the server's configured success rule, not streak thresholds. */
 export function evaluateAllTrackersPerfectDay(input: {
@@ -42,6 +44,7 @@ export function evaluateAllTrackersPerfectDay(input: {
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly TrackerHolidayDate[]
   timeZone?: string
 }): { date: string; state: AccountDayQualification; eligibleTrackerIds: string[]; failedTrackerIds: string[]; pendingTrackerIds: string[] } {
   parseDate(input.date)
@@ -50,7 +53,10 @@ export function evaluateAllTrackersPerfectDay(input: {
     if (tracker.deletedAt !== null || !['active', 'archived', 'completed'].includes(tracker.status)) return false
     if (tracker.status === 'archived' && tracker.archivedAt && input.date > tracker.archivedAt.slice(0, 10)) return false
     if (!isTrackerInActivePeriod(tracker, input.date, input.timeZone)) return false
-    return trackerStrictModeForDate(tracker, input.date) || (!input.holidays?.has(input.date) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
+    const entry = input.entries.find((candidate) => candidate.trackerId === tracker.id && candidate.date === input.date && candidate.deletedAt === null)
+    const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+    const holiday = Boolean(input.holidays?.has(input.date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === input.date))
+    return trackerStrictModeForDate(tracker, input.date) || ((!holiday || positiveWork) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
   })
   const reliableFrom = input.trackers.filter((tracker) => tracker.deletedAt === null && ['active', 'archived', 'completed'].includes(tracker.status))
     .map((tracker) => {
@@ -95,6 +101,7 @@ export function evaluateTrackerProgressionDay(input: {
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly TrackerHolidayDate[]
   timeZone?: string
 }): TrackerProgressionDay {
   const { tracker, date, today } = input
@@ -108,7 +115,9 @@ export function evaluateTrackerProgressionDay(input: {
   if (tracker.status !== 'active' && tracker.status !== 'archived' && tracker.status !== 'completed') return { trackerId: tracker.id, date, state: 'inactive', required: false }
 
   const strict = trackerStrictModeForDate(tracker, date)
-  const neutral = !strict && (input.holidays?.has(date) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))
+  const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+  const holiday = Boolean(input.holidays?.has(date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === date))
+  const neutral = !strict && ((holiday && !positiveWork) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))
   // Existing saved activity remains visible, but an ineligible date never earns progression.
   if (neutral) return { trackerId: tracker.id, date, state: 'neutral', required: false }
   if (entry?.outcome === 'skipped') return { trackerId: tracker.id, date, state: 'failed', required: true }
@@ -126,6 +135,7 @@ export function evaluateAllTrackersDay(input: {
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly TrackerHolidayDate[]
   timeZone?: string
 }): { date: string; state: AccountDayQualification; requiredTrackerIds: string[]; failedTrackerIds: string[]; pendingTrackerIds: string[] } {
   const results = input.trackers
@@ -161,6 +171,7 @@ export function calculateAllTrackersStreak(input: {
   entries: readonly TrackerEntry[]
   asOfDate: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly TrackerHolidayDate[]
   timeZone?: string
 }): AccountStreakResult {
   const relevant = input.trackers.filter((tracker) => (tracker.status === 'active' || tracker.status === 'archived' || tracker.status === 'completed') && tracker.deletedAt === null)
@@ -203,6 +214,7 @@ export function evaluatePerfectPeriod(input: {
   endDate: string
   today: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly TrackerHolidayDate[]
   timeZone?: string
 }): PerfectPeriodResult {
   const start = parseDate(input.startDate)
@@ -297,7 +309,7 @@ export function qualifiesForStreak(tracker: TrackerDefinition, entry: TrackerEnt
   return qualifiesForLegacyStreak(tracker, entry)
 }
 
-function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string): Array<{ date: string; state: ProgressionOpportunityState }> {
+function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string>, timeZone?: string, trackerHolidays: readonly TrackerHolidayDate[] = []): Array<{ date: string; state: ProgressionOpportunityState }> {
   const end = parseDate(asOfDate)
   const byDate = new Map<string, TrackerEntry>()
   for (const entry of entries) {
@@ -314,7 +326,7 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
   for (let time = start; time <= end; time += DAY_MS) {
     const date = dateText(time)
     const entry = byDate.get(date)
-    const result = evaluateTrackerProgressionDay({ tracker, entries: entry ? [entry] : [], date, today: asOfDate, holidays, timeZone })
+    const result = evaluateTrackerProgressionDay({ tracker, entries: entry ? [entry] : [], date, today: asOfDate, holidays, trackerHolidays, timeZone })
     occurrences.push({ date, state: result.state })
   }
   return occurrences
@@ -325,9 +337,9 @@ function buildOccurrences(tracker: TrackerDefinition, entries: readonly TrackerE
  * run: they neither add to it nor reset it. A missed scheduled occurrence
  * resets the current run, not the personal best.
  */
-export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): StreakResult {
+export function calculateStreak(tracker: TrackerDefinition, entries: readonly TrackerEntry[], asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string, trackerHolidays: readonly TrackerHolidayDate[] = []): StreakResult {
   parseDate(asOfDate)
-  const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays, timeZone)
+  const occurrences = buildOccurrences(tracker, entries, asOfDate, holidays, timeZone, trackerHolidays)
   let longest = 0
   let run = 0
   let qualifyingCount = 0
@@ -356,10 +368,10 @@ export function calculateStreak(tracker: TrackerDefinition, entries: readonly Tr
 }
 
 /** Returns the first local date on which this tracker ever reached a streak length. */
-export function firstDateAtStreakLength(tracker: TrackerDefinition, entries: readonly TrackerEntry[], target: number, asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string): string | null {
+export function firstDateAtStreakLength(tracker: TrackerDefinition, entries: readonly TrackerEntry[], target: number, asOfDate: string, holidays: ReadonlySet<string> = new Set(), timeZone?: string, trackerHolidays: readonly TrackerHolidayDate[] = []): string | null {
   if (!Number.isSafeInteger(target) || target <= 0) throw new RangeError('Streak target must be a positive whole number.')
   let run = 0
-  for (const occurrence of buildOccurrences(tracker, entries, asOfDate, holidays, timeZone)) {
+  for (const occurrence of buildOccurrences(tracker, entries, asOfDate, holidays, timeZone, trackerHolidays)) {
     if (occurrence.state === 'qualified') {
       run += 1
       if (run >= target) return occurrence.date

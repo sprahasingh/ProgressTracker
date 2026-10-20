@@ -2,7 +2,9 @@ import type { ActivityStatus } from './activityStatus'
 
 /** Combines per-tracker outcomes for the calendar's All Trackers indicator. */
 export function getDailyActivityStatus(statuses: readonly ActivityStatus[], holiday = false): ActivityStatus {
-  if (holiday) return 'holiday'
+  // A workspace holiday is an exemption input, not the day's outcome. Each
+  // tracker's effective status already accounts for its mode and saved work.
+  void holiday
 
   const completed = statuses.filter((status) => status === 'completed').length
   const partial = statuses.includes('partial')
@@ -21,6 +23,7 @@ export function getDailyActivityStatus(statuses: readonly ActivityStatus[], holi
   if (statuses.includes('historical')) return 'historical'
   if (statuses.includes('outside-period')) return 'outside-period'
   if (statuses.includes('inactive')) return 'inactive'
+  if (statuses.includes('holiday')) return 'holiday'
   if (statuses.length === 0 || statuses.every((status) => status === 'no-trackers')) return 'no-trackers'
   return 'rest-day'
 }

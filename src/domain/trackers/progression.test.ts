@@ -30,6 +30,18 @@ describe('streak calculation', () => {
     expect(result).toMatchObject({ current: 2, longest: 2, scheduledCount: 2, missedCount: 0 })
   })
 
+  it('lets positive Standard Mode holiday work count and keeps zero, skip, and cleared dates neutral', () => {
+    const definition = tracker({ startDate: '2026-01-01' })
+    const holidays = new Set(['2026-01-02'])
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [entry('2026-01-02')], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('qualified')
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [entry('2026-01-02', { pages: 0 })], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('neutral')
+    const skipped = { ...entry('2026-01-02'), outcome: 'skipped' as const, values: {} }
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [skipped], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('neutral')
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('neutral')
+    const strict = tracker({ startDate: '2026-01-01', strictMode: true })
+    expect(evaluateTrackerProgressionDay({ tracker: strict, entries: [], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('failed')
+  })
+
   it('resets current streak after misses or skips while preserving the personal best', () => {
     const missed = calculateStreak(tracker(), [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-04')], '2026-01-04')
     expect(missed).toMatchObject({ current: 1, longest: 2, missedCount: 1 })
@@ -312,7 +324,7 @@ describe('shared progression day evaluator', () => {
     }
   })
 
-  it('requires every date of a 365 or 366 day year and rejects neutral, missed, and holiday dates', () => {
+  it('requires every date of a 365 or 366 day year and treats positive holiday work as an eligible date', () => {
     for (const { start, days } of [{ start: '2025-01-01', days: 365 }, { start: '2024-01-01', days: 366 }]) {
       const from = Date.parse(`${start}T00:00:00.000Z`)
       const dates = Array.from({ length: days }, (_, index) => new Date(from + index * 86_400_000).toISOString().slice(0, 10))
@@ -323,7 +335,7 @@ describe('shared progression day evaluator', () => {
       expect(evaluatePerfectPeriod({ trackers: [periodTracker], entries: dates.slice(1).map((date) => entry(date)), startDate: start, endDate: end, today })).toMatchObject({ state: 'failed', qualifyingDates: days - 1 })
     }
     const weekEntries = Array.from({ length: 7 }, (_, index) => entry(`2026-01-${String(index + 5).padStart(2, '0')}`))
-    expect(evaluatePerfectPeriod({ trackers: [tracker()], entries: weekEntries, startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12', holidays: new Set(['2026-01-08']) }).state).toBe('failed')
+    expect(evaluatePerfectPeriod({ trackers: [tracker()], entries: weekEntries, startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12', holidays: new Set(['2026-01-08']) }).state).toBe('qualified')
     expect(evaluatePerfectPeriod({ trackers: [tracker({ schedule: { kind: 'specific-dates', dates: ['2026-01-05'] } })], entries: [entry('2026-01-05')], startDate: '2026-01-05', endDate: '2026-01-11', today: '2026-01-12' }).state).toBe('failed')
   })
 

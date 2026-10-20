@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   listTrackers: vi.fn(),
   listTrackerEntriesBetween: vi.fn(),
   listAccountHolidays: vi.fn(),
+  listTrackerHolidays: vi.fn(),
   auth: { isOnline: true, syncStatus: 'complete' as string },
 }))
 
@@ -36,6 +37,7 @@ vi.mock('../../db/localRepository', () => ({ localRepository: {
   listTrackers: mocks.listTrackers,
   listTrackerEntriesBetween: mocks.listTrackerEntriesBetween,
   listAccountHolidays: mocks.listAccountHolidays,
+  listTrackerHolidays: mocks.listTrackerHolidays,
 } }))
 vi.mock('../../db/useWorkspaceDataChanges', async (importOriginal) => await importOriginal())
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({
@@ -97,6 +99,7 @@ beforeEach(() => {
   mocks.listTrackers.mockResolvedValue([tracker])
   mocks.listTrackerEntriesBetween.mockResolvedValue([entry])
   mocks.listAccountHolidays.mockResolvedValue([])
+  mocks.listTrackerHolidays.mockResolvedValue([])
 })
 
 afterEach(() => { cleanup(); injectedStylesheet?.remove(); injectedStylesheet = null; vi.unstubAllEnvs(); vi.clearAllMocks() })

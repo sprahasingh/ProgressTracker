@@ -115,7 +115,7 @@ alter table public.tracker_entries enable trigger user;
 alter table public.trackers enable trigger user;
 
 select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000420', (select month_start from extended_badge_fixture_dates)), true, 'a complete month with every calendar date confirmed qualifies');
-select ok(not public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select month_start from extended_badge_fixture_dates)), 'a Standard Mode holiday cannot satisfy a required Perfect Month date');
+select ok(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select month_start from extended_badge_fixture_dates)), 'positive recorded work overrides a Standard Mode holiday for Perfect Month eligibility');
 select is(public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000424', (select older_month_start from extended_badge_fixture_dates)), true, 'a holiday in one month does not disqualify a different month');
 select ok(not public.progression_perfect_month_qualifies('00000000-0000-4000-8000-000000000420', date_trunc('month', current_date::timestamp)::date), 'the still-open current month is never awarded');
 select ok(public.progression_perfect_week_qualifies('00000000-0000-4000-8000-000000000420', date_trunc('week', (select older_month_start::timestamp + interval '7 days' from extended_badge_fixture_dates))::date), 'a completed Monday-based week with all seven dates confirmed qualifies');
@@ -132,7 +132,7 @@ select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000
 select public.reconcile_progression_achievements('00000000-0000-4000-8000-000000000423');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-month' and event_type='unlocked'), 2::bigint, 'two qualified months create separate Perfect Month events');
 select is((select current_tier from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-month'), 2, 'Perfect Month progress records the repeatable earned count');
-select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000424' and achievement_id='perfect-month' and event_type='unlocked'), 1::bigint, 'only the month without a Standard Mode holiday earns Perfect Month');
+select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000424' and achievement_id='perfect-month' and event_type='unlocked'), 2::bigint, 'positive work on the holiday allows both complete months to earn Perfect Month');
 select ok((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000000420' and achievement_id='perfect-week' and event_type='unlocked') > 0, 'completed qualifying weeks create repeatable Perfect Week events');
 create temporary table perfect_week_retry_count on commit drop as
 select count(*)::integer as event_count from public.progression_achievement_events
