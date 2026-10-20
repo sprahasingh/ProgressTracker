@@ -27,11 +27,11 @@ describe('global holidays', () => {
     expect(result).toMatchObject({ current: 2, longest: 2, qualifyingCount: 2, scheduledCount: 2, missedCount: 0 })
   })
 
-  it('pauses a streak across consecutive scheduled holidays without counting holiday activity', () => {
+  it('counts qualifying saved work on holidays while pausing dates without work', () => {
     const holidays = new Set(['2026-03-09', '2026-03-10'])
     const entries = [entry('2026-03-06', 10), entry('2026-03-09', 30), entry('2026-03-10', 30), entry('2026-03-11', 10)]
     expect(calculateStreak(daily, entries, '2026-03-11', holidays)).toMatchObject({
-      current: 2, longest: 2, qualifyingCount: 2, scheduledCount: 2, missedCount: 0,
+      current: 4, longest: 4, qualifyingCount: 4, scheduledCount: 4, missedCount: 0,
     })
     expect(calculateStreak(daily, entries, '2026-03-10', holidays)).toMatchObject({ current: 1, scheduledCount: 1, missedCount: 0 })
   })
