@@ -16,9 +16,9 @@ describe('AI Help knowledge helpers', () => {
     expect(next.some(({ id }) => first.some((entry) => entry.id === id))).toBe(false)
   })
   it('resolves every catalog ID to its matching canonical answer and version', async () => {
-    expect(verifiedQuestionCatalog).toHaveLength(108)
+    expect(verifiedQuestionCatalog).toHaveLength(111)
     expect(new Set(verifiedQuestionCatalog.map(({ id }) => id)).size).toBe(verifiedQuestionCatalog.length)
-    expect(verifiedQuestionCatalog.filter(({ suggestible }) => suggestible)).toHaveLength(106)
+    expect(verifiedQuestionCatalog.filter(({ suggestible }) => suggestible)).toHaveLength(109)
     for (const entry of verifiedQuestionCatalog) {
       await expect(getCatalogAnswer(entry.id)).resolves.toMatchObject({ id: entry.id, question: entry.question, answer: entry.answer, knowledgeVersion: capabilityVersion })
     }
