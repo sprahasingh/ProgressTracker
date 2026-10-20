@@ -6,7 +6,7 @@ import { localRepository } from '../../db/localRepository'
 import { publishPermanentDeletionNotification } from '../permanentDeletionNotifications'
 import { publishWorkspaceDataChange, publishWorkspaceProgressionConfirmed, publishWorkspaceSyncCompleted } from '../../db/workspaceMutationEvents'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
-import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState } from '../../db/models'
+import type { AccountHoliday, StoredTrackerDefinition, StoredTrackerEntry, SyncOperation, SyncRecordState, TrackerHoliday } from '../../db/models'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../../domain/trackers/schema'
 import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { getSupabaseClient } from './client'
@@ -21,7 +21,8 @@ import { isNetworkFailure, isUnsupportedSchemaFailure, reportTrackerWriteDiagnos
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerHoliday = { id: string; user_id: string; holiday_date: string; reason: AccountHoliday['reason']; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
-type OperationResult = { status: 'applied' | 'conflict' | 'permanently_deleted'; record: ServerTracker | ServerEntry | ServerHoliday | null; holiday_id?: string; permanently_deleted_at?: string }
+type ServerTrackerHoliday = { id: string; user_id: string; tracker_id: string; holiday_date: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
+type OperationResult = { status: 'applied' | 'conflict' | 'permanently_deleted'; record: ServerTracker | ServerEntry | ServerHoliday | ServerTrackerHoliday | null; holiday_id?: string; permanently_deleted_at?: string }
 type SyncClient = Pick<SupabaseClient, 'auth'> & {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string; details?: string; hint?: string } | null }>
   from: (table: string) => any
@@ -32,7 +33,7 @@ const pageSize = 200
 const inFlightByUser = new Map<string, Promise<SyncSummary>>()
 let syncQueue: Promise<void> = Promise.resolve()
 
-function keyFor(entity: 'tracker' | 'tracker_entry' | 'account_holiday', id: string) { return `${entity}:${id}` }
+function keyFor(entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday', id: string) { return `${entity}:${id}` }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Sync could not complete. Your local records are retained.' }
 
 class PermanentDeletionRejectedError extends Error {}
@@ -48,6 +49,10 @@ function toServerPayload(operation: SyncOperation): Record<string, unknown> {
   if (operation.entity === 'account_holiday') {
     const holiday = operation.payload as AccountHoliday
     return { id: holiday.id, holiday_date: holiday.date, reason: holiday.reason, created_at: holiday.createdAt, updated_at: holiday.updatedAt, deleted_at: holiday.deletedAt }
+  }
+  if (operation.entity === 'tracker_holiday') {
+    const holiday = operation.payload as TrackerHoliday
+    return { id: holiday.id, tracker_id: holiday.trackerId, holiday_date: holiday.date, created_at: holiday.createdAt, updated_at: holiday.updatedAt, deleted_at: holiday.deletedAt }
   }
   const entry = trackerEntrySchema.parse(normalizeTrackerEntryTimestamps(operation.payload))
   return { id: entry.id, tracker_id: entry.trackerId, entry_date: entry.date, outcome: entry.outcome, entry_values: entry.values, note: entry.note, created_at: entry.createdAt, updated_at: entry.updatedAt, deleted_at: entry.deletedAt }
@@ -132,12 +137,13 @@ async function markInFlight(database: ProgressTrackerDatabase, operationId: stri
 
 async function recordQueuedConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null, reason: string) {
   const ownerUserId = operation.ownerUserId
-  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday'
+  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'
   if (!ownerUserId) throw new Error('This queued operation has no authenticated owner.')
   let localPayload = operation.payload
   if (operation.entity === 'tracker') localPayload = await database.trackers.get(operation.entityId) ?? localPayload
   else if (operation.entity === 'tracker_entry') localPayload = await database.trackerEntries.get(operation.entityId) ?? localPayload
   else if (operation.entity === 'account_holiday') localPayload = await database.accountHolidays.get(operation.entityId) ?? localPayload
+  else if (operation.entity === 'tracker_holiday') localPayload = await database.trackerHolidays.get(operation.entityId) ?? localPayload
   const queued = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([ownerUserId, entity, operation.entityId]).toArray()
   for (const sibling of queued) {
     if (sibling.id !== operation.id && sibling.status !== 'blocked' && sibling.status !== 'superseded' && sibling.status !== 'discarded') await database.syncOperations.delete(sibling.id)
@@ -148,7 +154,7 @@ async function recordQueuedConflict(database: ProgressTrackerDatabase, operation
 }
 
 async function markConflict(database: ProgressTrackerDatabase, operation: SyncOperation, remoteRecord: Record<string, unknown> | null, reason = 'The cloud record changed since this device last read it.') {
-  await database.transaction('rw', [database.syncOperations, database.syncConflicts, database.trackers, database.trackerEntries, database.accountHolidays], async () => {
+  await database.transaction('rw', [database.syncOperations, database.syncConflicts, database.trackers, database.trackerEntries, database.accountHolidays, database.trackerHolidays], async () => {
     await recordQueuedConflict(database, operation, remoteRecord, reason)
   })
 }
@@ -159,12 +165,12 @@ function isPermanentWriteRejection(code: string | undefined): boolean {
 
 function reportUnsupportedSyncSchema(operation: SyncOperation): void {
   const schemaVersion = operation.entity === 'tracker' ? (operation.payload as StoredTrackerDefinition | undefined)?.schemaVersion : undefined
-  reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'payload-validation', ...(schemaVersion ? { schemaVersion } : {}), entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' })
+  reportTrackerWriteDiagnostic({ category: 'unsupported-schema-version', phase: 'payload-validation', ...(schemaVersion ? { schemaVersion } : {}), entity: operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday' })
 }
 
-async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday) {
+async function acknowledge(database: ProgressTrackerDatabase, operation: SyncOperation, record: ServerTracker | ServerEntry | ServerHoliday | ServerTrackerHoliday) {
   const ownerUserId = operation.ownerUserId
-  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday'
+  const entity = operation.entity as 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'
   if (!ownerUserId) throw new Error('This queued operation has no authenticated owner.')
   const revision: SyncRecordState = { key: keyFor(entity, operation.entityId), ownerUserId, entity, entityId: operation.entityId, serverRevision: record.server_revision }
   await database.transaction('rw', [database.syncOperations, database.syncRecords, database.trackerVerification, database.trackers], async () => {
@@ -371,7 +377,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
   return { deleted, failed, conflicts }
 }
 
-async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday', heldTrackerIds: ReadonlySet<string> = new Set()): Promise<{ uploaded: number; conflicts: number; failed: number }> {
+async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday', heldTrackerIds: ReadonlySet<string> = new Set()): Promise<{ uploaded: number; conflicts: number; failed: number }> {
   const allOperations = await database.syncOperations.where('ownerUserId').equals(userId).toArray()
   const candidates = allOperations
     .filter((operation) => operation.entity === entity && operation.status !== 'conflict' && operation.status !== 'blocked' && operation.status !== 'superseded' && operation.status !== 'discarded')
@@ -379,8 +385,12 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
   const entriesById = entity === 'tracker_entry'
     ? await database.trackerEntries.bulkGet(candidates.map((operation) => operation.entityId))
     : []
+  const trackerHolidaysById = entity === 'tracker_holiday'
+    ? await database.trackerHolidays.bulkGet(candidates.map((operation) => operation.entityId))
+    : []
   const operations = candidates.filter((operation, index) => {
     if (entity === 'tracker') return !heldTrackerIds.has(operation.entityId)
+    if (entity === 'tracker_holiday') return !heldTrackerIds.has((operation.payload as TrackerHoliday | undefined)?.trackerId ?? trackerHolidaysById[index]?.trackerId ?? '')
     if (entity !== 'tracker_entry') return true
     const payloadTrackerId = (operation.payload as StoredTrackerEntry | undefined)?.trackerId
     const localTrackerId = entriesById[index]?.trackerId
@@ -518,7 +528,12 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
           p_expected_user_id: userId, p_operation_id: operation.id,
           p_expected_revision: operation.expectedRevision, p_record: payload,
         })
-          : await client.rpc('apply_tracker_sync_operation', {
+          : operation.entity === 'tracker_holiday'
+            ? await client.rpc('apply_tracker_holiday_sync_operation', {
+              p_expected_user_id: userId, p_operation_id: operation.id,
+              p_expected_revision: operation.expectedRevision, p_record: payload,
+            })
+            : await client.rpc('apply_tracker_sync_operation', {
           p_expected_user_id: userId, p_operation_id: operation.id, p_entity: operation.entity,
           p_expected_revision: operation.expectedRevision, p_record: payload,
         })
@@ -719,7 +734,30 @@ async function applyRemoteHoliday(database: ProgressTrackerDatabase, userId: str
   })
 }
 
-async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries' | 'account_holidays', apply: (row: T) => Promise<{ downloaded: number; conflicts: number; changed?: boolean }>) {
+async function applyRemoteTrackerHoliday(database: ProgressTrackerDatabase, userId: string, row: ServerTrackerHoliday): Promise<{ downloaded: number; conflicts: number; changed?: boolean }> {
+  const remote: TrackerHoliday = { id: row.id, trackerId: row.tracker_id, date: row.holiday_date as TrackerHoliday['date'], createdAt: normalizeSyncTimestamp(row.created_at, 'created_at') as string, updatedAt: normalizeSyncTimestamp(row.updated_at, 'updated_at') as string, deletedAt: row.deleted_at === null ? null : normalizeSyncTimestamp(row.deleted_at, 'deleted_at') as string }
+  const stateKey = keyFor('tracker_holiday', row.id)
+  return database.transaction('rw', [database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+    const operations = await database.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_holiday', row.id]).toArray()
+    const pending = operations.some((operation) => operation.status === 'pending' || operation.status === 'in-flight')
+    const local = await database.trackerHolidays.get(row.id)
+    const state = await database.syncRecords.get(stateKey)
+    if (pending && !state) return { downloaded: 0, conflicts: 0 }
+    if (local && state && state.serverRevision === row.server_revision) return { downloaded: 0, conflicts: 0 }
+    if (pending && state && row.server_revision !== state.serverRevision) {
+      await database.syncConflicts.put({ id: `pull:tracker_holiday:${row.id}`, ownerUserId: userId, entity: 'tracker_holiday', entityId: row.id, localPayload: local ?? operations.at(-1)?.payload as TrackerHoliday, remoteRecord: row as unknown as Record<string, unknown>, detectedAt: new Date().toISOString() })
+      for (const operation of operations) if (operation.status === 'pending' || operation.status === 'in-flight') await database.syncOperations.put({ ...operation, status: 'conflict', lastError: 'The cloud tracker holiday changed on another device.' })
+      return { downloaded: 0, conflicts: 1 }
+    }
+    const dateDuplicate = await database.trackerHolidays.where('[trackerId+date]').equals([row.tracker_id, row.holiday_date as TrackerHoliday['date']]).first()
+    if (dateDuplicate && dateDuplicate.id !== row.id) await database.trackerHolidays.delete(dateDuplicate.id)
+    await database.trackerHolidays.put(remote)
+    await database.syncRecords.put({ key: stateKey, ownerUserId: userId, entity: 'tracker_holiday', entityId: row.id, serverRevision: row.server_revision })
+    return { downloaded: 1, conflicts: 0, changed: true }
+  })
+}
+
+async function pullTable<T extends ServerTracker | ServerEntry | ServerHoliday | ServerTrackerHoliday>(database: ProgressTrackerDatabase, client: SyncClient, userId: string, table: 'trackers' | 'tracker_entries' | 'account_holidays' | 'tracker_holidays', apply: (row: T) => Promise<{ downloaded: number; conflicts: number; changed?: boolean }>) {
   let cursor = ''
   let downloaded = 0
   let conflicts = 0
@@ -785,22 +823,24 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   // unrelated holiday work and full-table pulls later in this sync pass.
   if (entries.uploaded > 0) publishWorkspaceProgressionConfirmed(userId)
   const holidays = await uploadQueue(database, client, userId, 'account_holiday')
+  const trackerHolidays = await uploadQueue(database, client, userId, 'tracker_holiday', deletionIntentTrackerIds)
   const holidayDeletions = holidays.failed || holidays.conflicts
     ? { deleted: 0, conflicts: 0, failed: 0 }
     : await processPermanentHolidayDeletionRequests(database, client, userId)
   const trackerPull = await pullTable<ServerTracker>(database, client, userId, 'trackers', (row) => applyRemoteTracker(database, userId, row))
   const entryPull = await pullTable<ServerEntry>(database, client, userId, 'tracker_entries', (row) => applyRemoteEntry(database, userId, row))
   const holidayPull = await pullTable<ServerHoliday>(database, client, userId, 'account_holidays', (row) => applyRemoteHoliday(database, userId, row))
+  const trackerHolidayPull = await pullTable<ServerTrackerHoliday>(database, client, userId, 'tracker_holidays', (row) => applyRemoteTrackerHoliday(database, userId, row))
   const openConflicts = await database.syncConflicts.where('ownerUserId').equals(userId).count()
-  const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded
-  const changed = trackerPull.changed + entryPull.changed + holidayPull.changed
+  const downloaded = trackerPull.downloaded + entryPull.downloaded + holidayPull.downloaded + trackerHolidayPull.downloaded
+  const changed = trackerPull.changed + entryPull.changed + holidayPull.changed + trackerHolidayPull.changed
   // Progression views need server confirmation even when an upload did not
   // change the local workspace records. Other mounted local views do not.
   if (changed > 0) publishWorkspaceDataChange(userId)
   // The sync RPC and its database triggers commit before this point. Signal even
   // after downloaded changes so confirmed progression consumers refresh once.
   if (entries.uploaded === 0 || changed > 0) publishWorkspaceSyncCompleted(userId)
-  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + deletionRequests.failed + holidayDeletions.failed }
+  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + trackerHolidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + trackerHolidays.failed + deletionRequests.failed + holidayDeletions.failed }
 }
 
 async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {

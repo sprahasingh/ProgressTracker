@@ -25,6 +25,36 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('stores tracker-specific holidays offline, syncs them, and excludes Strict Mode trackers', async () => {
+    const owner = 'tracker-holiday-offline-owner'
+    await activateWorkspace(owner)
+    await localRepository.saveTracker({ ...tracker, id: 'holiday-standard' })
+    await localRepository.saveTracker({ ...tracker, id: 'holiday-strict', strictMode: true })
+    const saved = await localRepository.saveTrackerHoliday('holiday-standard', '2026-01-05')
+    expect(saved).toMatchObject({ trackerId: 'holiday-standard', date: '2026-01-05', deletedAt: null })
+    await expect(localRepository.listTrackerHolidays()).resolves.toEqual([saved])
+    await expect(db.syncOperations.where('ownerUserId').equals(owner).toArray()).resolves.toContainEqual(expect.objectContaining({ entity: 'tracker_holiday', entityId: saved.id, status: 'pending' }))
+    await expect(localRepository.saveTrackerHoliday('holiday-strict', '2026-01-05')).rejects.toThrow(/Strict Mode/)
+    await expect(localRepository.setTrackerHolidaySelections([{ date: '2026-01-05', trackerIds: ['holiday-strict'] }])).rejects.toThrow(/Strict Mode/)
+    await localRepository.removeTrackerHoliday('holiday-standard', '2026-01-05')
+    await expect(localRepository.listTrackerHolidays()).resolves.toEqual([])
+    await expect(localRepository.listTrackerHolidays(undefined, undefined, true)).resolves.toContainEqual(expect.objectContaining({ id: saved.id, deletedAt: expect.any(String) }))
+  })
+
+  it('removes configured selected holidays when their tracker changes to Strict Mode', async () => {
+    const owner = 'tracker-holiday-mode-change-owner'
+    await activateWorkspace(owner)
+    await localRepository.saveTracker({ ...tracker, id: 'mode-changing-tracker' })
+    const holiday = await localRepository.saveTrackerHoliday('mode-changing-tracker', '2026-01-06')
+
+    await localRepository.saveTracker({ ...tracker, id: 'mode-changing-tracker', strictMode: true })
+
+    await expect(localRepository.listTrackerHolidays()).resolves.toEqual([])
+    await expect(db.trackerHolidays.get(holiday.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker_holiday', holiday.id]).first()).resolves.toMatchObject({ status: 'pending', payload: { deletedAt: expect.any(String) } })
+    await expect(localRepository.setTrackerHolidaySelections([{ date: holiday.date, trackerIds: ['mode-changing-tracker'] }])).rejects.toThrow(/Strict Mode/)
+  })
+
   it('rejects all-history rule edits when a referenced measure was introduced later, preserving local history', async () => {
     const ownerUserId = 'historical-dependency-owner'
     await activateWorkspace(ownerUserId)

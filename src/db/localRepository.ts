@@ -1,8 +1,9 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange, calendarDateInTimeZone } from './calendarDate'
-import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerWinsRetention } from './models'
+import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { trackerDefinitionForDate } from '../domain/trackers/ruleVersions'
+import { trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
@@ -85,6 +86,64 @@ function normalizeSettings(saved?: Partial<AppSettings>): AppSettings {
 }
 
 export const localRepository = {
+  async listTrackerHolidays(startDate?: CalendarDate, endDate?: CalendarDate, includeDeleted = false): Promise<TrackerHoliday[]> {
+    const database = await openDatabase()
+    let rows = await database.trackerHolidays.toArray()
+    if (startDate) rows = rows.filter((row) => row.date >= startDate)
+    if (endDate) rows = rows.filter((row) => row.date <= endDate)
+    if (!includeDeleted) rows = rows.filter((row) => row.deletedAt === null)
+    return rows.sort((a, b) => a.date.localeCompare(b.date) || a.trackerId.localeCompare(b.trackerId))
+  },
+
+  async setTrackerHolidaySelections(updates: readonly { date: CalendarDate; trackerIds: readonly string[] }[]): Promise<void> {
+    for (const update of updates) assertHolidayDate(update.date)
+    const normalized = updates.map((update) => ({ date: update.date, trackerIds: [...new Set(update.trackerIds)] }))
+    if (new Set(normalized.map((update) => update.date)).size !== normalized.length) throw new Error('Each holiday date can only be updated once per save.')
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    await database.transaction('rw', [database.trackers, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      ownerUserId = (await database.workspaceMetadata.get('workspace'))?.userId ?? null
+      for (const update of normalized) {
+        const currentRows = await database.trackerHolidays.where('date').equals(update.date).toArray()
+        const selected = new Set(update.trackerIds)
+        const currentByTracker = new Map(currentRows.map((row) => [row.trackerId, row]))
+        const now = new Date().toISOString()
+        for (const row of currentRows) {
+          if (row.deletedAt !== null || selected.has(row.trackerId)) continue
+          if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker_holiday', row.id]).first()) throw new Error('Resolve this selected holiday’s cloud conflict before editing it.')
+          const removed = { ...row, updatedAt: now, deletedAt: now }
+          await database.trackerHolidays.put(removed)
+          await queueSyncMutation(database, ownerUserId, 'tracker_holiday', removed)
+        }
+        for (const trackerId of selected) {
+          const existing = currentByTracker.get(trackerId)
+          const tracker = await database.trackers.get(trackerId)
+          if (!tracker || tracker.deletedAt !== null || tracker.status !== 'active') throw new Error('Only available active Standard Mode trackers can be selected for a new holiday.')
+          if (trackerStrictModeForDate(tracker, update.date)) throw new Error('Strict Mode trackers cannot have selected holidays.')
+          if (existing?.deletedAt === null) continue
+          if (ownerUserId && existing && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker_holiday', existing.id]).first()) throw new Error('Resolve this selected holiday’s cloud conflict before editing it.')
+          const row: TrackerHoliday = { id: existing?.id ?? newId(), trackerId, date: update.date, createdAt: existing?.createdAt ?? now, updatedAt: now, deletedAt: null }
+          await database.trackerHolidays.put(row)
+          await queueSyncMutation(database, ownerUserId, 'tracker_holiday', row)
+        }
+      }
+    })
+    if (normalized.length) publishWorkspaceMutation(ownerUserId)
+  },
+
+  async saveTrackerHoliday(trackerId: string, date: CalendarDate): Promise<TrackerHoliday> {
+    await this.setTrackerHolidaySelections([{ date, trackerIds: [trackerId] }])
+    const database = await openDatabase()
+    const row = await database.trackerHolidays.where('[trackerId+date]').equals([trackerId, date]).first()
+    if (!row) throw new Error('Tracker holiday could not be saved.')
+    return row
+  },
+
+  async removeTrackerHoliday(trackerId: string, date: CalendarDate): Promise<void> {
+    const current = await this.listTrackerHolidays(date, date)
+    await this.setTrackerHolidaySelections([{ date, trackerIds: current.filter((row) => row.trackerId !== trackerId).map((row) => row.trackerId) }])
+  },
+
   async getNotificationPreferences(): Promise<LocalNotificationPreferences | undefined> {
     const database = await openDatabase()
     return database.notificationPreferences.get('account')
@@ -455,7 +514,7 @@ export const localRepository = {
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
     let ownerUserId: string | null = null
-    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.settings, database.permanentDeletionLedger, database.trackerVerification], async () => {
+    const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.settings, database.permanentDeletionLedger, database.trackerVerification], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       const activeOwner = workspace?.userId ?? null
       await assertTrackerVerificationComplete(database, activeOwner, draft.id)
@@ -537,6 +596,17 @@ export const localRepository = {
       await database.trackers.put(record)
       ownerUserId = activeOwner
       await queueSyncMutation(database, ownerUserId, 'tracker', record)
+      const configuredHolidays = await database.trackerHolidays.where('trackerId').equals(record.id).toArray()
+      for (const holiday of configuredHolidays) {
+        if (holiday.deletedAt !== null || !trackerStrictModeForDate(record, holiday.date)) continue
+        if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker_holiday', holiday.id]).first()) {
+          throw new Error('Resolve this selected holiday’s cloud conflict before changing its tracker to Strict Mode.')
+        }
+        const now = new Date().toISOString()
+        const tombstone = { ...holiday, updatedAt: now, deletedAt: now }
+        await database.trackerHolidays.put(tombstone)
+        await queueSyncMutation(database, ownerUserId, 'tracker_holiday', tombstone)
+      }
       return record
     })
     publishWorkspaceMutation(ownerUserId)
@@ -730,24 +800,29 @@ export const localRepository = {
     const workspace = await database.workspaceMetadata.get('workspace')
     const ownerUserId = workspace?.userId ?? null
     if (!ownerUserId) {
-      await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
+      await database.transaction('rw', [database.trackers, database.trackerEntries, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts], async () => {
         const tracker = await database.trackers.get(id)
         if (!tracker?.deletedAt) throw new Error('Move this tracker to the Bin before permanently deleting it.')
         const entries = await database.trackerEntries.where('trackerId').equals(id).toArray()
         const entryIds = new Set(entries.map((entry) => entry.id))
         await database.trackerEntries.where('trackerId').equals(id).delete()
+        const trackerHolidays = await database.trackerHolidays.where('trackerId').equals(id).toArray()
+        await database.trackerHolidays.where('trackerId').equals(id).delete()
         await database.trackers.delete(id)
         await database.syncOperations.filter((operation) =>
           (operation.entity === 'tracker' && operation.entityId === id)
-          || (operation.entity === 'tracker_entry' && (operation.payload as StoredTrackerEntry | undefined)?.trackerId === id),
+          || (operation.entity === 'tracker_entry' && (operation.payload as StoredTrackerEntry | undefined)?.trackerId === id)
+          || (operation.entity === 'tracker_holiday' && (operation.payload as TrackerHoliday | undefined)?.trackerId === id),
         ).delete()
         await database.syncRecords.filter((record) =>
           (record.entity === 'tracker' && record.entityId === id)
-          || (record.entity === 'tracker_entry' && entryIds.has(record.entityId)),
+          || (record.entity === 'tracker_entry' && entryIds.has(record.entityId))
+          || (record.entity === 'tracker_holiday' && trackerHolidays.some((holiday) => holiday.id === record.entityId)),
         ).delete()
         await database.syncConflicts.filter((conflict) =>
           (conflict.entity === 'tracker' && conflict.entityId === id)
-          || (conflict.entity === 'tracker_entry' && (conflict.localPayload as StoredTrackerEntry).trackerId === id),
+          || (conflict.entity === 'tracker_entry' && (conflict.localPayload as StoredTrackerEntry).trackerId === id)
+          || (conflict.entity === 'tracker_holiday' && (conflict.localPayload as TrackerHoliday).trackerId === id),
         ).delete()
       })
       publishWorkspaceDataChange(null)
@@ -796,7 +871,7 @@ export const localRepository = {
     const database = await openDatabase()
     let workspaceChanged = false
     const confirmedRequests: Array<{ trackerId: string; trackerName: string }> = []
-    await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
+    await database.transaction('rw', [database.trackers, database.trackerEntries, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
       const metadata = await database.workspaceMetadata.get('workspace')
       if (metadata?.userId !== ownerUserId) throw new Error('The active workspace changed during deletion reconciliation.')
       const authoritativeIds = new Set(rows.map((row) => row.tracker_id))
@@ -818,6 +893,7 @@ export const localRepository = {
         if (request) confirmedRequests.push({ trackerId, trackerName: (await database.trackers.get(trackerId))?.name ?? trackerId })
         const key = `${ownerUserId}:${trackerId}`
         const children = await database.trackerEntries.where('trackerId').equals(trackerId).toArray()
+        const trackerHolidayRows = await database.trackerHolidays.where('trackerId').equals(trackerId).toArray()
         if (children.length > 0 || await database.trackers.get(trackerId)) workspaceChanged = true
         const childIds = new Set(children.map((entry) => entry.id))
         await retainDeletedTrackerOperationDiagnostics(database, ownerUserId, trackerId, childIds, request?.id ?? `server-deletion:${trackerId}`)
@@ -825,13 +901,18 @@ export const localRepository = {
         await database.permanentDeletionLedger.put(ledger)
         await database.trackers.delete(trackerId)
         await database.trackerEntries.where('trackerId').equals(trackerId).delete()
+        await database.trackerHolidays.where('trackerId').equals(trackerId).delete()
+        const trackerHolidayIds = new Set(trackerHolidayRows.map((row) => row.id))
+        await database.syncOperations.where('ownerUserId').equals(ownerUserId).filter((item) => item.entity === 'tracker_holiday' && trackerHolidayIds.has(item.entityId)).delete()
         await database.syncRecords.where('ownerUserId').equals(ownerUserId).filter((item) =>
           (item.entity === 'tracker' && item.entityId === trackerId)
-          || (item.entity === 'tracker_entry' && childIds.has(item.entityId)),
+          || (item.entity === 'tracker_entry' && childIds.has(item.entityId))
+          || (item.entity === 'tracker_holiday' && trackerHolidayIds.has(item.entityId)),
         ).delete()
         await database.syncConflicts.where('ownerUserId').equals(ownerUserId).filter((item) =>
           (item.entity === 'tracker' && item.entityId === trackerId)
-          || (item.entity === 'tracker_entry' && (item.localPayload as StoredTrackerEntry).trackerId === trackerId),
+          || (item.entity === 'tracker_entry' && (item.localPayload as StoredTrackerEntry).trackerId === trackerId)
+          || (item.entity === 'tracker_holiday' && (item.localPayload as TrackerHoliday).trackerId === trackerId),
         ).delete()
         await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).delete()
         await database.trackerVerification.delete(trackerId)
@@ -846,24 +927,30 @@ export const localRepository = {
     const database = await openDatabase()
     const trackerId = row.tracker_id
     let confirmedRequestName: string | null = null
-    await database.transaction('rw', [database.trackers, database.trackerEntries, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
+    await database.transaction('rw', [database.trackers, database.trackerEntries, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.permanentDeletionRequests, database.permanentDeletionLedger, database.trackerVerification, database.workspaceMetadata], async () => {
       const metadata = await database.workspaceMetadata.get('workspace')
       if (metadata?.userId !== ownerUserId) throw new Error('The active workspace changed during deletion confirmation.')
       const request = await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).first()
       if (request) confirmedRequestName = (await database.trackers.get(trackerId))?.name ?? trackerId
       const children = await database.trackerEntries.where('trackerId').equals(trackerId).toArray()
+      const trackerHolidayRows = await database.trackerHolidays.where('trackerId').equals(trackerId).toArray()
       const childIds = new Set(children.map((entry) => entry.id))
       await retainDeletedTrackerOperationDiagnostics(database, ownerUserId, trackerId, childIds, request?.id ?? `server-deletion:${trackerId}`)
       await database.permanentDeletionLedger.put({ key: `${ownerUserId}:${trackerId}`, ownerUserId, trackerId, permanentlyDeletedAt: row.permanently_deleted_at })
       await database.trackers.delete(trackerId)
       await database.trackerEntries.where('trackerId').equals(trackerId).delete()
+      await database.trackerHolidays.where('trackerId').equals(trackerId).delete()
+      const trackerHolidayIds = new Set(trackerHolidayRows.map((item) => item.id))
+      await database.syncOperations.where('ownerUserId').equals(ownerUserId).filter((item) => item.entity === 'tracker_holiday' && trackerHolidayIds.has(item.entityId)).delete()
       await database.syncRecords.where('ownerUserId').equals(ownerUserId).filter((item) =>
         (item.entity === 'tracker' && item.entityId === trackerId)
-        || (item.entity === 'tracker_entry' && childIds.has(item.entityId)),
+        || (item.entity === 'tracker_entry' && childIds.has(item.entityId))
+        || (item.entity === 'tracker_holiday' && trackerHolidayIds.has(item.entityId)),
       ).delete()
       await database.syncConflicts.where('ownerUserId').equals(ownerUserId).filter((item) =>
         (item.entity === 'tracker' && item.entityId === trackerId)
-        || (item.entity === 'tracker_entry' && (item.localPayload as StoredTrackerEntry).trackerId === trackerId),
+        || (item.entity === 'tracker_entry' && (item.localPayload as StoredTrackerEntry).trackerId === trackerId)
+        || (item.entity === 'tracker_holiday' && (item.localPayload as TrackerHoliday).trackerId === trackerId),
       ).delete()
       await database.permanentDeletionRequests.where('[ownerUserId+trackerId]').equals([ownerUserId, trackerId]).delete()
       await database.trackerVerification.delete(trackerId)

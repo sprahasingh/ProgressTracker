@@ -24,7 +24,12 @@ describe('daily calendar activity aggregation', () => {
     expect(getDailyActivityStatus(statuses)).toBe(expected)
   })
 
-  it('keeps holiday context as the calendar indicator while retaining tracker outcomes in its summary', () => {
-    expect(getDailyActivityStatus(['completed', 'no-progress'], true)).toBe('holiday')
+  it('aggregates effective tracker outcomes before showing holiday context', () => {
+    expect(getDailyActivityStatus(['holiday', 'completed'], true)).toBe('completed')
+    expect(getDailyActivityStatus(['holiday', 'partial'], true)).toBe('partial')
+    expect(getDailyActivityStatus(['holiday', 'no-progress'], true)).toBe('no-progress')
+    expect(getDailyActivityStatus(['holiday', 'skipped'], true)).toBe('skipped')
+    expect(getDailyActivityStatus(['holiday', 'missed'], true)).toBe('missed')
+    expect(getDailyActivityStatus(['holiday'], true)).toBe('holiday')
   })
 })

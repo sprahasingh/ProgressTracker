@@ -22,9 +22,10 @@ import { calculateActivityHeatmap } from '../../domain/trackers/activityHeatmap'
 import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 import { ActivityHeatmap } from './ActivityHeatmap'
 import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
+import { hasPositiveProgress } from '../../domain/trackers/activityStatus'
 import { availableHeatmapYears, heatmapDateRange, type HeatmapDateRangeOption, type HeatmapRangeSelection, isHistoricalHeatmapYear } from './heatmapDateRange'
 
-type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[] }
+type DashboardData = { trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[]; trackerHolidays: Array<{ trackerId: string; date: string }> }
 
 export function DashboardPage() {
   const { status, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
@@ -35,7 +36,7 @@ export function DashboardPage() {
   const workspaceKey = owner ?? 'guest'
   const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
   workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
-  const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [] })
+  const [data, setData] = useState<DashboardData>({ trackers: [], entries: [], holidays: [], trackerHolidays: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [dismissedReminderKey, setDismissedReminderKey] = useState<string | null>(null)
@@ -70,12 +71,13 @@ export function DashboardPage() {
         const created = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return created < date ? created : date
       }, today)
-      const [entries, holidays] = await Promise.all([
+      const [entries, holidays, trackerHolidays] = await Promise.all([
         trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
         localRepository.listAccountHolidays(earliest, today),
+        localRepository.listTrackerHolidays(earliest, today),
       ])
       const ids = new Set(trackers.map((tracker) => tracker.id))
-      if (refreshGeneration.current === generation && workspaceRef.current.ready && workspaceRef.current.key === requestWorkspace) setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date) })
+      if (refreshGeneration.current === generation && workspaceRef.current.ready && workspaceRef.current.key === requestWorkspace) setData({ trackers, entries: entries.filter((entry) => ids.has(entry.trackerId)), holidays: holidays.map((holiday) => holiday.date), trackerHolidays: trackerHolidays.map(({ trackerId, date }) => ({ trackerId, date })) })
     } catch {
       if (refreshGeneration.current === generation && workspaceRef.current.key === requestWorkspace) setError('Your overview could not be loaded from this device.')
     } finally {
@@ -98,7 +100,8 @@ export function DashboardPage() {
   const yearOptions = availableHeatmapYears(data.trackers, today, timeZone)
   const effectiveYear = yearOptions.includes(selectedYear) ? selectedYear : Number(today.slice(0, 4))
   const { startDate: heatmapStart, endDate: heatmapEnd } = heatmapDateRange(today, effectiveRange, effectiveYear)
-  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: heatmapEnd, holidays: new Set(data.holidays), timeZone }), [visibleTrackers, visibleEntries, heatmapStart, heatmapEnd, data.holidays, timeZone])
+  const visibleTrackerHolidays = data.trackerHolidays.filter((holiday) => visibleIds.has(holiday.trackerId))
+  const heatmapDays = useMemo(() => calculateActivityHeatmap({ trackers: visibleTrackers, entries: visibleEntries, startDate: heatmapStart, endDate: heatmapEnd, holidays: new Set(data.holidays), trackerHolidays: visibleTrackerHolidays, timeZone }), [visibleTrackers, visibleEntries, heatmapStart, heatmapEnd, data.holidays, visibleTrackerHolidays, timeZone])
   const selectHeatmapRange = (selection: HeatmapDateRangeOption) => {
     setRangeSelection(selection)
     window.sessionStorage.setItem('insights-heatmap-range', selection)
@@ -115,23 +118,23 @@ export function DashboardPage() {
   const entryById = useMemo(() => new Map(visibleTrackers.map((tracker) => [tracker.id, tracker])), [visibleTrackers])
   const streakByTracker = useMemo(() => new Map(visibleTrackers.map((tracker) => {
     const trackerEntries = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
-    return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays), timeZone)] as const
-  })), [visibleTrackers, visibleEntries, data.holidays, today, timeZone])
+    return [tracker.id, calculateStreak(tracker, trackerEntries, today, new Set(data.holidays), timeZone, data.trackerHolidays)] as const
+  })), [visibleTrackers, visibleEntries, data.holidays, data.trackerHolidays, today, timeZone])
   const allTrackersStreak = useMemo(() => calculateAllTrackersStreak({
-    trackers: data.trackers, entries: data.entries, asOfDate: today, holidays: new Set(data.holidays), timeZone,
-  }), [data.trackers, data.entries, data.holidays, today, timeZone])
+    trackers: data.trackers, entries: data.entries, asOfDate: today, holidays: new Set(data.holidays), trackerHolidays: data.trackerHolidays, timeZone,
+  }), [data.trackers, data.entries, data.holidays, data.trackerHolidays, today, timeZone])
   const allTrackersToday = useMemo(() => evaluateAllTrackersDay({
-    trackers: data.trackers, entries: data.entries, date: today, today, holidays: new Set(data.holidays), timeZone,
-  }), [data.trackers, data.entries, data.holidays, today, timeZone])
+    trackers: data.trackers, entries: data.entries, date: today, today, holidays: new Set(data.holidays), trackerHolidays: data.trackerHolidays, timeZone,
+  }), [data.trackers, data.entries, data.holidays, data.trackerHolidays, today, timeZone])
   const rewardPoints = [...streakByTracker.values()].reduce((sum, streak) => sum + calculateProgressRewards(streak).totalPoints, 0)
   const weekStart = shiftCalendarDate(today, -6)
   const weekEntries = visibleEntries.filter((entry) => entry.date >= weekStart && entry.date <= today)
-  const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string) => Boolean(tracker && (trackerStrictModeForDate(tracker, date)
+  const hasOpportunity = (tracker: StoredTrackerDefinition | undefined, date: string, entry?: StoredTrackerEntry) => Boolean(tracker && (trackerStrictModeForDate(tracker, date)
     ? isTrackerInActivePeriod(tracker, date, timeZone)
-    : !data.holidays.includes(date) && isScheduledDate(tracker, date, timeZone)))
+    : (!(data.holidays.includes(date) || data.trackerHolidays.some((holiday) => holiday.trackerId === tracker.id && holiday.date === date)) || (entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry))) && isScheduledDate(tracker, date, timeZone)))
   const successfulWeek = weekEntries.filter((entry) => {
     const tracker = entryById.get(entry.trackerId)
-    return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date) && evaluateTrackerEntry(tracker!, entry).qualified
+    return entry.outcome === 'recorded' && hasOpportunity(tracker, entry.date, entry) && evaluateTrackerEntry(tracker!, entry).qualified
   })
   const scheduledWeek = visibleTrackers.reduce((count, tracker) => {
     for (let day = weekStart; day <= today; day = shiftCalendarDate(day, 1)) {
@@ -145,11 +148,11 @@ export function DashboardPage() {
   const missingCheckIns = useMemo(() => selectMissingCheckIns({
     trackers: data.trackers,
     entries: data.entries,
-    holidays: new Set(data.holidays),
+    holidays: new Set(data.holidays), trackerHolidays: data.trackerHolidays,
     dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, index - 7)),
     today,
     timeZone,
-  }), [data.trackers, data.entries, data.holidays, today, timeZone])
+  }), [data.trackers, data.entries, data.holidays, data.trackerHolidays, today, timeZone])
   const reminderStorageKey = `progress-tracker:missing-checkins-dismissed:${workspaceKey}`
   const reminderDismissal = `${reminderStorageKey}:${today}`
   const reminderDismissed = dismissedReminderKey === reminderDismissal || readDismissedReminder(reminderStorageKey) === today
@@ -177,13 +180,14 @@ export function DashboardPage() {
                 const history = visibleEntries.filter((entry) => entry.trackerId === tracker.id)
                 const streak = streakByTracker.get(tracker.id)!
                 const latest = history[0]
-                const latestStatus = latest ? getTrackerActivityStatus({ tracker, entry: latest, date: latest.date, today, holidays: new Set(data.holidays), timeZone }) : null
+                const specificHolidays = new Set(data.trackerHolidays.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date))
+                const latestStatus = latest ? getTrackerActivityStatus({ tracker, entry: latest, date: latest.date, today, holidays: new Set(data.holidays), trackerHolidays: specificHolidays, timeZone }) : null
                 const latestResult = latest?.outcome === 'recorded' ? evaluateTrackerEntry(tracker, latest).qualified : false
                 const latestStatusClass = latest?.outcome === 'skipped' ? 'skipped' : latestStatus === 'historical' ? 'status-historical' : latestStatus === 'partial' ? 'status-partial' : latestStatus === 'no-progress' ? 'status-no-progress' : latestResult ? 'status-completed' : 'status-no-progress'
                 const latestFailureDetails = latest?.outcome === 'recorded' ? describeFailedTrackerConditions(tracker, latest) : []
                 const latestStatusLabel = !latest ? '' : latest.outcome === 'skipped' ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Skipped · intentionally saved` : latestResult ? `${latestStatus === 'historical' ? 'Historical entry · ' : ''}Recorded · success rule met` : latestFailureDetails.length ? `Success rule not met · ${latestFailureDetails.join('; ')}` : latestStatus === 'historical' ? 'Historical entry · recorded, success rule not met' : latestStatus === 'no-progress' ? 'Recorded · no qualifying progress' : ACTIVITY_STATUS_PRESENTATION[latestStatus!].label
                 const currentEntry = history.find((entry) => entry.date === today)
-                const calculatedStatus = getTrackerActivityStatus({ tracker, entry: currentEntry, date: today, today, holidays: new Set(data.holidays), timeZone })
+                const calculatedStatus = getTrackerActivityStatus({ tracker, entry: currentEntry, date: today, today, holidays: new Set(data.holidays), trackerHolidays: specificHolidays, timeZone })
                 const status = calculatedStatus
                 const statusClass = status
                 const strictHoliday = tracker.strictMode && status === 'pending' && data.holidays.includes(today)

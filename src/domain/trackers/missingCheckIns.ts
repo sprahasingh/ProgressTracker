@@ -9,6 +9,7 @@ export function selectMissingCheckIns(input: {
   trackers: readonly StoredTrackerDefinition[]
   entries: readonly StoredTrackerEntry[]
   holidays: ReadonlySet<string>
+  trackerHolidays?: readonly { trackerId: string; date: string }[]
   dates: readonly CalendarDate[]
   today: CalendarDate
   timeZone?: string
@@ -24,7 +25,8 @@ export function selectMissingCheckIns(input: {
         missing.push({ date, tracker })
         continue
       }
-      if (!input.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, input.timeZone)) missing.push({ date, tracker })
+      const trackerHoliday = input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === date) ?? false
+      if (!input.holidays.has(date) && !trackerHoliday && isTrackerScheduledOccurrence(tracker, date, input.timeZone)) missing.push({ date, tracker })
     }
   }
   return missing.sort((a, b) => b.date.localeCompare(a.date) || a.tracker.name.localeCompare(b.tracker.name))

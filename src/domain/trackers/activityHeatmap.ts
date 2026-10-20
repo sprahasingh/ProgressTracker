@@ -2,12 +2,13 @@ import type { TrackerDefinition, TrackerEntry } from './types'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 import { qualifiesForStreak } from './progression'
 import { trackerStrictModeForDate } from './ruleVersions'
+import { hasPositiveProgress } from './activityStatus'
 
 export type HeatmapDay = { date: string; eligibleCount: number; qualifiedCount: number; percent: number | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; holiday: boolean; restCount: number }
 
 /** Normalizes daily qualifying check-ins by each tracker’s own opportunity policy. */
 export function calculateActivityHeatmap(input: {
-  trackers: readonly TrackerDefinition[]; entries: readonly TrackerEntry[]; startDate: string; endDate: string; holidays?: ReadonlySet<string>; timeZone?: string
+  trackers: readonly TrackerDefinition[]; entries: readonly TrackerEntry[]; startDate: string; endDate: string; holidays?: ReadonlySet<string>; trackerHolidays?: readonly { trackerId: string; date: string }[]; timeZone?: string
 }): HeatmapDay[] {
   const live = input.trackers.filter((tracker) => tracker.status === 'active' && tracker.deletedAt === null)
   const entriesByTrackerDate = new Map(input.entries.filter((entry) => entry.deletedAt === null).map((entry) => [`${entry.trackerId}:${entry.date}`, entry]))
@@ -19,15 +20,17 @@ export function calculateActivityHeatmap(input: {
       const inRange = isTrackerInActivePeriod(tracker, date, input.timeZone)
       const scheduled = inRange && isTrackerScheduledOccurrence(tracker, date, input.timeZone)
       if (inRange && !scheduled) restCount += 1
-      const opportunity = inRange && (trackerStrictModeForDate(tracker, date) || (!input.holidays?.has(date) && scheduled))
+      const entry = entriesByTrackerDate.get(`${tracker.id}:${date}`)
+      const holiday = Boolean(input.holidays?.has(date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === date))
+      const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+      const opportunity = inRange && (trackerStrictModeForDate(tracker, date) || ((!holiday || positiveWork) && scheduled))
       if (!opportunity) continue
       eligibleCount += 1
-      const entry = entriesByTrackerDate.get(`${tracker.id}:${date}`)
       if (entry && qualifiesForStreak(tracker, entry)) qualifiedCount += 1
     }
     const percent = eligibleCount ? Math.round(qualifiedCount / eligibleCount * 100) : null
     const level: HeatmapDay['level'] = percent === null ? 0 : percent === 0 ? 1 : percent <= 25 ? 2 : percent <= 50 ? 3 : percent <= 75 ? 4 : percent < 100 ? 5 : 6
-    days.push({ date, eligibleCount, qualifiedCount, percent, level, holiday: input.holidays?.has(date) ?? false, restCount })
+    days.push({ date, eligibleCount, qualifiedCount, percent, level, holiday: input.holidays?.has(date) || Boolean(input.trackerHolidays?.some((item) => item.date === date)), restCount })
   }
   return days
 }

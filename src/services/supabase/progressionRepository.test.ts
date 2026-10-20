@@ -78,7 +78,7 @@ describe('progression data contract calculations', () => {
     const savedEntry = entry('source-entry', '2026-10-13')
     const snapshot = {
       trackers: [tracker], entries: [savedEntry], pendingEntryIds: new Set([savedEntry.id]),
-      holidays: new Set<string>(), timeZone: 'UTC',
+      holidays: new Set<string>(), trackerHolidays: [], timeZone: 'UTC',
     }
     const checkIn = xpEvent('check-in-award', 10, { sourceId: savedEntry.id })
     const checkInReversal = xpEvent('check-in-reversal', -10, {
@@ -97,7 +97,7 @@ describe('progression data contract calculations', () => {
     const savedEntry = entry('source-entry', '2026-10-13')
     const snapshot = {
       trackers: [tracker], entries: [savedEntry], pendingEntryIds: new Set([savedEntry.id]),
-      holidays: new Set<string>(), timeZone: 'UTC',
+      holidays: new Set<string>(), trackerHolidays: [], timeZone: 'UTC',
     }
     const original = xpEvent('original-award', 10, { sourceId: savedEntry.id })
     const reversal = xpEvent('original-reversal', -10, {

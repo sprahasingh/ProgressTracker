@@ -119,7 +119,17 @@ export type AccountHoliday = {
   deletedAt: string | null
 }
 
-export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings' | 'tracker' | 'tracker_entry' | 'account_holiday'
+/** A holiday exemption applying to one Standard Mode tracker on one workspace-local date. */
+export type TrackerHoliday = {
+  id: string
+  trackerId: string
+  date: CalendarDate
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export type SyncEntity = 'category' | 'daily-entry' | 'daily-journal' | 'goal' | 'goal-metric' | 'goal-progress' | 'settings' | 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'
 export type SyncOperation = {
   id: string
   ownerUserId: string | null
@@ -127,7 +137,7 @@ export type SyncOperation = {
   entityId: string
   operation: 'upsert'
   expectedRevision: number | null
-  payload?: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday
+  payload?: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday
   createdAt: string
   attempts: number
   status: 'pending' | 'in-flight' | 'conflict' | 'blocked' | 'superseded' | 'discarded'
@@ -141,8 +151,8 @@ export type SyncOperation = {
   discardedAt?: string
 }
 
-export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; serverRevision: number }
-export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday; remoteRecord: Record<string, unknown> | null; detectedAt: string; reason?: string }
+export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'; entityId: string; serverRevision: number }
+export type SyncConflict = { id: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'; entityId: string; localPayload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday; remoteRecord: Record<string, unknown> | null; detectedAt: string; reason?: string }
 export type TrackerWinsRetention = 'keep_wins' | 'delete_wins'
 export type PermanentDeletionRequest = { id: string; ownerUserId: string; trackerId: string; requestedAt: string; status: 'pending' | 'conflict' | 'failed'; lastError: string | null; winsRetention?: TrackerWinsRetention }
 export type PermanentDeletionLedgerEntry = { key: string; ownerUserId: string; trackerId: string; permanentlyDeletedAt: string }

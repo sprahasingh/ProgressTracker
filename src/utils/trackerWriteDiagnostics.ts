@@ -21,7 +21,7 @@ export function reportTrackerWriteDiagnostic(input: {
   category: TrackerWriteDiagnosticCategory
   phase: TrackerWriteDiagnosticPhase
   schemaVersion?: number
-  entity?: 'tracker' | 'tracker_entry' | 'account_holiday'
+  entity?: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'
   serverCode?: string
 }): void {
   const metadata = {

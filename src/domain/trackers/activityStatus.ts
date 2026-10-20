@@ -35,6 +35,7 @@ export function getTrackerActivityStatus(input: {
   date: string
   today: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: ReadonlySet<string>
   timeZone?: string
 }): ActivityStatus {
   const { tracker, entry, date, today } = input
@@ -42,7 +43,7 @@ export function getTrackerActivityStatus(input: {
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) {
     return entry && entry.deletedAt === null ? 'historical' : 'outside-period'
   }
-  const holiday = input.holidays?.has(date) ?? false
+  const holiday = !strict && Boolean(input.holidays?.has(date) || input.trackerHolidays?.has(date))
   if (entry && entry.deletedAt !== null) {
     if (!strict && holiday) return 'holiday'
     if (tracker.status !== 'active') return 'inactive'
@@ -50,10 +51,11 @@ export function getTrackerActivityStatus(input: {
     return date < today ? 'missed' : date === today ? 'pending' : 'upcoming'
   }
   if (entry?.outcome === 'recorded') {
+    if (holiday && !hasPositiveProgress(tracker, entry)) return 'holiday'
     if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
     return hasPositiveProgress(tracker, entry) ? 'partial' : 'no-progress'
   }
-  if (entry?.outcome === 'skipped') return 'skipped'
+  if (entry?.outcome === 'skipped') return holiday ? 'holiday' : 'skipped'
   if (holiday && !strict) return 'holiday'
   if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'inactive'
   const requiredOpportunity = strict || isTrackerScheduledOccurrence(tracker, date, input.timeZone)
@@ -62,7 +64,7 @@ export function getTrackerActivityStatus(input: {
 }
 
 /** A saved value counts as progress only when it records a positive/affirmative action. */
-function hasPositiveProgress(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
+export function hasPositiveProgress(tracker: TrackerDefinition, entry: TrackerEntry): boolean {
   // The entry is classified using the same date-effective measure definitions
   // that evaluate its success rule. Current definitions may have retired the
   // measure (or added a replacement) since this entry was recorded.

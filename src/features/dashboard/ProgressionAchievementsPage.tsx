@@ -24,6 +24,7 @@ import { ProgressionDetailDialog } from './ProgressionDetailDialog'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
 import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
+import { hasPositiveProgress } from '../../domain/trackers/activityStatus'
 import { resolveRewardAttribution } from '../../domain/trackers/rewardAttribution'
 
 type PageData = {
@@ -31,6 +32,7 @@ type PageData = {
   trackers: StoredTrackerDefinition[]
   entries: StoredTrackerEntry[]
   holidays: Set<string>
+  trackerHolidays: Array<{ trackerId: string; date: string }>
 }
 type Detail = 'consistency' | 'streaks' | 'milestones' | null
 type HistoryRange = '7' | '30' | '90' | 'all'
@@ -169,9 +171,11 @@ function getLocalActivity(data: PageData, trackers: readonly StoredTrackerDefini
     for (const tracker of trackers) {
       if (isArchivedTracker(tracker) && tracker.archivedAt && date >= localCalendarDate(new Date(tracker.archivedAt), timeZone)) continue
       const inPeriod = isTrackerInActivePeriod(tracker, date, timeZone)
-      const isEligible = inPeriod && (trackerStrictModeForDate(tracker, date) || (!data.holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
-      if (!isEligible) { activity.exempt += 1; continue }
       const entry = entryByTrackerDate.get(`${tracker.id}:${date}`)
+      const holiday = data.holidays.has(date) || data.trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === date)
+      const positive = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+      const isEligible = inPeriod && (trackerStrictModeForDate(tracker, date) || ((!holiday || positive) && isTrackerScheduledOccurrence(tracker, date, timeZone)))
+      if (!isEligible) { activity.exempt += 1; continue }
       if (entry?.outcome === 'recorded') activity.completed += 1
       else if (entry?.outcome === 'skipped') activity.skipped += 1
       else activity.missed += 1
@@ -251,13 +255,14 @@ export function ProgressionAchievementsPage() {
         const start = trackerActiveStartDate(tracker, timeZone) as CalendarDate
         return start < value ? start : value
       }, today as CalendarDate)
-      const [overview, entries, holidays] = await Promise.all([
+      const [overview, entries, holidays, trackerHolidays] = await Promise.all([
         getProgressionOverview(owner, { forceRefresh: forceServerRefresh }),
         trackers.length ? localRepository.listTrackerEntriesBetween(earliest, today) : Promise.resolve([]),
         localRepository.listAccountHolidays(earliest, today),
+        localRepository.listTrackerHolidays(earliest, today),
       ])
       if (refreshGeneration.current === generation) {
-        const next = { overview, trackers, entries, holidays: new Set(holidays.map((holiday) => holiday.date)) }
+        const next = { overview, trackers, entries, holidays: new Set(holidays.map((holiday) => holiday.date)), trackerHolidays: trackerHolidays.map(({ trackerId, date }) => ({ trackerId, date })) }
         pageDataRef.current = next
         winsPageCache.set(owner, next)
         setPageData(next)
@@ -288,13 +293,15 @@ export function ProgressionAchievementsPage() {
   }, [pageData?.entries])
   const streaks = useMemo(() => pageData?.trackers.map((tracker) => ({
     tracker,
-    streak: calculateStreak(tracker, entriesByTracker.get(tracker.id) ?? [], today, pageData.holidays, timeZone),
+    streak: calculateStreak(tracker, entriesByTracker.get(tracker.id) ?? [], today, pageData.holidays, timeZone, pageData.trackerHolidays),
   })) ?? [], [pageData, entriesByTracker, today, timeZone])
   const activeTrackers = useMemo(() => pageData?.trackers.filter(isActiveTracker) ?? [], [pageData])
   const archivedTrackers = useMemo(() => pageData?.trackers.filter(isArchivedTracker) ?? [], [pageData])
   const hasQualifiedOpenDay = Boolean(pageData && activeTrackers.some((tracker) => {
-    if (!isTrackerInActivePeriod(tracker, today, timeZone) || !trackerStrictModeForDate(tracker, today) && (pageData.holidays.has(today) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
     const entry = entriesByTracker.get(tracker.id)?.find((item) => item.date === today)
+    const holiday = pageData.holidays.has(today) || pageData.trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === today)
+    const positive = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+    if (!isTrackerInActivePeriod(tracker, today, timeZone) || !trackerStrictModeForDate(tracker, today) && ((holiday && !positive) || !isTrackerScheduledOccurrence(tracker, today, timeZone))) return false
     return Boolean(entry && qualifiesForStreak(tracker, entry))
   }))
   const pendingOpenDay = Boolean(pageData?.overview.provisionalRewards.some((reward) => reward.effectiveDate === today))

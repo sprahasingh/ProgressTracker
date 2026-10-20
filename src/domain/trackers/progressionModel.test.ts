@@ -33,6 +33,16 @@ describe('progression policy and summaries', () => {
     expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: { ...provisionalEntry, date: '2026-10-14' }, pendingSync: true, today: '2026-10-13' })).toBeNull()
   })
 
+  it('awards provisional XP for qualifying holiday work but not zero or skipped activity', () => {
+    const holiday = new Set([provisionalEntry.date])
+    expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: provisionalEntry, pendingSync: true, today: '2026-10-13', holidays: holiday }))
+      .toEqual({ id: 'check-in:pending-entry', effectiveDate: provisionalEntry.date, xpDelta: 10 })
+    expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: provisionalEntry, pendingSync: true, today: '2026-10-13', trackerHolidays: [{ trackerId: provisionalTracker.id, date: provisionalEntry.date }] }))
+      .toEqual({ id: 'check-in:pending-entry', effectiveDate: provisionalEntry.date, xpDelta: 10 })
+    expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: { ...provisionalEntry, values: { done: false } }, pendingSync: true, today: '2026-10-13', holidays: holiday })).toBeNull()
+    expect(estimateProvisionalCheckInReward({ tracker: provisionalTracker, entry: { ...provisionalEntry, outcome: 'skipped' }, pendingSync: true, today: '2026-10-13', holidays: holiday })).toBeNull()
+  })
+
   it('estimates daily success XP from the Success Rule and ignores streak-only qualification', () => {
     const mixed: StoredTrackerDefinition = {
       ...provisionalTracker,

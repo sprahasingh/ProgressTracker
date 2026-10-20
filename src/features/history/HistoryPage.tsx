@@ -9,7 +9,7 @@ import { Surface } from '../../components/ui/Surface'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { useAuth } from '../auth/AuthProvider'
-import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday } from '../../db/models'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { ACTIVITY_STATUS_PRESENTATION, getTrackerActivityStatus, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
@@ -41,6 +41,7 @@ export function HistoryPage() {
   const [entries, setEntries] = useState<StoredTrackerEntry[]>([])
   const [milestoneEntries, setMilestoneEntries] = useState<StoredTrackerEntry[]>([])
   const [holidays, setHolidays] = useState<AccountHoliday[]>([])
+  const [trackerHolidayRows, setTrackerHolidayRows] = useState<TrackerHoliday[]>([])
   const [challengeHolidays, setChallengeHolidays] = useState<ReadonlySet<string>>(new Set())
   const [missing, setMissing] = useState<MissingCheckIn[]>([])
   const [loading, setLoading] = useState(true)
@@ -88,13 +89,15 @@ export function HistoryPage() {
     try {
       const missingStart = shiftCalendarDate(today, -7) as CalendarDate
       const missingEnd = shiftCalendarDate(today, -1) as CalendarDate
-      const [allTrackers, recentEntries, recentHolidays, missingEntries, missingHolidays, allHolidays] = await Promise.all([
+      const [allTrackers, recentEntries, recentHolidays, missingEntries, missingHolidays, allHolidays, recentTrackerHolidays, missingTrackerHolidays] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listTrackerEntriesBetween(startDate, endDate),
         localRepository.listAccountHolidays(startDate, endDate),
         localRepository.listTrackerEntriesBetween(missingStart, missingEnd),
         localRepository.listAccountHolidays(missingStart, missingEnd),
         localRepository.listAccountHolidays(),
+        localRepository.listTrackerHolidays(startDate, endDate),
+        localRepository.listTrackerHolidays(missingStart, missingEnd),
       ])
       const milestoneHistory = (await Promise.all(allTrackers.filter((tracker) => tracker.milestones.length > 0).map((tracker) => localRepository.listTrackerEntriesForTracker(tracker.id)))).flat()
       if (request !== rangeRequest.current) return
@@ -102,8 +105,9 @@ export function HistoryPage() {
       setEntries(recentEntries)
       setMilestoneEntries(milestoneHistory)
       setHolidays(recentHolidays)
+      setTrackerHolidayRows(recentTrackerHolidays)
       setChallengeHolidays(new Set(allHolidays.map((holiday) => holiday.date)))
-      setMissing(selectMissingCheckIns({ trackers: allTrackers, entries: missingEntries, holidays: new Set(missingHolidays.map((holiday) => holiday.date)), dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, -7 + index) as CalendarDate), today, timeZone }))
+      setMissing(selectMissingCheckIns({ trackers: allTrackers, entries: missingEntries, holidays: new Set(missingHolidays.map((holiday) => holiday.date)), trackerHolidays: missingTrackerHolidays, dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, -7 + index) as CalendarDate), today, timeZone }))
     } catch {
       if (request !== rangeRequest.current) return
       setError('Your check-in history could not be loaded from this device.')
@@ -124,7 +128,8 @@ export function HistoryPage() {
   const milestoneEvents = useMemo(() => trackers.flatMap((tracker) => {
     if (trackerFilter !== 'all' && tracker.id !== trackerFilter) return []
     const history = milestoneEntries.filter((entry) => entry.trackerId === tracker.id)
-    return evaluateMilestones({ tracker, entries: history, asOfDate: today, holidays: challengeHolidays, timeZone })
+    const trackerDates = new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date))
+    return evaluateMilestones({ tracker, entries: history, asOfDate: today, holidays: new Set([...challengeHolidays, ...trackerDates]), timeZone })
       .filter((milestone) => milestone.completed && milestone.reachedDate !== null && milestone.reachedDate >= startDate && milestone.reachedDate <= endDate)
       .map((milestone) => ({ tracker, milestone }))
   }), [trackers, milestoneEntries, trackerFilter, today, challengeHolidays, timeZone, startDate, endDate])
@@ -192,7 +197,7 @@ export function HistoryPage() {
         {grouped.map(([date, dayEntries]) => <section className="history-day" key={date} aria-labelledby={`history-${date}`}><header className="history-day-heading"><h2 id={`history-${date}`}>{calendarDateLabel(date, { weekday: 'long', month: 'long', day: 'numeric' })}</h2><span>{dayEntries.length} {dayEntries.length === 1 ? 'check-in' : 'check-ins'}</span></header><div className="history-entry-list">{dayEntries.map((entry) => {
           const tracker = trackerMap.get(entry.trackerId)
           if (!tracker) return null
-          const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), timeZone })
+          const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), trackerHolidays: new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
           return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={challengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}

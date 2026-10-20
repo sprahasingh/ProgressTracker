@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type {
   AppSettings,
   AccountHoliday,
+  TrackerHoliday,
   Category,
   DailyEntry,
   DailyJournal,
@@ -49,6 +50,7 @@ export class ProgressTrackerDatabase extends Dexie {
   goalProgressLogs!: Table<GoalProgressLog, string>
   settings!: Table<AppSettings, string>
   accountHolidays!: Table<AccountHoliday, string>
+  trackerHolidays!: Table<TrackerHoliday, string>
   syncOperations!: Table<SyncOperation, string>
   trackers!: Table<StoredTrackerDefinition, string>
   trackerEntries!: Table<StoredTrackerEntry, string>
@@ -226,6 +228,27 @@ export class ProgressTrackerDatabase extends Dexie {
       notificationPreferences: '&id, updatedAt',
       customMotivationMessages: '&id, updatedAt',
     })
+
+    this.version(11).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      accountHolidays: 'id, &date, updatedAt, deletedAt',
+      trackerHolidays: 'id, trackerId, date, updatedAt, deletedAt, &[trackerId+date]',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      holidayPermanentDeletionRequests: 'id, ownerUserId, holidayId, holidayDate, requestedAt, status, [ownerUserId+holidayId]',
+      holidayPermanentDeletionLedger: '&key, ownerUserId, holidayId',
+      trackerVerification: '&trackerId, status',
+      appNotifications: 'id, &identity, kind, createdAt, readAt',
+      notificationPreferences: '&id, updatedAt',
+      customMotivationMessages: '&id, updatedAt',
+    })
   }
 }
 
@@ -233,11 +256,11 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 10
+export const DATABASE_SCHEMA_VERSION = 11
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 
-const workspaceTables = ['categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings', 'trackers', 'trackerEntries', 'accountHolidays'] as const
+const workspaceTables = ['categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings', 'trackers', 'trackerEntries', 'accountHolidays', 'trackerHolidays'] as const
 
 function databaseNameFor(userId: string | null): string {
   return userId === null ? guestDatabaseName : `ProgressTracker:account:${encodeURIComponent(userId)}`
@@ -331,6 +354,7 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
         const copiedTrackers: StoredTrackerDefinition[] = []
         const copiedEntries: StoredTrackerEntry[] = []
         const copiedHolidays: AccountHoliday[] = []
+        const copiedTrackerHolidays: TrackerHoliday[] = []
         const remap = (tableName: string, id: unknown): unknown => typeof id === 'string' ? remappedIds.get(tableName)?.get(id) ?? id : id
         const transform = (tableName: string, source: unknown): Record<string, unknown> => {
           const row = source as Record<string, unknown>
@@ -341,11 +365,12 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
             case 'goalProgressLogs': return { ...row, metricId: remap('goalMetrics', row.metricId) }
             case 'trackers': return { ...row, categoryId: remap('categories', row.categoryId) }
             case 'trackerEntries': return { ...row, trackerId: remap('trackers', row.trackerId) }
+            case 'trackerHolidays': return { ...row, trackerId: remap('trackers', row.trackerId) }
             default: return { ...row }
           }
         }
         // Parents precede children so every copied foreign key uses its final ID.
-        const importOrder = ['categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings', 'trackers', 'trackerEntries', 'accountHolidays']
+        const importOrder = ['categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs', 'settings', 'trackers', 'trackerEntries', 'accountHolidays', 'trackerHolidays']
         if (decision === 'imported-as-copies') {
           const categoryForks = new Set<string>()
           for (const entry of (guestRows.get('dailyEntries') ?? []) as DailyEntry[]) {
@@ -414,6 +439,7 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
             if (tableName === 'trackers') copiedTrackers.push(candidate as unknown as StoredTrackerDefinition)
             if (tableName === 'trackerEntries') copiedEntries.push(candidate as unknown as StoredTrackerEntry)
             if (tableName === 'accountHolidays') copiedHolidays.push(candidate as unknown as AccountHoliday)
+            if (tableName === 'trackerHolidays') copiedTrackerHolidays.push(candidate as unknown as TrackerHoliday)
           }
         }
         for (const tableName of importOrder) {
@@ -438,6 +464,9 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
         for (const payload of copiedHolidays) {
           await queueSyncMutation(target, userId, 'account_holiday', payload)
         }
+        for (const payload of copiedTrackerHolidays) {
+          await queueSyncMutation(target, userId, 'tracker_holiday', payload)
+        }
       }
       await target.workspaceMetadata.put({
         key: 'workspace', userId, guestDecision: decision,
@@ -450,8 +479,8 @@ export async function decideGuestData(userId: string, decision: GuestDataDecisio
 export async function queueSyncMutation(
   database: ProgressTrackerDatabase,
   ownerUserId: string | null,
-  entity: 'tracker' | 'tracker_entry' | 'account_holiday',
-  payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday,
+  entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday',
+  payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday,
 ): Promise<void> {
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
     throw new Error('Versioned tracker rule writes are disabled until the schema v10 migration is applied and verified.')

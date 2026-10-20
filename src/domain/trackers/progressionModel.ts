@@ -2,6 +2,7 @@ import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/model
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence } from './planning'
 import { evaluateTrackerEntry } from './planning'
 import { trackerStrictModeForDate } from './ruleVersions'
+import { hasPositiveProgress } from './activityStatus'
 
 export const PROGRESSION_SCORING_VERSION = 2
 
@@ -28,12 +29,14 @@ export function estimateProvisionalCheckInReward(input: {
   today: string
   timeZone?: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly { trackerId: string; date: string }[]
 }): ProvisionalReward | null {
   const { tracker, entry } = input
   if (!input.pendingSync || entry.deletedAt !== null || entry.outcome !== 'recorded' || entry.date > input.today) return null
   if (tracker.id !== entry.trackerId || tracker.deletedAt !== null || tracker.status !== 'active') return null
   if (!isTrackerInActivePeriod(tracker, entry.date, input.timeZone)) return null
-  if (!trackerStrictModeForDate(tracker, entry.date) && (input.holidays?.has(entry.date) || !isTrackerScheduledOccurrence(tracker, entry.date, input.timeZone))) return null
+  const holiday = Boolean(input.holidays?.has(entry.date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === entry.date))
+  if (!trackerStrictModeForDate(tracker, entry.date) && ((holiday && !hasPositiveProgress(tracker, entry)) || !isTrackerScheduledOccurrence(tracker, entry.date, input.timeZone))) return null
   if (!evaluateTrackerEntry(tracker, entry).qualified) return null
   return { id: `check-in:${entry.id}`, effectiveDate: entry.date, xpDelta: PROGRESSION_REWARDS.checkIn }
 }
@@ -45,6 +48,7 @@ export function selectProvisionalRewards(input: {
   today: string
   timeZone?: string
   holidays?: ReadonlySet<string>
+  trackerHolidays?: readonly { trackerId: string; date: string }[]
 }): ProvisionalReward[] {
   const trackerById = new Map(input.trackers.map((tracker) => [tracker.id, tracker]))
   const seen = new Set<string>()

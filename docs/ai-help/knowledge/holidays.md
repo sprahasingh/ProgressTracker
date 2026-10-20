@@ -13,7 +13,7 @@
 - src/domain/holidays.ts
 - src/domain/holidays.test.ts
 **Answer:**
-Open Holidays & breaks, choose a date, and save the holiday. You can add a reason and choose a past date; holidays apply across the workspace rather than to only one tracker. To change a saved holiday, open its three-dot menu and choose Edit holiday. Update the date, reason, or both. The edit keeps the same holiday record and syncs across devices when signed in.
+Open Holidays & breaks to add an account-wide date, or use Tracker-specific holidays to exempt one Standard Mode tracker on a date. Tracker-specific holidays can also be added or removed from the selected date details in Calendar. You can choose past dates; entries remain separate from holiday records and sync across devices when signed in.
 
 ### ID: delete-holiday
 **Category:** holidays
@@ -43,7 +43,7 @@ Deleting a holiday removes that date’s break from future calculations and move
 - src/domain/trackers/planning.ts
 - src/domain/holidays.ts
 **Answer:**
-In Standard Mode, a holiday removes that date from scheduled streak opportunities. In Strict Mode, dates remain daily opportunities, so a holiday by itself does not excuse a missed day. A saved check-in remains visible in either mode; a qualifying one counts in Strict Mode. Goal plans use their own schedule rules.
+In Standard Mode, an account-wide or tracker-specific holiday excuses the scheduled opportunity when there is no positive work. Positive progress temporarily overrides the exemption and the entry follows normal success and streak rules; zero and Skip leave the holiday effective. Strict Mode still requires daily activity through account-wide holidays and does not allow tracker-specific holidays. Goal plans retain their existing account-wide holiday rules.
 
 ### ID: holiday-all-trackers
 **Category:** holidays
@@ -57,7 +57,7 @@ In Standard Mode, a holiday removes that date from scheduled streak opportunitie
 - src/domain/holidays.ts
 - src/features/holidays/HolidaysPage.tsx
 **Answer:**
-Yes. Holidays are workspace-wide dates, not tracker-specific settings. Tracker opportunity behavior depends on mode: Standard Mode pauses scheduled opportunities, while Strict Mode counts every active date. Goal plans account for holidays according to their own planning rules.
+Account-wide holidays apply across the workspace and continue to affect goal plans. You can also add a tracker-specific holiday for one Standard Mode tracker; it does not affect other trackers or goal plans. Strict Mode trackers cannot receive tracker-specific holidays and remain required on account-wide holidays.
 
 ### ID: holiday-remove-recalculates
 **Category:** holidays
@@ -87,7 +87,7 @@ Removing the holiday makes the date subject to the tracker’s usual mode and sc
 - src/features/today/TodayPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-Yes. A holiday does not prevent a check-in from being saved. Calendar offers a voluntary check-in on an active tracker’s holiday, and the saved entry remains visible. In Standard Mode, the entry is saved and included in applicable metrics, but the holiday does not add a scheduled streak opportunity. In Strict Mode, the holiday remains a required opportunity, and the entry counts toward the streak only if it meets the tracker’s streak qualification.
+Yes. A holiday is an expectation exemption, not a restriction on work. Positive progress on a Standard Mode holiday makes the actual Completed or Partial result visible and applies the normal streak, XP, and achievement rules. A zero entry or Skip leaves the holiday effective. Strict Mode continues its normal rules through account-wide holidays.
 
 ### ID: holiday-standard-v-strict
 **Category:** holidays
@@ -102,4 +102,48 @@ Yes. A holiday does not prevent a check-in from being saved. Calendar offers a v
 - src/domain/trackers/planning.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-Strict Mode treats every date in the tracker’s active period as an opportunity, including holidays. Without a qualifying check-in, an elapsed holiday can break the streak. Standard Mode excludes holidays from scheduled opportunities.
+Strict Mode treats every date in the tracker’s active period as an opportunity, including account-wide holidays. Without a qualifying check-in, an elapsed holiday can break the streak. Standard Mode holidays excuse the opportunity unless positive work is recorded.
+
+### ID: tracker-holiday
+**Category:** holidays
+**Question:** How do I mark a holiday for one tracker?
+**Aliases:**
+- Can I skip one tracker on a date?
+- How do tracker-specific holidays work?
+**Keywords:** tracker holiday, Standard Mode, selected tracker, exemption
+**Suggestible:** true
+**Sources:**
+- src/features/holidays/HolidaysPage.tsx
+- src/db/localRepository.ts
+- src/domain/trackers/activityStatus.ts
+**Answer:**
+Open Holidays & breaks, choose a date and a Standard Mode tracker in Tracker-specific holidays, then save. The holiday affects only that tracker and does not change other trackers or goal plans. Strict Mode trackers are excluded.
+
+### ID: holiday-clear-restores
+**Category:** holidays
+**Question:** What happens to a holiday when I clear a check-in?
+**Aliases:**
+- Does deleting work restore the holiday?
+- If I change progress to zero, does the holiday come back?
+**Keywords:** holiday, clear check-in, zero progress, edit, restore
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/activityStatus.ts
+- src/features/history/HistoryPage.tsx
+- src/features/today/TodayPage.tsx
+**Answer:**
+Holiday records are stored separately from check-ins. Positive progress temporarily overrides the exemption. Clearing that entry or editing it to zero automatically makes the holiday effective again; zero and Skip do not remove the holiday.
+
+### ID: holiday-calendar-aggregate
+**Category:** holidays
+**Question:** What does Calendar show when a holiday and tracker activity share a date?
+**Aliases:**
+- Does a holiday hide completed tracker work?
+- Why does a holiday date show Completed or Missed?
+**Keywords:** holiday, calendar, aggregate, completed, mixed trackers
+**Suggestible:** true
+**Sources:**
+- src/domain/trackers/dailyActivityStatus.ts
+- src/features/calendar/CalendarPage.tsx
+**Answer:**
+Calendar aggregates each tracker’s effective status. It shows Holiday only when every applicable tracker is effectively on holiday. Completed, Partial, No progress, Skipped, or Missed activity appears when a tracker contributes that outcome; Strict Mode misses therefore remain visible on account-wide holidays. The selected date details still identify the account-wide holiday and each tracker’s status.

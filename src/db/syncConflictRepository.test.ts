@@ -98,6 +98,23 @@ describe('sync conflict recovery', () => {
     await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
   })
 
+  it('resolves tracker-holiday conflicts by applying the reviewed cloud record and revision', async () => {
+    await activateWorkspace('conflict-user')
+    await localRepository.saveTracker(tracker)
+    const holiday = await localRepository.saveTrackerHoliday(tracker.id, '2026-01-04')
+    const operation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_holiday', holiday.id]).first()
+    if (!operation) throw new Error('Expected a queued tracker holiday operation')
+    const remoteHoliday = { id: holiday.id, user_id: 'conflict-user', tracker_id: tracker.id, holiday_date: holiday.date, created_at: holiday.createdAt, updated_at: '2026-01-05T00:00:00.000Z', deleted_at: null, server_revision: 4 }
+    await db.syncConflicts.put({ id: operation.id, ownerUserId: 'conflict-user', entity: 'tracker_holiday', entityId: holiday.id, localPayload: holiday, remoteRecord: remoteHoliday, detectedAt: '2026-01-05T00:00:00.000Z' })
+
+    await resolveSyncConflict('conflict-user', operation.id, 'use-cloud')
+
+    await expect(db.trackerHolidays.get(holiday.id)).resolves.toMatchObject({ trackerId: tracker.id, date: holiday.date, deletedAt: null })
+    await expect(db.syncRecords.get(`tracker_holiday:${holiday.id}`)).resolves.toMatchObject({ serverRevision: 4, ownerUserId: 'conflict-user' })
+    await expect(db.syncConflicts.get(operation.id)).resolves.toBeUndefined()
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['conflict-user', 'tracker_holiday', holiday.id]).count()).resolves.toBe(0)
+  })
+
   it('does not let a cloud conflict choice cancel a confirmed permanent deletion', async () => {
     await activateWorkspace('conflict-user')
     await localRepository.saveTracker(tracker)

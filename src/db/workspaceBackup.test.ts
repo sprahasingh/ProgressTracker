@@ -11,8 +11,8 @@ const restoreTracker = {
 }
 
 async function emptyActiveAccountExceptMetadata() {
-  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.accountHolidays, db.syncOperations, db.syncRecords, db.syncConflicts, db.permanentDeletionRequests, db.permanentDeletionLedger, db.holidayPermanentDeletionRequests, db.holidayPermanentDeletionLedger, db.trackerVerification], async () => {
-    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.accountHolidays.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear(), db.permanentDeletionRequests.clear(), db.permanentDeletionLedger.clear(), db.holidayPermanentDeletionRequests.clear(), db.holidayPermanentDeletionLedger.clear(), db.trackerVerification.clear()])
+  await db.transaction('rw', [db.categories, db.dailyEntries, db.dailyJournals, db.goals, db.goalMetrics, db.goalProgressLogs, db.settings, db.trackers, db.trackerEntries, db.accountHolidays, db.trackerHolidays, db.syncOperations, db.syncRecords, db.syncConflicts, db.permanentDeletionRequests, db.permanentDeletionLedger, db.holidayPermanentDeletionRequests, db.holidayPermanentDeletionLedger, db.trackerVerification], async () => {
+    await Promise.all([db.categories.clear(), db.dailyEntries.clear(), db.dailyJournals.clear(), db.goals.clear(), db.goalMetrics.clear(), db.goalProgressLogs.clear(), db.settings.clear(), db.trackers.clear(), db.trackerEntries.clear(), db.accountHolidays.clear(), db.trackerHolidays.clear(), db.syncOperations.clear(), db.syncRecords.clear(), db.syncConflicts.clear(), db.permanentDeletionRequests.clear(), db.permanentDeletionLedger.clear(), db.holidayPermanentDeletionRequests.clear(), db.holidayPermanentDeletionLedger.clear(), db.trackerVerification.clear()])
   })
 }
 
@@ -27,6 +27,21 @@ afterEach(async () => {
 })
 
 describe('workspace backups', () => {
+  it('exports and restores tracker-specific holiday rows and queued sync operations', async () => {
+    const accountId = `tracker-holiday-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(restoreTracker as never)
+    const holiday = await localRepository.saveTrackerHoliday(restoreTracker.id, '2026-12-24')
+    const backup = await createWorkspaceBackup(accountId)
+    expect(backup.stores.trackerHolidays).toContainEqual(expect.objectContaining({ id: holiday.id, trackerId: restoreTracker.id, date: '2026-12-24' }))
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+    await expect(db.trackerHolidays.get(holiday.id)).resolves.toMatchObject({ trackerId: restoreTracker.id, date: '2026-12-24', deletedAt: null })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'tracker_holiday', holiday.id]).first()).resolves.toMatchObject({ status: 'pending', payload: expect.objectContaining({ trackerId: restoreTracker.id, date: '2026-12-24' }) })
+  })
+
   it('exports and restores account holiday dates, reasons, tombstones, and pending sync operations', async () => {
     const accountId = `holiday-backup-${crypto.randomUUID()}`
     accountIds.push(accountId)
@@ -187,7 +202,7 @@ describe('workspace backups', () => {
     const backup = {
       format: WORKSPACE_BACKUP_FORMAT, version: WORKSPACE_BACKUP_VERSION,
       exportedAt: '2026-10-09T00:00:00.000Z', workspace: { kind: 'guest', ownerUserId: null },
-      stores: Object.fromEntries(['categories','dailyEntries','dailyJournals','goals','goalMetrics','goalProgressLogs','settings','trackers','trackerEntries','workspaceMetadata','syncOperations','syncRecords','syncConflicts','permanentDeletionRequests','permanentDeletionLedger','trackerVerification','accountHolidays','holidayPermanentDeletionRequests','holidayPermanentDeletionLedger'].map((name) => [name, []])),
+      stores: Object.fromEntries(['categories','dailyEntries','dailyJournals','goals','goalMetrics','goalProgressLogs','settings','trackers','trackerEntries','workspaceMetadata','syncOperations','syncRecords','syncConflicts','permanentDeletionRequests','permanentDeletionLedger','trackerVerification','accountHolidays','trackerHolidays','holidayPermanentDeletionRequests','holidayPermanentDeletionLedger'].map((name) => [name, []])),
     } as unknown as WorkspaceBackup
     try {
       downloadWorkspaceBackup(backup)

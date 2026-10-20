@@ -1,16 +1,18 @@
 import { z } from 'zod'
 import { openDatabase } from './database'
 import { trackerDefinitionSchema, trackerEntrySchema } from '../domain/trackers/schema'
+import type { TrackerDefinition } from '../domain/trackers/types'
+import { trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
 import { isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { publishWorkspaceMutation } from './workspaceMutationEvents'
 
 export const WORKSPACE_BACKUP_FORMAT = 'ProgressTracker local workspace backup'
-export const WORKSPACE_BACKUP_VERSION = 4
+export const WORKSPACE_BACKUP_VERSION = 5
 
 const backupStores = [
   'categories', 'dailyEntries', 'dailyJournals', 'goals', 'goalMetrics', 'goalProgressLogs',
   'settings', 'trackers', 'trackerEntries', 'workspaceMetadata', 'syncOperations', 'syncRecords', 'syncConflicts',
-  'permanentDeletionRequests', 'permanentDeletionLedger', 'trackerVerification', 'accountHolidays',
+  'permanentDeletionRequests', 'permanentDeletionLedger', 'trackerVerification', 'accountHolidays', 'trackerHolidays',
   'holidayPermanentDeletionRequests', 'holidayPermanentDeletionLedger',
 ] as const
 
@@ -44,18 +46,19 @@ const goalRow = z.object({ id: rowId, title: z.string().min(1), description: z.s
 const goalMetricRow = z.object({ id: rowId, goalId: rowId, name: z.string().min(1), unit: z.string(), target: z.number().finite().positive(), weight: z.number().finite().nonnegative().nullable(), position: z.number().int(), createdAt: timestamp, updatedAt: timestamp, deletedAt: nullableTimestamp })
 const goalProgressRow = z.object({ id: rowId, metricId: rowId, date: z.iso.date(), value: z.number().finite().nonnegative(), recordedAt: timestamp, updatedAt: timestamp, deletedAt: nullableTimestamp, note: z.string().optional() })
 const settingsRow = z.object({ id: z.literal('general'), timezone: z.string(), appearance: z.enum(['light', 'dark', 'system']), backupReminderDays: z.number().int().positive().nullable(), updatedAt: timestamp })
-const operationRow = z.object({ id: rowId, ownerUserId: rowId.nullable().optional(), entity: z.enum(['category', 'daily-entry', 'daily-journal', 'goal', 'goal-metric', 'goal-progress', 'settings', 'tracker', 'tracker_entry', 'account_holiday']), entityId: rowId, operation: z.literal('upsert'), expectedRevision: z.number().int().positive().nullable().optional(), payload: z.unknown().optional(), createdAt: timestamp.optional(), updatedAt: timestamp.optional(), attempts: z.number().int().nonnegative().optional(), status: z.enum(['pending', 'in-flight', 'conflict', 'blocked', 'superseded', 'discarded']).optional(), lastError: z.string().nullable().optional(), failureCode: z.string().optional(), failureDiagnostic: z.object({ code: z.string(), message: z.string(), table: z.string().optional(), constraint: z.string().optional() }).optional(), blockedAt: timestamp.optional(), supersededAt: timestamp.optional(), supersededByRevision: z.number().int().positive().optional(), discardedAt: timestamp.optional() })
-const syncRecordRow = z.object({ key: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry', 'account_holiday']), entityId: rowId, serverRevision: z.number().int().positive() })
-const syncConflictRow = z.object({ id: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry', 'account_holiday']), entityId: rowId, localPayload: z.unknown(), remoteRecord: z.record(z.string(), z.json()).nullable(), detectedAt: timestamp })
+const operationRow = z.object({ id: rowId, ownerUserId: rowId.nullable().optional(), entity: z.enum(['category', 'daily-entry', 'daily-journal', 'goal', 'goal-metric', 'goal-progress', 'settings', 'tracker', 'tracker_entry', 'account_holiday', 'tracker_holiday']), entityId: rowId, operation: z.literal('upsert'), expectedRevision: z.number().int().positive().nullable().optional(), payload: z.unknown().optional(), createdAt: timestamp.optional(), updatedAt: timestamp.optional(), attempts: z.number().int().nonnegative().optional(), status: z.enum(['pending', 'in-flight', 'conflict', 'blocked', 'superseded', 'discarded']).optional(), lastError: z.string().nullable().optional(), failureCode: z.string().optional(), failureDiagnostic: z.object({ code: z.string(), message: z.string(), table: z.string().optional(), constraint: z.string().optional() }).optional(), blockedAt: timestamp.optional(), supersededAt: timestamp.optional(), supersededByRevision: z.number().int().positive().optional(), discardedAt: timestamp.optional() })
+const syncRecordRow = z.object({ key: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry', 'account_holiday', 'tracker_holiday']), entityId: rowId, serverRevision: z.number().int().positive() })
+const syncConflictRow = z.object({ id: rowId, ownerUserId: rowId, entity: z.enum(['tracker', 'tracker_entry', 'account_holiday', 'tracker_holiday']), entityId: rowId, localPayload: z.unknown(), remoteRecord: z.record(z.string(), z.json()).nullable(), detectedAt: timestamp })
 const deletionRequestRow = z.object({ id: rowId, ownerUserId: rowId, trackerId: rowId, requestedAt: timestamp, status: z.enum(['pending', 'conflict', 'failed']), lastError: z.string().nullable(), winsRetention: z.enum(['keep_wins', 'delete_wins']).optional() })
 const deletionLedgerRow = z.object({ key: rowId, ownerUserId: rowId, trackerId: rowId, permanentlyDeletedAt: timestamp })
 const trackerVerificationRow = z.object({ trackerId: rowId, status: z.literal('pending-server-check'), purpose: z.enum(['restore', 'import']).optional() })
 const accountHolidayRow = z.object({ id: rowId, date: z.iso.date(), reason: z.enum(['travel', 'exam', 'personal', 'other']).nullable(), createdAt: timestamp, updatedAt: timestamp, deletedAt: nullableTimestamp })
+const trackerHolidayRow = z.object({ id: rowId, trackerId: rowId, date: z.iso.date(), createdAt: timestamp, updatedAt: timestamp, deletedAt: nullableTimestamp })
 const holidayDeletionRequestRow = z.object({ id: rowId, ownerUserId: rowId, holidayId: rowId, holidayDate: z.iso.date(), requestedAt: timestamp, status: z.enum(['pending', 'conflict']), lastError: z.string().nullable() })
 const holidayDeletionLedgerRow = z.object({ key: rowId, ownerUserId: rowId, holidayId: rowId, permanentlyDeletedAt: timestamp })
 const metadataRow = z.object({ key: z.literal('workspace'), userId: rowId.nullable(), guestDecision: z.enum(['imported', 'imported-as-copies', 'kept-separate']).optional(), importedAt: timestamp.optional() })
 const backupSchema = z.object({
-  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(WORKSPACE_BACKUP_VERSION)]), exportedAt: timestamp,
+  format: z.literal(WORKSPACE_BACKUP_FORMAT), version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(WORKSPACE_BACKUP_VERSION)]), exportedAt: timestamp,
   workspace: z.object({ kind: z.enum(['guest', 'account']), ownerUserId: rowId.nullable() }),
   stores: z.object({
     categories: z.array(categoryRow), dailyEntries: z.array(dailyEntryRow), dailyJournals: z.array(dailyJournalRow),
@@ -66,6 +69,7 @@ const backupSchema = z.object({
     permanentDeletionLedger: z.array(deletionLedgerRow).optional().default([]),
     trackerVerification: z.array(trackerVerificationRow).optional().default([]),
     accountHolidays: z.array(accountHolidayRow).optional().default([]),
+    trackerHolidays: z.array(trackerHolidayRow).optional().default([]),
     holidayPermanentDeletionRequests: z.array(holidayDeletionRequestRow).optional().default([]),
     holidayPermanentDeletionLedger: z.array(holidayDeletionLedgerRow).optional().default([]),
   }),
@@ -74,7 +78,7 @@ const backupSchema = z.object({
 const primaryKeyFor: Record<(typeof backupStores)[number], string> = {
   categories: 'id', dailyEntries: 'id', dailyJournals: 'id', goals: 'id', goalMetrics: 'id', goalProgressLogs: 'id',
   settings: 'id', trackers: 'id', trackerEntries: 'id', workspaceMetadata: 'key', syncOperations: 'id', syncRecords: 'key', syncConflicts: 'id',
-  permanentDeletionRequests: 'id', permanentDeletionLedger: 'key', trackerVerification: 'trackerId', accountHolidays: 'id',
+  permanentDeletionRequests: 'id', permanentDeletionLedger: 'key', trackerVerification: 'trackerId', accountHolidays: 'id', trackerHolidays: 'id',
   holidayPermanentDeletionRequests: 'id', holidayPermanentDeletionLedger: 'key',
 }
 
@@ -109,6 +113,10 @@ function parseAndCheckBackup(value: unknown, expectedOwnerUserId: string | null)
       const payload = accountHolidayRow.safeParse(record.payload)
       if (!payload.success || payload.data.id !== record.entityId) throw new Error('Backup contains an invalid holiday sync operation.')
     }
+    if (record.entity === 'tracker_holiday' && record.payload !== undefined) {
+      const payload = trackerHolidayRow.safeParse(record.payload)
+      if (!payload.success || payload.data.id !== record.entityId) throw new Error('Backup contains an invalid tracker-holiday sync operation.')
+    }
   }
   for (const record of parsed.data.stores.syncRecords) {
     if (record.key !== `${record.entity}:${record.entityId}`) throw new Error('Backup contains inconsistent sync revision metadata.')
@@ -131,16 +139,32 @@ function parseAndCheckBackup(value: unknown, expectedOwnerUserId: string | null)
     if (expectedOwnerUserId === null || record.ownerUserId !== expectedOwnerUserId || record.key !== `${expectedOwnerUserId}:${record.holidayId}`) throw new Error('Backup contains an invalid holiday deletion ledger record.')
   }
   for (const conflict of parsed.data.stores.syncConflicts) {
-    const local = conflict.entity === 'tracker' ? trackerDefinitionSchema.safeParse(conflict.localPayload) : conflict.entity === 'tracker_entry' ? trackerEntrySchema.safeParse(conflict.localPayload) : accountHolidayRow.safeParse(conflict.localPayload)
+    const local = conflict.entity === 'tracker' ? trackerDefinitionSchema.safeParse(conflict.localPayload)
+      : conflict.entity === 'tracker_entry' ? trackerEntrySchema.safeParse(conflict.localPayload)
+        : conflict.entity === 'tracker_holiday' ? trackerHolidayRow.safeParse(conflict.localPayload)
+          : conflict.entity === 'account_holiday' ? accountHolidayRow.safeParse(conflict.localPayload)
+            : { success: false as const }
     if (!local.success || local.data.id !== conflict.entityId) throw new Error('Backup contains an invalid local conflict copy.')
     if (conflict.remoteRecord?.user_id !== undefined && conflict.remoteRecord.user_id !== expectedOwnerUserId) throw new Error('Backup contains a conflict snapshot owned by another account.')
   }
   const trackerIds = new Set(parsed.data.stores.trackers.map((tracker) => tracker.id))
+  const trackersById = new Map(parsed.data.stores.trackers.map((tracker) => [tracker.id, tracker]))
   const entryRows = new Set(parsed.data.stores.trackerEntries.map((entry) => entry.id))
   if (entryRows.size !== parsed.data.stores.trackerEntries.length) throw new Error('Backup contains duplicate tracker entry IDs.')
   for (const entry of parsed.data.stores.trackerEntries) {
     if (!trackerIds.has(entry.trackerId)) {
       throw new Error(`Backup tracker entry ${entry.id} refers to a missing tracker.`)
+    }
+  }
+  for (const holiday of parsed.data.stores.trackerHolidays) {
+    const tracker = trackersById.get(holiday.trackerId)
+    if (!tracker) throw new Error(`Backup tracker holiday ${holiday.id} refers to a missing tracker.`)
+    if (trackerStrictModeForDate(tracker as unknown as TrackerDefinition, holiday.date)) throw new Error(`Backup tracker holiday ${holiday.id} refers to a Strict Mode tracker.`)
+  }
+  for (const conflict of parsed.data.stores.syncConflicts) {
+    if (conflict.entity === 'tracker_holiday') {
+      const payload = trackerHolidayRow.safeParse(conflict.localPayload)
+      if (!payload.success || payload.data.id !== conflict.entityId || !trackerIds.has(payload.data.trackerId)) throw new Error('Backup contains an invalid tracker-holiday conflict.')
     }
   }
   return backup
@@ -157,19 +181,23 @@ async function compareBackupWithWorkspace(backup: WorkspaceBackup, database: Awa
     : [])
   const deletedEntryIds = new Set((backup.stores.trackerEntries as Array<{ id: string; trackerId: string }>)
     .filter((entry) => deletedTrackerIds.has(entry.trackerId)).map((entry) => entry.id))
+  const deletedTrackerHolidayIds = new Set((backup.stores.trackerHolidays as Array<{ id: string; trackerId: string }>).filter((holiday) => deletedTrackerIds.has(holiday.trackerId)).map((holiday) => holiday.id))
 
   const belongsToDeletedTracker = (storeName: string, row: Record<string, unknown>) => {
     if (storeName === 'trackers') return deletedTrackerIds.has(String(row.id))
     if (storeName === 'trackerEntries') return deletedTrackerIds.has(String(row.trackerId))
+    if (storeName === 'trackerHolidays') return deletedTrackerIds.has(String(row.trackerId))
     if (storeName === 'permanentDeletionRequests' || storeName === 'trackerVerification') return deletedTrackerIds.has(String(storeName === 'permanentDeletionRequests' ? row.trackerId : row.trackerId))
     if (storeName === 'syncOperations' || storeName === 'syncConflicts') {
       const payload = storeName === 'syncOperations' ? row.payload : row.localPayload
       const payloadTrackerId = typeof payload === 'object' && payload !== null && 'trackerId' in payload ? String((payload as { trackerId: unknown }).trackerId) : ''
       return row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId))
         || row.entity === 'tracker_entry' && (deletedEntryIds.has(String(row.entityId)) || deletedTrackerIds.has(payloadTrackerId))
+        || row.entity === 'tracker_holiday' && (deletedTrackerHolidayIds.has(String(row.entityId)) || deletedTrackerIds.has(payloadTrackerId))
     }
     if (storeName === 'syncRecords') return (row.entity === 'tracker' && deletedTrackerIds.has(String(row.entityId)))
       || (row.entity === 'tracker_entry' && deletedEntryIds.has(String(row.entityId)))
+      || (row.entity === 'tracker_holiday' && deletedTrackerHolidayIds.has(String(row.entityId)))
     return false
   }
 
