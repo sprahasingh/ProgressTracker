@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db, ProgressTrackerDatabase } from './database'
 import type { SyncOperation } from './models'
+import type { TrackerDefinition } from '../domain/trackers/types'
 import { localRepository } from './localRepository'
+import { versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
 import { backupRecordCount, createWorkspaceBackup, downloadWorkspaceBackup, previewWorkspaceRestore, restoreWorkspaceBackup, WORKSPACE_BACKUP_FORMAT, WORKSPACE_BACKUP_VERSION, type WorkspaceBackup } from './workspaceBackup'
 
 const accountIds: string[] = []
@@ -28,6 +30,31 @@ afterEach(async () => {
 })
 
 describe('workspace backups', () => {
+  it('round-trips date-effective threshold edits and saved raw check-in values', async () => {
+    const accountId = `threshold-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    await activateWorkspace(accountId)
+    const base: TrackerDefinition = {
+      ...restoreTracker, id: 'backup-threshold-history', schemaVersion: 9 as const, kind: 'habit', status: 'active', schedule: { kind: 'every-day' },
+      scheduling: { mode: 'ongoing' as const },
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const }, streakRuleMode: 'same-as-success' as const, strictMode: false,
+    }
+    const edited: TrackerDefinition = { ...base, metrics: [{ ...base.metrics[0]!, thresholds: { direction: 'decrease', target: 3, streakQualification: 'target' } }] }
+    const versioned = versionTrackerRuleChange({ before: base, after: edited, application: 'apply-from-today', today: '2026-01-02', historyStartDate: '2026-01-01', recordedAt: '2026-01-02T00:00:00.000Z' })
+    await localRepository.saveTracker(versioned as never)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: versioned.id, date: '2026-01-01', outcome: 'recorded', values: { pages: 4 }, note: 'unchanged raw value' })
+
+    const backup = await createWorkspaceBackup(accountId)
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+
+    await expect(db.trackers.get(versioned.id)).resolves.toMatchObject({ schemaVersion: 10, ruleVersions: versioned.ruleVersions, metrics: edited.metrics })
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ values: { pages: 4 }, note: 'unchanged raw value' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'tracker', versioned.id]).first()).resolves.toMatchObject({ payload: { ruleVersions: versioned.ruleVersions } })
+  })
+
   it('exports and restores tracker-specific holiday rows and queued sync operations', async () => {
     const accountId = `tracker-holiday-backup-${crypto.randomUUID()}`
     accountIds.push(accountId)

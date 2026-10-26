@@ -588,7 +588,7 @@ export const localRepository = {
           throw new Error('Custom-field definitions cannot be edited because their historical availability is not saved.')
         }
         if (draft.schemaVersion === 10 && draft.ruleVersions?.at(-1)?.historyPolicy && !isTrackerEditHistorySyncGuardEnabled()) {
-          throw new Error('Safe tracker history edits need migration 20261119000100_tracker_edit_sync_guards.sql and VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.')
+          throw new Error('Safe tracker history edits need migrations 20261119000100_tracker_edit_sync_guards.sql and 20261125000100_tracker_threshold_history_edits.sql and VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.')
         }
         const savedEntries = await database.trackerEntries.where('[trackerId+date]').between([draft.id, '0000-01-01'], [draft.id, '9999-12-31']).toArray()
         if (existing.schemaVersion === 10 && stableTrackerJson(existing.metrics) !== stableTrackerJson(draft.metrics)
@@ -608,7 +608,7 @@ export const localRepository = {
           && proposedHead !== undefined
           && proposedHead === calendarDateInTimeZone(new Date(), normalizeSettings(await database.settings.get('general')).timezone)
           && latestSavedDate === proposedHead
-          && stableTrackerJson(existing.metrics) === stableTrackerJson(draft.metrics)
+          && stableTrackerJson(trackerMetricStructure(existing.metrics)) === stableTrackerJson(trackerMetricStructure(draft.metrics))
           && stableTrackerJson(existing.customFields) === stableTrackerJson(draft.customFields)
         if (proposedHead && existing.ruleVersions?.at(-1)?.id !== nextRuleHead?.id && latestSavedDate && proposedHead <= latestSavedDate
           && nextRuleHead?.application !== 'recalculate-all-history' && !sameDayCompatibleRuleEdit) {
@@ -1108,6 +1108,10 @@ function stableCustomFieldConfiguration(fields: StoredTrackerDefinition['customF
     .map((field) => Object.fromEntries(Object.entries(field).filter(([key]) => key !== 'position'))))
 }
 
+function trackerMetricStructure(metrics: StoredTrackerDefinition['metrics']) {
+  return metrics.map(({ thresholds: _thresholds, ...metric }) => metric)
+}
+
 function assertRuleHistoryTransition(
   before: StoredTrackerDefinition,
   after: StoredTrackerDefinition,
@@ -1138,9 +1142,9 @@ function assertRuleHistoryTransition(
     const dependencyIssue = historicalRuleDependencyIssue(before, after, affectedStartDate)
     if (dependencyIssue) throw new Error(`${dependencyIssue} Choose a forward effective date instead.`)
     const structuralSettingsChanged = stableTrackerJson([
-      before.schedule, before.startDate, before.deadline, before.scheduling, before.metrics, before.customFields, before.milestones,
+      before.schedule, before.startDate, before.deadline, before.scheduling, trackerMetricStructure(before.metrics), before.customFields, before.milestones,
     ]) !== stableTrackerJson([
-      after.schedule, after.startDate, after.deadline, after.scheduling, after.metrics, after.customFields, after.milestones,
+      after.schedule, after.startDate, after.deadline, after.scheduling, trackerMetricStructure(after.metrics), after.customFields, after.milestones,
     ])
     const missingHistoryInput = entries.some((entry) => entry.outcome === 'recorded'
       && trackerMetricIdsForDate(after, entry.date).some((metricId) => !Object.hasOwn(entry.values, metricId)))

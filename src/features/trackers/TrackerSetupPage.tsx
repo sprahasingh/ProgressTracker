@@ -20,7 +20,6 @@ import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shar
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
-import { hasTrackerEditSyncGuardsContract } from '../../services/supabase/trackerEditSyncGuards'
 import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled, isTrackerEditHistorySyncGuardEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
@@ -734,15 +733,9 @@ export function TrackerSetupPage() {
           return
         }
         if (!isTrackerEditHistorySyncGuardEnabled()) {
-          const message = 'Safe tracker history edits need migration 20261119000100_tracker_edit_sync_guards.sql and VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.'
+          const message = 'Safe tracker history edits need migrations 20261119000100_tracker_edit_sync_guards.sql and 20261125000100_tracker_threshold_history_edits.sql, plus VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS=true in this production build. No tracker changes were saved.'
           setError(message)
           notify({ kind: 'error', title: 'Safe tracker history edits are not enabled yet', description: message, duration: 0, dedupeKey: 'tracker-edit-sync-guards' })
-          return
-        }
-        if (!await hasTrackerEditSyncGuardsContract()) {
-          const message = 'This server does not advertise the tracker edit sync guard required for safe history updates. The three history choices are unavailable.'
-          setError(message)
-          notify({ kind: 'error', title: 'Safe tracker history edits are unavailable', description: message, duration: 0, dedupeKey: 'tracker-edit-server-contract' })
           return
         }
         if (!isSchemaV10WriteEnabled()) {
@@ -756,7 +749,11 @@ export function TrackerSetupPage() {
         const today = todayLocal(timeZone)
         const history = await localRepository.listTrackerEntriesForTracker(existing.id)
         const latestCheckInDate = history.reduce<CalendarDate | null>((latest, entry) => latest === null || entry.date > latest ? entry.date as CalendarDate : latest, null)
-        const structural = stableJson(existing.metrics) !== stableJson(checked.data.metrics)
+        // Thresholds are evaluation rules, not measure structure. Allow them
+        // through the existing v10 history policy while retaining the guard
+        // for identity, value type, units, precision, and checklist meaning.
+        const metricStructure = (tracker: TrackerDefinition) => tracker.metrics.map(({ thresholds: _thresholds, ...metric }) => metric)
+        const structural = stableJson(metricStructure(existing)) !== stableJson(metricStructure(checked.data as TrackerDefinition))
           || stableCustomFieldConfiguration(existing.customFields) !== stableCustomFieldConfiguration(checked.data.customFields)
         const milestonesChanged = stableJson(existing.milestones) !== stableJson(checked.data.milestones)
         if (milestonesChanged) {
@@ -769,14 +766,17 @@ export function TrackerSetupPage() {
         }
         // Historical recalculation is deliberately limited to rule-only edits
         // with a value for every measure used by the new rules on every saved day.
-        const ruleOnly = stableJson([existing.schedule, trackerActiveStartDate(existing, timeZone), existing.deadline, existing.scheduling ?? trackerScheduling(existing), existing.metrics])
-          === stableJson([checked.data.schedule, trackerActiveStartDate(checked.data as TrackerDefinition, timeZone), checked.data.deadline, checked.data.scheduling ?? trackerScheduling(checked.data as TrackerDefinition), checked.data.metrics])
+        const ruleOnly = stableJson([existing.schedule, trackerActiveStartDate(existing, timeZone), existing.deadline, existing.scheduling ?? trackerScheduling(existing), metricStructure(existing)])
+          === stableJson([checked.data.schedule, trackerActiveStartDate(checked.data as TrackerDefinition, timeZone), checked.data.deadline, checked.data.scheduling ?? trackerScheduling(checked.data as TrackerDefinition), metricStructure(checked.data as TrackerDefinition)])
         const requiredHistoricalMeasures = new Set([...existing.metrics, ...checked.data.metrics].map((metric) => metric.id))
-        const allHistoryAvailable = ruleOnly && !structural && !milestonesChanged && (latestCheckInDate === null || latestCheckInDate <= today)
-          && history.every((entry) => [...requiredHistoricalMeasures].every((metricId) => Object.hasOwn(entry.values, metricId)))
+        const allHistoryAvailable = ruleOnly && !structural && !milestonesChanged
+          && (latestCheckInDate === null || latestCheckInDate <= today)
+          && history.every((entry) => entry.outcome !== 'recorded'
+            || [...requiredHistoricalMeasures].every((metricId) => Object.hasOwn(entry.values, metricId)))
         const dependencyIssue = historicalRuleDependencyIssue(existing, checked.data as TrackerDefinition, earliestStart)
         const addedMeasure = checked.data.metrics.some((metric) => !existing.metrics.some((current) => current.id === metric.id))
-        const allHistoryReason = dependencyIssue ?? (structural
+        const allHistoryReason = dependencyIssue ?? (latestCheckInDate !== null && latestCheckInDate > today
+          ? 'A future-dated check-in must remain ahead of the new rule boundary.' : structural
           ? addedMeasure ? 'This measure wasn’t available for earlier check-ins.' : 'Historical measure settings can’t be verified.'
           : !allHistoryAvailable ? 'Historical check-ins are missing inputs needed to evaluate this rule.' : null)
         const todayConflict = latestCheckInDate !== null && (latestCheckInDate > today || structural && latestCheckInDate >= today)
@@ -865,12 +865,6 @@ export function TrackerSetupPage() {
         const message = checked.error.issues[0]?.message ?? 'The versioned tracker configuration is invalid.'
         setError(message)
         notify({ kind: 'error', title: 'Tracker details need attention', description: message, duration: 0, dedupeKey: 'tracker-form-validation' })
-        return
-      }
-      if (!await hasTrackerEditSyncGuardsContract()) {
-        const message = 'This server does not advertise the tracker edit sync guard required for safe history updates. No tracker changes were saved.'
-        setError(message)
-        notify({ kind: 'error', title: 'Safe tracker history edits are unavailable', description: message, duration: 0, dedupeKey: 'tracker-edit-server-contract' })
         return
       }
       writePhase = 'local-save'
@@ -1037,7 +1031,9 @@ export function TrackerSetupPage() {
         showCloseButton
         dismissOnBackdrop
         title="How should your tracker changes apply?"
-        description="Choose when the saved measures and rules take effect. Existing check-ins keep their dates, values, and saved evaluation."
+        description={pendingRuleChange.mode === 'recalculate-all-history'
+          ? 'This will reevaluate every saved check-in using the new thresholds and rules. Recorded values and notes stay unchanged. Progression awards may be added or reversed.'
+          : 'Choose when the saved thresholds and rules take effect. Earlier check-ins keep their existing evaluation, dates, values, and notes.'}
         actionLabel={pendingRuleChange.mode === 'apply-from-today' ? 'Apply from today'
           : pendingRuleChange.mode === 'after-last-check-in' ? 'After the last check-in' : 'Apply to all history'}
         actionDisabled={saving}

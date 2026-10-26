@@ -27,8 +27,8 @@ export function historicalMetricMeaningChange(previous: TrackerDefinition, next:
     if (!historicalMetricIds.has(metric.id)) continue
     const candidate = nextById.get(metric.id)
     if (!candidate) return metric.name
-    const { retiredAt: _oldRetiredAt, precision: _oldPrecision, ...oldMeaning } = metric
-    const { retiredAt: _nextRetiredAt, precision: _nextPrecision, ...nextMeaning } = candidate
+    const { retiredAt: _oldRetiredAt, precision: _oldPrecision, thresholds: _oldThresholds, ...oldMeaning } = metric
+    const { retiredAt: _nextRetiredAt, precision: _nextPrecision, thresholds: _nextThresholds, ...nextMeaning } = candidate
     if (JSON.stringify(oldMeaning) !== JSON.stringify(nextMeaning)) return metric.name
   }
   return undefined

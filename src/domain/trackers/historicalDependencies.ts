@@ -49,7 +49,9 @@ function semanticSignature(metric: TrackerMetricDefinition): string {
     name: metric.name,
     valueType: metric.valueType,
     unit: metric.unit ?? null,
-    thresholds: metric.thresholds ?? null,
+    // Thresholds are the evaluation policy being changed. They may be safely
+    // recalculated against raw historical values; identity and value meaning
+    // below must remain stable across snapshots.
     checklistItems: metric.checklistItems?.map(({ id, label }) => ({ id, label })) ?? null,
   })
 }
@@ -68,10 +70,6 @@ export function historicalRuleDependencyIssue(before: TrackerDefinition, after: 
   }
   const dependencies = ruleDependencies(after)
   const milestones = before.milestones ?? []
-  if (milestones.some((milestone) => milestone.type === 'successful-days' || milestone.type === 'streak-length')) {
-    return 'Past milestone rewards could change.'
-  }
-
   const goalPlanDependencies = new Set([
     ...Object.keys(before.goalPlanning?.progressSemantics ?? {}),
     ...Object.keys(before.goalPlanning?.dailyTargets ?? {}),
