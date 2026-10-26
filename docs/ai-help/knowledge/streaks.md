@@ -13,7 +13,7 @@
 - src/domain/trackers/analytics.ts
 - src/features/trackers/TrackerConfigurationEditor.tsx
 **Answer:**
-Standard Mode counts the tracker’s scheduled dates as opportunities and pauses over unscheduled days and holidays. Strict Mode counts every date in the active period, including unscheduled dates and holidays. A saved qualifying check-in on a holiday can still count in either mode.
+Standard Mode counts scheduled dates as opportunities and pauses over unscheduled days and holidays by default. For a Standard Mode holiday check-in, **Keep as Holiday** saves activity without making the date an opportunity; **Count as Normal Check-in** makes it a regular opportunity and evaluates its values by the Streak Rule. Strict Mode counts every active date, including unscheduled dates and holidays, and does not offer the choice. Older holiday entries retain their previous behavior: positive work counts normally.
 
 ### ID: streak-statistics
 **Category:** streaks
@@ -31,7 +31,7 @@ Standard Mode counts the tracker’s scheduled dates as opportunities and pauses
 - src/domain/trackers/progression.test.ts
 - supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Your current streak is the run of recent tracking opportunities whose entries meet the Streak Rule effective on each date. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on the tracker’s schedule, Strict Mode, and holidays. Success rates and normal daily success XP use the separate Success Rule effective on each date. A versioned rule change does not reset continuity across the date boundary.
+Your current streak is the run of recent tracking opportunities whose entries meet the Streak Rule effective on each date. Your longest streak is the best qualifying run in the tracker’s history. A missed required opportunity can end the current run, while the longest record remains. Which dates count depends on schedule, mode, and holidays. On a Standard Mode holiday, **Keep as Holiday** leaves the date neutral; **Count as Normal Check-in** makes it a normal opportunity, including when the saved value does not qualify. Success rates and normal daily success XP use the separate Success Rule effective on each date. A versioned rule change does not reset continuity across the date boundary.
 
 ### ID: all-trackers-streak
 **Category:** streaks
@@ -46,7 +46,7 @@ Your current streak is the run of recent tracking opportunities whose entries me
 - src/features/dashboard/DashboardPage.tsx
 - src/domain/trackers/progression.test.ts
 **Answer:**
-It counts consecutive dates when at least one tracker has a required opportunity and every required tracker meets its own Streak Rule. It is separate from each tracker’s own streak. Standard Mode holidays and rest days are neutral; Strict Mode requires active-period dates. A known failed opportunity ends the run, while a neutral or still-pending date does not add a day or prematurely break the confirmed run.
+It counts consecutive dates when at least one tracker has a required opportunity and every required tracker meets its own Streak Rule. It is separate from each tracker’s own streak. Standard Mode holidays kept as holidays and rest days are neutral; a holiday counted normally is a required opportunity. Strict Mode requires active-period dates. A known failed opportunity ends the run, while a neutral or still-pending date does not add a day or prematurely break the confirmed run.
 
 ### ID: rest-days-streaks
 **Category:** streaks
@@ -90,7 +90,7 @@ Your current streak describes your ongoing qualifying run. Your longest streak i
 - src/domain/trackers/progression.test.ts
 - src/features/history/HistoryPage.tsx
 **Answer:**
-No. A Skipped entry is a saved intentional outcome, not a derived Missed date or a recorded No progress check-in. It does not qualify for a streak on a required opportunity. Standard Mode rest days and holidays are excluded from the streak; Strict Mode requires qualifying activity on every in-period date.
+No. A Skipped entry is a saved intentional outcome, not a derived Missed date or a recorded No progress check-in. It does not qualify for a streak on a required opportunity. Standard Mode rest days and holidays kept as holidays are neutral; a holiday counted normally is an opportunity that still requires a qualifying entry. Strict Mode requires qualifying activity on every in-period date.
 
 ### ID: streak-zero-quantity
 **Category:** streaks

@@ -54,10 +54,11 @@ The plan calculates remaining work from the goal target minus active saved incre
 - src/features/goals/GoalsPage.tsx
 - src/features/history/HistoryPage.tsx
 - src/features/calendar/CalendarPage.tsx
+- supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 - src/services/supabase/syncEngine.ts
 - supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql
 **Answer:**
-A milestone's saved type defines what its target measures. Total quantity sums one numeric measure over eligible active-period check-ins; single-day quantity compares the best day; successful days use the Success Rule effective on each date; longest streak uses the Streak Rule effective on each date; challenge day follows the configured Calendar Days or Effective Days count; and a measure completion count matches a Yes/No or Checklist condition. Progress is recalculated from saved entries, so historical edits and deletions update it. Older milestones without a type retain their original best-single-observation meaning until the user converts them. Displayed completion follows saved activity and its applicable rules; confirmed milestone XP separately requires individually eligible check-ins after the progression cutover. A reached date is shown when it can be derived reliably, and reaching a milestone does not by itself complete the overall goal.
+A milestone's saved type defines what its target measures. Total quantity sums one numeric measure over eligible active-period check-ins; single-day quantity compares the best day; successful days use the Success Rule effective on each date; longest streak uses the Streak Rule effective on each date; challenge day follows the configured Calendar Days or Effective Days count; and a measure completion count matches a Yes/No or Checklist condition. Historical edits and deletions recalculate progress. On a Standard Mode holiday, entries marked **Keep as Holiday** do not advance measure or success milestones; **Count as Normal Check-in** applies ordinary rules. Older entries without a saved treatment retain their previous positive-work behavior. Confirmed milestone XP separately requires individually eligible check-ins after the progression cutover.
 
 ### ID: goal-deadline
 **Category:** goals

@@ -363,7 +363,7 @@ export function AnalyticsPage() {
           {!allTime && <p className="analytics-period-xp-note">{accountXp ?? '—'} XP this period</p>}
           <Link className="analytics-rewards-link" to="/achievements">View Wins <AppIcon name="chevron-down" /></Link>
         </AnalyticsGroup>}
-        <AnalyticsGroup title="Consistency" className="analytics-summary-consistency" helpTitle="Consistency" helpSummary="Streaks and scheduled progress follow tracker rules." helpDescription={`Current streak uses the workspace time zone; the selected date filter does not change current streaks. Consistency is successful eligible opportunities divided by elapsed eligible opportunities (${qualifiedScheduled} of ${scheduledCount}). Streak-qualified tracker dates (${streakQualifiedCount}) use each tracker’s Streak Rule, separately from Success Rule matches and success rate. In All Trackers, one calendar date can count once for each qualifying tracker. Standard Mode excludes rest days and holidays; Strict Mode includes active calendar dates. An unlogged today remains open.`}>
+        <AnalyticsGroup title="Consistency" className="analytics-summary-consistency" helpTitle="Consistency" helpSummary="Streaks and scheduled progress follow tracker rules." helpDescription={`Current streak uses the workspace time zone; the selected date filter does not change current streaks. Consistency is successful eligible opportunities divided by elapsed eligible opportunities (${qualifiedScheduled} of ${scheduledCount}). Streak-qualified tracker dates (${streakQualifiedCount}) use each tracker’s Streak Rule, separately from Success Rule matches and success rate. In All Trackers, one calendar date can count once for each qualifying tracker. Standard Mode excludes rest days and holidays kept as holidays; Count as Normal Check-in makes a holiday a normal opportunity. Strict Mode includes active calendar dates. An unlogged today remains open.`}>
           <AnalyticsStat label="Current streak" value={currentStreak === null ? '—' : `${currentStreak} ${currentStreak === 1 ? 'day' : 'days'}`} />
           <AnalyticsStat label="Longest streak" value={`${longestStreak} ${longestStreak === 1 ? 'day' : 'days'}`} />
           <p className="analytics-consistency-context">{consistency === null ? 'Consistency unavailable' : `${consistency}% consistency · ${qualifiedScheduled}/${scheduledCount} opportunities`}</p>
@@ -384,7 +384,7 @@ export function AnalyticsPage() {
       </Surface>
       <div className="analytics-context-summary" role="group" aria-label="Period context">
         <span>Holidays <strong>{holidayCount}</strong></span>
-        <InfoButton title="Holidays" label="About the holiday count" compact summary="Account-wide marked holidays in the selected range." description="Marked holidays are account-wide settings. They pause Standard Mode streaks; Strict Mode still requires qualifying activity on those dates." />
+        <InfoButton title="Holidays" label="About the holiday count" compact summary="Account-wide marked holidays in the selected range." description="This count shows account-wide marked holidays. Tracker details also summarize selected tracker holidays and separate holidays with no check-in, activity kept as holiday activity, and normal check-ins. Strict Mode keeps its usual requirements." />
         {(hasNoCheckIns || hasNoOpportunities || hasNoMetricObservations && recordedCount === 0) && <p role="status">
           {hasNoCheckIns && hasNoOpportunities
             ? `No check-ins or scheduled opportunities in this range.${hasLifetimeActivity ? ' Tracker activity exists outside this range.' : hasNoMetricObservations ? ' Metric trends will appear when this range contains recorded values.' : ''}`
@@ -417,6 +417,11 @@ export function AnalyticsPage() {
                 <div><dt><span>Skipped in range</span></dt><dd>{summary.skippedCount}</dd></div>
                 <div><dt><span>Recorded lifetime</span></dt><dd>{summary.lifetimeRecordedCount}</dd></div>
                 <div><dt><span>Skipped lifetime</span></dt><dd>{summary.lifetimeSkippedCount}</dd></div>
+                {(summary.holidayNoActivityCount + summary.holidayActivityCount + summary.holidayNormalCheckInCount) > 0 && <>
+                  <div><dt><span>Holidays · no check-in</span></dt><dd>{summary.holidayNoActivityCount}</dd></div>
+                  <div><dt><span>Holiday activity kept</span></dt><dd>{summary.holidayActivityCount}</dd></div>
+                  <div><dt><span>Normal holiday check-ins</span></dt><dd>{summary.holidayNormalCheckInCount}</dd></div>
+                </>}
                 <div><dt><span>Current streak</span><InfoButton title="Current streak" summary="Consecutive qualifying opportunities up to today." description="Uses only this tracker’s Streak Rule and scheduling policy. Success Rule-only dates do not advance it. This lifetime measure remains anchored to today even when the report uses an earlier custom range." compact /></dt><dd>{summary.currentStreak}</dd></div>
                 <div><dt><span>Longest streak</span><InfoButton title="Longest streak" summary="The longest qualifying run in this tracker’s history." description="The longest run of this tracker’s Streak Rule across its active dates. Historical edits are reflected after local and server reconciliation." compact /></dt><dd>{summary.longestStreak}</dd></div>
                 <div><dt><span>Scheduling opportunities</span></dt><dd>{summary.scheduledCount === null ? 'Inactive for consistency' : summary.scheduledCount === 0 ? 'No elapsed opportunities' : `${summary.scheduledCount} elapsed opportunities in range`}</dd></div>

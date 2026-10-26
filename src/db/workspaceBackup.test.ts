@@ -249,7 +249,7 @@ describe('workspace backups', () => {
     accountIds.push(accountId)
     await activateWorkspace(accountId)
     await db.trackers.put(restoreTracker as never)
-    await db.trackerEntries.put({ id: 'restore-entry', trackerId: restoreTracker.id, date: '2026-10-08', outcome: 'skipped', values: {}, note: '', createdAt: '2026-10-08T00:00:00.000Z', updatedAt: '2026-10-08T00:00:00.000Z', deletedAt: null })
+    await db.trackerEntries.put({ id: 'restore-entry', trackerId: restoreTracker.id, date: '2026-10-08', outcome: 'recorded', holidayTreatment: 'keep-holiday', values: { pages: 1 }, note: '', createdAt: '2026-10-08T00:00:00.000Z', updatedAt: '2026-10-08T00:00:00.000Z', deletedAt: null })
     await db.syncOperations.put({ id: 'restore-job', ownerUserId: accountId, entity: 'tracker', entityId: restoreTracker.id, operation: 'upsert', expectedRevision: null, payload: restoreTracker as never, createdAt: '2026-10-08T00:00:00.000Z', attempts: 0, status: 'pending', lastError: null })
     const backup = await createWorkspaceBackup(accountId)
     await emptyActiveAccountExceptMetadata()
@@ -260,7 +260,7 @@ describe('workspace backups', () => {
     const restored = await restoreWorkspaceBackup(backup, accountId)
     expect(restored.added).toMatchObject({ trackers: 1, trackerEntries: 1, syncOperations: 1 })
     await expect(db.trackers.get(restoreTracker.id)).resolves.toMatchObject({ name: restoreTracker.name })
-    await expect(db.trackerEntries.get('restore-entry')).resolves.toMatchObject({ trackerId: restoreTracker.id })
+    await expect(db.trackerEntries.get('restore-entry')).resolves.toMatchObject({ trackerId: restoreTracker.id, holidayTreatment: 'keep-holiday', values: { pages: 1 } })
     await expect(db.syncOperations.get('restore-job')).resolves.toMatchObject({ ownerUserId: accountId, status: 'pending' })
 
     const repeated = await restoreWorkspaceBackup(backup, accountId)

@@ -5,7 +5,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { getTargetProgress } from '../../domain/trackers/planning'
 import { activeTrackerMetrics, type TrackerDefinition, type TrackerEntry, type TrackerValue } from '../../domain/trackers/types'
 
-export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels, showDraftPreview = true, completionStatus }: {
+export function TrackerEntryFields({ tracker, values, setValue, date, today = date, holidays, timeZone, onInputValidityChange, expectedAmounts, expectedLabels, showDraftPreview = true, completionStatus, holidayTreatment }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   setValue: (key: string, value: TrackerValue | undefined) => void
@@ -18,6 +18,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
   expectedLabels?: Readonly<Record<string, string>>
   showDraftPreview?: boolean
   completionStatus?: { heading: string; supportingText: string; feedback?: boolean } | null
+  holidayTreatment?: TrackerEntry['holidayTreatment']
 }) {
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   function reportInputValidity(key: string, valid: boolean) {
@@ -60,7 +61,7 @@ export function TrackerEntryFields({ tracker, values, setValue, date, today = da
     {showDraftPreview && invalidInputs.size === 0 && date && activeTrackerMetrics(tracker.metrics).some((metric) => {
       const value = values[metric.id]
       return value !== undefined && value !== null && value !== ''
-    }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} />}
+    }) && <DraftStatusPreview tracker={tracker} values={values} date={date} today={today ?? date} holidays={holidays} timeZone={timeZone} holidayTreatment={holidayTreatment} />}
   </>
 }
 
@@ -99,16 +100,17 @@ function TargetFeedback({ value, target, direction, unit, targetLabel }: { value
   return <small className="numeric-target-feedback">{formatTrackerNumber(progress.amount)}{labelUnit} remaining · {targetLabel} {formatTrackerNumber(target)}{labelUnit}</small>
 }
 
-function DraftStatusPreview({ tracker, values, date, today, holidays, timeZone }: {
+function DraftStatusPreview({ tracker, values, date, today, holidays, timeZone, holidayTreatment }: {
   tracker: TrackerDefinition
   values: Record<string, TrackerValue>
   date: string
   today: string
   holidays?: ReadonlySet<string>
   timeZone?: string
+  holidayTreatment?: TrackerEntry['holidayTreatment']
 }) {
   const draftEntry: TrackerEntry = {
-    id: 'unsaved-checkin-preview', trackerId: tracker.id, date, outcome: 'recorded', values, note: '',
+    id: 'unsaved-checkin-preview', trackerId: tracker.id, date, outcome: 'recorded', values, note: '', ...(holidayTreatment ? { holidayTreatment } : {}),
     createdAt: '', updatedAt: '', deletedAt: null,
   }
   const status = getTrackerActivityStatus({ tracker, entry: draftEntry, date, today, holidays, timeZone })

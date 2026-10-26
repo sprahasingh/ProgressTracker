@@ -88,7 +88,7 @@ describe('ProgressTracker database migrations', () => {
     openedDatabases.push(upgraded)
     await upgraded.open()
 
-    expect(upgraded.verno).toBe(11)
+    expect(upgraded.verno).toBe(12)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
     await expect(upgraded.holidayPermanentDeletionRequests.toArray()).resolves.toEqual([])
     await expect(upgraded.holidayPermanentDeletionLedger.toArray()).resolves.toEqual([])
@@ -129,7 +129,7 @@ describe('ProgressTracker database migrations', () => {
     const upgraded = new ProgressTrackerDatabase(name)
     openedDatabases.push(upgraded)
     await upgraded.open()
-    expect(upgraded.verno).toBe(11)
+    expect(upgraded.verno).toBe(12)
     await expect(upgraded.accountHolidays.toArray()).resolves.toEqual([])
     await expect(upgraded.appNotifications.toArray()).resolves.toEqual([])
     await expect(upgraded.notificationPreferences.toArray()).resolves.toEqual([])

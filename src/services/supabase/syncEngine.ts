@@ -19,7 +19,7 @@ import { hasTrackerEditSyncGuardsContract } from './trackerEditSyncGuards'
 import { isNetworkFailure, isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
-type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
+type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; holiday_treatment?: 'keep-holiday' | 'count-normal' | null; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerHoliday = { id: string; user_id: string; holiday_date: string; reason: AccountHoliday['reason']; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerTrackerHoliday = { id: string; user_id: string; tracker_id: string; holiday_date: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type OperationResult = { status: 'applied' | 'conflict' | 'permanently_deleted'; record: ServerTracker | ServerEntry | ServerHoliday | ServerTrackerHoliday | null; holiday_id?: string; permanently_deleted_at?: string }
@@ -55,7 +55,7 @@ function toServerPayload(operation: SyncOperation): Record<string, unknown> {
     return { id: holiday.id, tracker_id: holiday.trackerId, holiday_date: holiday.date, created_at: holiday.createdAt, updated_at: holiday.updatedAt, deleted_at: holiday.deletedAt }
   }
   const entry = trackerEntrySchema.parse(normalizeTrackerEntryTimestamps(operation.payload))
-  return { id: entry.id, tracker_id: entry.trackerId, entry_date: entry.date, outcome: entry.outcome, entry_values: entry.values, note: entry.note, created_at: entry.createdAt, updated_at: entry.updatedAt, deleted_at: entry.deletedAt }
+  return { id: entry.id, tracker_id: entry.trackerId, entry_date: entry.date, outcome: entry.outcome, ...(entry.holidayTreatment ? { holiday_treatment: entry.holidayTreatment } : {}), entry_values: entry.values, note: entry.note, created_at: entry.createdAt, updated_at: entry.updatedAt, deleted_at: entry.deletedAt }
 }
 
 function trackerFromServer(row: ServerTracker): StoredTrackerDefinition {
@@ -73,7 +73,7 @@ function canonicalTimestamp(value: string): string {
 }
 
 function entryFromServer(row: ServerEntry): StoredTrackerEntry {
-  return trackerEntrySchema.parse(normalizeTrackerEntryTimestamps({ id: row.id, trackerId: row.tracker_id, date: row.entry_date, outcome: row.outcome, values: row.entry_values, note: row.note, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at }))
+  return trackerEntrySchema.parse(normalizeTrackerEntryTimestamps({ id: row.id, trackerId: row.tracker_id, date: row.entry_date, outcome: row.outcome, ...(row.holiday_treatment ? { holidayTreatment: row.holiday_treatment } : {}), values: row.entry_values, note: row.note, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at }))
 }
 
 async function assertUser(client: SyncClient, expectedUserId: string) {

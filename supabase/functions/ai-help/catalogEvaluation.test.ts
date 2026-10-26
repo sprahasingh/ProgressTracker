@@ -55,7 +55,7 @@ describe('AI Help catalog evaluation', () => {
     const modeAnswer = verifiedQuestionCatalog.find(({ id }) => id === 'completion-holidays-rest-days')!.answer
     const holidayAnswer = verifiedQuestionCatalog.find(({ id }) => id === 'completion-holiday-entry')!.answer
     expect(modeAnswer).toMatch(/Standard Mode.*excluded.*Strict Mode.*counts/i)
-    expect(holidayAnswer).toMatch(/Standard Mode.*does not affect.*Strict Mode.*contributes/i)
+    expect(holidayAnswer).toMatch(/Keep as Holiday.*Count as Normal Check-in.*Strict Mode/i)
     expect(verifiedQuestionCatalog.find(({ id }) => id === 'history-cleared-holiday')!.answer).toMatch(/Standard Mode.*not listed.*Strict Mode.*appear/i)
   })
 })

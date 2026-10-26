@@ -76,6 +76,16 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-09', { strictMode: true }, undefined, holiday)).toBe('missed')
   })
 
+  it('honors explicit holiday treatment over the amount of recorded progress', () => {
+    const holiday = ['2026-10-09']
+    expect(state('2026-10-09', {}, { ...entry('2026-10-09', true), holidayTreatment: 'keep-holiday' }, holiday)).toBe('holiday')
+    expect(state('2026-10-09', {}, { ...entry('2026-10-09', false), holidayTreatment: 'keep-holiday' }, holiday)).toBe('holiday')
+    expect(state('2026-10-09', {}, { ...entry('2026-10-09', true), holidayTreatment: 'count-normal' }, holiday)).toBe('completed')
+    expect(state('2026-10-09', {}, { ...entry('2026-10-09', false), holidayTreatment: 'count-normal' }, holiday)).toBe('no-progress')
+    expect(state('2026-10-09', {}, { ...entry('2026-10-09', true), holidayTreatment: 'keep-holiday' })).toBe('completed')
+    expect(state('2026-10-09', { strictMode: true }, { ...entry('2026-10-09', true), holidayTreatment: 'keep-holiday' }, holiday)).toBe('completed')
+  })
+
   it('distinguishes positive partial progress from zero while honoring explicit success rules', () => {
     const quantityTracker = {
       ...baseTracker,

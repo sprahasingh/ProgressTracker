@@ -14,7 +14,7 @@
 - src/domain/trackers/missingCheckIns.ts
 - src/features/history/HistoryPage.test.tsx
 **Answer:**
-History shows saved check-ins and their recorded values for past dates, along with global holidays in the selected date range. Each saved measure name labels its value; Yes/No values read **Done** or **Not Done**, while the entry outcome is shown separately. Checklist values show checked items. You can open an eligible entry to edit it or choose a tracker and date to add a missing check-in. Historical edits preserve the saved record and recalculate applicable progression and rewards when synchronized. Archived trackers and dates outside the active period remain viewable but may be read-only or ineligible. Missing review covers unresolved opportunities in the previous seven completed days; today is not overdue.
+History shows saved check-ins and their recorded values for past dates, along with holidays in the selected date range. Each saved measure name labels its value; Yes/No values read **Done** or **Not Done**, while the entry outcome is shown separately. Standard Mode holiday entries indicate whether activity was kept as holiday activity or counted as a normal check-in. You can open an eligible entry to edit it or choose a tracker and date to add a missing check-in. Historical edits preserve the saved record and recalculate applicable progression and rewards when synchronized. Archived trackers and dates outside the active period remain viewable but may be read-only or ineligible. Missing review covers unresolved opportunities in the previous seven completed days; today is not overdue.
 
 ### ID: history-clear-note
 **Category:** history
@@ -72,7 +72,7 @@ No. Clearing removes the entry from active history, so its old values are not fi
 - src/domain/trackers/missingCheckIns.ts
 - src/features/history/HistoryPage.tsx
 **Answer:**
-The missing-check-in review looks for past opportunities without an active saved entry. After you clear an entry, a past date can qualify as missing if it is still an active opportunity under that tracker’s schedule, mode, and holiday rules.
+The missing-check-in review looks for past opportunities without an active saved entry. Clearing a Standard Mode holiday check-in restores the holiday exemption, so that date is not missing; a Count as Normal choice applies only while its entry exists. Strict Mode can still show a missed holiday because every active date is an opportunity.
 
 ### ID: history-clear-streak
 **Category:** history
@@ -130,7 +130,7 @@ The missing check-in section reviews unresolved opportunities in the previous se
 - src/domain/trackers/planning.ts
 - src/domain/trackers/missingCheckIns.test.ts
 **Answer:**
-In Standard Mode, holidays are excluded from scheduled opportunities, so a cleared holiday entry is not listed as missing. Strict Mode treats every active date, including holidays, as an opportunity; a past cleared holiday can therefore appear in the missing review.
+In Standard Mode, a cleared holiday check-in restores the holiday exemption, so that date is not listed as missing. If an explicit **Count as Normal Check-in** entry is cleared, the saved entry and its choice are removed and the holiday exemption applies again. Strict Mode treats every active date, including holidays, as an opportunity; a past cleared holiday can therefore appear in the missing review.
 
 ### ID: missing-checkins
 **Category:** history

@@ -54,11 +54,16 @@ export function getTrackerActivityStatus(input: {
     return date < today ? 'missed' : date === today ? 'pending' : 'upcoming'
   }
   if (entry?.outcome === 'recorded') {
+    if (holiday && entry.holidayTreatment === 'keep-holiday') return 'holiday'
+    if (holiday && entry.holidayTreatment === 'count-normal') {
+      if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
+      return hasPositiveProgress(tracker, entry) ? 'partial' : 'no-progress'
+    }
     if (holiday && !hasPositiveProgress(tracker, entry)) return 'holiday'
     if (evaluateTrackerEntry(tracker, entry).qualified) return 'completed'
     return hasPositiveProgress(tracker, entry) ? 'partial' : 'no-progress'
   }
-  if (entry?.outcome === 'skipped') return holiday ? 'holiday' : 'skipped'
+  if (entry?.outcome === 'skipped') return holiday && entry.holidayTreatment !== 'count-normal' ? 'holiday' : 'skipped'
   if (holiday && !strict) return 'holiday'
   if (tracker.status !== 'active' || tracker.deletedAt !== null) return 'inactive'
   const requiredOpportunity = strict || isTrackerScheduledOccurrence(tracker, date, input.timeZone)

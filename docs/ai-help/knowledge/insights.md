@@ -27,7 +27,7 @@ Each active tracker card is a snapshot for the workspace-local current date. It 
 - src/features/dashboard/DashboardPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-It is the consecutive run of account days on which every required tracker meets its own Streak Rule, with at least one required tracker that day. It is not a sum of separate tracker streaks. Standard Mode holidays and rest days are neutral; Strict Mode dates within a tracker’s active period require a qualifying check-in. A pending current day does not prematurely break the confirmed run.
+It is the consecutive run of account days on which every required tracker meets its own Streak Rule, with at least one required tracker that day. It is not a sum of separate tracker streaks. Standard Mode holidays kept as holidays and rest days are neutral; **Count as Normal Check-in** makes a holiday a required opportunity. Strict Mode dates within a tracker’s active period require a qualifying check-in. A pending current day does not prematurely break the confirmed run.
 
 ### ID: insight-current-status
 **Category:** insights
@@ -86,7 +86,7 @@ There is no active saved check-in for that tracker. Today’s status is shown se
 - src/domain/trackers/progression.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-Current streak is the qualifying run through today under the tracker’s Streak Rule and scheduling policy. Personal best is the longest qualifying run in its saved history. Standard Mode lets holidays and rest days preserve continuity without adding to the count; Strict Mode requires a qualifying entry on every active calendar date, including holidays and rest days.
+Current streak is the qualifying run through today under the tracker’s Streak Rule and scheduling policy. Personal best is the longest qualifying run in its saved history. Standard Mode holidays kept as holidays and rest days preserve continuity without adding to the count; a holiday counted normally is an opportunity. Strict Mode requires a qualifying entry on every active calendar date, including holidays and rest days.
 
 ### ID: insight-success-streak-xp
 **Category:** insights
@@ -103,7 +103,7 @@ Current streak is the qualifying run through today under the tracker’s Streak 
 - src/domain/trackers/progression.ts
 - supabase/migrations/20261111000100_tracker_streak_rules_v8.sql
 **Answer:**
-Success rate counts recorded entries that meet the tracker’s Success Rule. Streak-qualified days and streak lengths use the Streak Rule effective for each date plus the schedule and holiday policy. In All Trackers, comparable counts are summed per tracker, so one calendar date can count once for each tracker. Analytics offers Last 7, 30, and 90 days, an inclusive custom date range, and All time. XP for a date range is net across confirmed and pending rewards in that range; All time uses lifetime confirmed XP plus current pending XP. Selected-tracker XP includes only rewards linked to that tracker. Account XP remains account-scoped even when a tracker is selected, and XP outside the selected tracker shows the remainder. Badge counts are lifetime scoped: All Trackers counts distinct earned badge types, while a selected tracker counts active unlock occurrences linked to its rewards.
+Success rate counts recorded entries that meet the tracker’s Success Rule. Streak-qualified days and streak lengths use the Streak Rule effective for each date plus schedule and holiday treatment. Analytics distinguishes Standard Mode holiday dates with no check-in, activity kept as holiday activity, and check-ins counted normally. In All Trackers, comparable counts are summed per tracker, so one date can count once for each tracker. Analytics offers preset ranges, an inclusive custom range, and All time. XP for a date range is net across confirmed and pending rewards in that range; All time uses lifetime confirmed XP plus current pending XP. Selected-tracker XP includes only rewards linked to that tracker.
 
 ### ID: insight-holiday-status
 **Category:** insights

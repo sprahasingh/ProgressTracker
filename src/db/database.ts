@@ -249,6 +249,27 @@ export class ProgressTrackerDatabase extends Dexie {
       notificationPreferences: '&id, updatedAt',
       customMotivationMessages: '&id, updatedAt',
     })
+
+    this.version(12).stores({
+      ...coreSchema,
+      dailyJournals: 'id, &date, updatedAt, deletedAt',
+      syncOperations: 'id, ownerUserId, entity, entityId, status, createdAt, [ownerUserId+status+createdAt], [ownerUserId+entity+entityId]',
+      trackers: 'id, kind, status, categoryId, updatedAt, deletedAt',
+      trackerEntries: 'id, trackerId, date, outcome, updatedAt, deletedAt, &[trackerId+date]',
+      accountHolidays: 'id, &date, updatedAt, deletedAt',
+      trackerHolidays: 'id, trackerId, date, updatedAt, deletedAt, &[trackerId+date]',
+      workspaceMetadata: 'key',
+      syncRecords: '&key, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      syncConflicts: 'id, ownerUserId, entity, entityId, [ownerUserId+entity+entityId]',
+      permanentDeletionRequests: 'id, ownerUserId, trackerId, requestedAt, status, [ownerUserId+trackerId]',
+      permanentDeletionLedger: '&key, ownerUserId, trackerId',
+      holidayPermanentDeletionRequests: 'id, ownerUserId, holidayId, holidayDate, requestedAt, status, [ownerUserId+holidayId]',
+      holidayPermanentDeletionLedger: '&key, ownerUserId, holidayId',
+      trackerVerification: '&trackerId, status',
+      appNotifications: 'id, &identity, kind, createdAt, readAt',
+      notificationPreferences: '&id, updatedAt',
+      customMotivationMessages: '&id, updatedAt',
+    })
   }
 }
 
@@ -256,7 +277,7 @@ const guestDatabaseName = 'ProgressTracker'
 export let db = new ProgressTrackerDatabase(guestDatabaseName)
 let activeWorkspaceKey: string | null = null
 let workspaceEpoch = 0
-export const DATABASE_SCHEMA_VERSION = 11
+export const DATABASE_SCHEMA_VERSION = 12
 
 export type GuestWorkspaceSummary = { hasData: boolean; counts: Record<string, number> }
 

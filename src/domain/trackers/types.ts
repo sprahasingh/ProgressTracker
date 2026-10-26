@@ -196,6 +196,8 @@ export type TrackerEntry = {
   trackerId: string
   date: string
   outcome: 'recorded' | 'skipped'
+  /** Explicit treatment for recorded activity on a Standard Mode holiday. Omitted on legacy entries. */
+  holidayTreatment?: 'keep-holiday' | 'count-normal'
   values: Record<string, TrackerValue>
   note: string
   createdAt: string
