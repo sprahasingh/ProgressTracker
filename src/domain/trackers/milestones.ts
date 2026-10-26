@@ -4,6 +4,7 @@ import { inclusiveCalendarDays, schedulingMode } from './scheduling'
 import { calculateStreak, firstDateAtStreakLength } from './progression'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, latestEntriesByDate, metricObservationForMilestone, trackerActiveStartDate, isTrackerScheduledOccurrence } from './planning'
 import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersions'
+import { hasPositiveProgress } from './activityStatus'
 import { challengeDaysElapsed, firstChallengeDateAtDay } from './challengeDay'
 
 export type MilestoneProgress = {
@@ -138,8 +139,17 @@ function eligibleRecordedEntries(input: {
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
-function isProgressionOpportunity(tracker: TrackerDefinition, date: string, holidays: ReadonlySet<string>, timeZone?: string): boolean {
-  return trackerStrictModeForDate(tracker, date) || (!holidays.has(date) && isTrackerScheduledOccurrence(tracker, date, timeZone))
+function isProgressionOpportunity(tracker: TrackerDefinition, date: string, holidays: ReadonlySet<string>, timeZone?: string, entry?: TrackerEntry): boolean {
+  const legacyPositiveOverride = entry?.holidayTreatment === undefined && entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+  const countsNormally = entry?.holidayTreatment === 'count-normal' || legacyPositiveOverride
+  return trackerStrictModeForDate(tracker, date) || ((!holidays.has(date) || countsNormally) && isTrackerScheduledOccurrence(tracker, date, timeZone))
+}
+
+function holidayActivityCountsForMilestones(tracker: TrackerDefinition, entry: TrackerEntry, holidays: ReadonlySet<string>): boolean {
+  if (!holidays.has(entry.date) || trackerStrictModeForDate(tracker, entry.date)) return true
+  if (entry.holidayTreatment === 'keep-holiday') return false
+  if (entry.holidayTreatment === 'count-normal') return true
+  return entry.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
 }
 
 export function milestoneConfigurationIssue(milestone: TrackerMilestoneDefinition, metric: TrackerMetricDefinition | undefined): string | null {
@@ -195,9 +205,9 @@ export function evaluateMilestones(input: {
   dateNumber(input.asOfDate)
   const { tracker } = input
   const holidays = input.holidays ?? new Set<string>()
-  const entries = eligibleRecordedEntries(input)
+  const entries = eligibleRecordedEntries(input).filter((entry) => holidayActivityCountsForMilestones(tracker, entry, holidays))
   const latestEntries = [...latestEntriesByDate(tracker, input.entries).values()]
-    .filter((entry) => entry.date <= input.asOfDate && isTrackerInActivePeriod(tracker, entry.date, input.timeZone))
+    .filter((entry) => entry.date <= input.asOfDate && isTrackerInActivePeriod(tracker, entry.date, input.timeZone) && holidayActivityCountsForMilestones(tracker, entry, holidays))
   return tracker.milestones.slice().sort((a, b) => a.position - b.position).map((milestone) => {
     const type = milestone.type ?? 'legacy'
     const result = base(milestone, type, milestoneTypeLabel(type), milestonePreview(tracker, milestone))
@@ -226,7 +236,7 @@ export function evaluateMilestones(input: {
 
     if (target === undefined || target <= 0) return { ...result, configurationIssue: 'Enter a target greater than zero.' }
     if (type === 'successful-days') {
-      const dates = entries.filter((entry) => isProgressionOpportunity(tracker, entry.date, holidays, input.timeZone) && evaluateTrackerEntry(tracker, entry).qualified).map((entry) => entry.date)
+      const dates = entries.filter((entry) => isProgressionOpportunity(tracker, entry.date, holidays, input.timeZone, entry) && evaluateTrackerEntry(tracker, entry).qualified).map((entry) => entry.date)
       const current = dates.length
       return withProgress(result, current, target, 'successful days', `${formatValue(current)} / ${formatValue(target)} successful days`, current >= target ? dates[target - 1] ?? null : null)
     }

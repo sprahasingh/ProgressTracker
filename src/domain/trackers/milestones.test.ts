@@ -57,8 +57,20 @@ describe('typed milestone calculations', () => {
     const tracker = baseTracker({ schedule: { kind: 'weekdays' }, milestones: [milestone('successful-days', 2, { metricId: undefined, measureTypeSnapshot: undefined, unitSnapshot: undefined })] })
     const history = [entry('2026-01-05', 1), entry('2026-01-06', 1), entry('2026-01-10', 1)]
     const holidays = new Set(['2026-01-06'])
-    expect(evaluateMilestones({ tracker, entries: history, asOfDate: '2026-01-10', holidays })[0]).toMatchObject({ current: 1, completed: false })
+    expect(evaluateMilestones({ tracker, entries: history, asOfDate: '2026-01-10', holidays })[0]).toMatchObject({ current: 2, completed: true })
     expect(evaluateMilestones({ tracker: { ...tracker, strictMode: true }, entries: history, asOfDate: '2026-01-10', holidays })[0]).toMatchObject({ current: 3, completed: true, reachedDate: '2026-01-06' })
+  })
+
+  it('keeps holiday activity out of every milestone unless it is counted normally', () => {
+    const date = '2026-01-05'
+    const holiday = new Set([date])
+    const tracker = baseTracker({ milestones: [milestone('cumulative-quantity', 1), milestone('successful-days', 1, { id: 'successful-days', metricId: undefined, measureTypeSnapshot: undefined, unitSnapshot: undefined, position: 1 })] })
+    const keep = entry(date, 5, { holidayTreatment: 'keep-holiday' })
+    expect(evaluateMilestones({ tracker, entries: [keep], asOfDate: date, holidays: holiday }).map(({ current }) => current)).toEqual([0, 0])
+    const counted = { ...keep, holidayTreatment: 'count-normal' as const }
+    expect(evaluateMilestones({ tracker, entries: [counted], asOfDate: date, holidays: holiday }).map(({ current }) => current)).toEqual([5, 1])
+    const legacy = { ...keep, holidayTreatment: undefined }
+    expect(evaluateMilestones({ tracker, entries: [legacy], asOfDate: date, holidays: holiday }).map(({ current }) => current)).toEqual([5, 1])
   })
 
   it('uses Calendar Days and both Effective Days methods for challenge progression', () => {

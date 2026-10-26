@@ -56,6 +56,24 @@ afterEach(async () => {
 })
 
 describe('account-scoped sync engine', () => {
+  it('synchronizes and restores explicit holiday treatment on tracker entries', async () => {
+    await activateWorkspace('sync-user')
+    const definition = { ...tracker('holiday-treatment-sync'), metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const }] }
+    await localRepository.saveTracker(definition)
+    const date = new Date().toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    const entry = await localRepository.saveTrackerEntry({ trackerId: definition.id, date, outcome: 'recorded', values: { pages: 1 }, note: '', holidayTreatment: 'keep-holiday' })
+    const { client, rpc } = fakeClient()
+    rpc.mockImplementation(async (_name: string, args: Record<string, unknown>) => ({
+      data: { status: 'applied', record: { ...(args.p_record as Record<string, unknown>), user_id: 'sync-user', server_revision: 1 } }, error: null,
+    }))
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_sync_operation', expect.objectContaining({
+      p_entity: 'tracker_entry', p_record: expect.objectContaining({ id: entry.id, holiday_treatment: 'keep-holiday' }),
+    }))
+    await expect(db.trackerEntries.get(entry.id)).resolves.toMatchObject({ holidayTreatment: 'keep-holiday' })
+  })
+
   it('establishes the saved workspace timezone before uploading tracker data', async () => {
     await activateWorkspace('sync-user')
     const pending = tracker('timezone-before-entry-sync')

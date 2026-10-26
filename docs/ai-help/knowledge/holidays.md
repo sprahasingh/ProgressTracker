@@ -42,8 +42,9 @@ Removing a global holiday moves it to Recently deleted holidays, where it can be
 - src/domain/trackers/progression.ts
 - src/domain/trackers/planning.ts
 - src/domain/holidays.ts
+- supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 **Answer:**
-In Standard Mode, an account-wide or tracker-specific holiday excuses the scheduled opportunity when there is no positive work. Positive progress temporarily overrides the exemption and the entry follows normal success and streak rules; zero and Skip leave the holiday effective. Strict Mode still requires daily activity through account-wide holidays and does not allow tracker-specific holidays. Goal plans retain their existing account-wide holiday rules.
+In Standard Mode, each holiday check-in has an explicit treatment. **Keep as Holiday** (the default for new holiday check-ins) saves the activity while leaving the date neutral for progression, even if the measurement reaches its target. **Count as Normal Check-in** makes the date a regular scheduled opportunity, so the saved values are evaluated by the usual success and streak rules; zero can therefore count as a failed opportunity. Older entries without a saved choice retain their previous behavior: positive work counts normally, while zero, Skip, or no entry leaves the holiday effective. Strict Mode requirements are unchanged. Goal plans retain their existing account-wide holiday rules.
 
 ### ID: holiday-all-trackers
 **Category:** holidays
@@ -57,7 +58,7 @@ In Standard Mode, an account-wide or tracker-specific holiday excuses the schedu
 - src/domain/holidays.ts
 - src/features/holidays/HolidaysPage.tsx
 **Answer:**
-In Holidays & breaks, **All trackers** creates a global holiday and **Selected trackers** applies it only to the chosen Standard Mode trackers. Global holidays are stored independently and new trackers receive them automatically, though only Standard Mode requirements are excused; Strict Mode keeps its normal requirements. Selected holidays do not affect other trackers. Positive work overrides the holiday for that tracker and date; clearing the work restores the exemption.
+In Holidays & breaks, **All trackers** creates a global holiday and **Selected trackers** applies it only to the chosen Standard Mode trackers. Global holidays are stored independently and new trackers receive them automatically, though only Standard Mode requirements are excused; Strict Mode keeps its normal requirements. Selected holidays do not affect other trackers. For each Standard Mode holiday check-in, choose **Keep as Holiday** to save activity without making the date a progression opportunity, or **Count as Normal Check-in** to apply regular rules. Clearing the entry restores the holiday state.
 
 ### ID: holiday-remove-recalculates
 **Category:** holidays
@@ -72,7 +73,7 @@ In Holidays & breaks, **All trackers** creates a global holiday and **Selected t
 - src/domain/trackers/progression.ts
 - src/domain/trackers/analytics.ts
 **Answer:**
-Removing or changing a holiday makes affected dates and tracker scopes subject to the updated holiday and schedule rules. Daily XP, milestones, Perfect Days, and dependent achievements are reconciled for affected history when the server receives the change; reversals remain in award history. Saved check-ins are preserved, and positive work remains eligible under the rules for its date.
+Removing or changing a holiday makes affected dates and tracker scopes subject to the updated holiday and schedule rules. Daily XP, milestones, Perfect Days, and dependent achievements are reconciled for affected history when the server receives the change; reversals remain in award history. Saved check-ins and their treatment choices are preserved. While the holiday applies, **Keep as Holiday** stays neutral even with positive values; **Count as Normal Check-in** follows normal date-effective rules. Removing the holiday makes the date follow the usual schedule rules.
 
 ### ID: holiday-log-progress
 **Category:** holidays
@@ -86,8 +87,9 @@ Removing or changing a holiday makes affected dates and tracker scopes subject t
 - src/features/calendar/CalendarPage.tsx
 - src/features/today/TodayPage.tsx
 - src/domain/trackers/progression.ts
+- supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 **Answer:**
-Yes. A holiday is an expectation exemption, not a restriction on work. Positive progress overrides it for that tracker and date and is evaluated under that date’s applicable rules; eligible rewards are reconciled when the signed-in change synchronizes. Zero and Skip leave the holiday effective. Strict Mode continues its normal requirements through global holidays.
+Yes. On a Standard Mode holiday, choose **Keep as Holiday** to save the activity while preserving the exemption, or **Count as Normal Check-in** to evaluate the entry under its date-effective rules. The second choice also makes zero a normal opportunity. Strict Mode uses its normal requirements and does not show this choice. Existing entries without an explicit choice keep their legacy behavior: positive progress counts normally; zero and Skip leave the holiday effective. Progression changes reconcile when the signed-in change synchronizes.
 
 ### ID: holiday-standard-v-strict
 **Category:** holidays
@@ -102,7 +104,7 @@ Yes. A holiday is an expectation exemption, not a restriction on work. Positive 
 - src/domain/trackers/planning.ts
 - src/domain/trackers/progression.test.ts
 **Answer:**
-Strict Mode treats every date in the tracker’s active period as an opportunity, including account-wide holidays. Without a qualifying check-in, an elapsed holiday can break the streak. Standard Mode holidays excuse the opportunity unless positive work is recorded.
+Strict Mode treats every date in the tracker’s active period as an opportunity, including account-wide holidays; the holiday treatment choice is not available. Without a qualifying check-in, an elapsed holiday can break the streak. Standard Mode holidays are neutral by default, while **Count as Normal Check-in** makes that date an ordinary opportunity.
 
 ### ID: tracker-holiday
 **Category:** holidays
@@ -116,8 +118,9 @@ Strict Mode treats every date in the tracker’s active period as an opportunity
 - src/features/holidays/HolidaysPage.tsx
 - src/db/localRepository.ts
 - src/domain/trackers/activityStatus.ts
+- supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 **Answer:**
-Open Holidays & breaks, choose **Selected trackers**, then select one or more eligible Standard Mode trackers. Strict Mode trackers are omitted and cannot receive exemptions. Positive progress overrides the selected holiday for that tracker/date; clearing it restores the holiday. Changes sync with the account when online.
+Open Holidays & breaks, choose **Selected trackers**, then select one or more eligible Standard Mode trackers. Strict Mode trackers are omitted and cannot receive exemptions. On a selected holiday, choose **Keep as Holiday** to save work while keeping the date neutral, or **Count as Normal Check-in** to apply normal scheduled rules. Clearing the check-in restores the holiday treatment. Changes sync with the account when online.
 
 ### ID: holiday-clear-restores
 **Category:** holidays
@@ -131,8 +134,9 @@ Open Holidays & breaks, choose **Selected trackers**, then select one or more el
 - src/domain/trackers/activityStatus.ts
 - src/features/history/HistoryPage.tsx
 - src/features/today/TodayPage.tsx
+- supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 **Answer:**
-Holiday records are stored separately from check-ins. Positive progress temporarily overrides the exemption. Clearing that entry or editing it to zero automatically makes the holiday effective again; zero and Skip do not remove the holiday.
+Holiday records are stored separately from check-ins, and the treatment choice is stored on the check-in. Clearing the entry removes its treatment and restores the holiday exemption. Editing measurements does not change the selected treatment. If an entry is later restored, its saved treatment applies again; deleting the holiday makes the date follow normal schedule rules.
 
 ### ID: holiday-calendar-aggregate
 **Category:** holidays
@@ -146,4 +150,4 @@ Holiday records are stored separately from check-ins. Positive progress temporar
 - src/domain/trackers/dailyActivityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-Calendar aggregates each tracker’s effective status. It shows Holiday only when all applicable trackers are effectively on holiday. Otherwise it reflects the actual tracker outcomes, including recorded work and Strict Mode requirements. Selected-day details retain holiday information alongside saved work and each tracker’s status.
+Calendar aggregates each tracker’s effective status. It shows Holiday only when all applicable trackers are effectively on holiday. Otherwise it reflects the actual tracker outcomes, including work saved as holiday activity, normal holiday check-ins, and Strict Mode requirements. Selected-day details retain holiday information and saved work together.

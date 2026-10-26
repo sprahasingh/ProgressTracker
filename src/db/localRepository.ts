@@ -2,8 +2,7 @@ import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange, calendarDateInTimeZone } from './calendarDate'
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
-import { trackerDefinitionForDate } from '../domain/trackers/ruleVersions'
-import { trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
+import { trackerDefinitionForDate, trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
@@ -735,11 +734,15 @@ export const localRepository = {
         throw new Error('This tracker was permanently deleted from the account and cannot receive check-ins.')
       }
       const existing = await database.trackerEntries.where('[trackerId+date]').equals([draft.trackerId, draft.date]).first()
+      if (draft.holidayTreatment !== undefined && draft.holidayTreatment !== existing?.holidayTreatment && trackerStrictModeForDate(tracker, draft.date)) {
+        throw new Error('Strict Mode check-ins cannot use a holiday treatment.')
+      }
       const valueIssue = validateTrackerEntryValues(trackerDefinitionForDate(tracker, draft.date), draft.values, { existingValues: existing?.values })
       if (draft.outcome === 'recorded' && valueIssue) throw new Error(valueIssue)
       const now = new Date().toISOString()
       const entry = trackerEntrySchema.parse({
         ...draft,
+        holidayTreatment: draft.holidayTreatment ?? existing?.holidayTreatment,
         id: existing?.id ?? newId(),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,

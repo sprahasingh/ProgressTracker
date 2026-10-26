@@ -63,6 +63,25 @@ describe('tracker analytics', () => {
     expect(standardHolidayProgress).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 1, consistencyPercent: 100, qualifiedCount: 1 })
   })
 
+  it('counts an explicit zero holiday check-in as a normal failed opportunity only when selected', () => {
+    const zero = entry('2026-10-05', { distance: 0, pages: 0 }, undefined, { holidayTreatment: 'count-normal' })
+    const normal = calculateTrackerAnalytics(tracker, [zero], '2026-10-05', '2026-10-05', new Set(['2026-10-05']))
+    expect(normal).toMatchObject({ scheduledCount: 1, scheduledQualifiedCount: 0, consistencyPercent: 0 })
+
+    const kept = calculateTrackerAnalytics(tracker, [{ ...zero, holidayTreatment: 'keep-holiday' }], '2026-10-05', '2026-10-05', new Set(['2026-10-05']))
+    expect(kept).toMatchObject({ scheduledCount: 0, scheduledQualifiedCount: 0, consistencyPercent: null })
+  })
+
+  it('separates holiday dates with no check-in, activity kept, and normal holiday check-ins', () => {
+    const result = calculateTrackerAnalytics(tracker, [
+      entry('2026-10-05', { distance: 2, pages: 10 }, undefined, { holidayTreatment: 'keep-holiday' }),
+      entry('2026-10-06', { distance: 5, pages: 20 }, undefined, { holidayTreatment: 'count-normal' }),
+      entry('2026-10-07', { distance: 5, pages: 20 }),
+    ], '2026-10-05', '2026-10-08', new Set(['2026-10-05', '2026-10-06', '2026-10-08']), undefined, undefined, undefined,
+    [{ trackerId: tracker.id, date: '2026-10-07' }])
+    expect(result).toMatchObject({ holidayNoActivityCount: 1, holidayActivityCount: 1, holidayNormalCheckInCount: 2 })
+  })
+
   it('reports Success Rule and Streak Rule matches as separate Insights counts', () => {
     const independent: TrackerDefinition = {
       ...tracker,

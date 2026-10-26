@@ -3,7 +3,7 @@ import { activateWorkspace, db, queueSyncMutation } from './database'
 import { localRepository } from './localRepository'
 import { calendarDateInTimeZone } from './calendarDate'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
-import type { StoredTrackerDefinition } from './models'
+import type { CalendarDate, StoredTrackerDefinition } from './models'
 import { versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
 
 const tracker: StoredTrackerDefinition = {
@@ -25,6 +25,19 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('persists, updates, and queues explicit holiday treatment offline while blocking Strict Mode choices', async () => {
+    const owner = 'holiday-treatment-owner'
+    await activateWorkspace(owner)
+    await localRepository.saveTracker({ ...tracker, id: 'treatment-standard', metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' }] })
+    const kept = await localRepository.saveTrackerEntry({ trackerId: 'treatment-standard', date: '2026-01-04', outcome: 'recorded', values: { pages: 1 }, note: '', holidayTreatment: 'keep-holiday' })
+    expect(kept.holidayTreatment).toBe('keep-holiday')
+    await localRepository.saveTrackerEntry({ trackerId: kept.trackerId, date: kept.date, outcome: 'recorded', values: { pages: 5 }, note: 'updated', holidayTreatment: 'count-normal' })
+    await expect(localRepository.getTrackerEntry(kept.trackerId, kept.date as CalendarDate)).resolves.toMatchObject({ values: { pages: 5 }, holidayTreatment: 'count-normal' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker_entry', kept.id]).first()).resolves.toMatchObject({ status: 'pending', payload: { holidayTreatment: 'count-normal' } })
+    await localRepository.saveTracker({ ...tracker, id: 'treatment-strict', strictMode: true })
+    await expect(localRepository.saveTrackerEntry({ trackerId: 'treatment-strict', date: '2026-01-04', outcome: 'recorded', values: {}, note: '', holidayTreatment: 'keep-holiday' })).rejects.toThrow(/Strict Mode/)
+  })
+
   it('stores tracker-specific holidays offline, syncs them, and excludes Strict Mode trackers', async () => {
     const owner = 'tracker-holiday-offline-owner'
     await activateWorkspace(owner)

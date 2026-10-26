@@ -19,6 +19,7 @@ import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { selectMissingCheckIns, type MissingCheckIn } from '../../domain/trackers/missingCheckIns'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 import { evaluateMilestones } from '../../domain/trackers/milestones'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 
 type HistoryRange = '7' | '30' | '90' | 'custom'
 
@@ -200,7 +201,8 @@ export function HistoryPage() {
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), trackerHolidays: new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
           const trackerChallengeHolidays = new Set([...challengeHolidays, ...trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)])
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={trackerChallengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
+          const holidayApplies = !trackerStrictModeForDate(tracker, entry.date) && (holidays.some((holiday) => holiday.date === entry.date) || trackerHolidayRows.some((holiday) => holiday.trackerId === tracker.id && holiday.date === entry.date))
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} holidayApplies={holidayApplies} timeZone={timeZone} holidays={trackerChallengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
       </section>
@@ -221,8 +223,9 @@ function groupMissingByDate(items: MissingCheckIn[]): Array<[CalendarDate, Missi
   return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
-function HistoryEntry({ tracker, entry, qualifies, status, timeZone, holidays, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; timeZone: string; holidays: ReadonlySet<string>; onEdit: () => void }) {
-  const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${entry.outcome === 'skipped' ? ' · intentionally saved' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
+function HistoryEntry({ tracker, entry, qualifies, status, holidayApplies, timeZone, holidays, onEdit }: { tracker: StoredTrackerDefinition; entry: StoredTrackerEntry; qualifies: boolean; status: ActivityStatus; holidayApplies: boolean; timeZone: string; holidays: ReadonlySet<string>; onEdit: () => void }) {
+  const holidayDetail = holidayApplies && entry.holidayTreatment === 'count-normal' ? ' · counted as normal on holiday' : holidayApplies && status === 'holiday' && entry.outcome === 'recorded' ? ' · optional activity saved' : ''
+  const outcomeLabel = `${ACTIVITY_STATUS_PRESENTATION[status].label}${holidayDetail}${entry.outcome === 'skipped' ? ' · intentionally saved' : qualifies ? ' · success rule met' : entry.outcome === 'recorded' ? ' · progress saved' : ''}`
   const statusClass = status === 'rest-day' || status === 'unscheduled' ? 'rest' : status
   const challengeDay = getChallengeDayDisplay(tracker, entry.date, timeZone, holidays)
   return <Surface className={`history-entry-card status-card status-${statusClass}`}><div className="history-entry-header"><div><span className="tracker-kind-chip">{tracker.kind}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived history</span>}<h3>{tracker.name}</h3>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}</div><span className={`history-outcome ${statusClass}`}>{outcomeLabel}</span></div>

@@ -29,6 +29,9 @@ export type TrackerAnalytics = {
   lifetimeEntryCount: number
   lifetimeRecordedCount: number
   lifetimeSkippedCount: number
+  holidayNoActivityCount: number
+  holidayActivityCount: number
+  holidayNormalCheckInCount: number
   metrics: MetricAnalytics[]
 }
 
@@ -72,11 +75,27 @@ export function calculateTrackerAnalytics(
   }
   const allEntries = [...latestByDate.values()].filter((entry) => entry.deletedAt === null).sort((a, b) => a.date.localeCompare(b.date))
   const trackerEntries = allEntries.filter((entry) => isTrackerInActivePeriod(tracker, entry.date, timeZone))
+  const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
   const historicalCount = allEntries.length - trackerEntries.length
   const recorded = trackerEntries.filter((entry) => entry.outcome === 'recorded')
   // This metric describes saved recorded outcomes; holiday exclusions apply to
   // opportunity consistency, not to whether a saved value met its rule.
   const qualifiedEntries = recorded.filter((entry) => evaluateTrackerEntry(tracker, entry).qualified)
+  const holidayDates = new Set([
+    ...[...holidays].filter((date) => date >= startDate && date <= endDate),
+    ...trackerHolidays.filter((holiday) => holiday.trackerId === tracker.id && holiday.date >= startDate && holiday.date <= endDate).map((holiday) => holiday.date),
+  ])
+  let holidayNoActivityCount = 0
+  let holidayActivityCount = 0
+  let holidayNormalCheckInCount = 0
+  for (const date of holidayDates) {
+    if (!isTrackerInActivePeriod(tracker, date, timeZone) || (tracker.status === 'archived' && tracker.archivedAt && date > tracker.archivedAt.slice(0, 10)) || trackerStrictModeForDate(tracker, date)) continue
+    const holidayEntry = entryByDate.get(date)
+    if (holidayEntry?.outcome !== 'recorded') { holidayNoActivityCount += 1; continue }
+    const legacyPositiveOverride = holidayEntry.holidayTreatment === undefined && hasPositiveProgress(tracker, holidayEntry)
+    if (holidayEntry.holidayTreatment === 'count-normal' || legacyPositiveOverride) holidayNormalCheckInCount += 1
+    else holidayActivityCount += 1
+  }
   const activeSchedule = tracker.status === 'active' && tracker.deletedAt === null
   let scheduledCount = 0
   let scheduledQualifiedCount = 0
@@ -84,14 +103,15 @@ export function calculateTrackerAnalytics(
   if (activeSchedule) {
     const trackerFirst = trackerEvaluationHistoryStartDate(tracker, timeZone)
     const firstDate = trackerFirst > startDate ? trackerFirst : startDate
-    const entryByDate = new Map(trackerEntries.map((entry) => [entry.date, entry]))
     const boundedEnd = tracker.deadline && tracker.deadline < endDate ? tracker.deadline : endDate
     for (let time = dateNumber(firstDate); time <= dateNumber(boundedEnd); time += DAY_MS) {
       const date = new Date(time).toISOString().slice(0, 10)
       const holiday = holidays.has(date) || trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === date)
       const dayEntry = entryByDate.get(date)
       const positiveWork = dayEntry?.outcome === 'recorded' && hasPositiveProgress(tracker, dayEntry)
-      const opportunity = trackerStrictModeForDate(tracker, date) ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && (!holiday || positiveWork)
+      const countsHolidayNormally = dayEntry?.holidayTreatment === 'count-normal'
+        || (dayEntry?.holidayTreatment === undefined && positiveWork)
+      const opportunity = trackerStrictModeForDate(tracker, date) ? isTrackerInActivePeriod(tracker, date, timeZone) : isTrackerInActivePeriod(tracker, date, timeZone) && isTrackerScheduledOccurrence(tracker, date, timeZone) && (!holiday || countsHolidayNormally)
       if (!opportunity) continue
       const entry = entryByDate.get(date)
       // Leave an unlogged as-of date open; it is not a missed opportunity yet.
@@ -135,6 +155,9 @@ export function calculateTrackerAnalytics(
     lifetimeEntryCount: lifetimeEntries.length,
     lifetimeRecordedCount: lifetimeEntries.filter((entry) => entry.outcome === 'recorded').length,
     lifetimeSkippedCount: lifetimeEntries.filter((entry) => entry.outcome === 'skipped').length,
+    holidayNoActivityCount,
+    holidayActivityCount,
+    holidayNormalCheckInCount,
     metrics,
   }
 }

@@ -71,6 +71,25 @@ const definition: StoredTrackerDefinition = {
 }
 
 describe('Analytics page', () => {
+  it('shows holiday dates with no check-in, kept activity, and normal treatment separately', async () => {
+    const today = localCalendarDate()
+    const noActivityDate = shiftCalendarDate(today, -1)
+    const keptDate = shiftCalendarDate(today, -2)
+    const normalDate = shiftCalendarDate(today, -3)
+    await localRepository.saveTracker({ ...definition, startDate: shiftCalendarDate(today, -10) })
+    await localRepository.saveAccountHolidays([noActivityDate, keptDate, normalDate], 'personal')
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: keptDate, outcome: 'recorded', values: { distance: 2, minutes: 10 }, note: '', holidayTreatment: 'keep-holiday' })
+    await localRepository.saveTrackerEntry({ trackerId: definition.id, date: normalDate, outcome: 'recorded', values: { distance: 3, minutes: 20 }, note: '', holidayTreatment: 'count-normal' })
+    const user = userEvent.setup()
+    render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)
+    await screen.findByRole('heading', { name: 'Morning run' })
+    const tracker = screen.getByRole('heading', { name: 'Morning run' }).closest('.analytics-tracker') as HTMLElement
+    await user.click(within(tracker).getByRole('button', { name: 'Show details' }))
+    expect(tracker).toHaveTextContent(/Holidays · no check-in\s*1/)
+    expect(tracker).toHaveTextContent(/Holiday activity kept\s*1/)
+    expect(tracker).toHaveTextContent(/Normal holiday check-ins\s*1/)
+  })
+
   it('uses the shared Insights header and places its tabs directly below it', async () => {
     await localRepository.saveTracker(definition)
     render(<MemoryRouter><AnalyticsPage /></MemoryRouter>)

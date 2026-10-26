@@ -858,7 +858,7 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Rest day' }))
     expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
-    expect(screen.getByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
+    expect(screen.getByText(/Voluntary activity is saved and remains visible in History and Analytics/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save check-in' })).toBeInTheDocument()
   })
 
@@ -872,9 +872,43 @@ describe('Today check-ins', () => {
     expect(open.closest('.today-checkin-card')).toHaveClass('status-holiday')
     await user.click(open)
     expect(await screen.findByRole('dialog', { name: 'Daily reading' })).toBeInTheDocument()
-    expect(screen.getByText(/Voluntary check-in · this stays a holiday or rest day/)).toBeInTheDocument()
+    expect(screen.getByText(/Voluntary activity is saved and remains visible in History and Analytics/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Keep as Holiday/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Count as Normal Check-in/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save check-in' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Manage holidays' })).toHaveAttribute('href', `/holidays?date=${today()}`)
+  })
+
+  it('saves holiday activity in either mode, preserves choices during edits, and restores them with the holiday', async () => {
+    const user = userEvent.setup()
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    await localRepository.saveAccountHolidays([today()], 'personal')
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Open Daily reading, Holiday' }))
+    const pages = await screen.findByRole('spinbutton', { name: 'Pages' })
+    await user.type(pages, '1')
+    await user.click(screen.getByRole('button', { name: 'Save check-in' }))
+    await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ values: { pages: 1 }, holidayTreatment: 'keep-holiday' }))
+    expect(screen.getByText(/Holiday · Activity saved/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: /Count as Normal Check-in/ }))
+    await user.click(screen.getByRole('button', { name: 'Update check-in' }))
+    await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ values: { pages: 1 }, holidayTreatment: 'count-normal' }))
+    expect(screen.getByRole('dialog', { name: 'Daily reading' })).toHaveTextContent('Partial')
+
+    await user.clear(pages)
+    await user.type(pages, '5')
+    await user.click(screen.getByRole('radio', { name: /Keep as Holiday/ }))
+    await user.click(screen.getByRole('button', { name: 'Update check-in' }))
+    await waitFor(async () => expect(await localRepository.getTrackerEntry('today-tracker', today())).toMatchObject({ values: { pages: 5 }, holidayTreatment: 'keep-holiday' }))
+    expect(screen.getByText(/Holiday · Activity saved/)).toBeInTheDocument()
+
+    await localRepository.removeAccountHoliday(today())
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Holiday treatment' })).not.toBeInTheDocument())
+    expect(screen.getByLabelText('Tracker: Completed')).toBeInTheDocument()
+    await localRepository.saveAccountHolidays([today()], 'personal')
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Keep as Holiday/ })).toBeChecked())
+    expect(screen.getByText(/Holiday · Activity saved/)).toBeInTheDocument()
   })
 
   it('includes positive work in Today’s counts on a global holiday', async () => {

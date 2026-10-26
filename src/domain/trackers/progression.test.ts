@@ -42,6 +42,24 @@ describe('streak calculation', () => {
     expect(evaluateTrackerProgressionDay({ tracker: strict, entries: [], date: '2026-01-02', today: '2026-01-03', holidays }).state).toBe('failed')
   })
 
+  it('uses explicit holiday treatment for streak and Perfect Day eligibility', () => {
+    const definition = tracker({ startDate: '2026-01-01' })
+    const date = '2026-01-02'
+    const holidays = new Set([date])
+    const full = entry(date)
+    const keep = { ...full, holidayTreatment: 'keep-holiday' as const }
+    const normal = { ...full, holidayTreatment: 'count-normal' as const }
+    const zeroNormal = { ...entry(date, { pages: 0, minutes: 0 }), holidayTreatment: 'count-normal' as const }
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [keep], date, today: date, holidays }).state).toBe('neutral')
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [normal], date, today: date, holidays }).state).toBe('qualified')
+    expect(evaluateTrackerProgressionDay({ tracker: definition, entries: [zeroNormal], date, today: '2026-01-03', holidays }).state).toBe('failed')
+    expect(evaluateAllTrackersDay({ trackers: [definition], entries: [keep], date, today: date, holidays }).state).toBe('neutral')
+    expect(evaluateAllTrackersDay({ trackers: [definition], entries: [normal], date, today: date, holidays }).state).toBe('perfect')
+    const singleDayDefinition = { ...definition, startDate: date, createdAt: `${date}T00:00:00.000Z`, updatedAt: `${date}T00:00:00.000Z` }
+    expect(calculateStreak(singleDayDefinition, [keep], date, holidays)).toMatchObject({ qualifyingCount: 0, scheduledCount: 0, missedCount: 0 })
+    expect(calculateStreak(singleDayDefinition, [normal], date, holidays)).toMatchObject({ qualifyingCount: 1, scheduledCount: 1, current: 1 })
+  })
+
   it('resets current streak after misses or skips while preserving the personal best', () => {
     const missed = calculateStreak(tracker(), [entry('2026-01-01'), entry('2026-01-02'), entry('2026-01-04')], '2026-01-04')
     expect(missed).toMatchObject({ current: 1, longest: 2, missedCount: 1 })

@@ -54,9 +54,10 @@ export function evaluateAllTrackersPerfectDay(input: {
     if (tracker.status === 'archived' && tracker.archivedAt && input.date > tracker.archivedAt.slice(0, 10)) return false
     if (!isTrackerInActivePeriod(tracker, input.date, input.timeZone)) return false
     const entry = input.entries.find((candidate) => candidate.trackerId === tracker.id && candidate.date === input.date && candidate.deletedAt === null)
-    const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
     const holiday = Boolean(input.holidays?.has(input.date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === input.date))
-    return trackerStrictModeForDate(tracker, input.date) || ((!holiday || positiveWork) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
+    const legacyPositiveOverride = entry?.holidayTreatment === undefined && entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+    const holidayCountsNormally = entry?.holidayTreatment === 'count-normal' || legacyPositiveOverride
+    return trackerStrictModeForDate(tracker, input.date) || ((!holiday || holidayCountsNormally) && isTrackerScheduledOccurrence(tracker, input.date, input.timeZone))
   })
   const reliableFrom = input.trackers.filter((tracker) => tracker.deletedAt === null && ['active', 'archived', 'completed'].includes(tracker.status))
     .map((tracker) => {
@@ -115,9 +116,10 @@ export function evaluateTrackerProgressionDay(input: {
   if (tracker.status !== 'active' && tracker.status !== 'archived' && tracker.status !== 'completed') return { trackerId: tracker.id, date, state: 'inactive', required: false }
 
   const strict = trackerStrictModeForDate(tracker, date)
-  const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
   const holiday = Boolean(input.holidays?.has(date) || input.trackerHolidays?.some((item) => item.trackerId === tracker.id && item.date === date))
-  const neutral = !strict && ((holiday && !positiveWork) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))
+  const legacyPositiveOverride = entry?.holidayTreatment === undefined && entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+  const holidayCountsNormally = entry?.holidayTreatment === 'count-normal' || legacyPositiveOverride
+  const neutral = !strict && ((holiday && !holidayCountsNormally) || !isTrackerScheduledOccurrence(tracker, date, input.timeZone))
   // Existing saved activity remains visible, but an ineligible date never earns progression.
   if (neutral) return { trackerId: tracker.id, date, state: 'neutral', required: false }
   if (entry?.outcome === 'skipped') return { trackerId: tracker.id, date, state: 'failed', required: true }

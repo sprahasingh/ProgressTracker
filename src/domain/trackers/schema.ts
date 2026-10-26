@@ -392,6 +392,7 @@ export const trackerEntrySchema = z.object({
   trackerId: id,
   date: calendarDate,
   outcome: z.enum(['recorded', 'skipped']),
+  holidayTreatment: z.enum(['keep-holiday', 'count-normal']).optional(),
   values: z.record(z.string(), z.json()),
   note: z.string(),
   createdAt: z.iso.datetime(),

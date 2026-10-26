@@ -177,7 +177,7 @@ export function TodayPage() {
     const hasHoliday = holidaySet.has(today) || trackerHolidayDatesByTracker.get(tracker.id)?.has(today)
     const entry = entries.find((item) => item.trackerId === tracker.id && item.date === today && item.deletedAt === null)
     const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
-    return !hasHoliday || positiveWork
+    return !hasHoliday || positiveWork || entry?.holidayTreatment === 'count-normal'
   }), [activeTrackers, timeZone, today, holidaySet, trackerHolidayDatesByTracker, entries])
   const activityTrackers = activeTrackers
   const accountCheckPending = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
@@ -227,10 +227,10 @@ export function TodayPage() {
     return { date, scheduled: isHoliday ? 0 : scheduled.length, strictRequired: strictRequired.length, strictQualified, done, isToday, isHoliday, state, statusLabel }
   }), [today, weekStart, activeTrackers, weekEntries, holidayDates, timeZone])
 
-  async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') {
+  async function save(tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped', holidayTreatment?: StoredTrackerEntry['holidayTreatment']) {
     const wasSaved = weekEntries.some((item) => item.trackerId === tracker.id && item.date === date && item.deletedAt === null)
     try {
-      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date, outcome, values: outcome === 'skipped' ? {} : values, note })
+      await localRepository.saveTrackerEntry({ trackerId: tracker.id, date, outcome, values: outcome === 'skipped' ? {} : values, note, ...(outcome === 'recorded' && holidayTreatment ? { holidayTreatment } : {}) })
       await refresh()
       return true
     } catch {
@@ -393,20 +393,23 @@ type CheckinSheetProps = Omit<CheckinCardProps, 'onOpen' | 'onTrigger'> & {
   authStatus: string
   isOnline: boolean
   syncStatus: string
-  onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped') => Promise<boolean>
+  onSave: (tracker: StoredTrackerDefinition, date: CalendarDate, values: Record<string, TrackerValue>, note: string, outcome: 'recorded' | 'skipped', holidayTreatment?: StoredTrackerEntry['holidayTreatment']) => Promise<boolean>
   onClear: (tracker: StoredTrackerDefinition, date: CalendarDate) => Promise<boolean>
   onClose: () => void
 }
 
-type CheckinBaseline = { exists: boolean; outcome?: StoredTrackerEntry['outcome']; values: Record<string, TrackerValue>; note: string }
-function checkinBaseline(entry?: StoredTrackerEntry): CheckinBaseline {
-  return { exists: Boolean(entry), outcome: entry?.outcome, values: entry?.values ?? {}, note: entry?.note ?? '' }
+type CheckinBaseline = { exists: boolean; outcome?: StoredTrackerEntry['outcome']; values: Record<string, TrackerValue>; note: string; holidayTreatment?: StoredTrackerEntry['holidayTreatment'] }
+function checkinBaseline(entry?: StoredTrackerEntry, defaultTreatment?: StoredTrackerEntry['holidayTreatment']): CheckinBaseline {
+  return { exists: Boolean(entry), outcome: entry?.outcome, values: entry?.values ?? {}, note: entry?.note ?? '', holidayTreatment: entry?.holidayTreatment ?? defaultTreatment }
 }
 
 function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, holidays, status, canEdit, historical, authStatus, isOnline, syncStatus, onSave, onClear, onClose }: CheckinSheetProps) {
   const [showHistoricalNotice] = useState(() => historical && !historicalProgressNoticeShown)
   const [values, setValues] = useState<Record<string, TrackerValue>>(entry?.values ?? {})
-  const [baseline, setBaseline] = useState(() => checkinBaseline(entry))
+  const holidayApplies = holidays.has(today) && !trackerStrictModeForDate(tracker, today)
+  const inferredTreatment = entry?.holidayTreatment ?? (entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry) ? 'count-normal' : 'keep-holiday')
+  const [holidayTreatment, setHolidayTreatment] = useState<NonNullable<StoredTrackerEntry['holidayTreatment']>>(inferredTreatment)
+  const [baseline, setBaseline] = useState(() => checkinBaseline(entry, inferredTreatment))
   const [invalidInputs, setInvalidInputs] = useState<Set<string>>(() => new Set())
   const [note, setNote] = useState(entry?.note ?? '')
   const [noteExpanded, setNoteExpanded] = useState(false)
@@ -421,7 +424,7 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
   const backdropRef = useRef<HTMLDivElement>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeRequestRef = useRef<() => void>(() => {})
-  const dirty = comparableValues(values) !== comparableValues(baseline.values) || note !== baseline.note
+  const dirty = comparableValues(values) !== comparableValues(baseline.values) || note !== baseline.note || (holidayApplies && holidayTreatment !== baseline.holidayTreatment)
   const saved = baseline.exists && baseline.outcome === 'recorded' && !dirty
   const locallySaved = baseline.exists && !dirty
   const syncFeedback = authStatus !== 'signed-in' ? ''
@@ -449,10 +452,11 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
   useLayoutEffect(() => {
     if (entryRef.current === entry) return
     entryRef.current = entry
-    const latest = checkinBaseline(entry)
+    const latestTreatment = entry?.holidayTreatment ?? (entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry) ? 'count-normal' : 'keep-holiday')
+    const latest = checkinBaseline(entry, latestTreatment)
     setBaseline(latest)
-    if (!dirty) { setValues(latest.values); setNote(latest.note) }
-  }, [entry, dirty])
+    if (!dirty) { setValues(latest.values); setNote(latest.note); setHolidayTreatment(latestTreatment) }
+  }, [entry, dirty, tracker])
   useModalLayer(true, sheetRef, () => closeRequestRef.current())
   useVisualViewportBounds(true, backdropRef)
   useEffect(() => {
@@ -484,12 +488,13 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
     feedbackTimer.current = null
     setSaveFeedback(null)
     setIssue(''); setSaving(true)
-    const didSave = await onSave(tracker, today, payload, note, outcome)
+    const chosenTreatment = holidayApplies ? holidayTreatment : entry?.holidayTreatment
+    const didSave = await onSave(tracker, today, payload, note, outcome, chosenTreatment)
     if (!didSave) { setSaving(false); return false }
     const savedValues = outcome === 'skipped' ? {} : payload
     setValues(savedValues)
     if (outcome === 'skipped') setInvalidInputs(new Set())
-    setBaseline({ exists: true, outcome, values: savedValues, note })
+    setBaseline({ exists: true, outcome, values: savedValues, note, holidayTreatment: outcome === 'recorded' ? chosenTreatment : entry?.holidayTreatment })
     setSaving(false)
     if (outcome === 'recorded' && completionMetric && typeof payload[completionMetric.id] === 'boolean') {
       const done = payload[completionMetric.id] === true
@@ -520,15 +525,16 @@ function CheckinSheet({ tracker, entry, today, currentDate, timeZone, entries, h
 
   return createPortal(<div ref={backdropRef} className="modal-backdrop today-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
     <section className="today-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="today-detail-title" ref={sheetRef} tabIndex={-1}>
-      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}<p>{calendarDateLabel(today)}{isBinaryCompletion ? '' : ` · ${ACTIVITY_STATUS_PRESENTATION[status].label}${holidays.has(today) && entry?.outcome === 'recorded' ? ' · Progress recorded' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}`}</p>{challengeDay && <p>Starts {calendarDateLabel(trackerActiveStartDate(tracker, timeZone))} · Finish by {calendarDateLabel(tracker.deadline!)}{challengeDay.phase === 'active' ? ` · ${challengeDay.daysRemaining} days remaining` : ''}</p>}</div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
+      <header className="today-detail-heading"><div><span className="tracker-kind-chip">{tracker.kind}</span><h2 id="today-detail-title">{tracker.name}</h2>{challengeDay && <p className="challenge-day-label">{challengeDay.label}</p>}<p>{calendarDateLabel(today)}{isBinaryCompletion ? '' : ` · ${ACTIVITY_STATUS_PRESENTATION[status].label}${status === 'holiday' && entry?.outcome === 'recorded' ? ' · Activity saved' : status === 'rest-day' && entry?.outcome === 'recorded' ? ' · Progress recorded' : ''}`}</p>{challengeDay && <p>Starts {calendarDateLabel(trackerActiveStartDate(tracker, timeZone))} · Finish by {calendarDateLabel(tracker.deadline!)}{challengeDay.phase === 'active' ? ` · ${challengeDay.daysRemaining} days remaining` : ''}</p>}</div><IconButton ref={closeRef} className="today-detail-close" label="Close check-in details" onClick={requestClose}><AppIcon name="close" /></IconButton></header>
       <div className="today-detail-content">
         {showHistoricalNotice && historical && <p className="today-detail-notice" role="note">Past entries can update your XP, streaks, and achievements.</p>}
         {tracker.description && <details className="today-description-details"><summary>Activity description</summary><p>{tracker.description}</p></details>}
         {!isBinaryCompletion && <TodayRequirements historical={historical} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={entries} holidays={holidays} />}
         {!canEdit ? <p className="today-detail-notice">This tracker is outside its active dates. Existing recorded activity remains available to view.</p> : <>
-          {(holidays.has(today) || status === 'rest-day') && !tracker.strictMode && <p className="today-detail-notice">Voluntary check-in · this stays a holiday or rest day and does not change the schedule. Progress is saved and included in applicable metrics without adding a scheduled streak opportunity.</p>}
+          {(holidays.has(today) || status === 'rest-day') && !trackerStrictModeForDate(tracker, today) && <p className="today-detail-notice">Voluntary activity is saved and remains visible in History and Analytics.</p>}
+          {holidayApplies && <fieldset className="holiday-treatment-control"><legend>Holiday treatment</legend><label><input type="radio" name={`holiday-treatment-${tracker.id}-${today}`} value="keep-holiday" checked={holidayTreatment === 'keep-holiday'} onChange={() => setHolidayTreatment('keep-holiday')} /> <span><strong>Keep as Holiday</strong><small>Save this activity while keeping the holiday exemption. It won’t earn normal check-in rewards.</small></span></label><label><input type="radio" name={`holiday-treatment-${tracker.id}-${today}`} value="count-normal" checked={holidayTreatment === 'count-normal'} onChange={() => setHolidayTreatment('count-normal')} /> <span><strong>Count as Normal Check-in</strong><small>Save this activity and apply normal status, streak, and reward rules.</small></span></label><p>Recorded measurements are saved in either mode.</p></fieldset>}
           {entry?.outcome === 'skipped' && !isBinaryCompletion && <p className="today-detail-notice">This check-in was intentionally skipped. Recording progress will replace the skipped outcome.</p>}
-          <TrackerEntryFields tracker={effectiveTracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} showDraftPreview={dirty} completionStatus={completionStatus} />
+          <TrackerEntryFields tracker={effectiveTracker} values={values} setValue={setValue} date={today} today={today} holidays={holidays} timeZone={timeZone} expectedAmounts={expectedAmounts} expectedLabels={expectedLabels} onInputValidityChange={setInputValidity} showDraftPreview={dirty} completionStatus={completionStatus} holidayTreatment={holidayApplies ? holidayTreatment : entry?.holidayTreatment} />
           <details className="today-note-details" onToggle={(event) => setNoteExpanded(event.currentTarget.open)}><summary aria-expanded={noteExpanded}>{note ? 'Edit note' : 'Add a note'} <span>optional</span></summary><label className="form-field form-field-wide"><span>Note</span><textarea className="auth-input tracker-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this check-in" /></label></details>
           {issue && <p className="today-validation" role="alert">{issue}</p>}
           {!isBinaryCompletion && entry?.outcome === 'recorded' && result && <p className="today-result" role="status">{result.qualified ? 'Your configured success rule is met.' : 'The configured success rule is not met yet.'}</p>}
