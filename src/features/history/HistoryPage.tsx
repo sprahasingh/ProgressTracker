@@ -199,7 +199,8 @@ export function HistoryPage() {
           if (!tracker) return null
           const activityStatus = getTrackerActivityStatus({ tracker, entry, date: entry.date, today, holidays: new Set(holidays.map((holiday) => holiday.date)), trackerHolidays: new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)), timeZone })
           const qualifies = entry.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified
-          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={challengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
+          const trackerChallengeHolidays = new Set([...challengeHolidays, ...trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)])
+          return <HistoryEntry key={entry.id} tracker={tracker} entry={entry} qualifies={qualifies} status={activityStatus} timeZone={timeZone} holidays={trackerChallengeHolidays} onEdit={() => navigate('/', { state: { openActivity: { trackerId: tracker.id, date: entry.date } } })} />
         })}</div></section>)}
       </div>}
       </section>

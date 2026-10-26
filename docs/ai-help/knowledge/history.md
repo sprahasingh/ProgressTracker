@@ -14,7 +14,7 @@
 - src/domain/trackers/missingCheckIns.ts
 - src/features/history/HistoryPage.test.tsx
 **Answer:**
-History shows saved check-ins and their recorded values for past dates, along with workspace holidays in the selected date range. Each saved measure name labels its value; Yes/No values read **Done** or **Not Done**, while the entry outcome is shown separately. Checklist values show the checked-item count as items done. You can open an entry to edit it or choose a tracker and date to add a missing check-in; both use the shared check-in editor. It also offers a missing check-in review for unresolved opportunities in the previous seven completed days. Dates that were not tracking opportunities are not shown as missing, and today is not treated as overdue.
+History shows saved check-ins and their recorded values for past dates, along with global holidays in the selected date range. Each saved measure name labels its value; Yes/No values read **Done** or **Not Done**, while the entry outcome is shown separately. Checklist values show checked items. You can open an eligible entry to edit it or choose a tracker and date to add a missing check-in. Historical edits preserve the saved record and recalculate applicable progression and rewards when synchronized. Archived trackers and dates outside the active period remain viewable but may be read-only or ineligible. Missing review covers unresolved opportunities in the previous seven completed days; today is not overdue.
 
 ### ID: history-clear-note
 **Category:** history

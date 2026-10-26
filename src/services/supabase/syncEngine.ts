@@ -389,6 +389,29 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
     ? await database.trackerHolidays.bulkGet(candidates.map((operation) => operation.entityId))
     : []
   const operations = candidates.filter((operation, index) => {
+    const conversion = operation.holidayScopeConversion
+    const conversionTargetPending = conversion?.role === 'source' && allOperations.some((candidate) =>
+      candidate.holidayScopeConversion?.id === conversion.id
+      && candidate.holidayScopeConversion.role === 'target'
+      && candidate.status !== 'superseded'
+      && candidate.status !== 'discarded')
+    // Backups or offline queues produced before conversion groups existed have
+    // no group marker. Infer the dependency from a same-date active opposite-
+    // scope upsert, preserving the source until that replacement is accepted.
+    const operationHoliday = operation.payload as AccountHoliday | TrackerHoliday | undefined
+    const legacyTargetPending = !conversion
+      && (operation.entity === 'account_holiday' || operation.entity === 'tracker_holiday')
+      && operationHoliday !== undefined
+      && operationHoliday.deletedAt !== null
+      && allOperations.some((candidate) => {
+        if (candidate.status === 'superseded' || candidate.status === 'discarded') return false
+        const target = candidate.payload as AccountHoliday | TrackerHoliday | undefined
+        if (!target || target.deletedAt !== null || target.date !== operationHoliday!.date) return false
+        return operation.entity === 'account_holiday'
+          ? candidate.entity === 'tracker_holiday'
+          : candidate.entity === 'account_holiday'
+      })
+    if (conversionTargetPending || legacyTargetPending) return false
     if (entity === 'tracker') return !heldTrackerIds.has(operation.entityId)
     if (entity === 'tracker_holiday') return !heldTrackerIds.has((operation.payload as TrackerHoliday | undefined)?.trackerId ?? trackerHolidaysById[index]?.trackerId ?? '')
     if (entity !== 'tracker_entry') return true
@@ -824,7 +847,10 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   if (entries.uploaded > 0) publishWorkspaceProgressionConfirmed(userId)
   const holidays = await uploadQueue(database, client, userId, 'account_holiday')
   const trackerHolidays = await uploadQueue(database, client, userId, 'tracker_holiday', deletionIntentTrackerIds)
-  const holidayDeletions = holidays.failed || holidays.conflicts
+  // Global-to-selected conversions stage the selected rows first. Once those
+  // writes are acknowledged, release the source global tombstone in this pass.
+  const remainingHolidays = await uploadQueue(database, client, userId, 'account_holiday')
+  const holidayDeletions = holidays.failed || holidays.conflicts || remainingHolidays.failed || remainingHolidays.conflicts
     ? { deleted: 0, conflicts: 0, failed: 0 }
     : await processPermanentHolidayDeletionRequests(database, client, userId)
   const trackerPull = await pullTable<ServerTracker>(database, client, userId, 'trackers', (row) => applyRemoteTracker(database, userId, row))
@@ -840,7 +866,7 @@ async function runSynchronizationCore(userId: string, injectedClient?: SupabaseC
   // The sync RPC and its database triggers commit before this point. Signal even
   // after downloaded changes so confirmed progression consumers refresh once.
   if (entries.uploaded === 0 || changed > 0) publishWorkspaceSyncCompleted(userId)
-  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + trackerHolidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + trackerHolidays.failed + deletionRequests.failed + holidayDeletions.failed }
+  return { uploaded: trackers.uploaded + entries.uploaded + holidays.uploaded + remainingHolidays.uploaded + trackerHolidays.uploaded + deletionRequests.deleted + holidayDeletions.deleted, downloaded, conflicts: openConflicts, failed: trackers.failed + entries.failed + holidays.failed + remainingHolidays.failed + trackerHolidays.failed + deletionRequests.failed + holidayDeletions.failed }
 }
 
 async function runSynchronization(userId: string, injectedClient?: SupabaseClient): Promise<SyncSummary> {

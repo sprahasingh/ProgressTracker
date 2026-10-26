@@ -149,6 +149,7 @@ export type SyncOperation = {
   supersededByRevision?: number
   supersededByDeletionRequestId?: string
   discardedAt?: string
+  holidayScopeConversion?: { id: string; role: 'source' | 'target' }
 }
 
 export type SyncRecordState = { key: string; ownerUserId: string; entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday'; entityId: string; serverRevision: number }

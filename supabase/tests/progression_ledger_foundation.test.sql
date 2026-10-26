@@ -33,7 +33,7 @@ reset role;
 select throws_ok($$delete from public.trackers where id = '00000000-0000-4000-8000-000000000711'$$,
   '55000', 'permanent tracker deletion requires an explicit safe Wins retention choice', 'direct tracker deletion fails closed when account XP cannot be attributed safely');
 select is((select count(*) from public.trackers where id = '00000000-0000-4000-8000-000000000711'), 1::bigint, 'blocked deletion retains tracker data');
-select is((select count(*) from public.progression_event_sources), 1::bigint, 'blocked deletion preserves progression source associations with the retained tracker');
+select is((select count(*) from public.progression_event_sources where tracker_id='00000000-0000-4000-8000-000000000711'), 1::bigint, 'blocked deletion preserves progression source associations with the retained tracker');
 select is((select sum(xp_delta) from public.progression_events where user_id = '00000000-0000-4000-8000-000000000071'), 10::bigint, 'blocked deletion preserves earned XP');
 
 select * from finish();

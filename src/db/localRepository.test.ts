@@ -389,8 +389,10 @@ describe('workspace mutation notifications', () => {
 
   it('edits an account holiday date and reason in place and queues one revisioned sync mutation', async () => {
     await activateWorkspace('holiday-edit-owner')
+    await localRepository.saveTracker(plannedGoal)
     const [holiday] = await localRepository.saveAccountHolidays(['2026-10-10'], 'travel')
     if (!holiday) throw new Error('Holiday was not saved.')
+    const work = await localRepository.saveTrackerEntry({ trackerId: plannedGoal.id, date: '2026-10-10', outcome: 'recorded', values: { pages: 8 }, note: 'historical work' })
     await db.syncRecords.put({ key: `account_holiday:${holiday.id}`, ownerUserId: 'holiday-edit-owner', entity: 'account_holiday', entityId: holiday.id, serverRevision: 3 })
 
     const updated = await localRepository.updateAccountHoliday(holiday.id, '2026-10-12', 'exam')
@@ -399,6 +401,40 @@ describe('workspace mutation notifications', () => {
     await expect(db.accountHolidays.count()).resolves.toBe(1)
     await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ id: holiday.id, date: '2026-10-12', reason: 'exam' })
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['holiday-edit-owner', 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ expectedRevision: 3, payload: { id: holiday.id, date: '2026-10-12', reason: 'exam' } })
+    await expect(localRepository.getTrackerEntry(plannedGoal.id, '2026-10-10')).resolves.toEqual(work)
+  })
+
+  it('converts a historical global holiday to selected scope atomically while preserving its check-in', async () => {
+    await activateWorkspace('holiday-scope-owner')
+    await localRepository.saveTracker({ ...plannedGoal, id: 'holiday-scope-tracker' })
+    const [global] = await localRepository.saveAccountHolidays(['2026-10-10'], 'travel')
+    if (!global) throw new Error('Holiday was not saved.')
+    const work = await localRepository.saveTrackerEntry({ trackerId: 'holiday-scope-tracker', date: '2026-10-10', outcome: 'recorded', values: { pages: 8 }, note: 'kept' })
+
+    await localRepository.convertHolidayScope({ source: { scope: 'global', id: global.id }, date: global.date, scope: 'selected', reason: global.reason, trackerIds: ['holiday-scope-tracker'] })
+
+    await expect(db.accountHolidays.get(global.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(localRepository.listTrackerHolidays()).resolves.toEqual([expect.objectContaining({ trackerId: 'holiday-scope-tracker', date: global.date, deletedAt: null })])
+    await expect(localRepository.getTrackerEntry('holiday-scope-tracker', global.date)).resolves.toEqual(work)
+    const scopedOperations = (await db.syncOperations.where('ownerUserId').equals('holiday-scope-owner').toArray()).filter((operation) => operation.entity === 'account_holiday' || operation.entity === 'tracker_holiday')
+    expect(scopedOperations.map((operation) => operation.holidayScopeConversion?.role).sort()).toEqual(['source', 'target'])
+    expect(new Set(scopedOperations.map((operation) => operation.holidayScopeConversion?.id)).size).toBe(1)
+  })
+
+  it('converts a historical selected holiday to global scope without changing recorded work', async () => {
+    await activateWorkspace('holiday-scope-owner')
+    await localRepository.saveTracker({ ...plannedGoal, id: 'holiday-scope-tracker' })
+    const selected = await localRepository.saveTrackerHoliday('holiday-scope-tracker', '2026-10-10')
+    const work = await localRepository.saveTrackerEntry({ trackerId: 'holiday-scope-tracker', date: selected.date, outcome: 'recorded', values: { pages: 8 }, note: 'kept' })
+
+    await localRepository.convertHolidayScope({ source: { scope: 'selected', date: selected.date }, date: selected.date, scope: 'global', reason: 'travel', trackerIds: [] })
+
+    await expect(db.trackerHolidays.get(selected.id)).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(localRepository.listAccountHolidays()).resolves.toEqual([expect.objectContaining({ date: selected.date, reason: 'travel', deletedAt: null })])
+    await expect(localRepository.getTrackerEntry('holiday-scope-tracker', selected.date)).resolves.toEqual(work)
+    const scopedOperations = (await db.syncOperations.where('ownerUserId').equals('holiday-scope-owner').toArray()).filter((operation) => operation.entity === 'account_holiday' || operation.entity === 'tracker_holiday')
+    expect(scopedOperations.map((operation) => operation.holidayScopeConversion?.role).sort()).toEqual(['source', 'target'])
+    expect(new Set(scopedOperations.map((operation) => operation.holidayScopeConversion?.id)).size).toBe(1)
   })
 
   it('rejects an occupied holiday date without changing the source holiday', async () => {

@@ -260,6 +260,71 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncRecords.get(`account_holiday:${holiday.id}`)).resolves.toMatchObject({ serverRevision: 8 })
   })
 
+  it('keeps the source global holiday until every selected target write is acknowledged, then retries to convergence', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('scope-conversion-tracker')
+    await localRepository.saveTracker(definition)
+    await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', definition.id]).delete()
+    const [global] = await localRepository.saveAccountHolidays(['2026-10-20'], 'travel')
+    if (!global) throw new Error('Holiday was not saved.')
+    await localRepository.convertHolidayScope({ source: { scope: 'global', id: global.id }, date: global.date, scope: 'selected', reason: global.reason, trackerIds: [definition.id] })
+    const selected = await localRepository.listTrackerHolidays()
+    const target = selected[0]
+    if (!target) throw new Error('Selected holiday was not queued.')
+    // Simulate a locally backed-up conversion queued by a pre-dependency app.
+    for (const operation of await db.syncOperations.where('ownerUserId').equals('sync-user').toArray()) {
+      if (operation.entity !== 'account_holiday' && operation.entity !== 'tracker_holiday') continue
+      const { holidayScopeConversion: _legacyMarker, ...legacyOperation } = operation
+      await db.syncOperations.put(legacyOperation)
+    }
+    const { client, rpc } = fakeClient({ rpcResults: [
+      { data: null, error: { message: 'temporary interruption', code: '08006' } },
+      { data: { status: 'applied', record: { id: target.id, user_id: 'sync-user', tracker_id: definition.id, holiday_date: target.date, created_at: target.createdAt, updated_at: target.updatedAt, deleted_at: null, server_revision: 1 } }, error: null },
+      { data: { status: 'applied', record: { id: global.id, user_id: 'sync-user', holiday_date: global.date, reason: 'travel', created_at: global.createdAt, updated_at: global.updatedAt, deleted_at: global.updatedAt, server_revision: 1 } }, error: null },
+    ] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 0, failed: 1 })
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_holiday_sync_operation', expect.any(Object))
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'account_holiday', global.id]).first()).resolves.toMatchObject({ status: 'pending' })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 2, failed: 0 })
+    expect(rpc).toHaveBeenCalledTimes(3)
+    expect(rpc).toHaveBeenNthCalledWith(2, 'apply_tracker_holiday_sync_operation', expect.any(Object))
+    expect(rpc).toHaveBeenNthCalledWith(3, 'apply_account_holiday_sync_operation', expect.any(Object))
+    await expect(db.syncOperations.where('ownerUserId').equals('sync-user').toArray()).resolves.toEqual([])
+  })
+
+  it('keeps selected holidays until the replacement global holiday is acknowledged', async () => {
+    await activateWorkspace('sync-user')
+    const definition = tracker('reverse-scope-conversion-tracker')
+    await localRepository.saveTracker(definition)
+    await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', definition.id]).delete()
+    const selected = await localRepository.saveTrackerHoliday(definition.id, '2026-10-20')
+    await localRepository.convertHolidayScope({ source: { scope: 'selected', date: selected.date }, date: selected.date, scope: 'global', reason: 'travel', trackerIds: [] })
+    const [global] = await localRepository.listAccountHolidays()
+    if (!global) throw new Error('Global target holiday was not queued.')
+    const sourceOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_holiday', selected.id]).first()
+    const targetOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'account_holiday', global.id]).first()
+    expect(sourceOperation?.holidayScopeConversion?.role).toBe('source')
+    expect(targetOperation?.holidayScopeConversion?.role).toBe('target')
+    expect(sourceOperation?.holidayScopeConversion?.id).toBe(targetOperation?.holidayScopeConversion?.id)
+    const { client, rpc } = fakeClient({ rpcResults: [
+      { data: null, error: { message: 'temporary network interruption', code: '08006' } },
+      { data: { status: 'applied', record: { id: global.id, user_id: 'sync-user', holiday_date: global.date, reason: 'travel', created_at: global.createdAt, updated_at: global.updatedAt, deleted_at: null, server_revision: 1 } }, error: null },
+      { data: { status: 'applied', record: { id: selected.id, user_id: 'sync-user', tracker_id: definition.id, holiday_date: selected.date, created_at: selected.createdAt, updated_at: selected.updatedAt, deleted_at: selected.updatedAt, server_revision: 1 } }, error: null },
+    ] })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 1 })
+    expect(rpc).toHaveBeenCalledTimes(2)
+    expect(rpc).toHaveBeenCalledWith('apply_account_holiday_sync_operation', expect.any(Object))
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_holiday', selected.id]).first()).resolves.toMatchObject({ status: 'pending', holidayScopeConversion: { role: 'source' } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc).toHaveBeenCalledTimes(3)
+    expect(rpc).toHaveBeenNthCalledWith(3, 'apply_tracker_holiday_sync_operation', expect.any(Object))
+  })
+
   it('syncs archived tracker reactivation as one revisioned definition update', async () => {
     await activateWorkspace('sync-user')
     const archived = { ...tracker('reactivate-sync'), status: 'archived' as const, archivedAt: '2026-10-10T00:00:00.000Z' }

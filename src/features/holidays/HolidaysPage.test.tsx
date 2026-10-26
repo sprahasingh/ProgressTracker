@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { HolidaysPage } from './HolidaysPage'
 
-const mocks = vi.hoisted(() => ({ listAccountHolidays: vi.fn(), listTrackerHolidays: vi.fn().mockResolvedValue([]), listTrackers: vi.fn().mockResolvedValue([]), saveTrackerHoliday: vi.fn(), setTrackerHolidaySelections: vi.fn().mockResolvedValue(undefined), removeTrackerHoliday: vi.fn(), listPermanentHolidayDeletionRequests: vi.fn(), restoreAccountHoliday: vi.fn(), updateAccountHoliday: vi.fn(), requestPermanentHolidayDeletion: vi.fn(), removeAccountHoliday: vi.fn(), syncNow: vi.fn(), auth: { status: 'local-only', user: null as { id: string } | null, workspaceStatus: 'ready', workspaceUserId: null as string | null, sessionTransitionPending: false, isOnline: true } }))
+const mocks = vi.hoisted(() => ({ listAccountHolidays: vi.fn(), listTrackerHolidays: vi.fn().mockResolvedValue([]), listTrackers: vi.fn().mockResolvedValue([]), saveTrackerHoliday: vi.fn(), setTrackerHolidaySelections: vi.fn().mockResolvedValue(undefined), convertHolidayScope: vi.fn().mockResolvedValue(undefined), removeTrackerHoliday: vi.fn(), listPermanentHolidayDeletionRequests: vi.fn(), restoreAccountHoliday: vi.fn(), updateAccountHoliday: vi.fn(), requestPermanentHolidayDeletion: vi.fn(), removeAccountHoliday: vi.fn(), syncNow: vi.fn(), auth: { status: 'local-only', user: null as { id: string } | null, workspaceStatus: 'ready', workspaceUserId: null as string | null, sessionTransitionPending: false, isOnline: true } }))
 vi.mock('../../db/localRepository', () => ({ localRepository: mocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ ...mocks.auth, syncNow: mocks.syncNow }) }))
 vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({ timeZone: 'UTC' }) }))
@@ -122,8 +122,11 @@ describe('Manage Holidays', () => {
     await user.click(within(picker).getByLabelText('Reading'))
     await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
 
-    await waitFor(() => expect(mocks.setTrackerHolidaySelections).toHaveBeenCalledWith([{ date: active.date, trackerIds: [standard.id] }]))
-    expect(mocks.removeAccountHoliday).toHaveBeenCalledWith(active.date)
+    await waitFor(() => expect(mocks.convertHolidayScope).toHaveBeenCalledWith({
+      source: { scope: 'global', id: active.id }, date: active.date, scope: 'selected', reason: null, trackerIds: [standard.id],
+    }))
+    expect(mocks.setTrackerHolidaySelections).not.toHaveBeenCalled()
+    expect(mocks.removeAccountHoliday).not.toHaveBeenCalled()
   })
 
   it('shows a read-only active holiday card and exposes Edit and Remove in its menu', async () => {

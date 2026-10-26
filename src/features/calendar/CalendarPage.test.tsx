@@ -189,6 +189,25 @@ describe('Calendar page', () => {
     expect(screen.getByText(/Completed · Account-wide holiday · Done/)).toBeInTheDocument()
   })
 
+  it('labels a past global holiday using the tracker mode effective on that date', async () => {
+    const historicalStandard = {
+      ...tracker,
+      strictMode: true,
+      schemaVersion: 10,
+      ruleVersions: [{
+        id: 'standard-baseline', effectiveFrom: previousDate, revision: 1, application: 'baseline', recordedAt: `${previousDate}T00:00:00.000Z`,
+        evaluation: { schedule: tracker.schedule, startDate: previousDate, deadline: null, scheduling: null, metrics: tracker.metrics, qualificationRule: tracker.qualificationRule, streakRuleMode: null, streakRule: null, strictMode: false },
+      }],
+    } as unknown as StoredTrackerDefinition
+    mocks.listTrackers.mockResolvedValue([historicalStandard])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([{ id: 'holiday-past', date: previousDate, reason: 'personal', createdAt: '', updatedAt: '', deletedAt: null }])
+    render(<MemoryRouter initialEntries={[`/calendar?date=${previousDate}`]}><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Morning walk', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText(/Holiday · Account-wide holiday/)).toBeInTheDocument()
+  })
+
   it('aggregates a selected holiday with other trackers’ actual statuses and keeps its details visible', async () => {
     const secondTracker = { ...tracker, id: 'second-tracker', name: 'Stretching' }
     mocks.listTrackers.mockResolvedValue([tracker, secondTracker])

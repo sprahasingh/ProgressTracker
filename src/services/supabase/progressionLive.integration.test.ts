@@ -197,8 +197,10 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const rejectionOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals([userId, 'tracker_entry', rejectedEntry!.id]).first()
     await db.syncOperations.put({ ...rejectionOperation!, payload: { ...rejectedEntry!, trackerId: crypto.randomUUID() } })
     const rejection = await synchronizeWorkspace(userId, client)
-    expect(rejection).toMatchObject({ conflicts: 1, failed: 0 })
-    await expect(db.syncOperations.get(rejectionOperation!.id)).resolves.toMatchObject({ status: 'conflict' })
+    // A foreign-key violation is a permanent payload validation failure, not
+    // evidence that another device changed this row. Keep it blocked for review.
+    expect(rejection).toMatchObject({ conflicts: 0, failed: 1 })
+    await expect(db.syncOperations.get(rejectionOperation!.id)).resolves.toMatchObject({ status: 'blocked', failureCode: '23503' })
     expect((await getProvisionalXp(userId, today)).some((reward) => reward.id.includes(rejectedEntry!.id))).toBe(false)
     expect(await getConfirmedXp(userId)).toBe(30)
 
@@ -212,7 +214,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     expect(staleSync.conflicts).toBeGreaterThan(0)
     await expect(db.syncOperations.get(staleOperation!.id)).resolves.toMatchObject({ status: 'conflict' })
     const unresolvedFixtureConflicts = await db.syncConflicts.where('ownerUserId').equals(userId).count()
-    expect(unresolvedFixtureConflicts).toBe(2)
+    expect(unresolvedFixtureConflicts).toBe(1)
 
     // PostgreSQL session-level barrier: both independent psql transactions are
     // confirmed waiting before they are released together.
@@ -370,10 +372,35 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const milestoneAchievementBeforeEdit = await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)
     expect(milestoneAchievementBeforeEdit).toBe('1')
 
+    const integrationClient = client
+    const integrationUserId = userId
+    if (!integrationClient || !integrationUserId) throw new Error('Progression integration session was not initialized.')
+    const replaceGoalMilestonesAtServer = async (milestones: StoredTrackerDefinition['milestones']) => {
+      const current = await integrationClient.from('trackers').select('*').eq('user_id', integrationUserId).eq('id', goalTracker.id).single()
+      if (current.error || !current.data) throw new Error(`Could not read the goal milestone fixture: ${current.error?.message ?? 'missing tracker'}`)
+      const updatedAt = new Date().toISOString()
+      const definition = { ...current.data.definition, milestones, updatedAt }
+      const result = await integrationClient.rpc('apply_tracker_sync_operation', {
+        p_expected_user_id: integrationUserId,
+        p_operation_id: crypto.randomUUID(),
+        p_entity: 'tracker',
+        p_expected_revision: current.data.server_revision,
+        p_record: {
+          id: goalTracker.id, schema_version: current.data.schema_version, kind: current.data.kind,
+          status: current.data.status, name: current.data.name, created_at: current.data.created_at,
+          updated_at: updatedAt, deleted_at: current.data.deleted_at, definition,
+        },
+      })
+      expect(result.error).toBeNull()
+      expect(result.data).toMatchObject({ status: 'applied' })
+      // The server API supports correction-safe milestone reversal; the current
+      // editor deliberately blocks this unversioned historical definition edit.
+      await expect(synchronizeWorkspace(integrationUserId, integrationClient)).resolves.toMatchObject({ failed: 0 })
+    }
+
     // Removing the configured stable ID must reverse its award, revoke the
     // derived badge, and leave its historical event and reversal relationship.
-    await localRepository.saveTracker({ ...goalTracker, milestones: [] })
-    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    await replaceGoalMilestonesAtServer([])
     expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${firstMilestoneEvent}';`)).toBe('1')
     expect(await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)).toBe('0')
@@ -382,19 +409,16 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     // Clearing the target is explicit ineligibility too. Restoring the same ID
     // creates a new generation rather than duplicating or reviving old credit.
     const milestone = goalTracker.milestones[0]!
-    await localRepository.saveTracker({ ...goalTracker, milestones: [milestone] })
-    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    await replaceGoalMilestonesAtServer([milestone])
     const secondMilestoneEvent = await queryLocalDatabase(`SELECT current_event_id FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND current_xp>0;`)
     expect(await queryLocalDatabase(`SELECT generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('3')
     const targetless = { ...milestone }
     delete targetless.targetValue
-    await localRepository.saveTracker({ ...goalTracker, milestones: [targetless] })
-    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    await replaceGoalMilestonesAtServer([targetless])
     expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${secondMilestoneEvent}';`)).toBe('1')
 
-    await localRepository.saveTracker({ ...goalTracker, milestones: [milestone] })
-    await expect(synchronizeWorkspace(userId, client)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: unresolvedFixtureConflicts })
+    await replaceGoalMilestonesAtServer([milestone])
     expect(await queryLocalDatabase(`SELECT current_xp || ':' || generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('25:5')
     const milestoneEventCount = await queryLocalDatabase(`SELECT count(*) FROM public.progression_events e JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' AND s.tracker_id='${goalTracker.id}' AND e.reason_code='GOAL_MILESTONE';`)
     await queryLocalDatabase(`SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid); SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid);`)
@@ -417,7 +441,8 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
       p_expected_revision: Number(fieldRevision),
       p_record: { id: fieldTracker.id, schema_version: 1, kind: 'habit', status: 'active', name: invalidFieldEdit.name, definition: invalidFieldEdit, created_at: now, updated_at: now, deleted_at: null },
     })
-    expect(serverGuard.error?.code).toBe('23514')
+    expect(serverGuard.error).toBeNull()
+    expect(serverGuard.data).toMatchObject({ status: 'conflict' })
     expect(await queryLocalDatabase(`SELECT definition->'customFields'->0->>'name' FROM public.trackers WHERE user_id='${userId}' AND id='${fieldTracker.id}';`)).toBe('Mood')
 
     // A concurrent rule edit and entry correction must converge against the
@@ -682,6 +707,35 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     expect(retry.error).toBeNull()
     expect(retry.data?.status).toBe('already_deleted')
     expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_retained_reward_context WHERE user_id='${owner}' AND tracker_display_name='Original private tracker name';`)).toBe('2')
+  }, 30_000)
+
+  it('serializes concurrent archive reconciliation workers and drains each queued item once', async () => {
+    const localAdmin = createClient(url!, serviceRoleKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'archive-worker-concurrency-admin' } })
+    const { data, error } = await localAdmin.auth.admin.createUser({ email: `archive-worker-${crypto.randomUUID()}@example.test`, email_confirm: true })
+    if (error || !data.user) throw new Error(`Could not create disposable archive worker user: ${error?.message ?? 'missing user'}`)
+    const owner = data.user.id
+    deletionUserIds.push(owner)
+    const trackerId = crypto.randomUUID()
+    const date = shiftCalendarDate(localCalendarDate(new Date(), 'UTC'), -1)
+    await queryLocalDatabase(`
+      INSERT INTO public.app_settings(id,user_id,timezone,timezone_configured) VALUES ('general','${owner}','UTC',true);
+      SELECT public.initialize_progression_account('${owner}'::uuid);
+      INSERT INTO public.trackers(id,user_id,schema_version,kind,status,name,created_at,definition)
+      VALUES ('${trackerId}','${owner}',1,'habit','active','Concurrent archive worker',now(),
+        jsonb_build_object('schemaVersion',1,'id','${trackerId}','kind','habit','status','active','name','Concurrent archive worker',
+          'createdAt',now()::text,'startDate','${shiftCalendarDate(date, -1)}','schedule',jsonb_build_object('kind','every-day'),
+          'metrics',jsonb_build_array(jsonb_build_object('id','done','name','Done','valueType','boolean')),
+          'qualificationRule',jsonb_build_object('kind','comparison','metricId','done','operator','equals','value',true)));
+      INSERT INTO public.private_progression_archive_reconciliation_jobs(user_id,tracker_id,from_date,through_date,phase,date_cursor)
+      VALUES ('${owner}','${trackerId}','${date}','${date}','dates','${shiftCalendarDate(date, -1)}');
+    `)
+    const concurrent = await overlapPostgresTransactions(owner, [
+      'SELECT public.process_progression_archive_reconciliation_batch(1);',
+      'SELECT public.process_progression_archive_reconciliation_batch(1);',
+    ], 'postgres')
+    expect(concurrent).toHaveLength(2)
+    expect(JSON.parse(await queryLocalDatabase(`SELECT public.process_progression_archive_reconciliation_batch(1);`))).toMatchObject({ processed: 0, remaining: 0 })
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.private_progression_archive_reconciliation_jobs WHERE user_id='${owner}' AND tracker_id='${trackerId}';`)).toBe('0')
   }, 30_000)
 })
 

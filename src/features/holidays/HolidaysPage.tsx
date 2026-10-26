@@ -149,16 +149,18 @@ export function HolidaysPage() {
       if (duplicate) throw new Error(editingHoliday.scope === 'global' ? 'A holiday record already exists on that date.' : 'A global holiday already exists on that date. Remove it before changing this holiday to Global.')
       if (sourceScope === 'global') await localRepository.updateAccountHoliday(editingHoliday.holiday.id, value.date, value.reason)
       else {
-        await localRepository.saveAccountHolidays([value.date], value.reason)
-        await localRepository.setTrackerHolidaySelections([{ date: sourceDate, trackerIds: [] }])
+        await localRepository.convertHolidayScope({ source: { scope: 'selected', date: sourceDate }, date: value.date, scope: 'global', reason: value.reason, trackerIds: [] })
       }
     } else {
       if ((value.date !== sourceDate || sourceScope === 'global') && trackerHolidayGroups.some((group) => group.date === value.date)) throw new Error('Selected holidays already exist on that date. Edit that selection first to avoid merging scopes.')
       const updates: Array<{ date: CalendarDate; trackerIds: string[] }> = []
       if (sourceScope === 'selected' && sourceDate !== value.date) updates.push({ date: sourceDate, trackerIds: [] })
-      updates.push({ date: value.date, trackerIds: value.trackerIds })
-      await localRepository.setTrackerHolidaySelections(updates)
-      if (sourceScope === 'global') await localRepository.removeAccountHoliday(sourceDate)
+      if (sourceScope === 'global') {
+        await localRepository.convertHolidayScope({ source: { scope: 'global', id: editingHoliday.holiday.id }, date: value.date, scope: 'selected', reason: value.reason, trackerIds: value.trackerIds })
+      } else {
+        updates.push({ date: value.date, trackerIds: value.trackerIds })
+        await localRepository.setTrackerHolidaySelections(updates)
+      }
     }
     await refresh()
     setEditingHoliday(null)

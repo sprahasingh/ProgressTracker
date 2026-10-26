@@ -84,7 +84,7 @@ For supported evaluation or measure edits on an existing tracker, choose **Apply
 - src/features/trackers/TrackerLibraryPage.tsx
 - src/features/trackers/TrackerBinPage.tsx
 **Answer:**
-Archiving a tracker removes it from Today and current activity while keeping its recorded history and rewards. The tracker list can show active, archived, or all trackers. When editing an archived tracker, choose whether to keep it archived or move it to active after saving. Deleting a tracker is a separate action that moves it through the app’s Bin and restore flow.
+Archiving a tracker removes it from Today while keeping its recorded history and rewards. The archive date itself remains eligible; later dates are inactive for progression. Existing awards after that date are reconciled through a bounded background queue, and unarchiving can restore eligible awards using the existing append-only reversal and restoration history. The current data model stores one archive date, so it cannot reconstruct earlier archive/unarchive intervals. The tracker list can show active, archived, or all trackers. Deleting a tracker is a separate action that uses the Bin and restore flow.
 
 ### ID: tracker-schedules
 **Category:** trackers
@@ -189,4 +189,4 @@ Yes, when you set a start date before creating the tracker. Eligible dates from 
 - src/features/history/HistoryPage.tsx
 - src/features/trackers/TrackerLibraryPage.tsx
 **Answer:**
-Archiving keeps the tracker’s saved history, but its check-ins are read-only while the tracker is archived. Restore it to active status if you need to edit its check-ins again.
+Archiving keeps the tracker’s saved history, but its check-ins are read-only while it is archived. Restore it to active status if you need to edit them. Its archive date remains within its active progression period; dates after that boundary are inactive, while the original saved entries remain visible in History.
