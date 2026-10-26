@@ -76,7 +76,7 @@
     "src/domain/trackers/activityStatus.ts": "038df4934b8347c8dcdf13b3b044b5471f8916d565d27b9fe655741b86fbddae",
     "src/features/calendar/CalendarPage.tsx": "a754758159531693522def8bc89dcbc5fa70223e628b3b63ddc73506914be621",
     "src/domain/trackers/entryPresentation.ts": "1ddc8aa97bc430c4fae3f5ad498a5ead486750848fa75e83202e5e2635e8217f",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584"
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558"
   },
   "calendar-inspect-past-date": {
     "src/features/calendar/CalendarPage.tsx": "a754758159531693522def8bc89dcbc5fa70223e628b3b63ddc73506914be621",
@@ -191,7 +191,7 @@
     "src/features/goals/GoalsPage.tsx": "a7d5ed62400d47eba0171868b048d82de253d72013ebddae92fe6ffe29aca319",
     "src/features/history/HistoryPage.tsx": "d2e7d555dee00d8371f4db9fba1e8d6f6d12736fe814a5b1df037764c355f867",
     "src/features/calendar/CalendarPage.tsx": "a754758159531693522def8bc89dcbc5fa70223e628b3b63ddc73506914be621",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584",
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558",
     "src/services/supabase/syncEngine.ts": "62552b14f3eac1ec81a1755c9168b54b6d3a115165cd0cf82aa004f1040ac4be",
     "supabase/migrations/20261113000100_tracker_typed_milestones_v9.sql": "d242e25bd8461cbe65757a1c60192be8c6994bc7ca5a23dae243e4b393ac2ff3"
   },
@@ -286,7 +286,7 @@
     "src/domain/trackers/progression.ts": "82cf67f550d2fe7046f3807749e0909300c237b47ebbcb462be50dc2707dd158",
     "src/domain/trackers/planning.ts": "146f1eb7d16c0e590f55229ba4e6ad2fdaf6850852265b6b3c18d67cd6922aaa",
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584"
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558"
   },
   "holiday-all-trackers": {
     "src/domain/holidays.ts": "76e80c7bef6bdea0ddc8e814ade4fbd2128c5c51377c8f76d59f299dd2761e88",
@@ -301,7 +301,7 @@
     "src/features/calendar/CalendarPage.tsx": "a754758159531693522def8bc89dcbc5fa70223e628b3b63ddc73506914be621",
     "src/features/today/TodayPage.tsx": "106baca84b793744bd730871c02aa5fa2c3d28e24ad509c5f8a2878c7d85f439",
     "src/domain/trackers/progression.ts": "82cf67f550d2fe7046f3807749e0909300c237b47ebbcb462be50dc2707dd158",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584"
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558"
   },
   "holiday-standard-v-strict": {
     "src/domain/trackers/progression.ts": "82cf67f550d2fe7046f3807749e0909300c237b47ebbcb462be50dc2707dd158",
@@ -312,13 +312,13 @@
     "src/features/holidays/HolidaysPage.tsx": "8d53937f2fa8c6a183f151d4497922e68ca7d4f84f4c19f0fc1c13f1c024e7a2",
     "src/db/localRepository.ts": "3c88b4d6f930b845f52ecbfabf6c9c08f9ce95c419919eca02b05ce322f9feb2",
     "src/domain/trackers/activityStatus.ts": "038df4934b8347c8dcdf13b3b044b5471f8916d565d27b9fe655741b86fbddae",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584"
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558"
   },
   "holiday-clear-restores": {
     "src/domain/trackers/activityStatus.ts": "038df4934b8347c8dcdf13b3b044b5471f8916d565d27b9fe655741b86fbddae",
     "src/features/history/HistoryPage.tsx": "d2e7d555dee00d8371f4db9fba1e8d6f6d12736fe814a5b1df037764c355f867",
     "src/features/today/TodayPage.tsx": "106baca84b793744bd730871c02aa5fa2c3d28e24ad509c5f8a2878c7d85f439",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584"
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558"
   },
   "holiday-calendar-aggregate": {
     "src/domain/trackers/dailyActivityStatus.ts": "b2a6ccaced29d16f985b45e825700827ce3b216181549c3f16956b2e14d72284",
@@ -441,7 +441,7 @@
     "src/domain/trackers/progressionModel.ts": "9225f8d8799138838a4a2c9f4d835f17ac413d8ec250279b0591cf636b807f87",
     "src/domain/trackers/progression.ts": "82cf67f550d2fe7046f3807749e0909300c237b47ebbcb462be50dc2707dd158",
     "src/services/supabase/progressionRepository.ts": "e88afc3b7ea215a600795ac1374f6a9920655e11d94b9b8026fb1d25c7c03a05",
-    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "ef9ddc243a8fa5e2d4fda9aaafbd787188e3c5f9cf201a5325be7cbb7ee65584",
+    "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558",
     "supabase/migrations/20261111000100_tracker_streak_rules_v8.sql": "66f55b5687d36fa63c4d9dfb8ffc3dd089d4304477cf61a40dd76189cce6e730",
     "src/features/dashboard/AchievementsPage.tsx": "6343ca045af13f7971fb46649181064b3255a211392308fb7504fbe35b6eb268",
     "src/features/dashboard/ProgressionAchievementsPage.tsx": "cc17707ad5b9d0a63d84b81c242cc20ea5608dd61b8e1b01ee55d09872807ffb",
