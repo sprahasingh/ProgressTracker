@@ -16,7 +16,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
-import { getTrackerActivityStatus, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
+import { getTrackerActivityStatus, hasPositiveProgress, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker } from '../../domain/trackers/lifecycle'
@@ -39,6 +39,7 @@ import { getWeekRhythmState } from './weekRhythm'
 import { scheduleCheckinFeedbackExpiry } from './checkinFeedbackTimer'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 
 function emptyStateStorageMessage(authStatus: string, isOnline: boolean, syncStatus: string): string {
   if (authStatus !== 'signed-in') return authStatus === 'signed-out'
@@ -157,17 +158,32 @@ export function TodayPage() {
   }, [location, navigate, loading, allTrackers, today])
   useWorkspaceDataChanges(expectedOwner, authStatus !== 'loading', refresh)
   const activeTrackers = useMemo(() => allTrackers.filter(isActiveTracker), [allTrackers])
+  const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
+  const trackerHolidayDatesByTracker = useMemo(() => {
+    const dates = new Map<string, Set<string>>()
+    for (const holiday of trackerHolidayRows) {
+      if (holiday.deletedAt !== null) continue
+      const trackerDates = dates.get(holiday.trackerId) ?? new Set<string>()
+      trackerDates.add(holiday.date)
+      dates.set(holiday.trackerId, trackerDates)
+    }
+    return dates
+  }, [trackerHolidayRows])
+  const trackerHolidayDates = (trackerId: string) => trackerHolidayDatesByTracker.get(trackerId) ?? new Set<string>()
   const trackers = useMemo(() => activeTrackers.filter((tracker) => {
     const inActivePeriod = isTrackerInActivePeriod(tracker, today, timeZone)
-    return tracker.strictMode === true && inActivePeriod || !todayHoliday && isScheduledDate(tracker, today, timeZone)
-  }), [activeTrackers, timeZone, today, todayHoliday])
+    if (trackerStrictModeForDate(tracker, today)) return inActivePeriod
+    if (!isScheduledDate(tracker, today, timeZone)) return false
+    const hasHoliday = holidaySet.has(today) || trackerHolidayDatesByTracker.get(tracker.id)?.has(today)
+    const entry = entries.find((item) => item.trackerId === tracker.id && item.date === today && item.deletedAt === null)
+    const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
+    return !hasHoliday || positiveWork
+  }), [activeTrackers, timeZone, today, holidaySet, trackerHolidayDatesByTracker, entries])
   const activityTrackers = activeTrackers
   const accountCheckPending = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
     && isOnline !== false && ['idle', 'waiting', 'syncing'].includes(syncStatus)
   const accountCheckUnavailable = authStatus === 'signed-in' && allTrackers.length === 0 && !hasDeletedTrackerRecords
     && (isOnline === false || syncStatus === 'offline' || syncStatus === 'error')
-  const holidaySet = useMemo(() => new Set(holidayDates), [holidayDates])
-  const trackerHolidayDates = (trackerId: string) => new Set(trackerHolidayRows.filter((holiday) => holiday.trackerId === trackerId && holiday.deletedAt === null).map((holiday) => holiday.date))
   const entryByTracker = useMemo(() => new Map(entries.map((entry) => [entry.trackerId, entry])), [entries])
   const loggedCount = trackers.reduce((count, tracker) => count + (entryByTracker.has(tracker.id) ? 1 : 0), 0)
   const completedCount = trackers.filter((tracker) => {
@@ -185,6 +201,7 @@ export function TodayPage() {
     trackers: activeTrackers,
     entries: weekEntries,
     holidays: holidaySet,
+    trackerHolidays: trackerHolidayRows,
     dates: Array.from({ length: 7 }, (_, index) => shiftCalendarDate(today, index - 7)),
     today,
     timeZone,
@@ -314,7 +331,7 @@ export function TodayPage() {
             const entry = entryByTracker.get(tracker.id)
             const status = getTrackerActivityStatus({ tracker, entry, date: today, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(tracker.id), timeZone })
             const focusKey = `${tracker.id}:${today}`
-            return <CheckinCard key={tracker.id} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={goalEntries} holidays={holidaySet} status={status}
+            return <CheckinCard key={tracker.id} tracker={tracker} entry={entry} today={today} timeZone={timeZone} entries={goalEntries} holidays={new Set([...holidaySet, ...trackerHolidayDates(tracker.id)])} status={status}
               historical={false} onOpen={() => setSelectedActivity({ trackerId: tracker.id, date: today })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
           })}
           </div>
@@ -323,10 +340,10 @@ export function TodayPage() {
       {recentMisses.length > 0 && <details className="today-missed-disclosure" onToggle={(event) => setShowMissed(event.currentTarget.open)}><summary>Missed opportunities in the last week <span>{recentMisses.length}</span></summary>{showMissed && <div className="today-checkin-list">{recentMisses.map(({ tracker, date }) => {
         const entry = weekEntries.find((item) => item.trackerId === tracker.id && item.date === date)
         const focusKey = `${tracker.id}:${date}`
-        return <CheckinCard key={focusKey} tracker={tracker} entry={entry} today={date} timeZone={timeZone} entries={goalEntries} holidays={holidaySet} status="missed" historical
+        return <CheckinCard key={focusKey} tracker={tracker} entry={entry} today={date} timeZone={timeZone} entries={goalEntries} holidays={new Set([...holidaySet, ...trackerHolidayDates(tracker.id)])} status="missed" historical
           onOpen={() => setSelectedActivity({ trackerId: tracker.id, date })} onTrigger={(element) => { if (element) cardTriggers.current.set(focusKey, element); else cardTriggers.current.delete(focusKey) }} />
       })}</div>}</details>}
-      {selectedTracker && selectedActivity && <CheckinSheet key={`${selectedTracker.id}:${selectedActivity.date}`} tracker={selectedTracker} entry={selectedEntry} today={selectedActivity.date} currentDate={today} timeZone={timeZone} entries={goalEntries} holidays={holidaySet}
+      {selectedTracker && selectedActivity && <CheckinSheet key={`${selectedTracker.id}:${selectedActivity.date}`} tracker={selectedTracker} entry={selectedEntry} today={selectedActivity.date} currentDate={today} timeZone={timeZone} entries={goalEntries} holidays={new Set([...holidaySet, ...trackerHolidayDates(selectedTracker.id)])}
         authStatus={authStatus} isOnline={isOnline} syncStatus={syncStatus}
         status={getTrackerActivityStatus({ tracker: selectedTracker, entry: selectedEntry, date: selectedActivity.date, today, holidays: holidaySet, trackerHolidays: trackerHolidayDates(selectedTracker.id), timeZone })}
         canEdit={Boolean(selectedEntry) || selectedTracker.status === 'active' && selectedTracker.deletedAt === null && isTrackerInActivePeriod(selectedTracker, selectedActivity.date, timeZone)}

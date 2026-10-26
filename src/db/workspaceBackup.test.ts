@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateWorkspace, db, ProgressTrackerDatabase } from './database'
+import type { SyncOperation } from './models'
 import { localRepository } from './localRepository'
 import { backupRecordCount, createWorkspaceBackup, downloadWorkspaceBackup, previewWorkspaceRestore, restoreWorkspaceBackup, WORKSPACE_BACKUP_FORMAT, WORKSPACE_BACKUP_VERSION, type WorkspaceBackup } from './workspaceBackup'
 
@@ -59,6 +60,27 @@ describe('workspace backups', () => {
     await restoreWorkspaceBackup(backup, accountId)
     await expect(db.accountHolidays.get(holiday.id)).resolves.toMatchObject({ date: '2026-12-24', reason: 'travel', deletedAt: null })
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([accountId, 'account_holiday', holiday.id]).first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1, lastError: 'The response was interrupted.', payload: { date: '2026-12-24', reason: 'travel' } })
+  })
+
+  it('preserves holiday scope conversion dependencies in offline workspace backups', async () => {
+    const accountId = `holiday-conversion-backup-${crypto.randomUUID()}`
+    accountIds.push(accountId)
+    const definition = { ...restoreTracker, id: `conversion-tracker-${crypto.randomUUID()}` }
+    await activateWorkspace(accountId)
+    await localRepository.saveTracker(definition as never)
+    const [global] = await localRepository.saveAccountHolidays(['2026-12-24'], 'travel')
+    if (!global) throw new Error('Holiday was not saved.')
+    await localRepository.convertHolidayScope({ source: { scope: 'global', id: global.id }, date: global.date, scope: 'selected', reason: global.reason, trackerIds: [definition.id] })
+
+    const backup = await createWorkspaceBackup(accountId)
+    const conversionOperations = (backup.stores.syncOperations as SyncOperation[]).filter((operation) => operation.holidayScopeConversion)
+    expect(conversionOperations.map((operation) => operation.holidayScopeConversion?.role).sort()).toEqual(['source', 'target'])
+    await emptyActiveAccountExceptMetadata()
+    await expect(previewWorkspaceRestore(backup, accountId)).resolves.toMatchObject({ conflicts: [] })
+    await restoreWorkspaceBackup(backup, accountId)
+    const restoredOperations = (await db.syncOperations.where('ownerUserId').equals(accountId).toArray()).filter((operation) => operation.holidayScopeConversion)
+    expect(restoredOperations.map((operation) => operation.holidayScopeConversion?.role).sort()).toEqual(['source', 'target'])
+    expect(new Set(restoredOperations.map((operation) => operation.holidayScopeConversion?.id)).size).toBe(1)
   })
 
   it('exports and restores blocked, superseded, and discarded sync diagnostics without making them retryable', async () => {

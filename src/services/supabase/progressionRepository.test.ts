@@ -187,6 +187,24 @@ describe('progression data contract calculations', () => {
     expect(result.eligibleDays).toBe(0)
   })
 
+  it('uses historical Strict Mode when calculating provisional consistency on a holiday', () => {
+    const datedStrict = {
+      ...tracker,
+      schemaVersion: 10 as const,
+      strictMode: false,
+      startDate: '2026-10-12',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      updatedAt: '2026-10-12T00:00:00.000Z',
+      ruleVersions: [{
+        id: 'strict-history', effectiveFrom: '2026-10-12', revision: 1, application: 'baseline' as const,
+        recordedAt: '2026-10-12T00:00:00.000Z',
+        evaluation: { schedule: { kind: 'every-day' as const }, startDate: '2026-10-12', deadline: null, scheduling: null, metrics: tracker.metrics, qualificationRule: tracker.qualificationRule, streakRuleMode: null, streakRule: null, strictMode: true },
+      }],
+    }
+    const result = calculateConsistencySummary({ trackers: [datedStrict], entries: [], holidays: new Set(['2026-10-12']), today: '2026-10-13', timeZone: 'UTC' })
+    expect(result).toMatchObject({ score: 0, eligibleDays: 1, dailyAdherence: [{ date: '2026-10-12', completed: 0, eligible: 1 }] })
+  })
+
   it('does not count a recorded entry that fails the tracker qualification rule', () => {
     const oneDayTracker = { ...tracker, startDate: '2026-10-12', createdAt: '2026-10-12T00:00:00.000Z', updatedAt: '2026-10-12T00:00:00.000Z' }
     const result = calculateConsistencySummary({ trackers: [oneDayTracker], entries: [entry('failed-rule', '2026-10-12', 'recorded', false)], today: '2026-10-13', timeZone: 'UTC' })

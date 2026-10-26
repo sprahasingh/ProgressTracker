@@ -4,6 +4,7 @@ import { getSupabaseClient } from './client'
 import { localCalendarDate } from '../../features/shared/localDates'
 import { evaluateTrackerEntry, isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate } from '../../domain/trackers/planning'
 import { hasPositiveProgress } from '../../domain/trackers/activityStatus'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 import { calculateProgressionLevel, selectProvisionalRewards, summarizeProgression, type ProvisionalReward } from '../../domain/trackers/progressionModel'
 import { subscribeToWorkspaceDataChanges, subscribeToWorkspaceSyncPreparation } from '../../db/workspaceMutationEvents'
 import { countDevPerformance, measureDevPerformance } from '../../utils/devPerformance'
@@ -275,7 +276,7 @@ function eligibleAndSuccessful(trackers: readonly StoredTrackerDefinition[], ent
     const entry = byTracker.get(tracker.id)
     const holiday = holidays.has(date) || trackerHolidays.some((item) => item.trackerId === tracker.id && item.date === date)
     const positiveWork = entry?.outcome === 'recorded' && hasPositiveProgress(tracker, entry)
-    if (tracker.strictMode !== true && ((holiday && !positiveWork) || !isTrackerScheduledOccurrence(tracker, date, timeZone))) continue
+    if (!trackerStrictModeForDate(tracker, date) && ((holiday && !positiveWork) || !isTrackerScheduledOccurrence(tracker, date, timeZone))) continue
     eligible += 1
     if (entry?.outcome === 'recorded' && evaluateTrackerEntry(tracker, entry).qualified) completed += 1
   }

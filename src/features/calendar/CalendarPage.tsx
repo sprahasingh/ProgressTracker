@@ -21,6 +21,7 @@ import { getChallengeDayDisplay } from '../../domain/trackers/challengeDay'
 import { getDailyActivityStatus } from '../../domain/trackers/dailyActivityStatus'
 import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { InfoButton } from '../../components/ui/InfoButton'
+import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[]; trackerHolidays: TrackerHoliday[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; noProgress: number; historical: number; outsidePeriod: number; missed: number; skipped: number; pending: number; upcoming: number; restDay: number; inactive: number; entries: number; holiday: boolean; mixed: boolean; visualStatus: ActivityStatus }
@@ -154,7 +155,7 @@ export function CalendarPage() {
     return {
       tracker, entry,
       status: getTrackerActivityStatus({ tracker, entry, date: selectedDate, today, holidays: selectedHolidays, trackerHolidays: new Set((visibleData?.trackerHolidays ?? []).filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)), timeZone }),
-      holidayKind: (visibleData?.trackerHolidays ?? []).some((holiday) => holiday.trackerId === tracker.id && holiday.date === selectedDate) ? 'Tracker-specific holiday' : selectedHoliday && !tracker.strictMode ? 'Account-wide holiday' : null,
+      holidayKind: (visibleData?.trackerHolidays ?? []).some((holiday) => holiday.trackerId === tracker.id && holiday.date === selectedDate) ? 'Tracker-specific holiday' : selectedHoliday && !trackerStrictModeForDate(tracker, selectedDate) ? 'Account-wide holiday' : null,
       challengeDay: getChallengeDayDisplay(tracker, selectedDate, timeZone, new Set([...selectedHolidays, ...(visibleData?.trackerHolidays ?? []).filter((holiday) => holiday.trackerId === tracker.id).map((holiday) => holiday.date)])),
       milestonesReached: milestoneResults.map((item) => item.title),
     }

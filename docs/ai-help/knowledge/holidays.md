@@ -13,7 +13,7 @@
 - src/domain/holidays.ts
 - src/domain/holidays.test.ts
 **Answer:**
-Open Holidays & breaks to add an account-wide date, or use Tracker-specific holidays to exempt one Standard Mode tracker on a date. Tracker-specific holidays can also be added or removed from the selected date details in Calendar. You can choose past dates; entries remain separate from holiday records and sync across devices when signed in.
+Open Holidays & breaks and choose **All trackers** for a global holiday or **Selected trackers** to choose one or more eligible Standard Mode trackers. The same form edits either scope; tracker-specific selections are not managed on a separate tracker page. You can choose past dates. Holidays remain separate from check-ins and synchronize across devices when signed in.
 
 ### ID: delete-holiday
 **Category:** holidays
@@ -27,7 +27,7 @@ Open Holidays & breaks to add an account-wide date, or use Tracker-specific holi
 - src/features/holidays/HolidaysPage.tsx
 - src/domain/holidays.ts
 **Answer:**
-Deleting a holiday removes that date’s break from future calculations and moves it to Recently deleted holidays, where it can be restored for 30 days. When permanent deletion is enabled for the deployment, you can also confirm that action from the holiday’s three-dot menu. Any check-ins already saved for the date remain saved; deleting the holiday does not erase them.
+Removing a global holiday moves it to Recently deleted holidays, where it can be restored for 30 days; selected holidays can be edited or removed from their selected tracker set. These changes recalculate affected progression while preserving saved check-ins and append-only award history. When permanent deletion is enabled, a global holiday can also be permanently deleted through its menu.
 
 ### ID: holidays-streaks
 **Category:** holidays
@@ -57,7 +57,7 @@ In Standard Mode, an account-wide or tracker-specific holiday excuses the schedu
 - src/domain/holidays.ts
 - src/features/holidays/HolidaysPage.tsx
 **Answer:**
-Account-wide holidays apply across the workspace and continue to affect goal plans. You can also add a tracker-specific holiday for one Standard Mode tracker; it does not affect other trackers or goal plans. Strict Mode trackers cannot receive tracker-specific holidays and remain required on account-wide holidays.
+In Holidays & breaks, **All trackers** creates a global holiday and **Selected trackers** applies it only to the chosen Standard Mode trackers. Global holidays are stored independently and new trackers receive them automatically, though only Standard Mode requirements are excused; Strict Mode keeps its normal requirements. Selected holidays do not affect other trackers. Positive work overrides the holiday for that tracker and date; clearing the work restores the exemption.
 
 ### ID: holiday-remove-recalculates
 **Category:** holidays
@@ -72,7 +72,7 @@ Account-wide holidays apply across the workspace and continue to affect goal pla
 - src/domain/trackers/progression.ts
 - src/domain/trackers/analytics.ts
 **Answer:**
-Removing the holiday makes the date subject to the tracker’s usual mode and schedule rules again. Calculated streaks and statistics can therefore change, but saved check-ins are not removed.
+Removing or changing a holiday makes affected dates and tracker scopes subject to the updated holiday and schedule rules. Daily XP, milestones, Perfect Days, and dependent achievements are reconciled for affected history when the server receives the change; reversals remain in award history. Saved check-ins are preserved, and positive work remains eligible under the rules for its date.
 
 ### ID: holiday-log-progress
 **Category:** holidays
@@ -87,7 +87,7 @@ Removing the holiday makes the date subject to the tracker’s usual mode and sc
 - src/features/today/TodayPage.tsx
 - src/domain/trackers/progression.ts
 **Answer:**
-Yes. A holiday is an expectation exemption, not a restriction on work. Positive progress on a Standard Mode holiday makes the actual Completed or Partial result visible and applies the normal streak, XP, and achievement rules. A zero entry or Skip leaves the holiday effective. Strict Mode continues its normal rules through account-wide holidays.
+Yes. A holiday is an expectation exemption, not a restriction on work. Positive progress overrides it for that tracker and date and is evaluated under that date’s applicable rules; eligible rewards are reconciled when the signed-in change synchronizes. Zero and Skip leave the holiday effective. Strict Mode continues its normal requirements through global holidays.
 
 ### ID: holiday-standard-v-strict
 **Category:** holidays
@@ -117,7 +117,7 @@ Strict Mode treats every date in the tracker’s active period as an opportunity
 - src/db/localRepository.ts
 - src/domain/trackers/activityStatus.ts
 **Answer:**
-Open Holidays & breaks, choose a date and a Standard Mode tracker in Tracker-specific holidays, then save. The holiday affects only that tracker and does not change other trackers or goal plans. Strict Mode trackers are excluded.
+Open Holidays & breaks, choose **Selected trackers**, then select one or more eligible Standard Mode trackers. Strict Mode trackers are omitted and cannot receive exemptions. Positive progress overrides the selected holiday for that tracker/date; clearing it restores the holiday. Changes sync with the account when online.
 
 ### ID: holiday-clear-restores
 **Category:** holidays
@@ -146,4 +146,4 @@ Holiday records are stored separately from check-ins. Positive progress temporar
 - src/domain/trackers/dailyActivityStatus.ts
 - src/features/calendar/CalendarPage.tsx
 **Answer:**
-Calendar aggregates each tracker’s effective status. It shows Holiday only when every applicable tracker is effectively on holiday. Completed, Partial, No progress, Skipped, or Missed activity appears when a tracker contributes that outcome; Strict Mode misses therefore remain visible on account-wide holidays. The selected date details still identify the account-wide holiday and each tracker’s status.
+Calendar aggregates each tracker’s effective status. It shows Holiday only when all applicable trackers are effectively on holiday. Otherwise it reflects the actual tracker outcomes, including recorded work and Strict Mode requirements. Selected-day details retain holiday information alongside saved work and each tracker’s status.

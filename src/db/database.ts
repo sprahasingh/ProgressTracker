@@ -481,6 +481,7 @@ export async function queueSyncMutation(
   ownerUserId: string | null,
   entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday',
   payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday,
+  holidayScopeConversion?: { id: string; role: 'source' | 'target' },
 ): Promise<void> {
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
     throw new Error('Versioned tracker rule writes are disabled until the schema v10 migration is applied and verified.')
@@ -514,7 +515,7 @@ export async function queueSyncMutation(
   const state = await database.syncRecords.get(`${entity}:${entityId}`)
   const latest = existing[existing.length - 1]
   if (latest?.status === 'pending' && latest.attempts === 0) {
-    await database.syncOperations.put({ ...latest, expectedRevision: state?.serverRevision ?? latest.expectedRevision, payload, lastError: null })
+    await database.syncOperations.put({ ...latest, expectedRevision: state?.serverRevision ?? latest.expectedRevision, payload, lastError: null, ...(holidayScopeConversion ? { holidayScopeConversion } : {}) })
     return
   }
   const now = Date.now()
@@ -523,7 +524,7 @@ export async function queueSyncMutation(
   await database.syncOperations.add({
     id: crypto.randomUUID(), ownerUserId, entity, entityId, operation: 'upsert',
     expectedRevision: state?.serverRevision ?? null, payload, createdAt,
-    attempts: 0, status: 'pending', lastError: null,
+    attempts: 0, status: 'pending', lastError: null, ...(holidayScopeConversion ? { holidayScopeConversion } : {}),
   })
 }
 

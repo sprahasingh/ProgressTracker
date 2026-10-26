@@ -287,6 +287,67 @@ export const localRepository = {
     return saved
   },
 
+  async convertHolidayScope(input: {
+    source: { scope: 'global'; id: string } | { scope: 'selected'; date: CalendarDate }
+    date: CalendarDate
+    scope: 'global' | 'selected'
+    reason: HolidayReason | null
+    trackerIds: readonly string[]
+  }): Promise<void> {
+    assertHolidayDate(input.date)
+    if (input.source.scope === input.scope) throw new Error('Holiday scope conversion requires a different target scope.')
+    if (input.reason !== null && !isHolidayReason(input.reason)) throw new Error('Choose a supported holiday reason.')
+    const trackerIds = [...new Set(input.trackerIds)]
+    if (input.scope === 'selected' && trackerIds.length === 0) throw new Error('Select at least one Standard Mode tracker.')
+    const database = await openDatabase()
+    let ownerUserId: string | null = null
+    await database.transaction('rw', [database.trackers, database.accountHolidays, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata], async () => {
+      ownerUserId = (await database.workspaceMetadata.get('workspace'))?.userId ?? null
+      const now = new Date().toISOString()
+      const conversionId = newId()
+      if (input.scope === 'global') {
+        if (input.source.scope !== 'selected') throw new Error('The source holiday scope changed before saving.')
+        const duplicate = await database.accountHolidays.where('date').equals(input.date).first()
+        if (duplicate?.deletedAt === null) throw new Error('A global holiday already exists on that date.')
+        const sourceRows = await database.trackerHolidays.where('date').equals(input.source.date).toArray()
+        const liveSourceRows = sourceRows.filter((row) => row.deletedAt === null)
+        if (!liveSourceRows.length) throw new Error('This selected holiday is no longer available to edit.')
+        for (const row of liveSourceRows) {
+          if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker_holiday', row.id]).first()) throw new Error('Resolve this selected holiday’s cloud conflict before editing it.')
+          const removed = { ...row, updatedAt: now, deletedAt: now }
+          await database.trackerHolidays.put(removed)
+          await queueSyncMutation(database, ownerUserId, 'tracker_holiday', removed, { id: conversionId, role: 'source' })
+        }
+        const existing = duplicate
+        if (existing && ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', existing.id]).first()) throw new Error('Resolve this holiday’s cloud conflict before editing it.')
+        const holiday: AccountHoliday = { id: existing?.id ?? newId(), date: input.date, reason: input.reason, createdAt: existing?.createdAt ?? now, updatedAt: now, deletedAt: null }
+        await database.accountHolidays.put(holiday)
+        await queueSyncMutation(database, ownerUserId, 'account_holiday', holiday, { id: conversionId, role: 'target' })
+      } else {
+        if (input.source.scope !== 'global') throw new Error('The source holiday scope changed before saving.')
+        const source = await database.accountHolidays.get(input.source.id)
+        if (!source || source.deletedAt !== null) throw new Error('This holiday is no longer available to edit.')
+        if (ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'account_holiday', source.id]).first()) throw new Error('Resolve this holiday’s cloud conflict before editing it.')
+        const selectedRows = await database.trackerHolidays.where('date').equals(input.date).toArray()
+        for (const trackerId of trackerIds) {
+          const tracker = await database.trackers.get(trackerId)
+          if (!tracker || tracker.deletedAt !== null || tracker.status !== 'active') throw new Error('Only available active Standard Mode trackers can be selected for a new holiday.')
+          if (trackerStrictModeForDate(tracker, input.date)) throw new Error('Strict Mode trackers cannot have selected holidays.')
+          const existing = selectedRows.find((row) => row.trackerId === trackerId)
+          if (existing?.deletedAt === null) throw new Error('Selected holidays already exist on that date.')
+          if (existing && ownerUserId && await database.syncConflicts.where('[ownerUserId+entity+entityId]').equals([ownerUserId, 'tracker_holiday', existing.id]).first()) throw new Error('Resolve this selected holiday’s cloud conflict before editing it.')
+          const holiday: TrackerHoliday = { id: existing?.id ?? newId(), trackerId, date: input.date, createdAt: existing?.createdAt ?? now, updatedAt: now, deletedAt: null }
+          await database.trackerHolidays.put(holiday)
+          await queueSyncMutation(database, ownerUserId, 'tracker_holiday', holiday, { id: conversionId, role: 'target' })
+        }
+        const removed = { ...source, updatedAt: now, deletedAt: now }
+        await database.accountHolidays.put(removed)
+        await queueSyncMutation(database, ownerUserId, 'account_holiday', removed, { id: conversionId, role: 'source' })
+      }
+    })
+    publishWorkspaceMutation(ownerUserId)
+  },
+
   async removeAccountHoliday(date: CalendarDate): Promise<void> {
     const database = await openDatabase()
     let ownerUserId: string | null = null

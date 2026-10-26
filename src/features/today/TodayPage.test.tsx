@@ -877,6 +877,15 @@ describe('Today check-ins', () => {
     expect(screen.getByRole('link', { name: 'Manage holidays' })).toHaveAttribute('href', `/holidays?date=${today()}`)
   })
 
+  it('includes positive work in Today’s counts on a global holiday', async () => {
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    await localRepository.saveAccountHolidays([today()], 'personal')
+    await localRepository.saveTrackerEntry({ trackerId: 'today-tracker', date: today(), outcome: 'recorded', values: { pages: 5 }, note: '' })
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 of 1 checked in')
+    expect(screen.getByRole('region', { name: 'Today at a glance' })).toHaveTextContent('1 completed')
+  })
+
   it('allows a missed scheduled opportunity to receive a historical check-in', async () => {
     const user = userEvent.setup()
     const yesterday = new Date(Date.parse(`${today()}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
@@ -900,6 +909,18 @@ describe('Today check-ins', () => {
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     await user.click(await screen.findByText(/Missed opportunities in the last week/))
     expect(await screen.findByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })).toBeInTheDocument()
+  })
+
+  it('does not report a selected Standard Mode holiday as a recent miss', async () => {
+    const user = userEvent.setup()
+    const yesterday = new Date(Date.parse(`${today()}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10) as `${number}-${number}-${number}`
+    await localRepository.saveTracker({ ...tracker(), customFields: [] })
+    await localRepository.saveTrackerHoliday('today-tracker', yesterday)
+    render(<MemoryRouter><TodayPage /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Daily reading' })).toBeInTheDocument()
+    const disclosure = await screen.findByText(/Missed opportunities in the last week/)
+    await user.click(disclosure)
+    expect(screen.queryByRole('button', { name: `Open Daily reading, Missed, ${calendarDateLabel(yesterday)}` })).not.toBeInTheDocument()
   })
 
   it('shows only scheduled work in the at-a-glance progress summary', async () => {

@@ -43,6 +43,9 @@ export function getTrackerActivityStatus(input: {
   if (!isTrackerInActivePeriod(tracker, date, input.timeZone)) {
     return entry && entry.deletedAt === null ? 'historical' : 'outside-period'
   }
+  if (tracker.status === 'archived' && tracker.archivedAt && date > tracker.archivedAt.slice(0, 10)) {
+    return entry && entry.deletedAt === null ? 'historical' : 'inactive'
+  }
   const holiday = !strict && Boolean(input.holidays?.has(date) || input.trackerHolidays?.has(date))
   if (entry && entry.deletedAt !== null) {
     if (!strict && holiday) return 'holiday'

@@ -133,6 +133,12 @@ describe('shared activity status rules', () => {
     expect(state('2026-10-11', bounded)).toBe('outside-period')
   })
 
+  it('stops applying holidays after archival while retaining saved records as historical', () => {
+    const archived = { status: 'archived' as const, archivedAt: '2026-10-10T12:00:00.000Z' }
+    expect(state('2026-10-11', archived, undefined, ['2026-10-11'])).toBe('inactive')
+    expect(state('2026-10-11', archived, entry('2026-10-11', true), ['2026-10-11'])).toBe('historical')
+  })
+
   it('classifies today, future, and elapsed opportunities across month and year boundaries', () => {
     expect(state('2026-12-31', {}, undefined, undefined, '2027-01-01')).toBe('missed')
     expect(state('2027-01-01', {}, undefined, undefined, '2026-12-31')).toBe('upcoming')
