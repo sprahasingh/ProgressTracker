@@ -93,14 +93,21 @@ describe('historical rule dependency compatibility', () => {
   it.each([
     ['type', { ...originalMetric, valueType: 'duration' as const }],
     ['unit', { ...originalMetric, unit: 'chapters' }],
-    ['target', { ...originalMetric, thresholds: { ...originalMetric.thresholds!, target: 8 } }],
-    ['threshold', { ...originalMetric, thresholds: { ...originalMetric.thresholds!, minimum: 2 } }],
     ['checklist meaning', { ...originalMetric, valueType: 'checklist' as const, checklistItems: [{ id: 'a', label: 'Warm up', position: 0 }] }],
-  ])('blocks changed historical measure %s', (_property, changed) => {
+  ])('blocks changed historical measure meaning: %s', (_property, changed) => {
     const before = tracker({ ruleVersions: [{
       ...tracker().ruleVersions![0]!, evaluation: { ...tracker().ruleVersions![0]!.evaluation, metrics: [changed] },
     }] })
     expect(historicalRuleDependencyIssue(before, tracker())).toBe('Historical measure settings can’t be verified.')
+  })
+
+  it.each([
+    { direction: 'decrease' as const, minimum: 2, target: 8 },
+    { direction: 'increase' as const, minimum: 2, target: 5 },
+  ])('allows historical threshold policy changes for safe raw-value recalculation', (thresholds) => {
+    const before = tracker()
+    const after = tracker({ metrics: [{ ...originalMetric, thresholds: { ...originalMetric.thresholds!, ...thresholds } }] })
+    expect(historicalRuleDependencyIssue(before, after)).toBeNull()
   })
 
   it('rejects a newly effective success or streak rule that references a retired measure', () => {
@@ -129,7 +136,7 @@ describe('historical rule dependency compatibility', () => {
       metricId: 'later', targetValue: 10, measureTypeSnapshot: 'quantity' as const, unitSnapshot: 'items', position: 0,
     }], ruleVersions: withLaterPlan.ruleVersions }
     expect(historicalRuleDependencyIssue(measureMilestone, measureMilestone)).toBe('This measure was unavailable during part of the selected period.')
-    expect(historicalRuleDependencyIssue(tracker({ milestones: [{ id: 'success', title: 'Success', description: '', type: 'successful-days', targetValue: 10, position: 0 }] }), tracker()))
-      .toBe('Past milestone rewards could change.')
+    const successMilestone = tracker({ milestones: [{ id: 'success', title: 'Success', description: '', type: 'successful-days', targetValue: 10, position: 0 }] })
+    expect(historicalRuleDependencyIssue(successMilestone, successMilestone)).toBeNull()
   })
 })

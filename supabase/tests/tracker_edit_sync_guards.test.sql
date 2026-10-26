@@ -156,7 +156,7 @@ select is((select array_agg(metric_id order by metric_id) from public.tracker_ed
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000821';
 
-select is(public.tracker_edit_sync_guards_contract(),'tracker-edit-sync-guards:v1'::text,
+select is(public.tracker_edit_sync_guards_contract(),'tracker-edit-sync-guards:v2'::text,
   'authenticated clients can detect the installed tracker edit guard contract');
 
 select is((public.apply_tracker_sync_operation(

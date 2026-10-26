@@ -7,7 +7,7 @@ import { localRepository } from '../../db/localRepository'
 import { TrackerSetupPage } from './TrackerSetupPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import styles from '../../styles.css?raw'
-import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
+import { trackerDefinitionForDate, trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { evaluateTrackerEntry } from '../../domain/trackers/planning'
 import { calendarDateLabel, shiftCalendarDate } from '../shared/localDates'
@@ -1258,6 +1258,60 @@ describe('tracker setup flow', () => {
     const saved = await localRepository.getTracker(existing.id)
     expect(saved).toMatchObject({ schemaVersion: 10, metrics: [{ thresholds: { target: 12 } }] })
     expect(saved?.ruleVersions?.map((version) => version.application)).toEqual(['baseline', 'apply-from-today'])
+  })
+
+  it.each([
+    { mode: 'apply-from-today' as const, choose: 'Apply from today' },
+    { mode: 'after-last-check-in' as const, choose: 'After the last check-in' },
+    { mode: 'recalculate-all-history' as const, choose: 'Apply to all history' },
+  ])('saves a threshold direction change locally with $mode semantics and preserves raw values', async ({ mode, choose }) => {
+    vi.stubEnv('PROD', true)
+    for (const version of ['VITE_ENABLE_TRACKER_SCHEMA_V3', 'VITE_ENABLE_TRACKER_SCHEMA_V4', 'VITE_ENABLE_TRACKER_SCHEMA_V5', 'VITE_ENABLE_TRACKER_SCHEMA_V6', 'VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8', 'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10', 'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS']) vi.stubEnv(version, 'true')
+    const today = calendarDateInTimeZone(new Date().toISOString(), 'Asia/Calcutta')
+    const entryDate = shiftCalendarDate(today, -2)
+    const base: TrackerDefinition = {
+      schemaVersion: 10, id: `threshold-${mode}`, name: 'Threshold history', description: '', kind: 'habit', status: 'active', categoryId: null,
+      tags: [], icon: '', accent: '#315e46', schedule: { kind: 'every-day' }, scheduling: { mode: 'ongoing' }, startDate: '2026-01-05',
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 10, streakQualification: 'target' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
+      customFields: [], milestones: [], strictMode: false,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
+    }
+    const existing: TrackerDefinition = { ...base, ruleVersions: [{ id: 'baseline', effectiveFrom: base.startDate!, revision: 1, application: 'baseline', recordedAt: base.createdAt, evaluation: trackerEvaluationSnapshot(base) }] }
+    await localRepository.saveTracker(existing)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: entryDate, outcome: 'recorded', values: { pages: 5 }, note: 'preserve this value' })
+
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    const threshold = document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.thresholds.target"]')!
+    expect(threshold).toBeEnabled()
+    expect(document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.name"]')).toBeDisabled()
+    expect(screen.getByPlaceholderText('pages, sessions')).toBeDisabled()
+    await user.clear(threshold)
+    await user.type(threshold, '4')
+    await user.selectOptions(screen.getByText('Threshold direction').closest('label')!.querySelector('select')!, 'decrease')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    const option = within(dialog).getByRole('radio', { name: mode === 'apply-from-today' ? /Apply from today/ : choose })
+    expect(option).toBeEnabled()
+    if (mode !== 'apply-from-today') await user.click(option)
+    expect(within(dialog).getByText(mode === 'recalculate-all-history' ? /reevaluate every saved check-in/i : /Earlier check-ins keep their existing evaluation/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: choose }))
+    await waitFor(() => {
+      const feedback = screen.queryAllByRole('alert').map((alert) => alert.textContent).find(Boolean)
+      if (feedback) throw new Error(feedback)
+      expect(navigation).toHaveBeenCalled()
+    })
+
+    const saved = await localRepository.getTracker(existing.id)
+    const effectiveDate = mode === 'apply-from-today' ? today : mode === 'after-last-check-in' ? shiftCalendarDate(entryDate, 1) : base.startDate!
+    expect(saved?.ruleVersions?.at(-1)).toMatchObject({ effectiveFrom: effectiveDate, historyPolicy: mode })
+    expect(await localRepository.getTrackerEntry(existing.id, entryDate)).toEqual(entry)
+    expect(trackerDefinitionForDate(saved!, mode === 'recalculate-all-history' ? entryDate : today).metrics[0]?.thresholds).toMatchObject({ direction: 'decrease', target: 4 })
+    if (mode !== 'recalculate-all-history') expect(trackerDefinitionForDate(saved!, shiftCalendarDate(entryDate, -1)).metrics[0]?.thresholds).toMatchObject({ direction: 'increase', target: 10 })
   })
 
   it('sets the least restrictive valid increment for selected precision and saves the v4 definition', async () => {

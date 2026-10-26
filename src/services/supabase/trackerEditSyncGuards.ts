@@ -7,7 +7,7 @@ export async function hasTrackerEditSyncGuardsContract(): Promise<boolean> {
   if (!client) return false
   try {
     const { data, error } = await client.rpc('tracker_edit_sync_guards_contract')
-    return !error && data === 'tracker-edit-sync-guards:v1'
+    return !error && data === 'tracker-edit-sync-guards:v2'
   } catch {
     return false
   }

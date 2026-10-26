@@ -37,7 +37,7 @@ export function isSchemaV10WriteEnabled(): boolean {
   return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_SCHEMA_V10 === 'true' && isSchemaV9WriteEnabled())
 }
 
-/** Three-option tracker edits also require the serialized boundary guard migration. */
+/** Three-option tracker edits require the serialized, threshold-aware sync guard. */
 export function isTrackerEditHistorySyncGuardEnabled(): boolean {
   return !import.meta.env.PROD || (import.meta.env.VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS === 'true' && isSchemaV10WriteEnabled())
 }

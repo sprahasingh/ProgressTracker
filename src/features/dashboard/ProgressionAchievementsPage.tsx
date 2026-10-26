@@ -756,4 +756,3 @@ function achievementAttribution(achievementId: AchievementState['achievementId']
     accountWideAchievement: definition.attribution === 'account',
   })
 }
-
