@@ -101,6 +101,40 @@ describe('historical rule dependency compatibility', () => {
     expect(historicalRuleDependencyIssue(before, tracker())).toBe('Historical measure settings can’t be verified.')
   })
 
+  it('blocks all-history threshold recalculation when an earlier snapshot used different precision', () => {
+    const preciseMetric = { ...originalMetric, precision: { decimalPlaces: 1 as const, increment: 0.1 } }
+    const doneMetric = { id: 'done', name: 'Done', valueType: 'boolean' as const }
+    const rule = { kind: 'comparison' as const, metricId: 'done', operator: 'equals' as const, value: true }
+    const base = tracker({ metrics: [originalMetric, doneMetric], qualificationRule: rule })
+    const before = tracker({
+      metrics: [preciseMetric, doneMetric], qualificationRule: rule,
+      ruleVersions: [
+        base.ruleVersions![0]!,
+        { id: 'precision-forward', effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today', recordedAt: '2026-02-01T00:00:00Z', evaluation: trackerEvaluationSnapshot({ ...base, metrics: [preciseMetric, doneMetric] }) },
+      ],
+    })
+    const after = tracker({ metrics: [{ ...preciseMetric, thresholds: { ...preciseMetric.thresholds!, direction: 'decrease' } }, doneMetric], qualificationRule: rule })
+
+    // This measure is not referenced by the success rule, but its threshold is
+    // changing, so its historical precision still has to match.
+    expect(historicalRuleDependencyIssue(before, after)).toBe('Historical measure settings can’t be verified.')
+  })
+
+  it('allows all-history threshold recalculation when every historical snapshot has matching precision', () => {
+    const preciseMetric = { ...originalMetric, precision: { decimalPlaces: 1 as const, increment: 0.1 } }
+    const base = tracker({ metrics: [preciseMetric] })
+    const before = tracker({
+      metrics: [preciseMetric],
+      ruleVersions: [
+        base.ruleVersions![0]!,
+        { id: 'same-precision', effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today', recordedAt: '2026-02-01T00:00:00Z', evaluation: trackerEvaluationSnapshot({ ...base, metrics: [preciseMetric] }) },
+      ],
+    })
+    const after = tracker({ metrics: [{ ...preciseMetric, thresholds: { ...preciseMetric.thresholds!, direction: 'decrease' } }] })
+
+    expect(historicalRuleDependencyIssue(before, after)).toBeNull()
+  })
+
   it.each([
     { direction: 'decrease' as const, minimum: 2, target: 8 },
     { direction: 'increase' as const, minimum: 2, target: 5 },

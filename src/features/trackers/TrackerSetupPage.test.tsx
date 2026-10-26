@@ -419,12 +419,12 @@ describe('tracker setup flow', () => {
     const historyDialog = screen.getByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     const unavailableAllHistory = within(historyDialog).getByRole('radio', { name: /Apply to all history/ })
     expect(unavailableAllHistory).toBeDisabled()
-    expect(within(historyDialog).getByText('Unavailable to protect your existing history.')).toBeInTheDocument()
+    expect(within(historyDialog).getByText('Historical measure settings can’t be verified.')).toBeInTheDocument()
     const safeguardInfo = within(historyDialog).getByRole('button', { name: 'Why is Apply to all history unavailable?' })
     expect(safeguardInfo).toBeEnabled()
     await user.click(safeguardInfo)
     const explanation = await screen.findByRole('dialog', { name: 'Why is this unavailable?' })
-    expect(within(explanation).getByText(/We can't safely verify how these changes would affect earlier check-ins/)).toBeInTheDocument()
+    expect(within(explanation).getByText('The saved history cannot be safely recalculated.')).toBeInTheDocument()
     expect(within(explanation).getByText('Historical measure settings can’t be verified.')).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(safeguardInfo).toHaveFocus()
@@ -605,8 +605,8 @@ describe('tracker setup flow', () => {
     expect(applyToday).toBeDisabled()
     expect(applyToday).toHaveAccessibleDescription('Unavailable: a check-in exists today. Structural changes start after it.')
     expect(allHistory).toBeDisabled()
-    expect(allHistory).toHaveAccessibleDescription('Unavailable to protect your existing history.')
-    expect(within(dialog).getByText('Unavailable to protect your existing history.')).toBeInTheDocument()
+    expect(allHistory).toHaveAccessibleDescription('This measure wasn’t available for earlier check-ins.')
+    expect(within(dialog).getByText('This measure wasn’t available for earlier check-ins.')).toBeInTheDocument()
     expect(within(dialog).getByRole('radio', { name: 'After the last check-in' })).toBeChecked()
     expect(dialog).toHaveTextContent(calendarDateLabel(shiftCalendarDate(today, 1)))
     await user.click(within(dialog).getByRole('button', { name: 'After the last check-in' }))
@@ -1211,12 +1211,124 @@ describe('tracker setup flow', () => {
 
     const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
     expect(within(dialog).getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
-    expect(within(dialog).getByText('Unavailable to protect your existing history.')).toBeInTheDocument()
+    expect(within(dialog).getByText('This measure was unavailable during part of the selected period.')).toBeInTheDocument()
     fireEvent.pointerDown(document.querySelector('.tracker-rule-application-backdrop')!)
     expect(screen.queryByRole('alertdialog', { name: 'How should your tracker changes apply?' })).not.toBeInTheDocument()
     await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({
       qualificationRule: { metricId: 'done' }, ruleVersions: existing.ruleVersions,
     })
+  })
+
+  it('disables all-history threshold edits when a historical snapshot used different precision', async () => {
+    const precise = { id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', precision: { decimalPlaces: 1 as const, increment: 0.1 }, thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }
+    const base = {
+      ...datedTracker('precision-history-dependency', 'habit'),
+      schemaVersion: 10 as const,
+      scheduling: { mode: 'ongoing' as const },
+      deadline: undefined,
+      metrics: [precise],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const },
+      streakRuleMode: 'same-as-success' as const,
+      strictMode: false,
+    } satisfies TrackerDefinition
+    const originalMetric = { ...precise, precision: undefined }
+    const existing: TrackerDefinition = {
+      ...base,
+      ruleVersions: [
+        { id: 'precision-baseline', effectiveFrom: '2026-01-05', revision: 1, application: 'baseline', recordedAt: '2026-01-05T00:00:00Z', evaluation: trackerEvaluationSnapshot({ ...base, metrics: [originalMetric] }) },
+        { id: 'precision-changed', effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today', recordedAt: '2026-02-01T00:00:00Z', evaluation: trackerEvaluationSnapshot(base) },
+      ],
+    }
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-02-05', outcome: 'recorded', values: { pages: 1.2 }, note: 'preserve' })
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    const target = document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.thresholds.target"]')!
+    await user.clear(target)
+    await user.type(target, '6')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    expect(within(dialog).getByRole('radio', { name: /Apply to all history/ })).toBeDisabled()
+    expect(within(dialog).getByText('Historical measure settings can’t be verified.')).toBeInTheDocument()
+    expect(await localRepository.getTrackerEntry(existing.id, '2026-02-05')).toMatchObject({ values: { pages: 1.2 }, note: 'preserve' })
+  })
+
+  it('explains when an active historical measure value is missing', async () => {
+    vi.stubEnv('PROD', true)
+    for (const version of ['VITE_ENABLE_TRACKER_SCHEMA_V3', 'VITE_ENABLE_TRACKER_SCHEMA_V4', 'VITE_ENABLE_TRACKER_SCHEMA_V5', 'VITE_ENABLE_TRACKER_SCHEMA_V6', 'VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8', 'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10', 'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS']) vi.stubEnv(version, 'true')
+    const existing = {
+      ...datedTracker('active-measure-value-missing', 'habit'),
+      schemaVersion: 10 as const,
+      scheduling: { mode: 'ongoing' as const },
+      deadline: undefined,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const },
+      ruleVersions: [{ id: 'active-baseline', effectiveFrom: '2026-01-05', revision: 1, application: 'baseline' as const, recordedAt: '2026-01-05T00:00:00.000Z', evaluation: trackerEvaluationSnapshot({
+        ...datedTracker('active-measure-value-missing', 'habit'), deadline: undefined, scheduling: { mode: 'ongoing' as const },
+        metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }],
+        qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const },
+      }) }],
+    }
+    await localRepository.saveTracker(existing)
+    await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-06', outcome: 'recorded', values: {}, note: 'Missing pages' })
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    const threshold = document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.thresholds.target"]')!
+    await user.clear(threshold)
+    await user.type(threshold, '7')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    const allHistory = within(dialog).getByRole('radio', { name: 'Apply to all history' })
+    expect(allHistory).toBeDisabled()
+    expect(allHistory).toHaveAccessibleDescription('A saved check-in is missing a value for an active measure needed to reevaluate history.')
+  })
+
+  it('explains that schedule changes cannot be combined with all-history recalculation', async () => {
+    vi.stubEnv('PROD', true)
+    for (const version of ['VITE_ENABLE_TRACKER_SCHEMA_V3', 'VITE_ENABLE_TRACKER_SCHEMA_V4', 'VITE_ENABLE_TRACKER_SCHEMA_V5', 'VITE_ENABLE_TRACKER_SCHEMA_V6', 'VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8', 'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10', 'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS']) vi.stubEnv(version, 'true')
+    const base = { ...datedTracker('schedule-change-history', 'habit'), schemaVersion: 10 as const, scheduling: { mode: 'ongoing' as const }, deadline: undefined }
+    const existing = { ...base, ruleVersions: [{ id: 'schedule-baseline', effectiveFrom: '2026-01-05', revision: 1, application: 'baseline' as const, recordedAt: '2026-01-05T00:00:00.000Z', evaluation: trackerEvaluationSnapshot(base) }] }
+    await localRepository.saveTracker(existing)
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(await screen.findByText('Activity schedule & holidays'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Activity schedule' }), 'weekdays')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    const allHistory = within(dialog).getByRole('radio', { name: 'Apply to all history' })
+    expect(allHistory).toBeDisabled()
+    expect(allHistory).toHaveAccessibleDescription('All-history recalculation can’t change the schedule, tracking dates, deadline, or scheduling settings.')
+  })
+
+  it('explains that future-dated check-ins block all-history recalculation', async () => {
+    vi.stubEnv('PROD', true)
+    for (const version of ['VITE_ENABLE_TRACKER_SCHEMA_V3', 'VITE_ENABLE_TRACKER_SCHEMA_V4', 'VITE_ENABLE_TRACKER_SCHEMA_V5', 'VITE_ENABLE_TRACKER_SCHEMA_V6', 'VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8', 'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10', 'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS']) vi.stubEnv(version, 'true')
+    const today = calendarDateInTimeZone(new Date(), 'Asia/Calcutta')
+    const base = { ...datedTracker('future-checkin-history', 'habit', '2026-01-05', null), schemaVersion: 10 as const, scheduling: { mode: 'ongoing' as const }, deadline: undefined,
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }],
+      qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const } }
+    const existing = { ...base, ruleVersions: [{ id: 'future-baseline', effectiveFrom: base.startDate!, revision: 1, application: 'baseline' as const, recordedAt: base.createdAt, evaluation: trackerEvaluationSnapshot(base) }] }
+    await localRepository.saveTracker(existing)
+    const futureDate = shiftCalendarDate(today, 1)
+    await db.trackerEntries.put({ id: 'future-history-entry', trackerId: existing.id, date: futureDate, outcome: 'recorded', values: { pages: 6 }, note: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null })
+    const user = userEvent.setup()
+    renderSetup(`/trackers/${existing.id}/edit`)
+    await user.click(await screen.findByText('More options'))
+    await user.click(screen.getByText('Measures, precision & targets'))
+    const threshold = document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.thresholds.target"]')!
+    await user.clear(threshold)
+    await user.type(threshold, '7')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    const allHistory = within(dialog).getByRole('radio', { name: 'Apply to all history' })
+    expect(allHistory).toBeDisabled()
+    expect(allHistory).toHaveAccessibleDescription('A future-dated check-in must remain ahead of the new rule boundary.')
   })
 
   it.each([
@@ -1272,7 +1384,10 @@ describe('tracker setup flow', () => {
     const base: TrackerDefinition = {
       schemaVersion: 10, id: `threshold-${mode}`, name: 'Threshold history', description: '', kind: 'habit', status: 'active', categoryId: null,
       tags: [], icon: '', accent: '#315e46', schedule: { kind: 'every-day' }, scheduling: { mode: 'ongoing' }, startDate: '2026-01-05',
-      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 10, streakQualification: 'target' } }],
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 10, streakQualification: 'target' } },
+        { id: 'retired', name: 'Retired measure', valueType: 'quantity', unit: 'pages', retiredAt: '2026-01-04T00:00:00.000Z' },
+      ],
       qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
       customFields: [], milestones: [], strictMode: false,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
@@ -1288,10 +1403,10 @@ describe('tracker setup flow', () => {
     const threshold = document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.thresholds.target"]')!
     expect(threshold).toBeEnabled()
     expect(document.querySelector<HTMLInputElement>('[data-validation-path="metrics.0.name"]')).toBeDisabled()
-    expect(screen.getByPlaceholderText('pages, sessions')).toBeDisabled()
     await user.clear(threshold)
     await user.type(threshold, '4')
-    await user.selectOptions(screen.getByText('Threshold direction').closest('label')!.querySelector('select')!, 'decrease')
+    const directionLabels = screen.getAllByText('Threshold direction')
+    await user.selectOptions(directionLabels[0]!.closest('label')!.querySelector('select')!, 'decrease')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: 'How should your tracker changes apply?' })

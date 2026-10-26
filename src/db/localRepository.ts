@@ -1141,12 +1141,17 @@ function assertRuleHistoryTransition(
     const affectedStartDate = before.startDate ?? calendarDateInTimeZone(new Date(before.createdAt), timeZone)
     const dependencyIssue = historicalRuleDependencyIssue(before, after, affectedStartDate)
     if (dependencyIssue) throw new Error(`${dependencyIssue} Choose a forward effective date instead.`)
+    const liveEntries = entries.filter((entry) => entry.deletedAt === null)
+    const today = calendarDateInTimeZone(new Date(), timeZone)
+    if (liveEntries.some((entry) => entry.date > today)) {
+      throw new Error('All-history recalculation is unavailable while future-dated check-ins exist.')
+    }
     const structuralSettingsChanged = stableTrackerJson([
       before.schedule, before.startDate, before.deadline, before.scheduling, trackerMetricStructure(before.metrics), before.customFields, before.milestones,
     ]) !== stableTrackerJson([
       after.schedule, after.startDate, after.deadline, after.scheduling, trackerMetricStructure(after.metrics), after.customFields, after.milestones,
     ])
-    const missingHistoryInput = entries.some((entry) => entry.outcome === 'recorded'
+    const missingHistoryInput = liveEntries.some((entry) => entry.outcome === 'recorded'
       && trackerMetricIdsForDate(after, entry.date).some((metricId) => !Object.hasOwn(entry.values, metricId)))
     if (structuralSettingsChanged || missingHistoryInput) {
       throw new Error('All-history recalculation is unsafe for this saved configuration or history. Choose a forward effective date instead.')

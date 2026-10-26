@@ -646,10 +646,53 @@ describe('account-scoped sync engine', () => {
     const { client, rpc } = fakeClient()
 
     await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ failed: 1, uploaded: 0 })
-    expect(rpc).not.toHaveBeenCalled()
+    expect(rpc).toHaveBeenCalledWith('tracker_edit_sync_guards_contract', {})
+    expect(rpc).not.toHaveBeenCalledWith('apply_tracker_sync_operation', expect.anything())
     const retained = await db.syncOperations.get(operation!.id)
     expect(retained?.status).toBe('pending')
     expect((retained?.payload as StoredTrackerDefinition).ruleVersions?.at(-1)?.historyPolicy).toBe('apply-from-today')
+  })
+
+  it('synchronizes an all-history edit when contract v2 is advertised', async () => {
+    vi.stubEnv('PROD', true)
+    for (const flag of ['VITE_ENABLE_TRACKER_SCHEMA_V7', 'VITE_ENABLE_TRACKER_SCHEMA_V8', 'VITE_ENABLE_TRACKER_SCHEMA_V9', 'VITE_ENABLE_TRACKER_SCHEMA_V10', 'VITE_ENABLE_TRACKER_EDIT_SYNC_GUARDS']) vi.stubEnv(flag, 'true')
+    const owner = 'all-history-v2-sync'
+    await activateWorkspace(owner)
+    const before: StoredTrackerDefinition = {
+      ...tracker('all-history-v2-sync'), schemaVersion: 10, startDate: '2026-01-01', scheduling: { mode: 'ongoing' },
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } },
+        { id: 'retired', name: 'Retired', valueType: 'boolean', retiredAt: '2026-01-02T00:00:00.000Z' },
+      ],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
+    }
+    before.ruleVersions = [{ id: 'all-history-v2-baseline', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: trackerEvaluationSnapshot(before) }]
+    await localRepository.saveTracker(before)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: before.id, date: '2026-01-02', outcome: 'recorded', values: { pages: 6 }, note: 'raw value stays' })
+    const entryOperation = await db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker_entry', entry.id]).first()
+    if (entryOperation) await db.syncOperations.delete(entryOperation.id)
+    await db.syncRecords.put({ key: `tracker:${before.id}`, ownerUserId: owner, entity: 'tracker', entityId: before.id, serverRevision: 1 })
+    const { versionTrackerRuleChange } = await import('../../domain/trackers/ruleVersions')
+    const versioned = versionTrackerRuleChange({
+      before,
+      after: { ...before, metrics: [
+        { ...before.metrics[0]!, thresholds: { ...before.metrics[0]!.thresholds!, direction: 'decrease', target: 3 } }, before.metrics[1]!,
+      ] },
+      application: 'recalculate-all-history', today: '2026-01-03', historyStartDate: '2026-01-01', recordedAt: '2026-01-03T00:00:00.000Z',
+    }) as StoredTrackerDefinition
+    await localRepository.saveTracker(versioned)
+    const { client, rpc } = fakeClient({ userId: owner })
+    rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'tracker_edit_sync_guards_contract'
+      ? { data: 'tracker-edit-sync-guards:v2', error: null }
+      : { data: { status: 'applied', record: serverTracker((args.p_record as { definition: StoredTrackerDefinition }).definition, owner, 2) }, error: null })
+
+    const summary = await synchronizeWorkspace(owner, client)
+    expect(summary).toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('tracker_edit_sync_guards_contract', {})
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_sync_operation', expect.objectContaining({
+      p_entity: 'tracker', p_record: expect.objectContaining({ definition: expect.objectContaining({ ruleVersions: [expect.objectContaining({ historyPolicy: 'recalculate-all-history' })] }) }),
+    }))
+    await expect(localRepository.getTrackerEntry(before.id, entry.date as never)).resolves.toEqual(entry)
   })
 
   it('preserves every non-empty Custom Days combination through IndexedDB edits and schema v6 sync', async () => {

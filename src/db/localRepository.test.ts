@@ -25,6 +25,82 @@ afterEach(async () => {
 })
 
 describe('workspace mutation notifications', () => {
+  it('rejects all-history precision divergence, accepts matching precision, and preserves forward-effective precision changes', async () => {
+    const owner = 'precision-history-validation-owner'
+    await activateWorkspace(owner)
+    const metric = { id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', precision: { decimalPlaces: 1 as const, increment: 0.1 }, thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }
+    const makeTracker = (id: string, baselinePrecision: typeof metric.precision | undefined): StoredTrackerDefinition => {
+      const base: StoredTrackerDefinition = {
+        ...tracker, id, schemaVersion: 10, startDate: '2026-01-01', scheduling: { mode: 'ongoing' }, metrics: [metric],
+        qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
+        ruleVersions: [],
+      }
+      const oldEvaluation = { schedule: base.schedule, startDate: base.startDate, deadline: null, scheduling: base.scheduling, metrics: [{ ...metric, precision: baselinePrecision }], qualificationRule: base.qualificationRule, streakRuleMode: base.streakRuleMode, streakRule: null, strictMode: false }
+      const currentEvaluation = { ...oldEvaluation, metrics: [metric] }
+      base.ruleVersions = [
+        { id: `${id}-baseline`, effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: oldEvaluation },
+        { id: `${id}-precision`, effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today', recordedAt: '2026-02-01T00:00:00.000Z', evaluation: currentEvaluation },
+      ]
+      return base
+    }
+
+    const divergent = makeTracker('precision-divergent-history', undefined)
+    await localRepository.saveTracker(divergent)
+    const original = await localRepository.saveTrackerEntry({ trackerId: divergent.id, date: '2026-01-15', outcome: 'recorded', values: { pages: 1.2 }, note: 'raw value and note' })
+    const changed = { ...divergent, metrics: [{ ...metric, thresholds: { ...metric.thresholds!, direction: 'decrease' as const } }], ruleVersions: [{ id: 'precision-divergent-all', effectiveFrom: '2026-01-01', revision: 3, application: 'recalculate-all-history' as const, historyPolicy: 'recalculate-all-history' as const, recordedAt: '2026-10-27T00:00:00.000Z', evaluation: { ...divergent.ruleVersions![1]!.evaluation, metrics: [{ ...metric, thresholds: { ...metric.thresholds!, direction: 'decrease' as const } }] } }] }
+    await expect(localRepository.saveTracker(changed)).rejects.toThrow(/historical measure settings can’t be verified/i)
+    await expect(localRepository.getTrackerEntry(divergent.id, '2026-01-15')).resolves.toMatchObject({ values: { pages: 1.2 }, note: original.note })
+
+    const matching = makeTracker('precision-matching-history', metric.precision)
+    await localRepository.saveTracker(matching)
+    await localRepository.saveTrackerEntry({ trackerId: matching.id, date: '2026-01-15', outcome: 'recorded', values: { pages: 1.2 }, note: 'preserve me' })
+    const matchingEdit = { ...matching, metrics: [{ ...metric, thresholds: { ...metric.thresholds!, direction: 'decrease' as const } }], ruleVersions: [{ ...changed.ruleVersions[0]!, id: 'precision-matching-all', evaluation: { ...matching.ruleVersions![1]!.evaluation, metrics: [{ ...metric, thresholds: { ...metric.thresholds!, direction: 'decrease' as const } }] } }] }
+    await expect(localRepository.saveTracker(matchingEdit)).resolves.toMatchObject({ ruleVersions: [{ historyPolicy: 'recalculate-all-history' }] })
+    await expect(localRepository.getTrackerEntry(matching.id, '2026-01-15')).resolves.toMatchObject({ values: { pages: 1.2 }, note: 'preserve me', date: '2026-01-15' })
+
+    const forward = { ...matching, id: 'precision-forward-history' }
+    await localRepository.saveTracker(forward)
+    await localRepository.saveTrackerEntry({ trackerId: forward.id, date: '2026-10-20', outcome: 'recorded', values: { pages: 1.2 }, note: 'before precision boundary' })
+    const timeZone = (await localRepository.getAppSettings()).timezone
+    const today = calendarDateInTimeZone(new Date(), timeZone)
+    const precisionChange = versionTrackerRuleChange({ before: forward, after: { ...forward, metrics: [{ ...metric, precision: { decimalPlaces: 1, increment: 0.5 } }] }, application: 'apply-from-today', today, historyStartDate: '2026-01-01', recordedAt: new Date().toISOString() }) as StoredTrackerDefinition
+    await expect(localRepository.saveTracker(precisionChange)).resolves.toMatchObject({ ruleVersions: expect.arrayContaining([expect.objectContaining({ effectiveFrom: today, historyPolicy: 'apply-from-today' })]) })
+    await expect(localRepository.getTrackerEntry(forward.id, '2026-10-20')).resolves.toMatchObject({ values: { pages: 1.2 }, note: 'before precision boundary' })
+  })
+
+  it('serializes a check-in racing a pending all-history edit without losing either write', async () => {
+    const owner = 'all-history-concurrent-checkin-owner'
+    await activateWorkspace(owner)
+    const today = calendarDateInTimeZone(new Date(), (await localRepository.getAppSettings()).timezone)
+    const baseline: StoredTrackerDefinition = {
+      ...tracker, id: 'all-history-concurrent-checkin', schemaVersion: 10, startDate: '2026-01-01', scheduling: { mode: 'ongoing' },
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'concurrent-baseline', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00Z', evaluation: {
+        schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } }],
+        qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success', streakRule: null, strictMode: false,
+      } }],
+    }
+    await localRepository.saveTracker(baseline)
+    const recalc = versionTrackerRuleChange({
+      before: baseline,
+      after: { ...baseline, metrics: [{ ...baseline.metrics[0]!, thresholds: { ...baseline.metrics[0]!.thresholds!, direction: 'decrease' } }] },
+      application: 'recalculate-all-history', today, historyStartDate: '2026-01-01', recordedAt: new Date().toISOString(),
+    }) as StoredTrackerDefinition
+    const [savedTracker, savedEntry] = await Promise.all([
+      localRepository.saveTracker(recalc),
+      localRepository.saveTrackerEntry({ trackerId: baseline.id, date: today, outcome: 'recorded', values: { pages: 4 }, note: 'raced check-in' }),
+    ])
+
+    expect(savedTracker.ruleVersions?.at(-1)?.historyPolicy).toBe('recalculate-all-history')
+    await expect(localRepository.getTrackerEntry(baseline.id, savedEntry.date as CalendarDate)).resolves.toMatchObject({
+      id: savedEntry.id, values: { pages: 4 }, date: savedEntry.date, note: 'raced check-in',
+    })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', baseline.id]).first())
+      .resolves.toMatchObject({ status: 'pending', payload: { ruleVersions: [{ historyPolicy: 'recalculate-all-history' }] } })
+  })
+
   it('persists, updates, and queues explicit holiday treatment offline while blocking Strict Mode choices', async () => {
     const owner = 'holiday-treatment-owner'
     await activateWorkspace(owner)
@@ -140,6 +216,75 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.saveTracker(recalculated)).rejects.toThrow(/all-history recalculation is unsafe/i)
     await expect(localRepository.getTracker(baseline.id)).resolves.toMatchObject({ ruleVersions: baseline.ruleVersions })
     await expect(localRepository.getTrackerEntry(baseline.id, '2026-01-02')).resolves.toMatchObject({ values: { done: true }, note: 'No pages value was saved' })
+  })
+
+  it('allows all-history threshold recalculation when only retired measures lack historical values', async () => {
+    await activateWorkspace('retired-historical-measure-input-owner')
+    const baseline: StoredTrackerDefinition = {
+      ...tracker, id: 'retired-historical-measure-input', schemaVersion: 10, startDate: '2026-01-01',
+      scheduling: { mode: 'ongoing' },
+      metrics: [
+        { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } },
+        { id: 'old', name: 'Old measure', valueType: 'boolean', retiredAt: '2026-01-02T00:00:00.000Z' },
+      ],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' },
+      streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'baseline-retired-input', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: {
+        schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: [
+          { id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } },
+          { id: 'old', name: 'Old measure', valueType: 'boolean', retiredAt: '2026-01-02T00:00:00.000Z' },
+        ],
+        qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' },
+        streakRuleMode: 'same-as-success', streakRule: null, strictMode: false,
+      } }],
+    }
+    await localRepository.saveTracker(baseline)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: baseline.id, date: '2026-01-02', outcome: 'recorded', values: { pages: 6 }, note: 'retired value was not recorded' })
+    const recalculated = versionTrackerRuleChange({
+      before: baseline,
+      after: { ...baseline, metrics: [
+        { ...baseline.metrics[0]!, thresholds: { ...baseline.metrics[0]!.thresholds!, direction: 'decrease', target: 3 } },
+        baseline.metrics[1]!,
+      ] },
+      application: 'recalculate-all-history', today: '2026-01-04', historyStartDate: '2026-01-01', recordedAt: '2026-01-04T00:00:00Z',
+    }) as StoredTrackerDefinition
+
+    await expect(localRepository.saveTracker(recalculated)).resolves.toMatchObject({ ruleVersions: [{ historyPolicy: 'recalculate-all-history' }] })
+    await expect(localRepository.getTrackerEntry(baseline.id, '2026-01-02')).resolves.toEqual(entry)
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['retired-historical-measure-input-owner', 'tracker', baseline.id]).first())
+      .resolves.toMatchObject({ status: 'pending', payload: { ruleVersions: [{ historyPolicy: 'recalculate-all-history' }] } })
+  })
+
+  it('rejects local all-history edits when a live future-dated check-in exists', async () => {
+    const owner = 'future-all-history-owner'
+    await activateWorkspace(owner)
+    const today = calendarDateInTimeZone(new Date(), (await localRepository.getAppSettings()).timezone)
+    const nextDate = new Date(`${today}T00:00:00.000Z`)
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+    const futureDate = nextDate.toISOString().slice(0, 10) as CalendarDate
+    const baseline: StoredTrackerDefinition = {
+      ...tracker, id: 'future-all-history', schemaVersion: 10, startDate: '2026-01-01', scheduling: { mode: 'ongoing' },
+      metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } }],
+      qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success',
+      ruleVersions: [{ id: 'baseline-future', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline', recordedAt: '2026-01-01T00:00:00.000Z', evaluation: {
+        schedule: { kind: 'every-day' }, startDate: '2026-01-01', deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity', unit: 'pages', thresholds: { direction: 'increase', target: 5, streakQualification: 'target' } }],
+        qualificationRule: { kind: 'threshold', metricId: 'pages', level: 'target' }, streakRuleMode: 'same-as-success', streakRule: null, strictMode: false,
+      } }],
+    }
+    await localRepository.saveTracker(baseline)
+    await db.trackerEntries.put({
+      id: 'future-check-in', trackerId: baseline.id, date: futureDate, outcome: 'recorded', values: { pages: 7 }, note: '',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null,
+    })
+    const recalculated = versionTrackerRuleChange({
+      before: baseline, after: { ...baseline, metrics: [{ ...baseline.metrics[0]!, thresholds: { ...baseline.metrics[0]!.thresholds!, target: 3 } }] },
+      application: 'recalculate-all-history', today, historyStartDate: '2026-01-01', recordedAt: new Date().toISOString(),
+    }) as StoredTrackerDefinition
+
+    await expect(localRepository.saveTracker(recalculated)).rejects.toThrow(/future-dated check-ins exist/i)
+    await expect(localRepository.getTracker(baseline.id)).resolves.toMatchObject({ ruleVersions: baseline.ruleVersions })
   })
 
   it('rejects a newly effective rule referencing a retired measure in local persistence', async () => {

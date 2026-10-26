@@ -764,21 +764,29 @@ export function TrackerSetupPage() {
           setError('Goal plans cannot be edited because historical goal progress is not versioned.')
           return
         }
-        // Historical recalculation is deliberately limited to rule-only edits
-        // with a value for every measure used by the new rules on every saved day.
+        // All-history recalculation uses the proposed definition's active
+        // measures, matching the server guard. Retired measures are not
+        // required inputs for reevaluating saved check-ins.
         const ruleOnly = stableJson([existing.schedule, trackerActiveStartDate(existing, timeZone), existing.deadline, existing.scheduling ?? trackerScheduling(existing), metricStructure(existing)])
           === stableJson([checked.data.schedule, trackerActiveStartDate(checked.data as TrackerDefinition, timeZone), checked.data.deadline, checked.data.scheduling ?? trackerScheduling(checked.data as TrackerDefinition), metricStructure(checked.data as TrackerDefinition)])
-        const requiredHistoricalMeasures = new Set([...existing.metrics, ...checked.data.metrics].map((metric) => metric.id))
+        const requiredHistoricalMeasures = new Set(checked.data.metrics.filter((metric) => metric.retiredAt === undefined).map((metric) => metric.id))
+        const missingHistoryInput = history.some((entry) => entry.outcome === 'recorded'
+          && [...requiredHistoricalMeasures].some((metricId) => !Object.hasOwn(entry.values, metricId)))
         const allHistoryAvailable = ruleOnly && !structural && !milestonesChanged
           && (latestCheckInDate === null || latestCheckInDate <= today)
-          && history.every((entry) => entry.outcome !== 'recorded'
-            || [...requiredHistoricalMeasures].every((metricId) => Object.hasOwn(entry.values, metricId)))
+          && !missingHistoryInput
         const dependencyIssue = historicalRuleDependencyIssue(existing, checked.data as TrackerDefinition, earliestStart)
         const addedMeasure = checked.data.metrics.some((metric) => !existing.metrics.some((current) => current.id === metric.id))
-        const allHistoryReason = dependencyIssue ?? (latestCheckInDate !== null && latestCheckInDate > today
-          ? 'A future-dated check-in must remain ahead of the new rule boundary.' : structural
-          ? addedMeasure ? 'This measure wasn’t available for earlier check-ins.' : 'Historical measure settings can’t be verified.'
-          : !allHistoryAvailable ? 'Historical check-ins are missing inputs needed to evaluate this rule.' : null)
+        const allHistoryReason = dependencyIssue
+          ?? (latestCheckInDate !== null && latestCheckInDate > today
+            ? 'A future-dated check-in must remain ahead of the new rule boundary.'
+            : structural
+              ? addedMeasure ? 'This measure wasn’t available for earlier check-ins.' : 'Measure identity, type, unit, precision, checklist, or check-in fields changed.'
+              : !ruleOnly
+                ? 'All-history recalculation can’t change the schedule, tracking dates, deadline, or scheduling settings.'
+                : missingHistoryInput
+                  ? 'A saved check-in is missing a value for an active measure needed to reevaluate history.'
+                  : null)
         const todayConflict = latestCheckInDate !== null && (latestCheckInDate > today || structural && latestCheckInDate >= today)
         setPendingRuleChange({ candidate: checked.data as TrackerDefinition, mode: todayConflict ? 'after-last-check-in' : 'apply-from-today', historyStartDate: earliestStart, today, latestCheckInDate, structural, allHistoryAvailable: allHistoryAvailable && !dependencyIssue, allHistoryReason })
         return
@@ -1053,7 +1061,7 @@ export function TrackerSetupPage() {
           </label>
           <label className="tracker-history-option">
             <input type="radio" name="rule-application" value="recalculate-all-history" aria-label="Apply to all history" aria-describedby="all-history-help" disabled={!pendingRuleChange.allHistoryAvailable} checked={pendingRuleChange.mode === 'recalculate-all-history'} onChange={() => setPendingRuleChange((current) => current ? { ...current, mode: 'recalculate-all-history' } : current)} />
-            <span className="tracker-history-option-copy"><span className="tracker-history-option-heading"><strong>Apply to all history</strong>{!pendingRuleChange.allHistoryAvailable && <InfoButton compact label="Why is Apply to all history unavailable?" title="Why is this unavailable?" description="We can't safely verify how these changes would affect earlier check-ins. This safeguard protects your recorded progress and achievements. You can still apply changes from today or after your last check-in." content={<><p className="info-dialog-description">We can't safely verify how these changes would affect earlier check-ins. This safeguard protects your recorded progress and achievements. You can still apply changes from today or after your last check-in.</p>{pendingRuleChange.allHistoryReason && <p className="tracker-history-specific-reason">{pendingRuleChange.allHistoryReason}</p>}</>} />}</span><small id="all-history-help">{pendingRuleChange.allHistoryAvailable ? `Recalculate saved results beginning ${calendarDateLabel(pendingRuleChange.historyStartDate)} (${timeZone}).` : 'Unavailable to protect your existing history.'}</small></span>
+            <span className="tracker-history-option-copy"><span className="tracker-history-option-heading"><strong>Apply to all history</strong>{!pendingRuleChange.allHistoryAvailable && <InfoButton compact label="Why is Apply to all history unavailable?" title="Why is this unavailable?" description={pendingRuleChange.allHistoryReason ?? 'The saved history cannot be safely recalculated.'} content={<><p className="info-dialog-description">The saved history cannot be safely recalculated.</p>{pendingRuleChange.allHistoryReason && <p className="tracker-history-specific-reason">{pendingRuleChange.allHistoryReason}</p>}</>} />}</span><small id="all-history-help">{pendingRuleChange.allHistoryAvailable ? `Recalculate saved results beginning ${calendarDateLabel(pendingRuleChange.historyStartDate)} (${timeZone}).` : pendingRuleChange.allHistoryReason ?? 'Unavailable to protect your existing history.'}</small></span>
           </label>
         </fieldset>
         {sameEffectiveDateGroups.map((labels) => <p key={labels.join('-')} className="field-hint tracker-history-date-equivalence" role="status">{labels.join(' and ')} have the same effective date.</p>)}
