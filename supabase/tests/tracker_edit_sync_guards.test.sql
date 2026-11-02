@@ -1,5 +1,5 @@
 begin;
-select plan(49);
+select plan(53);
 
 insert into auth.users (id, email)
 values ('00000000-0000-4000-8000-000000000821', 'tracker-edit-guard@example.test');
@@ -158,6 +158,29 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000821';
 
 select is(public.tracker_edit_sync_guards_contract(),'tracker-edit-sync-guards:v2'::text,
   'authenticated clients can detect the installed tracker edit guard contract');
+
+select is((public.apply_tracker_sync_operation(
+  '00000000-0000-4000-8000-000000000821','00000000-0000-4000-8000-000000000880','tracker',
+  (select server_revision from public.trackers where id='00000000-0000-4000-8000-000000000822'),
+  (select jsonb_build_object('id',id,'schema_version',schema_version,'kind',kind,'status',status,'name',name,
+    'created_at',created_at,'updated_at',clock_timestamp(),'deleted_at',deleted_at,
+    'definition',definition || jsonb_build_object('milestones',jsonb_build_array(jsonb_build_object(
+      'id','new-checkpoint','title','New checkpoint','description','','type','successful-days','targetValue',3,'position',0
+    )))) from public.trackers where id='00000000-0000-4000-8000-000000000822')
+))->>'status','applied'::text,'serialized server sync accepts a unique milestone addition');
+select is((select jsonb_array_length(definition->'milestones') from public.trackers where id='00000000-0000-4000-8000-000000000822'),1,
+  'the accepted milestone is persisted by the normal tracker sync path');
+select is((public.apply_tracker_sync_operation(
+  '00000000-0000-4000-8000-000000000821','00000000-0000-4000-8000-000000000881','tracker',
+  (select server_revision - 1 from public.trackers where id='00000000-0000-4000-8000-000000000822'),
+  (select jsonb_build_object('id',id,'schema_version',schema_version,'kind',kind,'status',status,'name',name,
+    'created_at',created_at,'updated_at',clock_timestamp(),'deleted_at',deleted_at,
+    'definition',definition || jsonb_build_object('milestones',definition->'milestones' || jsonb_build_array(jsonb_build_object(
+      'id','concurrent-checkpoint','title','Concurrent checkpoint','description','','type','successful-days','targetValue',5,'position',1
+    )))) from public.trackers where id='00000000-0000-4000-8000-000000000822')
+))->>'status','conflict'::text,'a stale concurrent append receives a recoverable server conflict');
+select is((select jsonb_array_length(definition->'milestones') from public.trackers where id='00000000-0000-4000-8000-000000000822'),1,
+  'the stale concurrent write does not replace the accepted milestone');
 
 select is((public.apply_tracker_sync_operation(
   '00000000-0000-4000-8000-000000000821','00000000-0000-4000-8000-000000000823','tracker_entry',null,

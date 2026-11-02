@@ -50,6 +50,11 @@ function prospective(before: TrackerDefinition, after: TrackerDefinition, today 
 }
 
 describe('date-effective tracker rule history', () => {
+  it('does not treat materializing the legacy deadline-derived scheduling mode as an evaluation change', () => {
+    const legacy = { ...oldTracker, schemaVersion: 1 as const, scheduling: undefined, deadline: '2026-12-31' }
+    expect(trackerEvaluationChanged(legacy, { ...legacy, schemaVersion: 9, scheduling: { mode: 'calendar' } }, 'UTC')).toBe(false)
+  })
+
   it('builds a v10 baseline from the exact legacy v6 definition without filling missing fields from modern defaults', () => {
     expect(legacyV6Tracker).not.toHaveProperty('streakRule')
     expect(legacyV6Tracker).not.toHaveProperty('streakRuleMode')

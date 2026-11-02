@@ -18,6 +18,7 @@ import { trackerSetupSchema } from './trackerSetupSchema'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calendarDateLabel, localCalendarDate, shiftCalendarDate } from '../shared/localDates'
 import { isTrackerInActivePeriod, trackerActiveStartDate } from '../../domain/trackers/planning'
+import { milestoneAdditionIssue } from '../../domain/trackers/milestones'
 import { formatTrackerNumber } from '../../domain/trackers/formatNumber'
 import { isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
 import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled, isTrackerEditHistorySyncGuardEnabled } from '../../domain/trackers/schemaVersionGate'
@@ -755,11 +756,12 @@ export function TrackerSetupPage() {
         const metricStructure = (tracker: TrackerDefinition) => tracker.metrics.map(({ thresholds: _thresholds, ...metric }) => metric)
         const structural = stableJson(metricStructure(existing)) !== stableJson(metricStructure(checked.data as TrackerDefinition))
           || stableCustomFieldConfiguration(existing.customFields) !== stableCustomFieldConfiguration(checked.data.customFields)
-        const milestonesChanged = stableJson(existing.milestones) !== stableJson(checked.data.milestones)
-        if (milestonesChanged) {
-          setError('Milestone requirements cannot be edited because historical milestone results are not versioned.')
+        const milestoneIssue = milestoneAdditionIssue(existing.milestones, checked.data.milestones)
+        if (milestoneIssue) {
+          setError(milestoneIssue)
           return
         }
+        const milestonesChanged = existing.milestones.length !== checked.data.milestones.length
         if (existing.kind === 'goal' && stableJson(existing.goalPlanning ?? null) !== stableJson(checked.data.goalPlanning ?? null)) {
           setError('Goal plans cannot be edited because historical goal progress is not versioned.')
           return
@@ -780,6 +782,8 @@ export function TrackerSetupPage() {
         const allHistoryReason = dependencyIssue
           ?? (latestCheckInDate !== null && latestCheckInDate > today
             ? 'A future-dated check-in must remain ahead of the new rule boundary.'
+            : milestonesChanged
+              ? 'Save milestone additions separately. They apply prospectively and cannot be combined with all-history recalculation.'
             : structural
               ? addedMeasure ? 'This measure wasn’t available for earlier check-ins.' : 'Measure identity, type, unit, precision, checklist, or check-in fields changed.'
               : !ruleOnly
@@ -1022,7 +1026,7 @@ export function TrackerSetupPage() {
               <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               {(configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled() && <p className="field-hint" role="note">Streak rules need the schema v8 migration and production flag before these changes can be saved.</p>}
               <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} customFieldsWithHistory={customFieldsWithHistory} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
-              <details className="advanced-subsection" data-ai-capability="goals.milestones"><summary>Milestones</summary>{milestoneV9WriteBlocked && <p className="field-hint" role="note">Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 before they can be saved in production.</p>}<TrackerConfigurationEditor section="milestones" milestoneContext={milestoneContext} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection" data-ai-capability="goals.milestones"><summary>Milestones</summary>{milestoneV9WriteBlocked && <p className="field-hint" role="note">Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 before they can be saved in production.</p>}<TrackerConfigurationEditor section="milestones" milestoneContext={milestoneContext} immutableMilestoneIds={existing?.milestones.map((milestone) => milestone.id)} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
             </div>
           </details>
           {selectedKind === 'goal' && <details data-ai-capability="goals.planning" className="goal-plan-setup" open={existing?.kind === 'goal'}><summary><span><strong>Plan targets and pace</strong><small>Choose a daily target or a total to reach by a deadline</small></span><span className="advanced-toggle" aria-hidden="true">＋</span></summary><GoalPlanningEditor metrics={configuration.metrics} planning={planningForEditor} deadline={selectedDeadline} onChange={changeGoalPlanning} /></details>}

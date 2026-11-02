@@ -41,7 +41,10 @@ export function trackerEvaluationSignature(evaluation: Partial<TrackerEvaluation
     schedule: evaluation.schedule ?? null,
     startDate: evaluation.startDate ?? null,
     deadline: evaluation.deadline ?? null,
-    scheduling: evaluation.scheduling ?? null,
+    // Typed milestone schema upgrades materialize the legacy deadline-derived
+    // mode. Treat that explicit value as the equivalent legacy setting so an
+    // append-only milestone edit does not spuriously invoke rule history policy.
+    scheduling: evaluation.scheduling ?? { mode: evaluation.deadline ? 'calendar' : 'ongoing' },
     // Capture every measure, including retired/unreferenced measures. Structural
     // edits change which values can be recorded and must create a date boundary.
     metrics: (evaluation.metrics ?? []).map((metric) => ({

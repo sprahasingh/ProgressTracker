@@ -148,8 +148,8 @@ select is((select current_xp from public.progression_award_state where user_id='
   and award_key=md5('00000000-0000-4000-8000-000000009101:perfect-day:2026-10-31')::uuid),20,
   'the append-only award state records the canonical generation');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000009101'
-  and achievement_id='perfect-day' and event_type='unlocked'),0::bigint,
-  'the pre-cutover October 31 repair does not fabricate a repeatable badge occurrence');
+  and achievement_id='perfect-day' and event_type='unlocked'),1::bigint,
+  'the supported post-cutover October 31 repair unlocks its Perfect Day achievement');
 select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000009101'
   and reason_code='DAILY_CHECK_IN_COMPLETED' and effective_date='2026-10-31'),3::bigint,
   'Perfect Day recovery leaves ordinary check-in awards unchanged');
@@ -167,8 +167,8 @@ select is((select count(*) from public.progression_events where user_id='0000000
   and reason_code='PERFECT_DAY_BONUS' and effective_date='2026-10-31'),1::bigint,
   'repeated refresh does not duplicate the Perfect Day XP event');
 select is((select count(*) from public.progression_achievement_events where user_id='00000000-0000-4000-8000-000000009101'
-  and achievement_id='perfect-day' and event_type='unlocked'),0::bigint,
-  'repeated refresh preserves the pre-cutover badge boundary');
+  and achievement_id='perfect-day' and event_type='unlocked'),1::bigint,
+  'repeated refresh preserves exactly one Perfect Day achievement occurrence');
 select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000009102'
   and reason_code='PERFECT_DAY_BONUS' and effective_date='2026-10-31'),1::bigint,
   'global worker independently repairs the second owner’s own qualifying date');
@@ -202,8 +202,8 @@ select is((select count(*) from cron.job where jobname='progress-tracker-current
   'future-date reconciliation is installed as an active five-minute local-date worker');
 
 select is((select qualification_details->>'status' from public.progression_achievement_progress
-  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-week'),'unavailable'::text,
-  'an unsupported date in the current week remains unavailable');
+  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-week'),'in_progress'::text,
+  'the configured current week is available and remains in progress');
 select is((select (qualification_details->>'target')::integer from public.progression_achievement_progress
   where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-month'),
   extract(day from (date_trunc('month',current_date::timestamp)+interval '1 month'-interval '1 day'))::integer,

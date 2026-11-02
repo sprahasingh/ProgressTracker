@@ -375,7 +375,7 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
     const integrationClient = client
     const integrationUserId = userId
     if (!integrationClient || !integrationUserId) throw new Error('Progression integration session was not initialized.')
-    const replaceGoalMilestonesAtServer = async (milestones: StoredTrackerDefinition['milestones']) => {
+    const proposeGoalMilestonesAtServer = async (milestones: StoredTrackerDefinition['milestones']) => {
       const current = await integrationClient.from('trackers').select('*').eq('user_id', integrationUserId).eq('id', goalTracker.id).single()
       if (current.error || !current.data) throw new Error(`Could not read the goal milestone fixture: ${current.error?.message ?? 'missing tracker'}`)
       const updatedAt = new Date().toISOString()
@@ -392,37 +392,25 @@ const suite = describe.skipIf(!enabled)('live local Supabase progression synchro
         },
       })
       expect(result.error).toBeNull()
-      expect(result.data).toMatchObject({ status: 'applied' })
-      // The server API supports correction-safe milestone reversal; the current
-      // editor deliberately blocks this unversioned historical definition edit.
-      await expect(synchronizeWorkspace(integrationUserId, integrationClient)).resolves.toMatchObject({ failed: 0 })
+      return result.data
     }
 
-    // Removing the configured stable ID must reverse its award, revoke the
-    // derived badge, and leave its historical event and reversal relationship.
-    await replaceGoalMilestonesAtServer([])
-    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
-    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${firstMilestoneEvent}';`)).toBe('1')
-    expect(await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)).toBe('0')
-    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${userId}' AND achievement_id='milestone-maker' AND event_type='revoked';`)).toBe('1')
+    const addedMilestone = {
+      id: 'checkpoint-100', title: 'Reach one hundred', description: '', type: 'cumulative-quantity' as const,
+      metricId: 'pages', measureTypeSnapshot: 'quantity' as const, unitSnapshot: 'pages', targetValue: 100, position: 1,
+    }
+    const locallyEditedGoal = await localRepository.getTracker(goalTracker.id)
+    if (!locallyEditedGoal) throw new Error('The local goal fixture disappeared before its milestone addition.')
+    await localRepository.saveTracker({ ...locallyEditedGoal, schemaVersion: 9, milestones: [...locallyEditedGoal.milestones, addedMilestone] })
+    await expect(synchronizeWorkspace(integrationUserId, integrationClient)).resolves.toMatchObject({ uploaded: 1, failed: 0, conflicts: 0 })
+    expect(await queryLocalDatabase(`SELECT current_xp || ':' || current_event_id FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND award_key=md5('${userId}:goal-tracker-milestone:${goalTracker.id}:checkpoint-10')::uuid;`)).toBe(`25:${firstMilestoneEvent}`)
+    expect(await queryLocalDatabase(`SELECT progress FROM public.progression_achievement_progress WHERE user_id='${userId}' AND achievement_id='milestone-maker';`)).toBe(milestoneAchievementBeforeEdit)
+    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_achievement_events WHERE user_id='${userId}' AND achievement_id='milestone-maker' AND event_type='revoked';`)).toBe('0')
 
-    // Clearing the target is explicit ineligibility too. Restoring the same ID
-    // creates a new generation rather than duplicating or reviving old credit.
-    const milestone = goalTracker.milestones[0]!
-    await replaceGoalMilestonesAtServer([milestone])
-    const secondMilestoneEvent = await queryLocalDatabase(`SELECT current_event_id FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE' AND current_xp>0;`)
-    expect(await queryLocalDatabase(`SELECT generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('3')
-    const targetless = { ...milestone }
-    delete targetless.targetValue
-    await replaceGoalMilestonesAtServer([targetless])
-    expect(await queryLocalDatabase(`SELECT current_xp FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('0')
-    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events WHERE user_id='${userId}' AND reason_code='AWARD_REVERSAL' AND reverses_event_id='${secondMilestoneEvent}';`)).toBe('1')
-
-    await replaceGoalMilestonesAtServer([milestone])
-    expect(await queryLocalDatabase(`SELECT current_xp || ':' || generation FROM public.progression_award_state WHERE user_id='${userId}' AND tracker_id='${goalTracker.id}' AND reason_code='GOAL_MILESTONE';`)).toBe('25:5')
-    const milestoneEventCount = await queryLocalDatabase(`SELECT count(*) FROM public.progression_events e JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' AND s.tracker_id='${goalTracker.id}' AND e.reason_code='GOAL_MILESTONE';`)
-    await queryLocalDatabase(`SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid); SELECT public.reconcile_progression_goal_tracker('${userId}'::uuid,'${goalTracker.id}'::uuid);`)
-    expect(await queryLocalDatabase(`SELECT count(*) FROM public.progression_events e JOIN public.progression_event_sources s ON s.user_id=e.user_id AND s.event_id=e.id WHERE e.user_id='${userId}' AND s.tracker_id='${goalTracker.id}' AND e.reason_code='GOAL_MILESTONE';`)).toBe(milestoneEventCount)
+    // Another client cannot edit or remove a saved requirement, even when it
+    // bypasses this frontend and submits directly through the server RPC.
+    expect(await proposeGoalMilestonesAtServer([goalTracker.milestones[0]!])).toMatchObject({ status: 'conflict' })
+    expect(await proposeGoalMilestonesAtServer([])).toMatchObject({ status: 'conflict' })
 
     const fieldTracker: StoredTrackerDefinition = {
       ...tracker, id: crypto.randomUUID(), name: 'Custom field server guard',
