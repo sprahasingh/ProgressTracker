@@ -482,7 +482,7 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
       await assertCurrentSession(client, userId)
       if (operation.entity === 'tracker'
         && (operation.payload as StoredTrackerDefinition).ruleVersions?.some((version) => version.historyPolicy)
-        && !await hasTrackerEditSyncGuardsContract()) {
+        && !await hasTrackerEditSyncGuardsContract(() => client.rpc('tracker_edit_sync_guards_contract', {}))) {
         throw new Error('The sync server does not advertise the tracker edit guard contract. The saved tracker edit remains queued on this device.')
       }
       operation = await markInFlight(database, operation.id)

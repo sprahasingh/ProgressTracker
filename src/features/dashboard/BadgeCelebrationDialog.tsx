@@ -10,6 +10,7 @@ import { InfoButton } from '../../components/ui/InfoButton'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { calculateProgressionLevel } from '../../domain/trackers/progressionModel'
 import { measureDevPerformance } from '../../utils/devPerformance'
+import { formatAchievementCalendarDate, formatAchievementTimestamp, presentAchievementDate } from './achievementDatePresentation'
 
 type Celebration = AchievementHistoryEvent & { repeatable: boolean }
 type LevelCelebration = { kind: 'level'; id: string; fromLevel: number; toLevel: number; confirmedXp: number }
@@ -222,7 +223,15 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
     : 'New Achievements Unlocked!'
   const ordinal = (count: number) => `${count}${count % 100 >= 11 && count % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[count % 10] ?? 'th'}`
   const occurrenceLabel = (event: Celebration, name: string) => event.tier === 1 ? 'First Unlock' : badgeCelebrationLevel(event.repeatable, event.tier) === 'milestone' ? `${ordinal(event.tier)} ${name}!` : `Earned for the ${ordinal(event.tier)} time`
-  const earnedAt = (event: Celebration) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(event.recordedAt))
+  const datePresentation = (event: Celebration) => presentAchievementDate(event)
+  const primaryDate = (event: Celebration) => {
+    const presentation = datePresentation(event)
+    return `${presentation.label} · ${presentation.date ? formatAchievementCalendarDate(presentation.date) : formatAchievementTimestamp(presentation.recordedAt, timeZone)}`
+  }
+  const confirmationDate = (event: Celebration) => {
+    const presentation = datePresentation(event)
+    return presentation.date ? `${presentation.recordedAtLabel} · ${formatAchievementTimestamp(presentation.recordedAt, timeZone)}` : null
+  }
   const index = queue.findIndex((item) => item.id === current.id)
   const title = singleAward ? firstDefinition?.name ?? 'Achievement' : `${awards.length} achievements unlocked`
   return createPortal(<div ref={backdropRef} className="modal-backdrop progression-dialog-backdrop badge-celebration-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
@@ -244,7 +253,8 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
           <ProgressionBadge achievementId={firstEvent.achievementId} tier={firstEvent.tier} size="large" />
           <p>{firstDefinition?.description ?? 'A new achievement was confirmed.'}</p>
           <p className="badge-celebration-occurrence">{occurrenceLabel(firstEvent, firstDefinition?.name ?? 'Achievement')}{firstEvent.repeatable && firstEvent.tier > 1 ? ` · ${firstEvent.tier} valid awards` : ''}</p>
-          <p className="badge-celebration-earned">Earned {earnedAt(firstEvent)}{firstEvent.sourceDate ? ` · qualifying date ${firstEvent.sourceDate}` : ''}</p>
+          <p className="badge-celebration-earned">{primaryDate(firstEvent)}</p>
+          {confirmationDate(firstEvent) && <p className="badge-celebration-confirmed">{confirmationDate(firstEvent)}</p>}
           <p className="badge-celebration-xp">{firstEvent.rewardXpDelta !== null && firstEvent.rewardXpDelta > 0 ? `+${firstEvent.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p>
           <div className="badge-celebration-actions"><button className="button button-primary button-medium" onClick={close}>{queue.length > 1 ? 'Next' : 'Finish'}</button>{queue.length > 1 && <button className="button button-quiet button-medium" onClick={finish}>Dismiss remaining</button>}</div>
         </div>
@@ -258,7 +268,8 @@ export function BadgeCelebrationMonitor({ userId }: { userId: string }) {
                   <div className="badge-celebration-title-row"><h3>{name}</h3><InfoButton title={name} label={`About ${name} celebration`} compact summary={definition?.description ?? 'A new achievement was confirmed.'} description={`${definition?.requirement ?? 'This achievement has been confirmed.'} ${event.repeatable ? 'This badge is repeatable.' : 'This badge can be earned once.'}`} /></div>
                   <p>{definition?.description ?? 'A new achievement was confirmed.'}</p>
                   <p className="badge-celebration-occurrence">{occurrenceLabel(event, name)}{event.repeatable && event.tier > 1 ? ` · ${event.tier} valid awards` : ''}</p>
-                  <p className="badge-celebration-earned">Earned {earnedAt(event)}{event.sourceDate ? ` · qualifying date ${event.sourceDate}` : ''}</p>
+                  <p className="badge-celebration-earned">{primaryDate(event)}</p>
+                  {confirmationDate(event) && <p className="badge-celebration-confirmed">{confirmationDate(event)}</p>}
                   <p className="badge-celebration-xp">{event.rewardXpDelta !== null && event.rewardXpDelta > 0 ? `+${event.rewardXpDelta} XP confirmed` : 'No XP awarded for this achievement'}</p>
                 </div>
               </li>

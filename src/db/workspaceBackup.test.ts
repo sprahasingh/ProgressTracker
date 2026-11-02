@@ -40,10 +40,12 @@ describe('workspace backups', () => {
       metrics: [{ id: 'pages', name: 'Pages', valueType: 'quantity' as const, unit: 'pages', thresholds: { direction: 'increase' as const, target: 5, streakQualification: 'target' as const } }],
       qualificationRule: { kind: 'threshold' as const, metricId: 'pages', level: 'target' as const }, streakRuleMode: 'same-as-success' as const, strictMode: false,
     }
-    const edited: TrackerDefinition = { ...base, metrics: [{ ...base.metrics[0]!, thresholds: { direction: 'decrease', target: 3, streakQualification: 'target' } }] }
-    const versioned = versionTrackerRuleChange({ before: base, after: edited, application: 'apply-from-today', today: '2026-01-02', historyStartDate: '2026-01-01', recordedAt: '2026-01-02T00:00:00.000Z' })
+    const baseline = versionTrackerRuleChange({ before: base, after: base, application: 'apply-from-today', today: '2026-01-02', historyStartDate: '2026-01-01', effectiveFrom: '2026-01-02', recordedAt: '2026-01-02T00:00:00.000Z' })
+    const edited: TrackerDefinition = { ...baseline, metrics: [{ ...base.metrics[0]!, thresholds: { direction: 'decrease', target: 3, streakQualification: 'target' } }] }
+    await localRepository.saveTracker(baseline as never)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: baseline.id, date: '2026-01-01', outcome: 'recorded', values: { pages: 4 }, note: 'unchanged raw value' })
+    const versioned = versionTrackerRuleChange({ before: baseline, after: edited, application: 'recalculate-all-history', today: '2026-01-02', historyStartDate: '2026-01-01', recordedAt: '2026-01-02T00:00:00.000Z' })
     await localRepository.saveTracker(versioned as never)
-    const entry = await localRepository.saveTrackerEntry({ trackerId: versioned.id, date: '2026-01-01', outcome: 'recorded', values: { pages: 4 }, note: 'unchanged raw value' })
 
     const backup = await createWorkspaceBackup(accountId)
     await emptyActiveAccountExceptMetadata()

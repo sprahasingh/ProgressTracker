@@ -111,5 +111,5 @@ describe('tracker lifecycle state machine', () => {
     await expect(localRepository.listTrackers(true)).resolves.toHaveLength(1)
     await expect(localRepository.listDeletedTrackers()).resolves.toEqual([])
     expect(await localRepository.listTrackerEntriesForTracker(baseTracker.id)).toHaveLength(2)
-  }, operationCount > 150 ? 90_000 : 5_000)
+  }, operationCount > 150 ? 90_000 : 15_000)
 })

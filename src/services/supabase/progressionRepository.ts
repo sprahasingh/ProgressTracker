@@ -58,6 +58,9 @@ export type AchievementQualificationDetails = {
   period_start?: string
   period_end?: string
   percentage?: number
+  pending_reconciliation?: boolean
+  pending_dates?: number
+  pending_message?: string | null
 }
 
 export type AchievementHistoryEvent = {

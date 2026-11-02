@@ -49,6 +49,10 @@ function semanticSignature(metric: TrackerMetricDefinition): string {
     name: metric.name,
     valueType: metric.valueType,
     unit: metric.unit ?? null,
+    // Precision changes affect which historical values are valid inputs. An
+    // all-history edit collapses snapshots, so it must not silently make a
+    // later precision effective for dates that used another precision.
+    precision: metric.precision ?? null,
     // Thresholds are the evaluation policy being changed. They may be safely
     // recalculated against raw historical values; identity and value meaning
     // below must remain stable across snapshots.
@@ -69,6 +73,14 @@ export function historicalRuleDependencyIssue(before: TrackerDefinition, after: 
     return 'Historical measure settings can’t be verified.'
   }
   const dependencies = ruleDependencies(after)
+  const proposedMetrics = new Map(after.metrics.map((metric) => [metric.id, metric]))
+  // All-history can change thresholds on measures that are not explicitly
+  // referenced by Success or Streak rules. Those affected measures still need
+  // compatible date-effective input semantics before their snapshots collapse.
+  for (const metric of before.metrics) {
+    const proposed = proposedMetrics.get(metric.id)
+    if (JSON.stringify(metric.thresholds ?? null) !== JSON.stringify(proposed?.thresholds ?? null)) dependencies.add(metric.id)
+  }
   const milestones = before.milestones ?? []
   const goalPlanDependencies = new Set([
     ...Object.keys(before.goalPlanning?.progressSemantics ?? {}),
@@ -80,7 +92,7 @@ export function historicalRuleDependencyIssue(before: TrackerDefinition, after: 
   for (const metricId of goalPlanDependencies) dependencies.add(metricId)
   for (const milestone of milestones) if (milestone.metricId) dependencies.add(milestone.metricId)
 
-  const proposed = new Map(after.metrics.map((metric) => [metric.id, metric]))
+  const proposed = proposedMetrics
   const evaluations: Array<Pick<TrackerEvaluationSnapshot, 'metrics'>> = before.ruleVersions?.length
     ? before.ruleVersions.map(({ evaluation }) => evaluation)
     : [{ metrics: before.metrics }]

@@ -26,6 +26,7 @@ import { countDevPerformance, measureDevPerformance } from '../../utils/devPerfo
 import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
 import { hasPositiveProgress } from '../../domain/trackers/activityStatus'
 import { resolveRewardAttribution } from '../../domain/trackers/rewardAttribution'
+import { formatAchievementCalendarDate, formatAchievementTimestamp, presentAchievementDate } from './achievementDatePresentation'
 
 type PageData = {
   overview: ProgressionOverview
@@ -127,34 +128,18 @@ function achievementProgressLabel(badge: AchievementState, progressUnit: string)
     : `${progress} / ${badge.target} ${progressUnit}`
 }
 
-function badgeEarnedDate(badge: AchievementState) {
-  const occurrences = activeAchievementOccurrences(badge.history)
-  const byDate = (event: AchievementState['history'][number]) => event.sourceDate ?? event.recordedAt.slice(0, 10)
-  if (!badge.repeatable) return occurrences.map(byDate).sort()[0] ?? badge.firstEarnedAt?.slice(0, 10) ?? badge.unlockedAt?.slice(0, 10) ?? null
-  return occurrences.map(byDate).sort().at(-1) ?? badge.lastEarnedAt?.slice(0, 10) ?? badge.unlockedAt?.slice(0, 10) ?? null
-}
-
 function formatCalendarDate(date: string) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00.000Z`))
 }
 
-function badgeOccurrencePeriod(badge: AchievementState, event: AchievementState['history'][number]) {
-  const reference = event.sourceReference ?? {}
-  if (badge.achievementId === 'perfect-month' && typeof reference.month === 'string' && /^\d{4}-\d{2}$/.test(reference.month)) {
-    const [year = 0, month = 1] = reference.month.split('-').map(Number)
-    return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15)))
-  }
-  if (badge.achievementId === 'perfect-week' && typeof reference.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(reference.week)) {
-    const start = reference.week
-    const end = shiftCalendarDate(start as CalendarDate, 6)
-    return `${formatCalendarDate(start)} – ${formatCalendarDate(end)}`
-  }
-  if (badge.achievementId === 'perfect-year' && typeof reference.year === 'number') return String(reference.year)
-  return event.sourceDate ? formatCalendarDate(event.sourceDate) : formatCalendarDate(event.recordedAt.slice(0, 10))
+function formatRecordedTimestamp(value: string, timeZone: string) {
+  return formatAchievementTimestamp(value, timeZone)
 }
 
-function formatRecordedTimestamp(value: string) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+function achievementDateMarkup(achievementId: string, event: AchievementState['history'][number], timeZone: string) {
+  const presentation = presentAchievementDate({ ...event, achievementId })
+  return <><span>{presentation.label} · {presentation.date ? formatAchievementCalendarDate(presentation.date) : formatRecordedTimestamp(presentation.recordedAt, timeZone)}</span>
+    {presentation.date && <small>{presentation.recordedAtLabel} · {formatRecordedTimestamp(presentation.recordedAt, timeZone)}</small>}</>
 }
 
 function milestoneEvents(events: readonly ProgressionEvent[]) {
@@ -335,19 +320,12 @@ export function ProgressionAchievementsPage() {
   }, [pageData])
   const calendarBadgeProgressById = useMemo(() => {
     if (!pageData) return new Map<string, CalendarBadgeProgress>()
-    const reversedEventIds = fullyReversedProgressionEventIds(pageData.overview.scoreHistory)
-    const confirmedPerfectDayDates = new Set(pageData.overview.scoreHistory
-      .filter((event) => event.reasonCode === 'PERFECT_DAY_BONUS' && event.xpDelta > 0 && !reversedEventIds.has(event.id))
-      .map((event) => event.effectiveDate))
-    const perfectMonthHistory = pageData.overview.achievements.find((badge) => badge.achievementId === 'perfect-month')?.history ?? []
     return new Map(['perfect-week', 'perfect-month', 'perfect-year'].flatMap((achievementId) => {
       const badge = pageData.overview.achievements.find((item) => item.achievementId === achievementId)
       const progress = calendarBadgeProgress({
         achievementId,
         today,
-        confirmedPerfectDayDates,
-        perfectMonthHistory,
-        qualificationStatus: badge?.qualificationDetails?.status,
+        qualificationDetails: badge?.qualificationDetails,
       })
       return progress ? [[achievementId, progress] as const] : []
     }))
@@ -495,10 +473,11 @@ export function ProgressionAchievementsPage() {
             }}>{recentUnlocks.map(({ badge, event }) => {
               const definition = achievementDefinition(badge.achievementId)!
               const earnedCount = badge.validAwardCount ?? activeAchievementOccurrences(badge.history).length
-              const earnedDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone }).format(new Date(event.recordedAt))
-              return <button type="button" key={badge.achievementId} aria-label={`${definition.name}, achieved ${earnedDate}. Open badge details`} onClick={() => setSelectedBadge(badge)}>
+              const datePresentation = presentAchievementDate(event)
+              const earnedDate = datePresentation.date ? formatAchievementCalendarDate(datePresentation.date) : formatRecordedTimestamp(event.recordedAt, timeZone)
+              return <button type="button" key={badge.achievementId} aria-label={`${definition.name}, achieved · ${datePresentation.label} ${earnedDate}. Open badge details`} onClick={() => setSelectedBadge(badge)}>
                 <ProgressionBadge achievementId={badge.achievementId} tier={badge.repeatable ? Math.max(1, earnedCount) : 1} />
-                <span><strong>{definition.name}</strong><small>Achieved {earnedDate}</small></span>
+                <span><strong>{definition.name}</strong><small>{datePresentation.label} · {earnedDate}</small>{datePresentation.date && <small>{datePresentation.recordedAtLabel} · {formatRecordedTimestamp(event.recordedAt, timeZone)}</small>}</span>
               </button>
             })}</div>
             : <p>Your first confirmed badge will appear here when earned.</p>}
@@ -545,10 +524,10 @@ export function ProgressionAchievementsPage() {
     </ProgressionDetailDialog>}
 
     {allBadgesOpen && pageData && <ProgressionDetailDialog title={selectedBadge ? achievementDefinition(selectedBadge.achievementId)?.name ?? 'Badge details' : 'All badges'} eyebrow="BADGE COLLECTION" onClose={() => { setSelectedBadge(null); setAllBadgesOpen(false) }} onBack={selectedBadge ? () => setSelectedBadge(null) : undefined}>
-      {selectedBadge ? <BadgeDetailContent badge={selectedBadge} trackers={pageData?.trackers ?? []} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} /> : <>
+      {selectedBadge ? <BadgeDetailContent badge={selectedBadge} trackers={pageData?.trackers ?? []} timeZone={timeZone} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} /> : <>
       {pageData.overview.achievements.length === 0
         ? <EmptyState title="Your badge shelf is ready" description="Badges will appear here when achievement data is available." />
-        : <div className="progression-badge-grid">{pageData.overview.achievements.map((badge) => <BadgeCard key={badge.achievementId} badge={badge} calendarProgress={calendarBadgeProgressById.get(badge.achievementId)} onOpen={() => setSelectedBadge(badge)} />)}</div>}
+        : <div className="progression-badge-grid">{pageData.overview.achievements.map((badge) => <BadgeCard key={badge.achievementId} badge={badge} timeZone={timeZone} calendarProgress={calendarBadgeProgressById.get(badge.achievementId)} onOpen={() => setSelectedBadge(badge)} />)}</div>}
       </>}
     </ProgressionDetailDialog>}
 
@@ -587,7 +566,7 @@ export function ProgressionAchievementsPage() {
       <p className="progression-dialog-footnote">For live goal target progress and plan details, open <Link to="/goals" onClick={() => setDetail(null)}>Goals &amp; planning</Link>.</p>
     </ProgressionDetailDialog>}
 
-    {selectedBadge && !allBadgesOpen && <BadgeDetailDialog badge={selectedBadge} trackers={pageData?.trackers ?? []} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} onClose={() => setSelectedBadge(null)} />}
+    {selectedBadge && !allBadgesOpen && <BadgeDetailDialog badge={selectedBadge} trackers={pageData?.trackers ?? []} timeZone={timeZone} calendarProgress={calendarBadgeProgressById.get(selectedBadge.achievementId)} onClose={() => setSelectedBadge(null)} />}
   </section>
 }
 
@@ -622,26 +601,26 @@ function HistoryRow({ item, allEvents = [], trackers = [] }: { item: HistoryItem
   </li>
 }
 
-function BadgeInformation({ badge, calendarProgress }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress }) {
+function BadgeInformation({ badge, calendarProgress, timeZone }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress; timeZone: string }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
   const details = badge.qualificationDetails ?? {}
   const progress = Number.isFinite(details.progress) ? details.progress! : badge.progress
   const target = Number.isFinite(details.target) && details.target! > 0 ? details.target! : badge.target
   const periodBadge = ['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId)
-  const canShowProgress = !periodBadge && !badge.earned && (details.status === 'in_progress' || badge.target > 0)
+  const canShowProgress = !periodBadge && !badge.earned && !['unavailable', 'waiting'].includes(details.status ?? '') && (details.status === 'in_progress' || badge.target > 0)
   const percentage = canShowProgress && target > 0 ? Math.min(100, Math.floor(progress / target * 100)) : null
   const occurrences = activeAchievementOccurrences(badge.history)
   return <div className="badge-information">
     <p>{definition.description}</p><strong>Unlock requirement</strong><p>{definition.requirement}</p>
     {definition.attribution === 'account' && <p className="progression-achievement-attribution">All eligible trackers{badge.achievementId === 'perfect-day' ? ' · This achievement considers all eligible trackers for that date.' : ''}</p>}
     {badge.earned && badge.repeatable && <p>{occurrences.length} active confirmed {occurrences.length === 1 ? 'occurrence' : 'occurrences'}.</p>}
-    {badge.earned && occurrences.length > 0 && <ul className="badge-information-dates">{occurrences.map((event) => <li key={event.id}>{badgeOccurrencePeriod(badge, event)}</li>)}</ul>}
+    {badge.earned && occurrences.length > 0 && <ul className="badge-information-dates">{occurrences.map((event) => <li key={event.id}>{achievementDateMarkup(badge.achievementId, event, timeZone)}</li>)}</ul>}
     {calendarProgress && <CalendarBadgeProgressView achievementName={definition.name} progress={calendarProgress} />}
     {!badge.earned && details.label && !(periodBadge && ['unavailable', 'waiting', 'in_progress'].includes(details.status ?? '')) && <><strong>{details.label}</strong><p>{details.message ?? qualificationStatusLabel(details.status)}</p></>}
     {!badge.earned && !details.label && !periodBadge && <p>Current progress: {progress.toLocaleString()} / {target.toLocaleString()} {definition.progressUnit}.</p>}
     {canShowProgress && percentage !== null && <><div className="badge-information-progress-label"><span>{progress.toLocaleString()} / {target.toLocaleString()}</span><strong>{percentage}%</strong></div><span className="progression-level-track" role="progressbar" aria-label={`${definition.name} qualification progress`} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={target}><span style={{ width: `${percentage}%` }} /></span></>}
-    {periodBadge && details.status !== 'unavailable' && details.period_start && details.period_end && <p>Period: {formatCalendarDate(details.period_start)} – {formatCalendarDate(details.period_end)} (account timezone)</p>}
+    {periodBadge && details.period_start && details.period_end && <p>Period: {formatCalendarDate(details.period_start)} – {formatCalendarDate(details.period_end)} (account timezone)</p>}
     <BadgeRewardExplanation achievementId={badge.achievementId} />
   </div>
 }
@@ -652,25 +631,36 @@ function BadgeRewardExplanation({ achievementId }: { achievementId: AchievementS
 }
 
 function qualificationStatusLabel(status: string | undefined) {
-  if (status === 'failed' || status === 'ineligible') return 'This period was not achieved.'
-  if (status === 'unavailable' || status === 'waiting') return 'Awaiting reliable confirmation.'
+  if (status === 'failed' || status === 'ineligible') return 'This period can no longer qualify.'
+  if (status === 'unavailable') return 'This period cannot be verified from the available history.'
+  if (status === 'waiting') return 'Waiting for server confirmation.'
   if (status === 'qualified') return 'Period completed and qualified.'
   return 'Current period is still in progress.'
 }
 
+function calendarStatusLabel(status: CalendarBadgeProgress['status']) {
+  if (status === 'failed') return 'Period failed'
+  if (status === 'unavailable') return 'Progress unavailable'
+  if (status === 'waiting') return 'Waiting for confirmation'
+  if (status === 'earned') return 'Period earned'
+  return 'In progress'
+}
+
 function CalendarBadgeProgressView({ achievementName, progress }: { achievementName: string; progress: CalendarBadgeProgress }) {
-  const percentage = Math.min(100, Math.floor(progress.progress / progress.target * 100))
+  const percentage = progress.progress === null ? null : Math.min(100, Math.floor(progress.progress / progress.target * 100))
   return <div className="progression-calendar-progress">
-    <strong>Current confirmed progress</strong>
+    <strong>{calendarStatusLabel(progress.status)}</strong>
     <p>{progress.label}</p>
-    {progress.secondaryLabel && <p>{progress.secondaryLabel}</p>}
-    <span className="progression-level-track" role="progressbar" aria-label={`${achievementName} confirmed calendar progress`} aria-valuenow={progress.progress} aria-valuemin={0} aria-valuemax={progress.target} aria-valuetext={progress.label}><span style={{ width: `${percentage}%` }} /></span>
-    <p className="progression-calendar-progress-note">Progress counts confirmed Perfect Days; badge unlocks still require the full calendar period.</p>
-    {progress.unavailableMessage && <p className="progression-calendar-progress-note">{progress.unavailableMessage}</p>}
+    {progress.progress !== null && percentage !== null && <span className="progression-level-track" role="progressbar" aria-label={`${achievementName} confirmed calendar progress`} aria-valuenow={progress.progress} aria-valuemin={0} aria-valuemax={progress.target} aria-valuetext={progress.label}><span style={{ width: `${percentage}%` }} /></span>}
+    {progress.status === 'in_progress' && <p className="progression-calendar-progress-note">Progress counts confirmed Perfect Days; badge unlocks still require the full calendar period.</p>}
+    {progress.pendingReconciliation && <p className="progression-calendar-progress-note" role="status">{progress.pendingMessage ?? 'Historical dates are queued for server verification. The progress shown includes confirmed dates only.'}</p>}
+    {progress.status === 'failed' && <p className="progression-calendar-progress-note">This period cannot earn the badge. Progress starts again in the next calendar period.</p>}
+    {(progress.status === 'unavailable' || progress.status === 'waiting') && <p className="progression-calendar-progress-note">{progress.message ?? (progress.status === 'unavailable' ? 'Some dates cannot be verified from available history. They are not counted as failed.' : 'Waiting for server confirmation.')}</p>}
+    {progress.message && progress.status === 'failed' && <p className="progression-calendar-progress-note">{progress.message}</p>}
   </div>
 }
 
-function BadgeCard({ badge, calendarProgress, onOpen }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress; onOpen: () => void }) {
+function BadgeCard({ badge, calendarProgress, timeZone, onOpen }: { badge: AchievementState; calendarProgress?: CalendarBadgeProgress; timeZone: string; onOpen: () => void }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
   const occurrences = activeAchievementOccurrences(badge.history)
@@ -679,11 +669,12 @@ function BadgeCard({ badge, calendarProgress, onOpen }: { badge: AchievementStat
   const tier = earned && badge.repeatable ? Math.max(1, earnedCount) : earned ? 1 : Math.max(1, badge.currentTier + 1)
   const details = badge.qualificationDetails
   const periodBadge = ['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId)
-  const unavailable = !calendarProgress && (details?.status === 'unavailable' || details?.status === 'waiting' || periodBadge)
+  const unavailable = details?.status === 'unavailable' || details?.status === 'waiting'
+    || periodBadge && (!calendarProgress || calendarProgress.status === 'unavailable' || calendarProgress.status === 'waiting')
   let meterValue = details?.progress ?? badge.progress
   let meterTarget = details?.target ?? badge.target
   if (calendarProgress) {
-    meterValue = calendarProgress.progress
+    meterValue = calendarProgress.progress ?? Number.NaN
     meterTarget = calendarProgress.target
   }
   if (badge.achievementId === 'consistency-star' && Number.isFinite(details?.eligible_days) && Number.isFinite(details?.eligible_days_target) && details!.eligible_days_target! > 0) {
@@ -694,50 +685,66 @@ function BadgeCard({ badge, calendarProgress, onOpen }: { badge: AchievementStat
     meterValue = Math.min(eligiblePercent, adherencePercent)
     meterTarget = 100
   }
-  const percentageAvailable = Boolean(calendarProgress) || earned || !unavailable && Number.isFinite(meterValue) && Number.isFinite(meterTarget) && meterTarget > 0
-  const meterPercent = calendarProgress ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100))) : earned ? 100 : percentageAvailable ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100))) : null
-  const visibleProgressLabel = calendarProgress?.label.replace(/ confirmed days$/, ' days') ?? (meterPercent === null ? '—' : `${meterPercent}%`)
-  const statusLabel = earned ? earnedCount > 1 ? `Unlocked (${earnedCount})` : 'Unlocked' : 'Locked'
+  const percentageAvailable = Boolean(calendarProgress?.progress !== null && calendarProgress) || (!periodBadge && (earned || !unavailable && Number.isFinite(meterValue) && Number.isFinite(meterTarget) && meterTarget > 0))
+  const meterPercent = calendarProgress?.progress === null
+    ? null
+    : calendarProgress
+      ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100)))
+      : earned ? 100 : percentageAvailable ? Math.min(100, Math.max(0, Math.floor(meterValue / meterTarget * 100))) : null
+  const visibleProgressLabel = calendarProgress
+    ? calendarProgress.progress === null ? '—' : calendarProgress.label.replace(/ confirmed days$/, ' days')
+    : meterPercent === null ? '—' : `${meterPercent}%`
+  const statusLabel = earned
+    ? earnedCount > 1 ? `Unlocked (${earnedCount})` : 'Unlocked'
+    : periodBadge && calendarProgress ? calendarStatusLabel(calendarProgress.status) : 'Locked'
+  const pendingRepair = periodBadge && (calendarProgress?.pendingReconciliation ?? details?.pending_reconciliation)
   return <div className="progression-badge-card-shell">
     <button type="button" className={`progression-badge-card${earned ? ' is-earned' : ' is-locked'}`} onClick={onOpen} aria-label={`${definition.name}, ${earned ? `earned, ${statusLabel.toLowerCase()}` : 'locked'}, ${calendarProgress?.label ?? (meterPercent === null ? 'progress unavailable' : `${meterPercent}% progress`)}. View badge details`}>
       <ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!earned} />
       <strong>{definition.name}</strong><span>{statusLabel}</span>
       <span className={`progression-badge-percent${meterPercent === null ? ' is-unavailable' : ''}`} aria-label={calendarProgress?.label ?? (meterPercent === null ? 'Progress unavailable' : `${meterPercent}% progress`)}>{visibleProgressLabel}</span>
+      {pendingRepair && <small className="progression-calendar-progress-note" role="status">Historical verification pending</small>}
     </button>
-    <InfoButton title={`${definition.name} badge information`} label={`More about ${definition.name}`} compact content={<BadgeInformation badge={badge} calendarProgress={calendarProgress} />} />
+    <InfoButton title={`${definition.name} badge information`} label={`More about ${definition.name}`} compact content={<BadgeInformation badge={badge} calendarProgress={calendarProgress} timeZone={timeZone} />} />
   </div>
 }
 
-function BadgeDetailDialog({ badge, trackers, calendarProgress, onClose }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress; onClose: () => void }) {
+function BadgeDetailDialog({ badge, trackers, calendarProgress, timeZone, onClose }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress; timeZone: string; onClose: () => void }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
-  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}><BadgeDetailContent badge={badge} trackers={trackers} calendarProgress={calendarProgress} /></ProgressionDetailDialog>
+  return <ProgressionDetailDialog title={definition.name} eyebrow="ACHIEVEMENT BADGE" onClose={onClose}><BadgeDetailContent badge={badge} trackers={trackers} calendarProgress={calendarProgress} timeZone={timeZone} /></ProgressionDetailDialog>
 }
 
-function BadgeDetailContent({ badge, trackers, calendarProgress }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress }) {
+function BadgeDetailContent({ badge, trackers, calendarProgress, timeZone }: { badge: AchievementState; trackers: StoredTrackerDefinition[]; calendarProgress?: CalendarBadgeProgress; timeZone: string }) {
   const definition = achievementDefinition(badge.achievementId)
   if (!definition) return null
   const repeatable = badge.repeatable
   const occurrences = activeAchievementOccurrences(badge.history)
   const earnedCount = badge.validAwardCount ?? occurrences.length
   const tier = badge.earned && repeatable ? Math.max(1, earnedCount) : Math.max(1, badge.currentTier + (badge.earned ? 0 : 1))
-  const earnedDate = badgeEarnedDate(badge)
+  const orderedOccurrences = [...occurrences].sort((left, right) => {
+    const leftPresentation = presentAchievementDate({ ...left, achievementId: badge.achievementId })
+    const rightPresentation = presentAchievementDate({ ...right, achievementId: badge.achievementId })
+    return (leftPresentation.date ?? left.recordedAt.slice(0, 10)).localeCompare(rightPresentation.date ?? right.recordedAt.slice(0, 10))
+      || left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id)
+  })
+  const firstOccurrence = repeatable ? orderedOccurrences.at(-1) : orderedOccurrences[0]
   const consistencyDetails = consistencyProgress(badge)
   return <>
     <div className="progression-badge-detail"><ProgressionBadge achievementId={badge.achievementId} tier={tier} locked={!badge.earned} size="large" /><div><span className={`progression-status-pill${badge.earned ? ' is-earned' : ''}`}>{badge.earned ? 'Unlocked' : 'Locked'}</span>{badge.earned && repeatable && <span className="progression-status-pill is-tier">Earned {earnedCount === 1 ? 'once' : `${earnedCount} times`}</span>}<p>{definition.description}</p></div></div>
     <div className="progression-badge-requirement"><strong>Unlock requirement</strong><p>{definition.requirement}</p></div>
     {definition.attribution === 'account' && <div className="progression-badge-requirement progression-achievement-attribution"><strong>All eligible trackers</strong>{badge.achievementId === 'perfect-day' && <p>This achievement considers all eligible trackers for that date.</p>}</div>}
-    {calendarProgress && <div className="progression-badge-requirement progression-calendar-progress"><strong>Current confirmed progress</strong><p>{calendarProgress.label}</p>{calendarProgress.secondaryLabel && <p>{calendarProgress.secondaryLabel}</p>}<span className="progression-level-track" role="progressbar" aria-label={`${definition.name} confirmed calendar progress`} aria-valuenow={calendarProgress.progress} aria-valuemin={0} aria-valuemax={calendarProgress.target} aria-valuetext={calendarProgress.label}><span style={{ width: `${Math.min(100, calendarProgress.progress / calendarProgress.target * 100)}%` }} /></span><p className="progression-calendar-progress-note">Progress counts confirmed Perfect Days; badge unlocks still require the full calendar period.</p>{calendarProgress.unavailableMessage && <p className="progression-calendar-progress-note">{calendarProgress.unavailableMessage}</p>}</div>}
+    {calendarProgress && <div className="progression-badge-requirement"><strong>Current confirmed progress</strong><CalendarBadgeProgressView achievementName={definition.name} progress={calendarProgress} /></div>}
     {badge.achievementId === 'consistency-star' && <div className="progression-badge-requirement progression-consistency-qualification"><strong>Qualification progress</strong>{consistencyDetails ? <><p>{consistencyDetails.eligibleDays}</p><p>{consistencyDetails.adherence}</p></> : <p>Authoritative qualification progress is unavailable.</p>}</div>}
-    {badge.earned && earnedDate && !repeatable && <p className="progression-unlock-date">Earned · {formatCalendarDate(earnedDate)}</p>}
-    {badge.earned && repeatable && <div className="progression-badge-occurrence-summary"><strong>{occurrences.length} confirmed unlock{occurrences.length === 1 ? '' : 's'}</strong><ul className="progression-badge-earned-periods">{occurrences.map((event) => <li key={event.id}>{badgeOccurrencePeriod(badge, event)}</li>)}</ul></div>}
+    {badge.earned && !repeatable && firstOccurrence && <p className="progression-unlock-date">{achievementDateMarkup(badge.achievementId, firstOccurrence, timeZone)}</p>}
+    {badge.earned && repeatable && <div className="progression-badge-occurrence-summary"><strong>{occurrences.length} confirmed unlock{occurrences.length === 1 ? '' : 's'}</strong><ul className="progression-badge-earned-periods">{occurrences.map((event) => <li key={event.id}>{achievementDateMarkup(badge.achievementId, event, timeZone)}</li>)}</ul></div>}
     <BadgeRewardExplanation achievementId={badge.achievementId} />
     {!badge.earned && !['perfect-day', 'perfect-week', 'perfect-month', 'perfect-year', 'the-comeback', 'milestone-maker', 'goal-crusher', 'consistency-star'].includes(badge.achievementId) && <div className="progression-badge-detail-progress"><div><span>Progress</span><strong>{achievementProgressLabel(badge, definition.progressUnit)}</strong></div><span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.progress / badge.target * 100)}%` }} /></span></div>}
     {badge.qualificationDetails?.label && badge.achievementId !== 'consistency-star' && !['perfect-week', 'perfect-month', 'perfect-year'].includes(badge.achievementId) && <div className="progression-badge-requirement"><strong>{badge.qualificationDetails.label}</strong><p>{badge.qualificationDetails.message}</p>{badge.qualificationDetails.status === 'in_progress' && badge.qualificationDetails.progress !== undefined && badge.qualificationDetails.target !== undefined && <span className="progression-level-track"><span style={{ width: `${Math.min(100, badge.qualificationDetails.progress / badge.qualificationDetails.target * 100)}%` }} /></span>}</div>}
     <h3 className="progression-subheading">Achievement history</h3>
     {badge.history.length ? <ul className="progression-badge-history">{[...new Map(badge.history.map((event) => [event.id, event])).values()].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map((event) => {
       const attribution = achievementAttribution(badge.achievementId, event, trackers)
-      return <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {repeatable ? `Award ${event.tier}` : 'First award'}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}{attribution && <><br /><span>{attribution.label}</span>{attribution.deleted && <span className="progression-deleted-tracker-tag">Deleted tracker</span>}{attribution.archived && <span className="progression-archived-tracker-tag">Archived tracker</span>}{event.rewardXpDelta !== null && <small className="progression-retained-reason">{event.rewardReversed ? `${Math.abs(event.rewardXpDelta)} XP reversed` : `${event.rewardXpDelta > 0 ? '+' : ''}${event.rewardXpDelta} XP`} · Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small>}{event.rewardXpDelta === null && <small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small>}</>}</span><time dateTime={event.recordedAt}>{formatRecordedTimestamp(event.recordedAt)}</time></li>
+      return <li key={event.id}><span className={event.eventType === 'revoked' ? 'is-revoked' : ''}>{event.eventType === 'unlocked' ? 'Unlocked' : 'Revoked'} · {repeatable ? `Award ${event.tier}` : 'First award'}{event.retainedAfterTrackerDeletion ? ' · Retained historical achievement' : ''}<br />{event.eventType === 'unlocked' ? achievementDateMarkup(badge.achievementId, event, timeZone) : 'Award reversed'}{attribution && <><br /><span>{attribution.label}</span>{attribution.deleted && <span className="progression-deleted-tracker-tag">Deleted tracker</span>}{attribution.archived && <span className="progression-archived-tracker-tag">Archived tracker</span>}{event.rewardXpDelta !== null && <small className="progression-retained-reason">{event.rewardReversed ? `${Math.abs(event.rewardXpDelta)} XP reversed` : `${event.rewardXpDelta > 0 ? '+' : ''}${event.rewardXpDelta} XP`} · Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small>}{event.rewardXpDelta === null && <small className="progression-retained-reason">Earned for: {reasonCodeLabel(event.rewardReasonCode)}</small>}</>}</span><time dateTime={event.recordedAt}>{event.eventType === 'unlocked' ? 'Server confirmed · ' : 'Recorded · '}{formatRecordedTimestamp(event.recordedAt, timeZone)}</time></li>
     })}</ul> : <p className="progression-empty-inline">No confirmed unlock history yet.</p>}
   </>
 }
