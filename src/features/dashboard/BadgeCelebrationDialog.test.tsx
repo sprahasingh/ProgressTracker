@@ -159,6 +159,24 @@ describe('BadgeCelebrationMonitor', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('emphasizes the fulfilled calendar boundary for each Perfect achievement and shows delayed server confirmation secondarily', async () => {
+    const delayedAt = new Date(Date.now() + 60_000).toISOString()
+    const events: AchievementHistoryEvent[] = [
+      { ...newEvent, id: 'day-date', achievementId: 'perfect-day', sourceDate: '2024-02-29', recordedAt: delayedAt },
+      { ...newEvent, id: 'week-date', achievementId: 'perfect-week', sourceDate: '2024-02-29', sourceReference: { week: '2024-02-19' }, recordedAt: delayedAt },
+      { ...newEvent, id: 'month-date', achievementId: 'perfect-month', sourceDate: '2024-02-29', sourceReference: { month: '2024-02' }, recordedAt: delayedAt },
+      { ...newEvent, id: 'year-date', achievementId: 'perfect-year', sourceDate: '2024-02-29', sourceReference: { year: 2024 }, recordedAt: delayedAt },
+    ]
+    mocks.getBadges.mockResolvedValue(events.map((event) => ({ achievementId: event.achievementId, repeatable: true, history: [event] })))
+    render(<BadgeCelebrationMonitor userId="delayed-perfect-awards" />)
+    const dialog = await screen.findByRole('dialog', { name: '4 achievements unlocked' })
+    expect(dialog).toHaveTextContent('Qualifying date · Feb 29, 2024')
+    expect(dialog).toHaveTextContent('Qualifying week ended · Feb 25, 2024')
+    expect(dialog).toHaveTextContent('Qualifying month ended · Feb 29, 2024')
+    expect(dialog).toHaveTextContent('Qualifying year ended · Dec 31, 2024')
+    expect(dialog).toHaveTextContent('Server confirmed ·')
+  })
+
   it('keeps the info control beside the badge title and the close control separate', async () => {
     mocks.getBadges.mockResolvedValue([{ achievementId: 'consistency-star', history: [{ ...newEvent, achievementId: 'consistency-star' }] }])
     render(<BadgeCelebrationMonitor userId="user-1" />)

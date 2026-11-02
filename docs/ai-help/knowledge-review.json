@@ -80,7 +80,7 @@
   },
   "calendar-inspect-past-date": {
     "src/features/calendar/CalendarPage.tsx": "a754758159531693522def8bc89dcbc5fa70223e628b3b63ddc73506914be621",
-    "src/features/calendar/CalendarPage.test.tsx": "8e287f85e4b9cdc2c7cafbafb9bdadf9634753e11be4e71fabbce9766025b309",
+    "src/features/calendar/CalendarPage.test.tsx": "c0f8afc1ca8e9ca62e6fe8719b71222e178950a843de37d667f18b7480b744c5",
     "src/domain/trackers/entryPresentation.ts": "1ddc8aa97bc430c4fae3f5ad498a5ead486750848fa75e83202e5e2635e8217f"
   },
   "calendar-rest-day": {
@@ -440,15 +440,15 @@
   "points-and-rewards": {
     "src/domain/trackers/progressionModel.ts": "9225f8d8799138838a4a2c9f4d835f17ac413d8ec250279b0591cf636b807f87",
     "src/domain/trackers/progression.ts": "82cf67f550d2fe7046f3807749e0909300c237b47ebbcb462be50dc2707dd158",
-    "src/services/supabase/progressionRepository.ts": "e88afc3b7ea215a600795ac1374f6a9920655e11d94b9b8026fb1d25c7c03a05",
+    "src/services/supabase/progressionRepository.ts": "b3fe40e803434031b4a44850d737a90682842bce7dad28f86bf34e0ee11f9b19",
     "supabase/migrations/20261124000100_holiday_checkin_treatment.sql": "c5900215c51ca6dd858f1c2719158a6a97a87a9a4ec208dfc9e4c9656b3de558",
     "supabase/migrations/20261111000100_tracker_streak_rules_v8.sql": "66f55b5687d36fa63c4d9dfb8ffc3dd089d4304477cf61a40dd76189cce6e730",
     "src/features/dashboard/AchievementsPage.tsx": "6343ca045af13f7971fb46649181064b3255a211392308fb7504fbe35b6eb268",
-    "src/features/dashboard/ProgressionAchievementsPage.tsx": "46e17612a25575bd527c87c7a8834b25aa52d581098d25d4de858830c1b7d714",
+    "src/features/dashboard/ProgressionAchievementsPage.tsx": "7e6daba874f1d478d6bbeceddc223734485c0cba4c331d615ac2aee4ef605489",
     "src/features/dashboard/achievementCatalog.ts": "17d5fc05e8d5e16b997db9ba7c6d54ced1134c02068f85ab92a304c4c9a387f1",
-    "src/features/dashboard/BadgeCelebrationDialog.tsx": "d85c3b03a91f035f2221a6da7493085347e381b3b335889f43a7ffbd1d74a9cf",
-    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "6f4c292bc0ab159cd06b07475c4a4a57e47143c57675cfb20be310d9c6ea065c",
-    "src/features/dashboard/BadgeCelebrationDialog.test.tsx": "bc9bb4e4bd727061988829567de015cb2c012d8984c0e1bca98e1a23de8bbcbf",
+    "src/features/dashboard/BadgeCelebrationDialog.tsx": "d621dd38c78251f41f5db9cef52ee91903970b8fc291b2791b0d2efe0c84a79b",
+    "src/features/dashboard/ProgressionAchievementsPage.test.tsx": "c45fc517c0f81447073eccbdf6e7d66050b756a4fff503aee57e34db5a667df0",
+    "src/features/dashboard/BadgeCelebrationDialog.test.tsx": "d9c63c1e26bdeec543531bf09a807ec0dd0e6c5411c0a2a930da0dec90aadb4a",
     "supabase/tests/progression_achievements.test.sql": "36e29787399585b80dcac096b56dd4f87d39ee03968382df2cd5459e8d2f4ce2",
     "src/features/dashboard/LegacyAchievementsPage.tsx": "d5f7d1af74b6a86892ab35f3b65efd76fa5b05fc2da62cadf39488f6e3a77c22",
     "src/domain/trackers/schemaVersionGate.ts": "72875ac2c796e16b0a787d66063eee47a366bb0160e0276e691e6bcb442bc531",
@@ -460,7 +460,8 @@
     "supabase/migrations/20261105000800_publish_consistency_qualification_details.sql": "9abdcfb1021315f3712fa26b0f43a435fe1f68bcc3a8f0cff979b2a08594e810",
     "supabase/migrations/20261105000900_perfect_day_success_qualification.sql": "9e0cc5f88cbbb1020d2185550f34985530c65799024e4a454c1061947f3c2de5",
     "supabase/migrations/20261106000100_strict_perfect_calendar_achievements.sql": "1491929d18ebbc9824368fb337c9e1ac8682afaf075733f7d916945156af3e23",
-    "supabase/migrations/20261117000100_versioned_tracker_evaluation_rules_v10.sql": "aa9d70fc01b86c81f31568d0375fd512a8c6000a18e2a9b5135961affb275372"
+    "supabase/migrations/20261117000100_versioned_tracker_evaluation_rules_v10.sql": "aa9d70fc01b86c81f31568d0375fd512a8c6000a18e2a9b5135961affb275372",
+    "supabase/migrations/20261127000100_reconcile_missing_perfect_days_and_period_progress.sql": "5485d367c11ec8291d54d50c1500bcda28f141c4b52f79c9fa0bdb093c3deb28"
   },
   "repeatable-progress-badges": {
     "src/domain/trackers/progressionModel.ts": "9225f8d8799138838a4a2c9f4d835f17ac413d8ec250279b0591cf636b807f87",
@@ -469,7 +470,8 @@
     "supabase/migrations/20261105000900_perfect_day_success_qualification.sql": "9e0cc5f88cbbb1020d2185550f34985530c65799024e4a454c1061947f3c2de5",
     "supabase/migrations/20261106000100_strict_perfect_calendar_achievements.sql": "1491929d18ebbc9824368fb337c9e1ac8682afaf075733f7d916945156af3e23",
     "supabase/migrations/20261104002300_add_perfect_month_and_comeback_achievements.sql": "23c4a983379ba42d2c70f55b25e3abad74c53bd4e192e03159a1597c3b6ba8b0",
-    "supabase/migrations/20261105000300_repeatable_activity_achievements.sql": "3b8e5927c87e146656e2879e7aab64d4e9ae9ab4a105adda14bf4723074cf16e"
+    "supabase/migrations/20261105000300_repeatable_activity_achievements.sql": "3b8e5927c87e146656e2879e7aab64d4e9ae9ab4a105adda14bf4723074cf16e",
+    "supabase/migrations/20261127000100_reconcile_missing_perfect_days_and_period_progress.sql": "5485d367c11ec8291d54d50c1500bcda28f141c4b52f79c9fa0bdb093c3deb28"
   },
   "completion-missed-dates": {
     "src/domain/trackers/analytics.ts": "88ca2de4f48892d96c919bd51a4f31c9eafc32d05e5856bf0e7499fd5716276a",

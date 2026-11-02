@@ -284,9 +284,9 @@ describe('Progression achievements interface', () => {
     expect(within(dialog).getByText('Read each day')).toBeInTheDocument()
     expect(within(dialog).getByText(/\+10 XP · Earned for: Qualifying check-in/)).toBeInTheDocument()
     expect(within(dialog).getByText('Deleted tracker')).toBeInTheDocument()
-    const earnedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const earnedTimestamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
       .format(new Date(`${today}T11:00:00.000Z`))
-    expect(within(dialog).getByText(earnedTimestamp)).toBeInTheDocument()
+    expect(Array.from(dialog.querySelectorAll('time')).some((time) => time.textContent?.includes(earnedTimestamp))).toBe(true)
   })
 
   it('labels Perfect Day as account-wide and never infers a deleted tracker from stray attribution data', async () => {
@@ -556,8 +556,8 @@ describe('Progression achievements interface', () => {
   })
 
   it('keeps flexible badge cards readable and distinguishes unavailable progress from valid zero progress', async () => {
-    const perfectWeek = { ...overview.achievements[1]!, achievementId: 'perfect-week', progress: 0, target: 7, qualificationDetails: { status: 'unavailable' } }
-    const perfectYear = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, currentTier: 0, repeatable: true, earned: false, validAwardCount: 0, unlockedAt: null, qualificationDetails: { status: 'unavailable' } }
+    const perfectWeek = { ...overview.achievements[1]!, achievementId: 'perfect-week', progress: 0, target: 7, qualificationDetails: { status: 'in_progress', progress: 1, target: 7, pending_reconciliation: true, pending_dates: 3, pending_message: 'Historical verification pending.' } }
+    const perfectYear = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, currentTier: 0, repeatable: true, earned: false, validAwardCount: 0, unlockedAt: null, qualificationDetails: { status: 'unavailable', message: 'Some dates cannot be verified from available schedule history. They are not counted as failed.' } }
     const perfectDayAward = { ...checkIn, id: 'confirmed-perfect-day', xpDelta: 20, reasonCode: 'PERFECT_DAY_BONUS' }
     const reversedPerfectDayAward = { ...reversal, id: 'reversed-perfect-day', xpDelta: -20, reversesEventId: perfectDayAward.id }
     const monday = new Date(`${today}T00:00:00.000Z`)
@@ -570,12 +570,13 @@ describe('Progression achievements interface', () => {
     const earned = within(collection).getByRole('button', { name: /First Step, earned, unlocked, 100% progress/ })
     const dedicated = within(collection).getByRole('button', { name: /Dedicated, locked, 23% progress/ })
     const week = within(collection).getByRole('button', { name: /Perfect Week, locked, 1 \/ 7 confirmed days/ })
-    const year = within(collection).getByRole('button', { name: /Perfect Year, locked, 0 \/ 12 months/ })
+    const year = within(collection).getByRole('button', { name: /Perfect Year, locked, Progress unavailable/ })
     expect(earned).toHaveTextContent('Unlocked')
     expect(earned).not.toHaveTextContent('Unlocked (1)')
     expect(dedicated).toHaveTextContent('23%')
     expect(week).toHaveTextContent('1 / 7 days')
-    expect(year).toHaveTextContent('0 / 12 months')
+    expect(week).toHaveTextContent('Historical verification pending')
+    expect(year).toHaveTextContent('—')
     expect(week).not.toHaveTextContent('—')
     const collectionContent = collection.querySelector<HTMLElement>('.progression-dialog-content')!
     collectionContent.scrollTop = 240
@@ -583,8 +584,8 @@ describe('Progression achievements interface', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Perfect Week' })
     expect(dialog.querySelector('.progression-dialog-content')?.scrollTop).toBe(0)
     expect(dialog).toHaveTextContent('1 / 7 confirmed days')
-    expect(dialog).toHaveTextContent('Some dates cannot be verified from available schedule history.')
-    expect(dialog).toHaveTextContent('They are not counted as failed.')
+    expect(dialog).toHaveTextContent('Progress counts confirmed Perfect Days; badge unlocks still require the full calendar period.')
+    expect(dialog).toHaveTextContent('Historical verification pending.')
     expect(within(dialog).getByRole('progressbar', { name: 'Perfect Week confirmed calendar progress' })).toHaveAttribute('aria-valuenow', '1')
     const badgeCardRules = [...appStyles.matchAll(/\.progression-badge-card\s*\{([^}]*)\}/g)].map((match) => match[1] ?? '')
     expect(badgeCardRules[0]).toMatch(/min-height:\s*184px/)
@@ -601,10 +602,9 @@ describe('Progression achievements interface', () => {
     const priorMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1))
     const priorMonthKey = `${priorMonth.getUTCFullYear()}-${String(priorMonth.getUTCMonth() + 1).padStart(2, '0')}`
     const priorMonthEnd = new Date(Date.UTC(priorMonth.getUTCFullYear(), priorMonth.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
-    const monthIsInCurrentYear = priorMonthKey.startsWith(`${today.slice(0, 4)}-`)
     const completedMonth = { id: `perfect-month-${priorMonthKey}`, achievementId: 'perfect-month', tier: 1, generation: 1, eventType: 'unlocked' as const, recordedAt: `${priorMonthEnd}T12:00:00.000Z`, sourceEventId: null, sourceDate: priorMonthEnd, sourceReference: { month: priorMonthKey }, reversesEventId: null, retainedAfterTrackerDeletion: false, trackerDisplayName: null, rewardReasonCode: null, rewardXpDelta: null }
-    const month = { ...overview.achievements[1]!, achievementId: 'perfect-month', progress: 1, target: 1, repeatable: true, earned: true, currentTier: 1, unlockedAt: `${priorMonthEnd}T12:00:00.000Z`, history: [completedMonth], qualificationDetails: { status: 'unavailable' } }
-    const year = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, repeatable: true, qualificationDetails: { status: 'unavailable' } }
+    const month = { ...overview.achievements[1]!, achievementId: 'perfect-month', progress: 1, target: 1, repeatable: true, earned: true, currentTier: 1, unlockedAt: `${priorMonthEnd}T12:00:00.000Z`, history: [completedMonth], qualificationDetails: { status: 'in_progress', progress: 1, target: new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate() } }
+    const year = { ...overview.achievements[1]!, achievementId: 'perfect-year', progress: 0, target: 1, repeatable: true, qualificationDetails: { status: 'in_progress', progress: 1, target: (Number(today.slice(0, 4)) % 4 === 0 ? 366 : 365) } }
     const perfectDayAward = { ...checkIn, id: 'current-month-perfect-day', effectiveDate: today, xpDelta: 20, reasonCode: 'PERFECT_DAY_BONUS' }
     mocks.getProgressionOverview.mockResolvedValueOnce({ ...overview, scoreHistory: [...overview.scoreHistory, perfectDayAward], achievements: [...overview.achievements, month, year] })
     const user = userEvent.setup()
@@ -619,9 +619,9 @@ describe('Progression achievements interface', () => {
 
     await user.click(within(collection).getByRole('button', { name: /Perfect Year, locked/ }))
     dialog = await screen.findByRole('dialog', { name: 'Perfect Year' })
-    expect(dialog).toHaveTextContent(`${monthIsInCurrentYear ? 1 : 0} / 12 months`)
-    expect(dialog).toHaveTextContent(`Current month: 1 / ${monthLength} confirmed days so far`)
-    expect(within(dialog).getByRole('progressbar', { name: 'Perfect Year confirmed calendar progress' })).toHaveAttribute('aria-valuemax', '12')
+    const yearLength = Number(today.slice(0, 4)) % 4 === 0 ? 366 : 365
+    expect(dialog).toHaveTextContent(`1 / ${yearLength} confirmed days`)
+    expect(within(dialog).getByRole('progressbar', { name: 'Perfect Year confirmed calendar progress' })).toHaveAttribute('aria-valuemax', String(yearLength))
   })
 
   it('shows concise unlocked labels from active confirmed award counts', async () => {

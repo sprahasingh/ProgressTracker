@@ -21,7 +21,7 @@ function trackerRow(id: string, name: string, kind: StoredTrackerDefinition['kin
 }
 
 describe('TrackerLibraryPage initial cloud state', () => {
-  afterEach(() => cleanup())
+  afterEach(() => { cleanup(); vi.useRealTimers() })
 
   it('does not describe an empty local list as an empty account during initial cloud sync', async () => {
     libraryMocks.listTrackers.mockResolvedValue([])
@@ -68,6 +68,7 @@ describe('TrackerLibraryPage initial cloud state', () => {
   })
 
   it('shows a goal’s actual planned total separately from its per-check-in threshold and offers today’s action', async () => {
+    vi.useFakeTimers({ now: new Date('2026-10-14T12:00:00.000Z'), toFake: ['Date'] })
     const id = 'dsa-goal'
     const tracker: StoredTrackerDefinition = {
       schemaVersion: 2, id, name: 'Solve problems', description: '', kind: 'goal', status: 'active', categoryId: null,

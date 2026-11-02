@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -13,14 +13,13 @@ vi.mock('../../db/localRepository', () => ({ localRepository: mocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => auth.value }))
 vi.mock('../settings/WorkspaceTimeZone', () => ({ useWorkspaceTimeZone: () => ({ timeZone: 'UTC' }) }))
 
-const today = new Date().toISOString().slice(0, 10)
+const today = '2026-10-14'
 const previousDate = new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)
 const lastSaturday = (() => {
   const date = new Date(`${today}T00:00:00.000Z`)
   const offset = (date.getUTCDay() + 1) % 7
   return new Date(date.getTime() - (offset || 7) * 86_400_000).toISOString().slice(0, 10)
 })()
-const upcomingDate = new Date(Date.parse(`${today}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
 const previousDateLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${previousDate}T00:00:00.000Z`))
 const tracker = {
   schemaVersion: 1, id: 'calendar-habit', name: 'Morning walk', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -33,7 +32,8 @@ const entry = {
   createdAt: `${today}T09:00:00.000Z`, updatedAt: `${today}T09:00:00.000Z`, deletedAt: null,
 } as StoredTrackerEntry
 
-afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.clearAllMocks(); mocks.listTrackerHolidays.mockResolvedValue([]) })
+beforeEach(() => { vi.setSystemTime(new Date(`${today}T12:00:00.000Z`)) })
+afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); mocks.listTrackerHolidays.mockResolvedValue([]) })
 
 describe('Calendar page', () => {
   it('uses the shared page-header hierarchy with visible schedule copy and the holidays action after it', async () => {
@@ -119,9 +119,9 @@ describe('Calendar page', () => {
     expect(screen.getByRole('link', { name: 'Edit check-in' })).toHaveAttribute('href', '/')
     expect(container.querySelector('.calendar-cell-status.completed')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Daily activity calendar' }).querySelector('thead')!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
-    expect(screen.getByRole('button', { name: new RegExp(calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })) })).toHaveClass('completed')
+    expect(screen.getByRole('button', { name: new RegExp(`^${calendarDateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })}:`) })).toHaveClass('completed')
 
-    const previousDayButton = screen.getByRole('button', { name: new RegExp(previousDateLabel) })
+    const previousDayButton = screen.getByRole('button', { name: new RegExp(`^${previousDateLabel}:`) })
     previousDayButton.focus()
     await user.keyboard('{Enter}')
     expect(previousDayButton).toHaveFocus()
@@ -235,14 +235,19 @@ describe('Calendar page', () => {
   })
 
   it('labels future opportunities Upcoming and dates outside the active period Outside period', async () => {
-    const oldTracker = { ...tracker, createdAt: '2026-01-01T00:00:00.000Z', startDate: today }
+    vi.useFakeTimers({ now: new Date('2026-10-14T12:00:00.000Z'), toFake: ['Date'] })
+    const controlledToday = '2026-10-14'
+    const controlledPreviousDate = '2026-10-13'
+    const controlledUpcomingDate = '2026-10-15'
+    const oldTracker = { ...tracker, createdAt: '2026-01-01T00:00:00.000Z', startDate: controlledToday }
     mocks.listTrackers.mockResolvedValue([oldTracker])
     mocks.listTrackerEntriesBetween.mockResolvedValue([])
     mocks.listAccountHolidays.mockResolvedValue([])
-    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${upcomingDate}`]}><CalendarPage /></MemoryRouter>)
+    const { container } = render(<MemoryRouter initialEntries={[`/calendar?date=${controlledUpcomingDate}`]}><CalendarPage /></MemoryRouter>)
     expect(await screen.findByText(/Upcoming/)).toBeInTheDocument()
     expect(container.querySelector('.calendar-cell-status.upcoming')).toBeInTheDocument()
-    await userEvent.setup().click(screen.getByRole('button', { name: new RegExp(calendarDateLabel(previousDate, { weekday: 'long', month: 'long', day: 'numeric' })) }))
+    const previousLabel = calendarDateLabel(controlledPreviousDate, { weekday: 'long', month: 'long', day: 'numeric' })
+    await userEvent.setup().click(screen.getByRole('button', { name: new RegExp(previousLabel) }))
     expect(container.querySelector('.calendar-activity-list')?.textContent).toContain('Outside period')
   })
 

@@ -1,96 +1,79 @@
-type MonthAwardEvent = {
-  id: string
-  eventType: 'unlocked' | 'revoked'
-  sourceDate: string | null
-  sourceReference?: Record<string, unknown> | null
-  reversesEventId: string | null
-}
+export type CalendarBadgeStatus = 'in_progress' | 'failed' | 'unavailable' | 'waiting' | 'earned'
 
 export type CalendarBadgeProgress = {
-  progress: number
+  status: CalendarBadgeStatus
+  progress: number | null
   target: number
   label: string
-  secondaryLabel?: string
-  unavailableMessage?: string
+  message?: string
+  periodStart?: string
+  periodEnd?: string
+  pendingReconciliation?: boolean
+  pendingMessage?: string
 }
 
-function parseDate(value: string): Date {
-  const date = new Date(`${value}T00:00:00.000Z`)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new RangeError(`Invalid calendar date: ${value}`)
-  }
-  return date
-}
-
-function shiftDate(value: string, days: number): string {
-  const date = parseDate(value)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
+type QualificationDetails = {
+  status?: string
+  progress?: number
+  target?: number
+  message?: string
+  period_start?: string
+  period_end?: string
+  pending_reconciliation?: boolean
+  pending_dates?: number
+  pending_message?: string | null
 }
 
 function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
-function activeMonthKeys(events: readonly MonthAwardEvent[]): Set<string> {
-  const revokedIds = new Set(events.filter((event) => event.eventType === 'revoked' && event.reversesEventId).map((event) => event.reversesEventId))
-  const uniqueActive = new Map(events
-    .filter((event) => event.eventType === 'unlocked' && !revokedIds.has(event.id))
-    .map((event) => [event.id, event]))
-
-  return new Set([...uniqueActive.values()].flatMap((event) => {
-    const referenceMonth = event.sourceReference?.month
-    const month = typeof referenceMonth === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(referenceMonth)
-      ? referenceMonth
-      : event.sourceDate?.slice(0, 7)
-    return month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? [month] : []
-  }))
+function daysInYear(year: number): number {
+  return (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86_400_000
 }
 
-/** Builds display-only progress from confirmed Perfect Day dates and active Perfect Month awards. */
+function fallbackTarget(achievementId: string, today: string): number {
+  const year = Number(today.slice(0, 4))
+  const month = Number(today.slice(5, 7))
+  if (achievementId === 'perfect-week') return 7
+  if (achievementId === 'perfect-month') return daysInMonth(year, month)
+  return daysInYear(year)
+}
+
+/** Uses the server's date-effective qualification result; clients never infer an award. */
 export function calendarBadgeProgress(input: {
   achievementId: string
   today: string
-  confirmedPerfectDayDates: ReadonlySet<string>
-  perfectMonthHistory: readonly MonthAwardEvent[]
-  qualificationStatus?: string
+  qualificationDetails?: QualificationDetails
 }): CalendarBadgeProgress | null {
   if (!['perfect-week', 'perfect-month', 'perfect-year'].includes(input.achievementId)) return null
-  const today = parseDate(input.today)
-  const year = today.getUTCFullYear()
-  const month = today.getUTCMonth() + 1
-  const currentMonth = `${year}-${String(month).padStart(2, '0')}`
-  const confirmedInRange = (start: string, end: string) => [...input.confirmedPerfectDayDates]
-    .filter((date) => date >= start && date <= end && date <= input.today).length
 
-  const unavailableMessage = ['unavailable', 'waiting'].includes(input.qualificationStatus ?? '')
-    ? 'Some dates cannot be verified from available schedule history. They are not counted as failed.'
-    : undefined
+  const details = input.qualificationDetails
+  const target = Number.isFinite(details?.target) && details!.target! > 0
+    ? Math.floor(details!.target!)
+    : fallbackTarget(input.achievementId, input.today)
+  const rawStatus = details?.status === 'qualified' ? 'earned' : details?.status
+  const status = ['in_progress', 'failed', 'unavailable', 'waiting', 'earned'].includes(rawStatus ?? '')
+    ? rawStatus as CalendarBadgeStatus
+    : 'unavailable'
+  const progress = status === 'unavailable' || status === 'waiting'
+    ? null
+    : Number.isFinite(details?.progress)
+      ? Math.min(target, Math.max(0, Math.floor(details!.progress!)))
+      : null
+  const label = progress === null
+    ? status === 'waiting' ? 'Waiting for confirmation' : 'Progress unavailable'
+    : `${progress} / ${target} confirmed days`
 
-  if (input.achievementId === 'perfect-week') {
-    const mondayOffset = (today.getUTCDay() + 6) % 7
-    const start = shiftDate(input.today, -mondayOffset)
-    const progress = confirmedInRange(start, shiftDate(start, 6))
-    return { progress, target: 7, label: `${progress} / 7 confirmed days`, unavailableMessage }
-  }
-
-  const monthStart = `${currentMonth}-01`
-  const monthEnd = `${currentMonth}-${String(daysInMonth(year, month)).padStart(2, '0')}`
-  const currentMonthDays = confirmedInRange(monthStart, monthEnd)
-
-  if (input.achievementId === 'perfect-month') {
-    const target = daysInMonth(year, month)
-    return { progress: currentMonthDays, target, label: `${currentMonthDays} / ${target} confirmed days`, unavailableMessage }
-  }
-
-  const completedMonths = [...activeMonthKeys(input.perfectMonthHistory)]
-    .filter((key) => key.startsWith(`${year}-`) && key < currentMonth).length
-  const completedMonthProgress = Math.min(12, completedMonths)
   return {
-    progress: completedMonthProgress,
-    target: 12,
-    label: `${completedMonthProgress} / 12 months`,
-    secondaryLabel: `Current month: ${currentMonthDays} / ${daysInMonth(year, month)} confirmed days so far`,
-    unavailableMessage,
+    status,
+    progress,
+    target,
+    label,
+    message: details?.message,
+    periodStart: details?.period_start,
+    periodEnd: details?.period_end,
+    pendingReconciliation: details?.pending_reconciliation === true,
+    pendingMessage: details?.pending_message ?? undefined,
   }
 }
