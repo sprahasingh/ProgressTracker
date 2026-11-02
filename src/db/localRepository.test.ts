@@ -347,12 +347,37 @@ describe('workspace mutation notifications', () => {
     await expect(localRepository.getTrackerEntry(existing.id, today)).resolves.toMatchObject({ values: { done: true }, note: 'Keep this check-in' })
   })
 
-  it('does not save milestone requirement edits on an existing tracker without historical milestone versions', async () => {
+  it('allows uniquely identified milestone additions while preserving saved history and rejects edits or removals', async () => {
+    const owner = 'milestone-add-offline-owner'
+    await activateWorkspace(owner)
     const existing = { ...tracker, milestones: [{ id: 'step', title: 'Step', description: '', position: 0 }] }
     await localRepository.saveTracker(existing)
+    const historicalEntry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-02', outcome: 'recorded', values: {}, note: 'keep history' })
+    const addition = { id: 'step-two', title: 'Second step', description: '', position: 1 }
+    await expect(localRepository.saveTracker({ ...existing, milestones: [...existing.milestones, addition] })).resolves.toMatchObject({ milestones: [existing.milestones[0], addition] })
+    await expect(localRepository.getTrackerEntry(existing.id, historicalEntry.date as CalendarDate)).resolves.toMatchObject({ id: historicalEntry.id, note: 'keep history' })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', existing.id]).first())
+      .resolves.toMatchObject({ status: 'pending', payload: { milestones: [existing.milestones[0], addition] } })
     await expect(localRepository.saveTracker({ ...existing, milestones: [{ ...existing.milestones[0]!, title: 'Changed requirement' }] }))
-      .rejects.toThrow(/milestone requirements cannot be edited because historical milestone results are not versioned/i)
-    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({ milestones: [{ title: 'Step' }] })
+      .rejects.toThrow(/existing milestones cannot be changed or removed/i)
+    await expect(localRepository.saveTracker({ ...existing, milestones: [] })).rejects.toThrow(/existing milestones cannot be changed or removed/i)
+    await expect(localRepository.saveTracker({ ...existing, milestones: [...existing.milestones, addition, { ...addition, id: 'step', position: 2 }] }))
+      .rejects.toThrow(/unique ID/i)
+    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({ milestones: [existing.milestones[0], addition] })
+  })
+
+  it('rejects a stale concurrent milestone addition after the first edit commits locally', async () => {
+    const existing = { ...tracker, id: 'milestone-concurrent-add', milestones: [{ id: 'original', title: 'Original', description: '', position: 0 }] }
+    await localRepository.saveTracker(existing)
+    const first = { id: 'first-add', title: 'First add', description: '', position: 1 }
+    const second = { id: 'second-add', title: 'Second add', description: '', position: 1 }
+    const results = await Promise.allSettled([
+      localRepository.saveTracker({ ...existing, milestones: [...existing.milestones, first] }),
+      localRepository.saveTracker({ ...existing, milestones: [...existing.milestones, second] }),
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    await expect(localRepository.getTracker(existing.id)).resolves.toMatchObject({ milestones: [existing.milestones[0], expect.objectContaining({ position: 1 })] })
   })
 
   it('rejects future check-ins against the saved workspace timezone while allowing that timezone’s current day', async () => {

@@ -1100,6 +1100,22 @@ describe('account-scoped sync engine', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker_entry', entry.id]).first()).resolves.toMatchObject({ status: 'pending', payload: { note: 'Child must wait' } })
   })
 
+  it('keeps an offline milestone addition available when a concurrent cloud edit conflicts', async () => {
+    await activateWorkspace('sync-user')
+    const original = { ...tracker('milestone-sync-conflict'), milestones: [{ id: 'saved', title: 'Saved', description: '', position: 0 }] }
+    await db.trackers.put(original)
+    await db.syncRecords.put({ key: `tracker:${original.id}`, ownerUserId: 'sync-user', entity: 'tracker', entityId: original.id, serverRevision: 4 })
+    const addition = { id: 'offline-addition', title: 'Offline addition', description: '', position: 1 }
+    await localRepository.saveTracker({ ...original, milestones: [...original.milestones, addition] })
+    const { client, rpc } = fakeClient({ rpcResult: { status: 'conflict', record: serverTracker(original, 'sync-user', 5) } })
+
+    await expect(synchronizeWorkspace('sync-user', client)).resolves.toMatchObject({ conflicts: 1, uploaded: 0 })
+    expect(rpc.mock.calls[0]?.[1]?.p_record).toMatchObject({ definition: { milestones: [original.milestones[0], addition] } })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['sync-user', 'tracker', original.id]).first())
+      .resolves.toMatchObject({ status: 'conflict', payload: { milestones: [original.milestones[0], addition] } })
+    await expect(db.trackers.get(original.id)).resolves.toMatchObject({ milestones: [original.milestones[0], addition] })
+  })
+
   it('refuses to send queued work when the authenticated user differs from the workspace', async () => {
     await activateWorkspace('sync-user')
     await localRepository.saveTracker(tracker())

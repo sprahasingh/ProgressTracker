@@ -7,6 +7,20 @@ import { trackerDefinitionForDate, trackerStrictModeForDate } from './ruleVersio
 import { hasPositiveProgress } from './activityStatus'
 import { challengeDaysElapsed, firstChallengeDateAtDay } from './challengeDay'
 
+/** Existing milestone definitions are immutable; a proposed edit may append new, uniquely identified milestones. */
+export function milestoneAdditionIssue(existing: readonly TrackerMilestoneDefinition[], proposed: readonly TrackerMilestoneDefinition[]): string | null {
+  const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
+    : value !== null && typeof value === 'object' ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`
+      : JSON.stringify(value)
+  const existingIds = new Set(existing.map((milestone) => milestone.id))
+  const newIds = proposed.slice(existing.length).map((milestone) => milestone.id)
+  if (newIds.some((id) => !id || existingIds.has(id)) || new Set(newIds).size !== newIds.length) return 'Each new milestone needs a unique ID across this tracker.'
+  if (proposed.length < existing.length || existing.some((milestone, index) => canonical(milestone) !== canonical(proposed[index]))) {
+    return 'Existing milestones cannot be changed or removed because their historical results and rewards are preserved. You can add a new milestone.'
+  }
+  return null
+}
+
 export type MilestoneProgress = {
   milestoneId: string
   title: string

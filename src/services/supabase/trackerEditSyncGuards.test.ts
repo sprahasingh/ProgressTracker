@@ -19,7 +19,7 @@ describe('tracker edit sync guard contract', () => {
 
   it('fails closed when the server returns an unexpected contract version', async () => {
     vi.stubEnv('PROD', true)
-    getSupabaseClient.mockReturnValue({ rpc: vi.fn().mockResolvedValue({ data: 'tracker-edit-sync-guards:v3', error: null }) })
+    getSupabaseClient.mockReturnValue({ rpc: vi.fn().mockResolvedValue({ data: 'tracker-edit-sync-guards:v1', error: null }) })
     await expect(hasTrackerEditSyncGuardsContract()).resolves.toBe(false)
   })
 

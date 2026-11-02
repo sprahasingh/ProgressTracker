@@ -14,6 +14,7 @@ import { currentRuleDependencyIssue, historicalRuleDependencyIssue } from '../do
 import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/scheduling'
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
 import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
+import { milestoneAdditionIssue } from '../domain/trackers/milestones'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -597,9 +598,8 @@ export const localRepository = {
         }
         const historyTimeZone = normalizeSettings(await database.settings.get('general')).timezone
         assertRuleHistoryTransition(existing, draft, savedEntries, historyTimeZone)
-        if (stableTrackerJson(existing.milestones) !== stableTrackerJson(draft.milestones)) {
-          throw new Error('Milestone requirements cannot be edited because historical milestone results are not versioned.')
-        }
+        const milestoneIssue = milestoneAdditionIssue(existing.milestones, draft.milestones)
+        if (milestoneIssue) throw new Error(milestoneIssue)
         const latestSavedDate = savedEntries.filter((entry) => entry.deletedAt === null)
           .reduce<string | null>((latest, entry) => latest === null || entry.date > latest ? entry.date : latest, null)
         const proposedHead = draft.ruleVersions?.at(-1)?.effectiveFrom

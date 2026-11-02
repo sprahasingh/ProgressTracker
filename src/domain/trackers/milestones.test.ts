@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackerDefinition, TrackerEntry, TrackerMetricDefinition, TrackerMilestoneDefinition } from './types'
-import { availableMilestoneTypes, evaluateMilestones } from './milestones'
+import { availableMilestoneTypes, evaluateMilestones, milestoneAdditionIssue } from './milestones'
 
 const problems: TrackerMetricDefinition = { id: 'problems', name: 'DSA Problems', valueType: 'quantity', unit: 'problems' }
 const baseTracker = (overrides: Partial<TrackerDefinition> = {}): TrackerDefinition => ({
@@ -19,6 +19,19 @@ const milestone = (type: TrackerMilestoneDefinition['type'], targetValue: number
 const entry = (date: string, value: unknown, changes: Partial<TrackerEntry> = {}): TrackerEntry => ({
   id: `entry-${date}`, trackerId: 'tracker-1', date, outcome: 'recorded', values: { problems: value as number }, note: '',
   createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, deletedAt: null, ...changes,
+})
+
+describe('append-only milestone changes', () => {
+  it('uses the same rule for legacy and versioned tracker definitions', () => {
+    const previous = [{ id: 'saved', title: 'Saved', description: '', position: 0 }]
+    const addition = { id: 'new', title: 'New', description: '', position: 1 }
+    for (const schemaVersion of [1, 9, 10] as const) {
+      expect(milestoneAdditionIssue(previous, [...previous, addition]), `schema v${schemaVersion}`).toBeNull()
+      expect(milestoneAdditionIssue(previous, [{ ...previous[0]!, title: 'Changed' }]), `schema v${schemaVersion}`).toMatch(/cannot be changed or removed/i)
+    }
+    const legacyDuplicates = [{ ...previous[0]! }, { ...previous[0]!, title: 'Historic duplicate', position: 1 }]
+    expect(milestoneAdditionIssue(legacyDuplicates, [...legacyDuplicates, { ...addition, id: 'fresh' }])).toBeNull()
+  })
 })
 
 describe('typed milestone calculations', () => {

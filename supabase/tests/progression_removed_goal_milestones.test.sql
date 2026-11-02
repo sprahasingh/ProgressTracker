@@ -33,18 +33,18 @@ select is((public.apply_tracker_sync_operation(
    'createdAt',current_date::text||'T00:00:00Z','updatedAt',clock_timestamp(),'startDate',(current_date-2)::text,
    'metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','unit','pages','thresholds',jsonb_build_object('direction','increase','minimum',1,'target',10,'streakQualification','minimum'))),
    'schedule',jsonb_build_object('kind','every-day'),'scheduling',jsonb_build_object('mode','ongoing'),'milestones','[]'::jsonb))
-))->>'status','applied'::text,'removing an achieved milestone definition is accepted');
+))->>'status','conflict'::text,'removing an achieved milestone definition is rejected');
 reset role;
-select is((select current_xp from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),0::integer,
- 'removing its definition reverses the active milestone award');
-select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='AWARD_REVERSAL'),1::bigint,
- 'removal keeps one linked reversal in the append-only ledger');
-select is((select progress from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000094' and achievement_id='milestone-maker'),0::numeric,
- 'removal updates milestone achievement progress');
+select is((select current_xp from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),25::integer,
+ 'rejected removal preserves the active milestone reward');
+select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='AWARD_REVERSAL'),0::bigint,
+ 'rejected removal does not append a reward reversal');
+select is((select progress from public.progression_achievement_progress where user_id='00000000-0000-4000-8000-000000000094' and achievement_id='milestone-maker'),1::numeric,
+ 'rejected removal preserves milestone achievement progress');
 
 set local role authenticated;
 select is((public.apply_tracker_sync_operation(
- '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000947','tracker',2,
+ '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000947','tracker',1,
  jsonb_build_object('id','00000000-0000-4000-8000-000000000941','schema_version',1,'kind','goal','status','active','name','Read a book',
   'created_at',current_date::text||'T00:00:00Z','updated_at',clock_timestamp(),
   'definition',jsonb_build_object('schemaVersion',1,'id','00000000-0000-4000-8000-000000000941','kind','goal','status','active','name','Read a book',
@@ -52,16 +52,16 @@ select is((public.apply_tracker_sync_operation(
    'metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','unit','pages','thresholds',jsonb_build_object('direction','increase','minimum',1,'target',10,'streakQualification','minimum'))),
    'schedule',jsonb_build_object('kind','every-day'),'scheduling',jsonb_build_object('mode','ongoing'),
    'milestones',jsonb_build_array(jsonb_build_object('id','checkpoint-10','title','Reach ten','description','','metricId','pages','targetValue',10,'position',0))))
-))->>'status','applied'::text,'restoring the same milestone ID is accepted');
+))->>'status','applied'::text,'an unchanged milestone definition remains acceptable');
 reset role;
 select is((select current_xp from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),25::integer,
- 'requalification creates a new active milestone award');
-select is((select generation from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),3,
- 'requalification advances the award generation');
+ 'an unchanged milestone preserves its active award');
+select is((select generation from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),1,
+ 'an unchanged milestone does not create another award generation');
 
 set local role authenticated;
 select is((public.apply_tracker_sync_operation(
- '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000948','tracker',3,
+ '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000948','tracker',2,
  jsonb_build_object('id','00000000-0000-4000-8000-000000000941','schema_version',1,'kind','goal','status','active','name','Read a book',
   'created_at',current_date::text||'T00:00:00Z','updated_at',clock_timestamp(),
   'definition',jsonb_build_object('schemaVersion',1,'id','00000000-0000-4000-8000-000000000941','kind','goal','status','active','name','Read a book',
@@ -69,16 +69,16 @@ select is((public.apply_tracker_sync_operation(
    'metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','unit','pages','thresholds',jsonb_build_object('direction','increase','minimum',1,'target',10,'streakQualification','minimum'))),
    'schedule',jsonb_build_object('kind','every-day'),'scheduling',jsonb_build_object('mode','ongoing'),
    'milestones',jsonb_build_array(jsonb_build_object('id','checkpoint-10','title','Reach ten','description','','metricId','pages','position',0))))
-))->>'status','applied'::text,'targetless milestone definition is accepted as a configuration');
+))->>'status','conflict'::text,'clearing an existing milestone requirement is rejected');
 reset role;
-select is((select current_xp from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),0::integer,
- 'clearing a milestone target reverses its active award');
-select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='AWARD_REVERSAL'),2::bigint,
- 'clearing a target records a second linked reversal');
+select is((select current_xp from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),25::integer,
+ 'rejected requirement edit preserves the active award');
+select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='AWARD_REVERSAL'),0::bigint,
+ 'rejected requirement edit creates no reward reversal');
 
 set local role authenticated;
 select is((public.apply_tracker_sync_operation(
- '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000949','tracker',4,
+ '00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000949','tracker',2,
  jsonb_build_object('id','00000000-0000-4000-8000-000000000941','schema_version',1,'kind','goal','status','active','name','Read a book',
   'created_at',current_date::text||'T00:00:00Z','updated_at',clock_timestamp(),
   'definition',jsonb_build_object('schemaVersion',1,'id','00000000-0000-4000-8000-000000000941','kind','goal','status','active','name','Read a book',
@@ -86,16 +86,16 @@ select is((public.apply_tracker_sync_operation(
    'metrics',jsonb_build_array(jsonb_build_object('id','pages','name','Pages','valueType','quantity','unit','pages','thresholds',jsonb_build_object('direction','increase','minimum',1,'target',10,'streakQualification','minimum'))),
    'schedule',jsonb_build_object('kind','every-day'),'scheduling',jsonb_build_object('mode','ongoing'),
    'milestones',jsonb_build_array(jsonb_build_object('id','checkpoint-10','title','Reach ten','description','','metricId','pages','targetValue',10,'position',0))))
-))->>'status','applied'::text,'a target may be restored for the same stable milestone ID');
+))->>'status','applied'::text,'resubmitting the unchanged requirement remains acceptable');
 reset role;
-select is((select current_xp || ':' || generation from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),'25:5'::text,
- 'requalification after target restoration advances the next generation');
+select is((select current_xp || ':' || generation from public.progression_award_state where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),'25:1'::text,
+ 'rejected requirement changes preserve the original award generation');
 select lives_ok($$select public.reconcile_progression_goal_tracker('00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000941');$$,
  'first repeated reconciliation succeeds');
 select lives_ok($$select public.reconcile_progression_goal_tracker('00000000-0000-4000-8000-000000000094','00000000-0000-4000-8000-000000000941');$$,
  'second repeated reconciliation succeeds');
-select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),3::bigint,
- 'reconciliation retries do not duplicate milestone award generations');
+select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000000094' and reason_code='GOAL_MILESTONE'),1::bigint,
+ 'reconciliation retries do not duplicate the preserved milestone award');
 select ok(exists(select 1 from pg_indexes where schemaname='public' and indexname='progression_award_state_active_goal_milestones_idx'),
  'active goal milestone lookup uses the partial reconciliation index');
 select ok(exists(select 1 from pg_trigger where tgname='tracker_entry_definition_reconciliation_lock' and not tgisinternal),

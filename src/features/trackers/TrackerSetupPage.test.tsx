@@ -617,25 +617,29 @@ describe('tracker setup flow', () => {
     await expect(localRepository.getTrackerEntry(existing.id, today)).resolves.toMatchObject({ values: { done: true }, note: 'Keep this check-in' })
   })
 
-  it('announces a blocked milestone edit with a specific accessible explanation', async () => {
-    const legacy = { ...datedTracker('blocked-milestone-edit', 'habit'), scheduling: { mode: 'calendar' as const } }
-    const existing: TrackerDefinition = {
-      ...legacy,
-      schemaVersion: 10,
-      ruleVersions: [{ id: 'baseline', effectiveFrom: legacy.startDate!, revision: 1, application: 'baseline', recordedAt: legacy.createdAt, evaluation: trackerEvaluationSnapshot(legacy) }],
-    }
+  it('adds and saves a new milestone on an existing tracker while preserving its historical milestone and check-in', async () => {
+    const existing = datedTracker('append-milestone-to-existing', 'goal')
     await localRepository.saveTracker(existing)
+    const entry = await localRepository.saveTrackerEntry({ trackerId: existing.id, date: '2026-01-06', outcome: 'recorded', values: { done: true }, note: 'historical progress' })
     const user = userEvent.setup()
     renderSetup(`/trackers/${existing.id}/edit`)
     await user.click(await screen.findByText('More options'))
     await user.click(screen.getByText('Milestones', { selector: 'summary' }))
-    const name = screen.getByLabelText('Milestone name')
-    await user.clear(name)
-    await user.type(name, 'Changed requirement')
+    expect(screen.getByText('Saved milestones are locked to preserve their historical results and rewards. You can add new milestones; existing ones cannot be edited or removed.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove milestone' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '＋ Add milestone' }))
+    const cards = screen.getAllByLabelText('Milestone name')
+    await user.type(cards[1]!, 'Second step')
+    const targets = screen.getAllByRole('spinbutton')
+    await user.clear(targets.at(-1)!)
+    await user.type(targets.at(-1)!, '2')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    const blockedMessages = await screen.findAllByText('Milestone requirements cannot be edited because historical milestone results are not versioned.')
-    expect(blockedMessages.some((message) => message.closest('[role="alert"]'))).toBe(true)
-    expect(await localRepository.getTracker(existing.id)).toMatchObject({ milestones: [{ title: 'First step' }] })
+    expect(screen.queryByRole('alert')).toBeNull()
+    const historyDialog = screen.queryByRole('alertdialog', { name: 'How should your tracker changes apply?' })
+    if (historyDialog) await user.click(within(historyDialog).getByRole('button', { name: 'Apply from today' }))
+    await waitFor(async () => expect(navigation).toHaveBeenCalledWith('/trackers', expect.objectContaining({ state: { savedTracker: existing.id } })))
+    expect(await localRepository.getTracker(existing.id)).toMatchObject({ milestones: [{ id: 'milestone-1', title: 'First step' }, { title: 'Second step', targetValue: 2, position: 1 }] })
+    await expect(localRepository.getTrackerEntry(existing.id, entry.date as `${number}-${number}-${number}`)).resolves.toMatchObject({ id: entry.id, values: { done: true }, note: 'historical progress' })
   })
 
   it('locks checklist item editing when saved values use the checklist definition', async () => {
