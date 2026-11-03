@@ -1,7 +1,7 @@
 begin;
 set local timezone = 'UTC';
 set local statement_timeout = '60s';
-select plan(49);
+select plan(56);
 
 select has_function('public','reconcile_missing_perfect_days',array['uuid'],'missing Perfect Day recovery is a private internal function');
 select ok(not has_function_privilege('authenticated','public.reconcile_missing_perfect_days(uuid)','execute'),
@@ -33,6 +33,9 @@ select ok(position('reconcile_progression_achievements(' in pg_get_functiondef('
   'refresh reports persisted achievement state without invoking history-sized reconciliation');
 select ok(position('reconcile_missing_perfect_days' in pg_get_functiondef('public.refresh_my_progression_qualification_progress()'::regprocedure))=0,
   'authenticated refresh no longer performs a historical date scan');
+select ok(position('refresh_progression_perfect_period_details(v_user_id)' in pg_get_functiondef(
+  'public.refresh_my_progression_qualification_progress()'::regprocedure))>0,
+  'authenticated refresh recomputes current period details without invoking historical reconciliation');
 select ok(position('progression_evaluate_perfect_day' in pg_get_functiondef('public.reconcile_perfect_day_repair_batch(integer)'::regprocedure))>0,
   'the bounded background queue still uses the canonical Perfect Day evaluator');
 select ok(position('greatest(1, least(coalesce(p_limit, 50), 100))' in pg_get_functiondef('public.reconcile_perfect_day_repair_batch(integer)'::regprocedure))>0,
@@ -202,8 +205,9 @@ select is((select count(*) from cron.job where jobname='progress-tracker-current
   'future-date reconciliation is installed as an active five-minute local-date worker');
 
 select is((select qualification_details->>'status' from public.progression_achievement_progress
-  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-week'),'in_progress'::text,
-  'the configured current week is available and remains in progress');
+  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-week'),
+  case when extract(isodow from current_date)=1 then 'in_progress' else 'failed' end::text,
+  'the configured current week reflects confirmed dates elapsed in the account timezone');
 select is((select (qualification_details->>'target')::integer from public.progression_achievement_progress
   where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-month'),
   extract(day from (date_trunc('month',current_date::timestamp)+interval '1 month'-interval '1 day'))::integer,
@@ -219,6 +223,45 @@ select ok(position('progression_policy_cutovers' in pg_get_functiondef('public.r
   'current-period details enforce the configured week, month, and year policy cutovers');
 select ok(position('v_status := ''earned''' in pg_get_functiondef('public.refresh_progression_perfect_period_details(uuid)'::regprocedure))>0,
   'a fully confirmed completed calendar period is explicitly reported as earned');
+
+-- A queued tracker job remains independent of current period qualification.
+-- Force a known failed date, poison the stored details, and prove page refresh
+-- replaces stale statuses while retaining pending metadata beside them.
+insert into public.progression_perfect_day_tracker_jobs(user_id,tracker_id)
+values ('00000000-0000-4000-8000-000000009101','00000000-0000-4000-8000-000000009199')
+on conflict(user_id,tracker_id) do update set next_attempt_at=clock_timestamp();
+update public.progression_achievement_progress
+set qualification_details=jsonb_build_object('status','stale_test_value','progress',99,'target',99)
+where user_id='00000000-0000-4000-8000-000000009101'
+  and achievement_id in ('perfect-week','perfect-month','perfect-year');
+create or replace function public.progression_evaluate_perfect_day(p_user_id uuid,p_date date)
+returns text language sql stable set search_path = '' as $$
+  select case when p_user_id='00000000-0000-4000-8000-000000009101'::uuid then 'failed' else 'unsupported' end
+$$;
+set local role authenticated;
+set local request.jwt.claim.sub='00000000-0000-4000-8000-000000009101';
+select lives_ok($$select public.refresh_my_progression_qualification_progress()$$,
+  'authenticated refresh recalculates stale current-period details');
+reset role;
+select is((select count(*)::integer from public.progression_achievement_progress
+  where user_id='00000000-0000-4000-8000-000000009101'
+    and achievement_id in ('perfect-week','perfect-month','perfect-year')
+    and qualification_details->>'status'<>'stale_test_value'),3,
+  'refresh replaces stale status details for all three current periods');
+select is((select qualification_details->>'status' from public.progression_achievement_progress
+  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-week'),'failed'::text,
+  'a confirmed failed current week remains failed after refresh');
+select is((select qualification_details->>'status' from public.progression_achievement_progress
+  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-month'),'failed'::text,
+  'a confirmed failed current month remains failed after refresh');
+select is((select qualification_details->>'status' from public.progression_achievement_progress
+  where user_id='00000000-0000-4000-8000-000000009101' and achievement_id='perfect-year'),'unavailable'::text,
+  'a year before the strict year cutover remains unavailable after refresh');
+select is((select count(*)::integer from public.progression_achievement_progress
+  where user_id='00000000-0000-4000-8000-000000009101'
+    and achievement_id in ('perfect-week','perfect-month','perfect-year')
+    and qualification_details->>'pending_reconciliation'='true'),3,
+  'historical pending remains set independently beside failed and unavailable statuses');
 
 select is((select count(*) from public.progression_events where user_id='00000000-0000-4000-8000-000000009101'
   and reason_code='PERFECT_DAY_BONUS' and effective_date='2026-10-29'),0::bigint,
