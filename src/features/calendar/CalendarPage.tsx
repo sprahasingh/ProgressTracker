@@ -22,6 +22,7 @@ import { getDailyActivityStatus } from '../../domain/trackers/dailyActivityStatu
 import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
+import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[]; trackerHolidays: TrackerHoliday[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; noProgress: number; historical: number; outsidePeriod: number; missed: number; skipped: number; pending: number; upcoming: number; restDay: number; inactive: number; entries: number; holiday: boolean; mixed: boolean; visualStatus: ActivityStatus }
@@ -33,7 +34,7 @@ function isCalendarDate(value: string | null): value is CalendarDate {
 }
 
 export function CalendarPage() {
-  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending } = useAuth()
+  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, enterCloudRecovery } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const today = useMemo(() => localCalendarDate(new Date(), timeZone), [timeZone])
   const [searchParams, setSearchParams] = useSearchParams()
@@ -56,7 +57,7 @@ export function CalendarPage() {
     return today
   }, [searchParams, today])
   const visibleData = workspaceKey && snapshot?.workspaceKey === workspaceKey ? snapshot : null
-  const loadingVisible = loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey)
+  const loadingVisible = !error && (loading || !workspaceReady || Boolean(workspaceKey && snapshot?.workspaceKey !== workspaceKey))
   const trackerFilter = useTrackerFilter(expectedOwner, visibleData?.trackers ?? [], !loadingVisible)
   const selectedTracker = visibleData?.trackers.find((tracker) => tracker.id === trackerFilter.selectedId) ?? null
   const displayedTrackers = selectedTracker ? [selectedTracker] : visibleData?.trackers ?? []
@@ -87,8 +88,9 @@ export function CalendarPage() {
       if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) {
         setSnapshot({ workspaceKey: context.workspaceKey, trackers, entries, holidays: holidays.map((holiday) => holiday.date), trackerHolidays })
       }
-    } catch {
-      if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) setError('The calendar could not be loaded from this device.')
+    } catch (cause) {
+      const diagnostic = reportStorageFailure('Calendar.snapshot.read', 'transaction', cause)
+      if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) setError(storageFailureMessage(diagnostic.category))
     } finally {
       if (requestRef.current === request) setLoading(false)
     }
@@ -186,7 +188,7 @@ export function CalendarPage() {
       </div>
     </div>
     {error && <div role="alert" className="form-alert">{error}</div>}
-    {loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : error ? <Surface><EmptyState title="Your activity is still saved" description="This device could not open the calendar." action={<button className="button button-secondary button-medium" onClick={() => void refresh()}>Try again</button>} /></Surface> : <div className="calendar-layout">
+    {error ? <Surface><EmptyState title="Couldn’t load your calendar" description={`${error} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><button className="button button-secondary button-medium" onClick={() => void refresh()}>Retry local read</button>{authStatus === 'signed-in' && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>} /></Surface> : loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : <div className="calendar-layout">
       <Surface className="calendar-month-card"><h2>{calendarDateLabel(`${month}-01`, { month: 'long', year: 'numeric' })}</h2><MonthCalendar days={summaries} selected={selectedDate} today={today} entryScopeLabel={selectedTracker ? 'saved tracker' : 'active tracker'} onSelect={selectDate} /></Surface>
       <Surface className="calendar-day-details" aria-live="polite">
         <SectionHeader className="calendar-day-heading" eyebrow="SELECTED DAY" title={calendarDateLabel(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })} action={<Link className="button button-quiet button-small" to={`/holidays?date=${selectedDate}`}>{selectedHoliday ? 'Edit holiday' : 'Mark holiday'}</Link>} />

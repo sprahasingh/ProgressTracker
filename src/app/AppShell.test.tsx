@@ -15,6 +15,7 @@ const authState = vi.hoisted(() => ({ value: { status: 'local-only' as string, w
 const maintainerState = vi.hoisted(() => ({ value: 'denied' as string }))
 let injectedStylesheet: HTMLStyleElement | null = null
 vi.mock('../features/auth/AuthProvider', () => ({ useAuth: () => authState.value }))
+vi.mock('../features/auth/CloudRecoveryPanel', () => ({ CloudRecoveryPanel: ({ userId, onRetryLocal }: { userId: string; onRetryLocal: () => void }) => <section aria-label="mock cloud recovery"><p>{userId}</p><button onClick={onRetryLocal}>Retry local workspace</button></section> }))
 vi.mock('../features/ai-knowledge/useMaintainerAccess', () => ({ useMaintainerAccess: () => ({ status: maintainerState.value }) }))
 
 afterEach(async () => { cleanup(); injectedStylesheet?.remove(); injectedStylesheet = null; vi.restoreAllMocks(); authState.value = guestReadyState; maintainerState.value = 'denied'; await db.delete() })
@@ -261,13 +262,44 @@ describe('app navigation quality', () => {
     authState.value = guestReadyState
   })
 
+  it('keeps the signed-in workspace gated and labels explicit cloud recovery read-only', async () => {
+    const enterCloudRecovery = vi.fn()
+    const retryWorkspace = vi.fn()
+    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'error', workspaceUserId: 'user-a', workspaceError: 'The local database could not be opened.', enterCloudRecovery, retryWorkspace } as never
+    const user = userEvent.setup()
+    const view = render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private editable workspace</p>} /></Route></Routes></MemoryRouter>)
+    expect(screen.queryByText('Private editable workspace')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Open Cloud Recovery — Read Only' }))
+    expect(enterCloudRecovery).toHaveBeenCalledOnce()
+
+    authState.value = { ...authState.value, cloudRecoveryMode: true } as never
+    view.rerender(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private editable workspace</p>} /></Route></Routes></MemoryRouter>)
+    expect(screen.getByRole('region', { name: 'mock cloud recovery' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open AI Help Assistant' })).not.toBeInTheDocument()
+    expect(document.querySelector('.topbar-sync-state')).toHaveAttribute('aria-label', 'Cloud recovery · read only')
+    await user.click(screen.getByRole('button', { name: 'Retry local workspace' }))
+    expect(retryWorkspace).toHaveBeenCalledOnce()
+    expect(screen.queryByText('Private editable workspace')).not.toBeInTheDocument()
+  })
+
+  it('offers cloud recovery after a prolonged workspace loading state without labeling it a storage failure', async () => {
+    const enterCloudRecovery = vi.fn()
+    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'loading', workspaceUserId: null, workspaceInitializationStalled: true, enterCloudRecovery } as never
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private editable workspace</p>} /></Route></Routes></MemoryRouter>)
+    expect(screen.getByText(/This delay does not confirm a storage failure/)).toBeInTheDocument()
+    expect(screen.queryByText('Private editable workspace')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Open Cloud Recovery — Read Only' }))
+    expect(enterCloudRecovery).toHaveBeenCalledOnce()
+  })
+
   it.each([
     { authStatus: 'local-only', syncStatus: undefined, isOnline: undefined, full: 'Local mode', compact: 'Local' },
     { authStatus: 'signed-in', syncStatus: 'offline', isOnline: false, full: 'Offline · changes saved', compact: 'Offline' },
     { authStatus: 'signed-in', syncStatus: 'syncing', isOnline: true, full: 'Syncing account', compact: 'Syncing' },
     { authStatus: 'signed-in', syncStatus: 'waiting', isOnline: true, full: 'Sync pending', compact: 'Pending' },
     { authStatus: 'signed-in', syncStatus: 'error', isOnline: true, full: 'Sync needs attention', compact: 'Error' },
-    { authStatus: 'signed-in', syncStatus: 'complete', isOnline: true, full: 'Synced', compact: 'Synced' },
+    { authStatus: 'signed-in', syncStatus: 'complete', isOnline: true, full: 'Last sync complete', compact: 'Last sync' },
   ])('keeps sync state named, linked, and visible in compact navigation for $compact', ({ authStatus, syncStatus, isOnline, full, compact }) => {
     authState.value = {
       ...guestReadyState,

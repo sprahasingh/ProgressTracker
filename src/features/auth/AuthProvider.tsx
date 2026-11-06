@@ -6,6 +6,8 @@ import { synchronizeWorkspace, type SyncSummary } from '../../services/supabase/
 import { subscribeToWorkspaceMutations } from '../../db/workspaceMutationEvents'
 import { clearPushCleanup, getPendingPushCleanups, getStoredPushOwner, managePushSubscriptionWithSupabase, queuePushCleanup, revokePushBeforeSignOut, setStoredPushOwner, setWorkerPushOwner, withPushOwnershipLock } from '../notifications/pushSubscriptionService'
 import { isTrackerRecoveryInspectionMode } from './recoveryInspectionMode'
+import { reportStorageFailure, storageDiagnosticEventName, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
+import { syncFailureMessage, classifySyncFailure } from '../../services/supabase/syncFailureDiagnostics'
 
 export type AuthStatus = 'loading' | 'local-only' | 'signed-out' | 'signed-in'
 
@@ -46,6 +48,13 @@ type AuthState = {
   workspaceError: string | null
   chooseGuestData: (decision: GuestDataDecision) => Promise<void>
   retryWorkspace: () => void
+  cloudRecoveryMode: boolean
+  cloudRecoveryPending: boolean
+  cloudRecoveryOperationsPending: boolean
+  cloudRecoveryPriorOperationsSettled: boolean
+  workspaceInitializationStalled: boolean
+  workspaceInitializationPending: boolean
+  enterCloudRecovery: () => Promise<void>
   syncStatus: 'idle' | 'waiting' | 'offline' | 'syncing' | 'complete' | 'error'
   syncTrigger: 'automatic' | 'manual' | null
   isOnline: boolean
@@ -61,6 +70,9 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null)
 
+const stalledWorkspaceRecoveryDelayMs = 5_000
+const recoveryOperationWaitMs = 1_500
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<User | null>(null)
@@ -74,6 +86,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceRetry, setWorkspaceRetry] = useState(0)
+  const [cloudRecoveryMode, setCloudRecoveryMode] = useState(false)
+  const [cloudRecoveryPending, setCloudRecoveryPending] = useState(false)
+  const [cloudRecoveryOperationsPending, setCloudRecoveryOperationsPending] = useState(false)
+  const [cloudRecoveryPriorOperationsSettled, setCloudRecoveryPriorOperationsSettled] = useState(false)
+  const [workspaceInitializationStalled, setWorkspaceInitializationStalled] = useState(false)
+  const [workspaceInitializationPending, setWorkspaceInitializationPending] = useState(false)
+  const cloudRecoveryModeRef = useRef(false)
+  const cloudRecoveryTransitionRef = useRef(0)
+  const workspaceInitializationIdRef = useRef(0)
+  const workspaceInitializationPendingRef = useRef(false)
+  const recoveryWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const workspaceInitializationPromiseRef = useRef<Promise<void> | null>(null)
+  const recoveryWaitCancelRef = useRef<(() => void) | null>(null)
+  const cloudRecoveryEntryPromiseRef = useRef<Promise<void> | null>(null)
   const [syncStatus, setSyncStatus] = useState<AuthState['syncStatus']>('idle')
   const [syncTrigger, setSyncTrigger] = useState<AuthState['syncTrigger']>(null)
   const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
@@ -97,6 +123,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pushTransitionChainRef = useRef<Promise<void>>(Promise.resolve())
   authUserIdRef.current = status === 'signed-in' ? user?.id ?? null : null
   workspaceReadyRef.current = status === 'signed-in' && workspaceStatus === 'ready' && workspaceUserId === user?.id
+
+  useEffect(() => () => {
+    cloudRecoveryTransitionRef.current += 1
+    recoveryWaitCancelRef.current?.()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onStorageDiagnostic = (event: Event) => {
+      const diagnostic = (event as CustomEvent<StorageDiagnostic>).detail
+      if (diagnostic?.category !== 'blocked-connection' || workspaceReadyRef.current) return
+      setWorkspaceError(storageFailureMessage(diagnostic.category))
+      setWorkspaceStatus('error')
+    }
+    window.addEventListener(storageDiagnosticEventName(), onStorageDiagnostic)
+    return () => window.removeEventListener(storageDiagnosticEventName(), onStorageDiagnostic)
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -134,6 +177,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const previousSession = pushSessionRef.current
       const previousUserId = previousSession?.user.id ?? getStoredPushOwner()
       const nextUserId = session?.user.id ?? null
+      if (previousUserId !== nextUserId) {
+        cloudRecoveryTransitionRef.current += 1
+        recoveryWaitCancelRef.current?.()
+        cloudRecoveryModeRef.current = false
+        setCloudRecoveryMode(false)
+        setCloudRecoveryPending(false)
+        setCloudRecoveryOperationsPending(false)
+        setCloudRecoveryPriorOperationsSettled(false)
+      }
       const transitionSequence = ++pushTransitionSequenceRef.current
       if (previousUserId && previousUserId !== nextUserId) {
         setPushOwnershipStatus('pending')
@@ -242,7 +294,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setPushOwnershipMessage(error instanceof Error ? error.message : 'This device subscription needs cleanup before registration.')
           }
         })
-      } else if (nextUserId) {
+      } else if (nextUserId && !cloudRecoveryModeRef.current) {
+        setPushOwnershipStatus('pending')
+        setPushOwnershipMessage('Checking this device’s subscription owner…')
         pushTransitionChainRef.current = pushTransitionChainRef.current.then(() => withPushOwnershipLock(async () => {
           const pendingForNext = (await getPendingPushCleanups()).filter((cleanup) => cleanup.ownerId === nextUserId)
           for (const cleanup of pendingForNext) {
@@ -286,55 +340,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return
     let current = true
+    const initializationId = ++workspaceInitializationIdRef.current
     const userId = status === 'signed-in' ? user?.id ?? null : null
     setWorkspaceStatus('loading')
     setWorkspaceError(null)
     setSyncStatus('idle')
     setSyncSummary(null)
     setSyncError(null)
-    void (async () => {
+    setWorkspaceInitializationStalled(false)
+    workspaceInitializationPendingRef.current = true
+    setWorkspaceInitializationPending(true)
+    const stalledTimer = setTimeout(() => {
+      if (current && workspaceInitializationIdRef.current === initializationId && workspaceInitializationPendingRef.current) setWorkspaceInitializationStalled(true)
+    }, stalledWorkspaceRecoveryDelayMs)
+    const initialization = (async () => {
       try {
         await activateWorkspace(userId)
-        if (!current) return
+        if (!current || workspaceInitializationIdRef.current !== initializationId || cloudRecoveryModeRef.current) return
         setWorkspaceUserId(userId)
         if (!userId) { setGuestSummary(null); setWorkspaceStatus('ready'); return }
         const [decision, summary] = await Promise.all([getGuestDecision(userId), getGuestWorkspaceSummary()])
-        if (!current) return
+        if (!current || workspaceInitializationIdRef.current !== initializationId || cloudRecoveryModeRef.current) return
         setGuestSummary(summary)
         if (summary.hasData && !decision) setWorkspaceStatus('needs-guest-choice')
         else {
-          if (!decision) await decideGuestData(userId, 'kept-separate')
+          if (!decision) {
+            await decideGuestData(userId, 'kept-separate')
+            if (!current || workspaceInitializationIdRef.current !== initializationId || cloudRecoveryModeRef.current) return
+          }
           setWorkspaceStatus('ready')
         }
       } catch (cause) {
-        if (!current) return
-        setWorkspaceError(cause instanceof Error ? cause.message : 'The local workspace could not be opened.')
+        if (!current || workspaceInitializationIdRef.current !== initializationId || cloudRecoveryModeRef.current) return
+        const diagnostic = reportStorageFailure('AuthProvider.workspace.initialize', 'transaction', cause)
+        setWorkspaceError(storageFailureMessage(diagnostic.category))
         setWorkspaceStatus('error')
+      } finally {
+        clearTimeout(stalledTimer)
+        if (workspaceInitializationIdRef.current === initializationId) {
+          workspaceInitializationPendingRef.current = false
+          setWorkspaceInitializationPending(false)
+          setWorkspaceInitializationStalled(false)
+        }
       }
     })()
-    return () => { current = false }
+    workspaceInitializationPromiseRef.current = initialization
+    void initialization.finally(() => {
+      if (workspaceInitializationPromiseRef.current === initialization) workspaceInitializationPromiseRef.current = null
+    })
+    return () => { current = false; clearTimeout(stalledTimer) }
   }, [status, user?.id, workspaceRetry])
 
   function requestSync(ownerId: string, trigger: 'automatic' | 'manual'): Promise<void> {
-    if (isTrackerRecoveryInspectionMode() || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return Promise.resolve()
+    if (cloudRecoveryModeRef.current || isTrackerRecoveryInspectionMode() || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return Promise.resolve()
     const active = syncPromisesRef.current.get(ownerId)
     if (active) return active
 
+    const recoveryTransition = cloudRecoveryTransitionRef.current
     const promise = Promise.resolve().then(async () => {
-      if (authUserIdRef.current !== ownerId || !workspaceReadyRef.current || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return
+      if (cloudRecoveryModeRef.current || authUserIdRef.current !== ownerId || !workspaceReadyRef.current || deletionOwnerRef.current === ownerId || hasDeletionLock(ownerId)) return
       attemptedMutationVersionRef.current.set(ownerId, mutationVersionRef.current.get(ownerId) ?? 0)
       setSyncStatus('syncing')
       setSyncTrigger(trigger)
       setSyncError(null)
       try {
         const result = await synchronizeWorkspace(ownerId)
-        if (authUserIdRef.current !== ownerId) return
+        if (authUserIdRef.current !== ownerId || cloudRecoveryModeRef.current || recoveryTransition !== cloudRecoveryTransitionRef.current) return
         setSyncSummary(result)
         setSyncStatus(result.failed > 0 ? 'error' : 'complete')
         if (result.failed > 0) setSyncError('Some changes remain on this device. Check your connection and retry.')
       } catch (cause) {
-        if (authUserIdRef.current !== ownerId) return
-        setSyncError(cause instanceof Error ? cause.message : 'Sync could not complete. Your local records are retained.')
+        if (authUserIdRef.current !== ownerId || cloudRecoveryModeRef.current || recoveryTransition !== cloudRecoveryTransitionRef.current) return
+        setSyncError(syncFailureMessage(classifySyncFailure(cause)))
         setSyncStatus('error')
       }
     }).finally(() => {
@@ -454,7 +531,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function retryWorkspace() { setWorkspaceRetry((attempt) => attempt + 1) }
+  function enterCloudRecovery(): Promise<void> {
+    if (cloudRecoveryEntryPromiseRef.current) return cloudRecoveryEntryPromiseRef.current
+    const transition = ++cloudRecoveryTransitionRef.current
+    const ownerId = user?.id ?? null
+    cloudRecoveryModeRef.current = true
+    setCloudRecoveryPending(true)
+    const activeSync = ownerId ? syncPromisesRef.current.get(ownerId) : undefined
+    const activePushTransition = pushOwnershipStatus === 'pending' ? pushTransitionChainRef.current : undefined
+    const activeInitialization = workspaceInitializationPromiseRef.current
+    const operations = [activeSync, activePushTransition, activeInitialization].filter(Boolean) as Promise<void>[]
+    const settled = Promise.allSettled(operations)
+    setCloudRecoveryOperationsPending(operations.length > 0)
+    setCloudRecoveryPriorOperationsSettled(false)
+    const entryPromise = new Promise<void>((resolve) => {
+      let finished = false
+      const finish = (allSettled: boolean) => {
+        if (finished) return
+        finished = true
+        if (recoveryWaitTimerRef.current) clearTimeout(recoveryWaitTimerRef.current)
+        recoveryWaitTimerRef.current = null
+        recoveryWaitCancelRef.current = null
+        if (transition === cloudRecoveryTransitionRef.current && authUserIdRef.current === ownerId) {
+          setCloudRecoveryMode(true)
+          setCloudRecoveryPending(false)
+          setCloudRecoveryOperationsPending(!allSettled)
+          setCloudRecoveryPriorOperationsSettled(operations.length > 0 && allSettled)
+          if (!allSettled) void settled.then(() => {
+            if (transition === cloudRecoveryTransitionRef.current && authUserIdRef.current === ownerId) {
+              setCloudRecoveryOperationsPending(false)
+              setCloudRecoveryPriorOperationsSettled(true)
+            }
+          })
+        }
+        resolve()
+      }
+      if (operations.length === 0) { finish(true); return }
+      void settled.then(() => finish(true))
+      recoveryWaitTimerRef.current = setTimeout(() => finish(false), recoveryOperationWaitMs)
+      recoveryWaitCancelRef.current = () => finish(false)
+    })
+    cloudRecoveryEntryPromiseRef.current = entryPromise
+    void entryPromise.finally(() => { if (cloudRecoveryEntryPromiseRef.current === entryPromise) cloudRecoveryEntryPromiseRef.current = null })
+    return entryPromise
+  }
+  function retryWorkspace() {
+    if (cloudRecoveryOperationsPending || workspaceInitializationPendingRef.current || (user?.id && syncPromisesRef.current.has(user.id))) return
+    cloudRecoveryTransitionRef.current += 1
+    recoveryWaitCancelRef.current?.()
+    cloudRecoveryModeRef.current = false
+    setCloudRecoveryMode(false)
+    setCloudRecoveryPending(false)
+    setCloudRecoveryOperationsPending(false)
+    setCloudRecoveryPriorOperationsSettled(false)
+    setWorkspaceRetry((attempt) => attempt + 1)
+  }
 
   async function syncNow() {
     const ownerId = user?.id
@@ -523,7 +654,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, pushOwnershipStatus, pushOwnershipMessage, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, pushOwnershipStatus, pushOwnershipMessage, guestSummary, workspaceError, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {

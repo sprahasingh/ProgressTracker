@@ -7,6 +7,7 @@ import { Surface } from '../../components/ui/Surface'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
+import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -23,7 +24,7 @@ const kindLabels = { habit: 'Habit', goal: 'Goal', challenge: 'Challenge', proje
 
 export function TrackerLibraryPage() {
   const { notify } = useToast()
-  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline } = useAuth()
+  const { status: authStatus, user, workspaceStatus, workspaceUserId, sessionTransitionPending, syncStatus, isOnline, enterCloudRecovery } = useAuth()
   const { timeZone } = useWorkspaceTimeZone()
   const today = useWorkspaceCalendarDate(timeZone)
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
@@ -43,7 +44,7 @@ export function TrackerLibraryPage() {
   const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
   const holidays = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.holidays : [])
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
-  const visibleLoading = loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey)
+  const visibleLoading = !error && (loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey))
   const statusFilteredTrackers = statusFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.status === statusFilter)
   const visibleTrackers = kindFilter === 'all' ? statusFilteredTrackers : statusFilteredTrackers.filter((tracker) => tracker.kind === kindFilter)
 
@@ -62,9 +63,10 @@ export function TrackerLibraryPage() {
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
         setTrackerSnapshot({ workspaceKey: context.key, trackers: result, entries, checkedInToday: entries.filter((entry) => entry.deletedAt === null && entry.date === today).map((entry) => entry.trackerId), holidays: holidayRows.map((holiday) => holiday.date) })
       }
-    } catch {
+    } catch (cause) {
+      const diagnostic = reportStorageFailure('Trackers.snapshot.read', 'transaction', cause)
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
-        setErrorState({ workspaceKey: context.key, message: 'Your trackers could not be loaded from this device.' })
+        setErrorState({ workspaceKey: context.key, message: storageFailureMessage(diagnostic.category) })
       }
     } finally {
       if (readGenerationRef.current === generation) setLoading(false)
@@ -131,8 +133,7 @@ export function TrackerLibraryPage() {
           {(['all', 'active', 'archived'] as const).map((filter) => <button key={filter} type="button" className={`tracker-status-option${statusFilter === filter ? ' selected' : ''}`} aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>{filter === 'all' ? 'All' : filter === 'active' ? 'Active' : 'Archived'}</button>)}
         </div>
       </div>
-      {error && <div role="alert" className="form-alert">{error}</div>}
-      {visibleLoading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
+      {error ? <Surface><EmptyState title="Couldn’t load your trackers" description={`${error} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><button className="button button-secondary button-medium" onClick={() => void refresh()}>Retry local read</button>{authStatus === 'signed-in' && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>} /></Surface> : visibleLoading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
         <Surface>
           {authStatus === 'signed-in' && (syncStatus === 'waiting' || syncStatus === 'syncing' || syncStatus === 'offline') ? (
             <EmptyState title={isOnline === false ? 'Cloud progress has not loaded yet' : 'Checking your cloud progress'} description={isOnline === false ? 'You are offline. Any progress on this device stays available, and the account’s cloud records will be checked after reconnecting.' : 'This account’s saved trackers are being checked. You can keep using this workspace while the check finishes.'} action={<Link className="button button-secondary button-medium" to="/auth">Account and sync status</Link>} />

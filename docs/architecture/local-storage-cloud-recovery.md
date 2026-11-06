@@ -1,0 +1,25 @@
+# Local storage failures and read-only cloud recovery
+
+## Normal workspace path
+
+The signed-in workspace is selected in `AuthProvider`. `activateWorkspace` switches to the account-specific Dexie database and calls `openDatabase` before the route outlet is enabled. Today, Trackers, and Calendar read their snapshots from that database through `localRepository`. The synchronization engine also calls `openDatabase` before it reads local pending operations or queries Supabase. Therefore an IndexedDB open failure can block route initialization and normal cloud synchronization together.
+
+`openDatabase` wraps errors as `LocalStorageFailure` with a category and stage while retaining the original exception as an internal cause. The original exception is not sent to logs or UI. In-memory storage diagnostics record only operation, stage, category, coarse browser family, and timestamp. Database open errors, schema upgrades, blocked opens, transactions, quota limits, browser restrictions, and validation failures have distinct categories. Page read catches report a safe operation name; they do not expose record values or exception text.
+
+## Cloud Recovery — Read Only
+
+Recovery is explicit. It is available from initialization errors, local snapshot error states, and a prolonged workspace-loading state. The loading delay offers a recovery choice; it does not classify the delay as a storage failure or cancel initialization. `CloudRecoveryPanel` replaces the normal route outlet; it does not attempt a local read. Initialization continuations check the active account and recovery state before changing workspace UI state. Any initialization already in progress is allowed to settle; late completion cannot mark the workspace ready while recovery is active.
+
+`AuthProvider` synchronously blocks new synchronization requests when recovery starts and waits up to 1.5 seconds for already-started synchronization, device-account transitions, and workspace initialization. If they settle within that window, recovery opens normally. If not, recovery remains available with a visible warning that the earlier operation was not cancelled and may finish work it already started. Local workspace retry stays disabled until those operations settle. Late synchronization callbacks cannot replace recovery state. Recovery does not claim that an in-flight sync has stopped or completed.
+
+`readCloudRecoverySnapshot` is independent of IndexedDB and the sync engine. It calls `auth.getUser`, requires the returned user ID to match the active signed-in identity, and performs only paged `SELECT` queries for `trackers` and `tracker_entries` with an explicit `user_id` filter. Supabase RLS remains authoritative. Existing tracker and entry schemas validate every row; tracker and entry server revisions are retained alongside the read-only records. Tombstones, retired measures, historical rule versions, saved values, and notes remain represented as stored. The nullable `holiday_treatment` field is requested when available. If and only if the database reports that exact column missing (`42703` or PostgREST `PGRST204`), the read retries without it and labels the snapshot as a legacy schema. Since the field was introduced as nullable, an older schema could not have stored explicit treatment values. Missing any required field remains a schema-compatibility failure; no required data is defaulted or discarded.
+
+Cloud Recovery itself never calls RPC, queues changes, copies cloud data into IndexedDB, starts synchronization, evaluates progression, or enables mutations. A sync or device-account transition started before recovery can remain active during the read-only fallback; the UI identifies that state, and the read timestamp is not an atomic database snapshot or sync watermark. Tracker and entry queries are separate requests and server data can change while they run. An empty result means no rows were returned to this authenticated query; it does not prove that the local device has no data.
+
+The recovery view intentionally excludes offline unsynchronized changes and does not calculate streaks, XP, achievements, or reward history. Existing local data remains untouched. Users should not clear site data. When local storage becomes available, they explicitly retry the local workspace; normal revision checks and conflict handling continue to govern later synchronization.
+
+## Diagnostics and limits
+
+Storage and cloud recovery diagnostics are emitted as in-memory browser events. They are not persisted or uploaded. No user ID, email, token, database name, query values, exception message, or tracker contents are part of a diagnostic. A bounded SQLSTATE/PostgREST/HTTP code may accompany the operation, stage, and category. Categories distinguish authentication, authorization, network, schema compatibility, local storage, invalid returned data, and unknown errors.
+
+Client-side checks do not establish whether server records exist outside the authenticated RLS view or whether the account's data is intact. That requires approved server-side read-only production access. This feature is not a data repair or migration mechanism.

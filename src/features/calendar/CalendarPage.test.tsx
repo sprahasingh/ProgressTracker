@@ -36,6 +36,20 @@ beforeEach(() => { vi.setSystemTime(new Date(`${today}T12:00:00.000Z`)) })
 afterEach(() => { cleanup(); window.sessionStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); mocks.listTrackerHolidays.mockResolvedValue([]) })
 
 describe('Calendar page', () => {
+  it('shows a local read failure instead of leaving the page loading, and can retry', async () => {
+    mocks.listTrackers.mockRejectedValueOnce(new Error('IndexedDB unavailable')).mockResolvedValueOnce([])
+    mocks.listTrackerEntriesBetween.mockResolvedValue([])
+    mocks.listAccountHolidays.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: 'Couldn’t load your calendar' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText(/This failed read did not change records/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry local read' }))
+    expect(await screen.findByRole('table', { name: 'Daily activity calendar' })).toBeInTheDocument()
+  })
+
   it('uses the shared page-header hierarchy with visible schedule copy and the holidays action after it', async () => {
     mocks.listTrackers.mockResolvedValue([])
     mocks.listTrackerEntriesBetween.mockResolvedValue([])
