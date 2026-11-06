@@ -56,6 +56,17 @@ export function findStorageDiagnostic(error: unknown): StorageDiagnostic | null 
   return errorChain(error).find((item) => item.diagnostic)?.diagnostic ?? null
 }
 
+/** Attach safe operation provenance while retaining the original exception. */
+export function annotateStorageFailure(operation: string, stage: StorageFailureStage, error: unknown): unknown {
+  const diagnostic = reportStorageFailure(operation, stage, error)
+  if (findStorageDiagnostic(error)) return error
+  if (error && (typeof error === 'object' || typeof error === 'function')) {
+    try { Object.defineProperty(error, 'diagnostic', { configurable: true, value: diagnostic }); return error }
+    catch { /* Preserve the cause in a sanitized wrapper when the original is immutable. */ }
+  }
+  return Object.assign(new Error('A workspace operation failed.', { cause: error }), { diagnostic })
+}
+
 function browserEnvironment(): string {
   if (typeof navigator === 'undefined') return 'unknown'
   const ua = navigator.userAgent

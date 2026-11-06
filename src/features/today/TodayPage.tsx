@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
+import { annotateStorageFailure, reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
 import { StorageDiagnosticDetails } from '../auth/StorageDiagnosticDetails'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
@@ -63,6 +63,16 @@ function comparableValues(values: Record<string, TrackerValue>): string {
   return JSON.stringify(normalize(values))
 }
 
+function todaySnapshotStep<T>(step: string, read: () => T): T {
+  try { return read() }
+  catch (cause) { throw annotateStorageFailure(`Today.snapshot.${step}`, 'transaction', cause) }
+}
+
+async function todaySnapshotRead<T>(step: string, read: () => Promise<T>): Promise<T> {
+  try { return await read() }
+  catch (cause) { throw annotateStorageFailure(`Today.snapshot.${step}`, 'transaction', cause) }
+}
+
 export function TodayPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -99,29 +109,38 @@ export function TodayPage() {
     setLoadError('')
     setLoadDiagnostic(null)
     try {
-      const requestedDate = focusedDateRef.current
-      const queryStart = requestedDate && requestedDate < shiftCalendarDate(today, -7) ? requestedDate : shiftCalendarDate(today, -7)
-      const queryEnd = requestedDate && requestedDate > shiftCalendarDate(today, 6) ? requestedDate : shiftCalendarDate(today, 6)
+      const { queryStart, queryEnd } = todaySnapshotStep('dateWindow', () => {
+        const requestedDate = focusedDateRef.current
+        const defaultStart = shiftCalendarDate(today, -7)
+        const defaultEnd = shiftCalendarDate(today, 6)
+        return {
+          queryStart: requestedDate && requestedDate < defaultStart ? requestedDate : defaultStart,
+          queryEnd: requestedDate && requestedDate > defaultEnd ? requestedDate : defaultEnd,
+        }
+      })
       const [allTrackers, deletedTrackers, recentEntries, allHolidays, trackerHolidays] = await Promise.all([
-        localRepository.listTrackers(true),
-        localRepository.listDeletedTrackers(),
-        localRepository.listTrackerEntriesBetween(queryStart, queryEnd),
-        localRepository.listAccountHolidays(),
-        localRepository.listTrackerHolidays(queryStart as CalendarDate, queryEnd as CalendarDate),
+        todaySnapshotRead('listTrackers', () => localRepository.listTrackers(true)),
+        todaySnapshotRead('listDeletedTrackers', () => localRepository.listDeletedTrackers()),
+        todaySnapshotRead('listRecentEntries', () => localRepository.listTrackerEntriesBetween(queryStart, queryEnd)),
+        todaySnapshotRead('listAccountHolidays', () => localRepository.listAccountHolidays()),
+        todaySnapshotRead('listTrackerHolidays', () => localRepository.listTrackerHolidays(queryStart, queryEnd)),
       ])
       if (refreshGeneration.current !== generation || ownerRef.current !== requestOwner) return
-      const todayEntries = recentEntries.filter((entry) => entry.date === today)
-      const activeTrackers = allTrackers.filter(isActiveTracker)
-      const goals = activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
-      const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
-        const start = trackerActiveStartDate(tracker, timeZone) as CalendarDate
-        return start < earliest ? start : earliest
-      }, today)
-      const historicalGoalEntries = goals.length ? await localRepository.listTrackerEntriesBetween(earliestGoalDate, today) : []
+      const { todayEntries, activeTrackers, goals, earliestGoalDate } = todaySnapshotStep('buildTrackerSnapshot', () => {
+        const todayEntries = recentEntries.filter((entry) => entry.date === today)
+        const activeTrackers = allTrackers.filter(isActiveTracker)
+        const goals = activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.goalPlanning?.mode === 'cumulative-deadline' && tracker.deadline)
+        const earliestGoalDate = goals.reduce<CalendarDate>((earliest, tracker) => {
+          const start = trackerActiveStartDate(tracker, timeZone) as CalendarDate
+          return start < earliest ? start : earliest
+        }, today)
+        return { todayEntries, activeTrackers, goals, earliestGoalDate }
+      })
+      const historicalGoalEntries = goals.length ? await todaySnapshotRead('listHistoricalGoalEntries', () => localRepository.listTrackerEntriesBetween(earliestGoalDate, today)) : []
       setAllTrackers(allTrackers)
       setHasDeletedTrackerRecords(deletedTrackers.length > 0)
-      setUpcomingGoals(activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
-        .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3))
+      setUpcomingGoals(todaySnapshotStep('buildUpcomingGoals', () => activeTrackers.filter((tracker) => tracker.kind === 'goal' && tracker.deadline && tracker.deadline >= today && tracker.deadline <= shiftCalendarDate(today, 14))
+        .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).slice(0, 3)))
       setEntries(todayEntries)
       setWeekEntries(recentEntries)
       setGoalEntries(historicalGoalEntries)

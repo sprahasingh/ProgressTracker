@@ -3,6 +3,7 @@ import { assertCalendarDate, assertDateRange, calendarDateInTimeZone } from './c
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday, TrackerWinsRetention } from './models'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { trackerDefinitionForDate, trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
+import { annotateStorageFailure } from './storageDiagnostics'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
 import { migrateLegacyRejectedConflicts } from './legacySyncRejections'
 import { measureDevPerformance } from '../utils/devPerformance'
@@ -62,7 +63,9 @@ async function resolveTrackersScheduling(database: Awaited<ReturnType<typeof ope
   return trackers.map((tracker) => {
     if (schedulingMode(tracker) !== 'effective') return tracker
     const timeZone = tracker.scheduling?.planningTimeZone ?? defaultTimeZone
-    const deadline = deriveSchedulingDeadline({ tracker, holidays: activeHolidays, timeZone })
+    let deadline: string | undefined
+    try { deadline = deriveSchedulingDeadline({ tracker, holidays: activeHolidays, timeZone }) }
+    catch (cause) { throw annotateStorageFailure('localRepository.listTrackers.deriveSchedulingDeadline', 'transaction', cause) }
     return { ...tracker, deadline }
   })
 }
