@@ -28,7 +28,7 @@ import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3Wri
 import { reportBlockedDatabaseOpen, reportStorageFailure, storageFailureMessage, type StorageFailureCategory, type StorageFailureStage } from './storageDiagnostics'
 
 export class LocalStorageFailure extends Error {
-  constructor(readonly category: StorageFailureCategory, readonly stage: StorageFailureStage, cause?: unknown) {
+  constructor(readonly category: StorageFailureCategory, readonly stage: StorageFailureStage, cause?: unknown, readonly diagnostic?: import('./storageDiagnostics').StorageDiagnostic) {
     super(storageFailureMessage(category), { cause })
     this.name = 'LocalStorageFailure'
   }
@@ -82,7 +82,11 @@ export class ProgressTrackerDatabase extends Dexie {
       const tableNames = args.flat(2).flatMap((value) => value && typeof value === 'object' && 'name' in value && typeof value.name === 'string' ? [value.name] : [])
       const operation = `ProgressTrackerDatabase.transaction${tableNames.length ? `:${[...new Set(tableNames)].sort().join(',')}` : ''}`
       return rawTransaction(...args).catch((cause) => {
-        reportStorageFailure(operation, 'transaction', cause)
+        const diagnostic = reportStorageFailure(operation, 'transaction', cause, 'transaction')
+        if (cause && (typeof cause === 'object' || typeof cause === 'function')) {
+          try { Object.defineProperty(cause, 'diagnostic', { configurable: true, value: diagnostic }) }
+          catch { throw new LocalStorageFailure(diagnostic.category, diagnostic.stage, cause, diagnostic) }
+        }
         throw cause
       })
     }
@@ -571,7 +575,7 @@ export async function openDatabase(): Promise<ProgressTrackerDatabase> {
   if (typeof indexedDB === 'undefined') {
     const cause = Object.assign(new Error('IndexedDB is unavailable in this browser context.'), { name: 'NotSupportedError' })
     const diagnostic = reportStorageFailure('openDatabase', 'initialize', cause)
-    throw new LocalStorageFailure(diagnostic.category, 'initialize', cause)
+    throw new LocalStorageFailure(diagnostic.category, 'initialize', cause, diagnostic)
   }
 
   try {
@@ -579,6 +583,6 @@ export async function openDatabase(): Promise<ProgressTrackerDatabase> {
     return db
   } catch (cause) {
     const diagnostic = reportStorageFailure('openDatabase', 'open', cause)
-    throw new LocalStorageFailure(diagnostic.category, 'open', cause)
+    throw new LocalStorageFailure(diagnostic.category, 'open', cause, diagnostic)
   }
 }

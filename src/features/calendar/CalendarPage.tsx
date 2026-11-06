@@ -22,7 +22,8 @@ import { getDailyActivityStatus } from '../../domain/trackers/dailyActivityStatu
 import { evaluateMilestones } from '../../domain/trackers/milestones'
 import { InfoButton } from '../../components/ui/InfoButton'
 import { trackerStrictModeForDate } from '../../domain/trackers/ruleVersions'
-import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
+import { reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
+import { StorageDiagnosticDetails } from '../auth/StorageDiagnosticDetails'
 
 type CalendarData = { workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; holidays: string[]; trackerHolidays: TrackerHoliday[] }
 type DaySummary = { date: CalendarDate; completed: number; partial: number; noProgress: number; historical: number; outsidePeriod: number; missed: number; skipped: number; pending: number; upcoming: number; restDay: number; inactive: number; entries: number; holiday: boolean; mixed: boolean; visualStatus: ActivityStatus }
@@ -45,6 +46,7 @@ export function CalendarPage() {
   const [snapshot, setSnapshot] = useState<CalendarData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [diagnostic, setDiagnostic] = useState<StorageDiagnostic | null>(null)
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const workspaceReady = !sessionTransitionPending && authStatus !== 'loading' && workspaceStatus === 'ready' && workspaceUserId === expectedOwner
   const workspaceKey = workspaceReady ? expectedOwner ?? 'guest' : null
@@ -74,6 +76,7 @@ export function CalendarPage() {
     const end = monthLast < today ? monthLast : today
     setLoading(true)
     setError('')
+    setDiagnostic(null)
     try {
       const trackers = await localRepository.listTrackers(true)
       const earliest = trackers.reduce<CalendarDate>((minimum, tracker) => {
@@ -90,7 +93,10 @@ export function CalendarPage() {
       }
     } catch (cause) {
       const diagnostic = reportStorageFailure('Calendar.snapshot.read', 'transaction', cause)
-      if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) setError(storageFailureMessage(diagnostic.category))
+      if (requestRef.current === request && contextRef.current.ready && contextRef.current.workspaceKey === context.workspaceKey) {
+        setDiagnostic(diagnostic)
+        setError(storageFailureMessage(diagnostic.category))
+      }
     } finally {
       if (requestRef.current === request) setLoading(false)
     }
@@ -187,7 +193,7 @@ export function CalendarPage() {
         <div className="calendar-legend" aria-label="Activity status legend">{(['completed', 'partial', 'no-progress', 'missed', 'skipped', 'pending', 'upcoming', 'holiday', 'rest-day', 'outside-period', 'historical', 'inactive', 'no-trackers'] as const).map((status) => <span key={status}><i className={`calendar-dot ${status}`} aria-hidden="true"><ActivityStatusIcon status={status} /></i>{ACTIVITY_STATUS_PRESENTATION[status].label}</span>)}</div>
       </div>
     </div>
-    {error && <div role="alert" className="form-alert">{error}</div>}
+    {error && <div role="alert" className="form-alert">{error}<StorageDiagnosticDetails diagnostic={diagnostic} /></div>}
     {error ? <Surface><EmptyState title="Couldn’t load your calendar" description={`${error} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><button className="button button-secondary button-medium" onClick={() => void refresh()}>Retry local read</button>{authStatus === 'signed-in' && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>} /></Surface> : loadingVisible ? <p className="tracker-loading" role="status">Loading your calendar…</p> : <div className="calendar-layout">
       <Surface className="calendar-month-card"><h2>{calendarDateLabel(`${month}-01`, { month: 'long', year: 'numeric' })}</h2><MonthCalendar days={summaries} selected={selectedDate} today={today} entryScopeLabel={selectedTracker ? 'saved tracker' : 'active tracker'} onSelect={selectDate} /></Surface>
       <Surface className="calendar-day-details" aria-live="polite">

@@ -265,10 +265,11 @@ describe('app navigation quality', () => {
   it('keeps the signed-in workspace gated and labels explicit cloud recovery read-only', async () => {
     const enterCloudRecovery = vi.fn()
     const retryWorkspace = vi.fn()
-    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'error', workspaceUserId: 'user-a', workspaceError: 'The local database could not be opened.', enterCloudRecovery, retryWorkspace } as never
+    authState.value = { status: 'signed-in', user: { id: 'user-a', email: 'a@example.com' }, passwordRecovery: false, workspaceStatus: 'error', workspaceUserId: 'user-a', workspaceError: 'The local database could not be opened.', workspaceDiagnostic: { operation: 'openDatabase', stage: 'open', category: 'database-open', browser: 'safari', occurredAt: '2026-11-06T00:00:00.000Z', errorName: 'InvalidStateError' }, enterCloudRecovery, retryWorkspace } as never
     const user = userEvent.setup()
     const view = render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<AppShell />}><Route index element={<p>Private editable workspace</p>} /></Route></Routes></MemoryRouter>)
     expect(screen.queryByText('Private editable workspace')).not.toBeInTheDocument()
+    expect(screen.getByText('openDatabase')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Open Cloud Recovery — Read Only' }))
     expect(enterCloudRecovery).toHaveBeenCalledOnce()
 

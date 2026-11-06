@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
+import { reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
+import { StorageDiagnosticDetails } from '../auth/StorageDiagnosticDetails'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
@@ -83,6 +84,7 @@ export function TodayPage() {
   const [trackerHolidayRows, setTrackerHolidayRows] = useState<Awaited<ReturnType<typeof localRepository.listTrackerHolidays>>>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [loadDiagnostic, setLoadDiagnostic] = useState<StorageDiagnostic | null>(null)
   const refreshGeneration = useRef(0)
   const [selectedActivity, setSelectedActivity] = useState<{ trackerId: string; date: CalendarDate } | null>(null)
   const focusedDateRef = useRef<CalendarDate | null>(null)
@@ -95,6 +97,7 @@ export function TodayPage() {
     const requestOwner = expectedOwner
     if (showLoading) setLoading(true)
     setLoadError('')
+    setLoadDiagnostic(null)
     try {
       const requestedDate = focusedDateRef.current
       const queryStart = requestedDate && requestedDate < shiftCalendarDate(today, -7) ? requestedDate : shiftCalendarDate(today, -7)
@@ -127,7 +130,10 @@ export function TodayPage() {
       setTodayHoliday(allHolidays.find((holiday) => holiday.date === today))
     } catch (cause) {
       const diagnostic = reportStorageFailure('Today.snapshot.read', 'transaction', cause)
-      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoadError(storageFailureMessage(diagnostic.category))
+      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) {
+        setLoadDiagnostic(diagnostic)
+        setLoadError(storageFailureMessage(diagnostic.category))
+      }
     } finally {
       if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoading(false)
     }
@@ -301,7 +307,7 @@ export function TodayPage() {
           return <Link className="today-upcoming-goal" key={goal.id} to="/goals"><span className="tracker-kind-chip">Goal</span><strong>{goal.name}</strong>{recommendation !== undefined && <span>Planned today: {formatTrackerNumber(recommendation)}{unit} · {formatTrackerNumber(remaining ?? 0)}{unit} goal remaining</span>}{savedAllocation !== undefined && <small>Manually planned for today</small>}<span className={days <= 3 ? 'deadline-soon' : ''}>{deadlineText} · {calendarDateLabel(goal.deadline!)}</span></Link>
         })}</div>
       </section>}
-      {loadError && <div role="alert" className="form-alert">{loadError}</div>}
+      {loadError && <div role="alert" className="form-alert">{loadError}<StorageDiagnosticDetails diagnostic={loadDiagnostic} /></div>}
       {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Couldn’t load today’s check-ins" description={`${loadError} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><Button variant="secondary" onClick={() => void refresh(true)}>Retry local read</Button>{authStatus === 'signed-in' && <Button variant="primary" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</Button>}</div>} /></Surface> : accountCheckPending ? (
         <Surface className="today-context-empty"><p role="status" className="tracker-loading">Checking your account for saved trackers…</p></Surface>
       ) : activityTrackers.length === 0 ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyStorageFailure, reportBlockedDatabaseOpen, reportStorageFailure, storageDiagnosticEventName, storageFailureMessage } from './storageDiagnostics'
+import { classifyStorageFailure, findStorageDiagnostic, reportBlockedDatabaseOpen, reportStorageFailure, storageDiagnosticEventName, storageFailureMessage } from './storageDiagnostics'
 import { LocalStorageFailure, openDatabase, ProgressTrackerDatabase } from './database'
 import { getLastStorageDiagnostic } from './storageDiagnostics'
 
@@ -16,13 +16,27 @@ describe('privacy-safe storage diagnostics', () => {
     expect(storageFailureMessage(category)).not.toContain('private record text')
   })
 
-  it('emits only operation, stage, category, browser and time fields', () => {
+  it('emits safe error identity without exception text', () => {
     let detail: unknown
     window.addEventListener(storageDiagnosticEventName(), ((event: CustomEvent) => { detail = event.detail }) as EventListener, { once: true })
     const diagnostic = reportStorageFailure('Today.snapshot.read', 'transaction', new Error('private tracker name'))
     expect(detail).toEqual(diagnostic)
-    expect(Object.keys(diagnostic).sort()).toEqual(['browser', 'category', 'occurredAt', 'operation', 'stage'])
+    expect(diagnostic).toMatchObject({ errorName: 'Error', operation: 'Today.snapshot.read', stage: 'transaction' })
     expect(JSON.stringify(diagnostic)).not.toContain('private tracker name')
+  })
+
+  it('preserves the first low-level diagnostic when higher layers catch the wrapped failure', () => {
+    const lowLevel = reportStorageFailure('ProgressTrackerDatabase.transaction:trackers', 'transaction', Object.assign(new Error('private tracker text'), { name: 'AbortError', code: '23' }))
+    const wrapped = new LocalStorageFailure(lowLevel.category, lowLevel.stage, new Error('wrapper text'), lowLevel)
+    const higherLevel = reportStorageFailure('AuthProvider.workspace.initialize', 'transaction', wrapped)
+    expect(higherLevel).toBe(lowLevel)
+    expect(findStorageDiagnostic(wrapped)).toBe(lowLevel)
+    expect(higherLevel).toMatchObject({ operation: 'ProgressTrackerDatabase.transaction:trackers', errorName: 'AbortError', errorCode: '23' })
+    expect(JSON.stringify(higherLevel)).not.toMatch(/private tracker text|wrapper text/)
+  })
+
+  it('does not label an unrelated generic exception as an IndexedDB transaction failure', () => {
+    expect(classifyStorageFailure(new Error('private detail'), 'transaction')).toBe('unknown')
   })
 
   it('reports a blocked open without exposing database or account names', () => {
@@ -46,8 +60,9 @@ describe('privacy-safe storage diagnostics', () => {
     const database = new ProgressTrackerDatabase(`storage-diagnostic-${crypto.randomUUID()}`)
     await database.open()
     try {
-      await expect(database.transaction('rw', [database.trackers], () => { throw new Error('private tracker data') })).rejects.toThrow('private tracker data')
+      await expect(database.transaction('rw', [database.trackers], () => { throw new Error('private tracker data') })).rejects.toMatchObject({ name: 'Error', message: 'private tracker data' })
       expect(getLastStorageDiagnostic()).toMatchObject({ operation: 'ProgressTrackerDatabase.transaction:trackers', stage: 'transaction', category: 'transaction' })
+      expect(getLastStorageDiagnostic()).toMatchObject({ errorName: 'Error' })
       expect(JSON.stringify(getLastStorageDiagnostic())).not.toContain('private tracker data')
     } finally {
       database.close()
