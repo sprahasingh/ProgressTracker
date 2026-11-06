@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
+import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Surface } from '../../components/ui/Surface'
 import { useModalLayer } from '../../components/ui/useModalLayer'
@@ -64,7 +65,7 @@ function comparableValues(values: Record<string, TrackerValue>): string {
 export function TodayPage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { status: authStatus, user, isOnline, syncStatus } = useAuth()
+  const { status: authStatus, user, isOnline, syncStatus, enterCloudRecovery } = useAuth()
   const { notify } = useToast()
   const expectedOwner = authStatus === 'signed-in' ? user?.id ?? null : null
   const ownerRef = useRef(expectedOwner)
@@ -124,8 +125,9 @@ export function TodayPage() {
       setHolidayDates(allHolidays.map((holiday) => holiday.date))
       setTrackerHolidayRows(trackerHolidays)
       setTodayHoliday(allHolidays.find((holiday) => holiday.date === today))
-    } catch {
-      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoadError('Today’s check-ins could not be loaded from this device.')
+    } catch (cause) {
+      const diagnostic = reportStorageFailure('Today.snapshot.read', 'transaction', cause)
+      if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoadError(storageFailureMessage(diagnostic.category))
     } finally {
       if (refreshGeneration.current === generation && ownerRef.current === requestOwner) setLoading(false)
     }
@@ -300,7 +302,7 @@ export function TodayPage() {
         })}</div>
       </section>}
       {loadError && <div role="alert" className="form-alert">{loadError}</div>}
-      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Your check-ins are still here" description="This device could not open local storage. Try loading today’s trackers again." action={<Button variant="secondary" onClick={() => void refresh(true)}>Try again</Button>} /></Surface> : accountCheckPending ? (
+      {loading ? <p role="status" className="tracker-loading">Loading today’s trackers…</p> : loadError ? <Surface><EmptyState title="Couldn’t load today’s check-ins" description={`${loadError} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><Button variant="secondary" onClick={() => void refresh(true)}>Retry local read</Button>{authStatus === 'signed-in' && <Button variant="primary" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</Button>}</div>} /></Surface> : accountCheckPending ? (
         <Surface className="today-context-empty"><p role="status" className="tracker-loading">Checking your account for saved trackers…</p></Surface>
       ) : activityTrackers.length === 0 ? (
         <Surface className="today-context-empty">

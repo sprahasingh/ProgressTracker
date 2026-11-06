@@ -11,6 +11,7 @@ import { AppIcon, type AppIconName } from '../components/ui/AppIcon'
 import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
 import { useMaintainerAccess } from '../features/ai-knowledge/useMaintainerAccess'
 import { BadgeCelebrationMonitor } from '../features/dashboard/BadgeCelebrationDialog'
+import { CloudRecoveryPanel } from '../features/auth/CloudRecoveryPanel'
 
 type NavigationDestination = {
   group: 'primary' | 'more'
@@ -59,7 +60,7 @@ export function getAvatarInitial(user: { email?: string | null; user_metadata?: 
 }
 
 export function AppShell() {
-  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, syncStatus, isOnline } = useAuth()
+  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, isOnline } = useAuth()
   const maintainerAccess = useMaintainerAccess()
   const navigate = useNavigate()
   const location = useLocation()
@@ -92,23 +93,23 @@ export function AppShell() {
     }
   }, [moreOpen])
   useEffect(() => { if (passwordRecovery) navigate('/auth', { replace: true }) }, [navigate, passwordRecovery])
-  const syncLabel = status === 'loading' ? 'Checking account'
+  const syncLabel = cloudRecoveryPending ? 'Pausing sync for recovery' : cloudRecoveryMode && cloudRecoveryOperationsPending ? 'Cloud recovery · prior operation still running' : cloudRecoveryMode ? 'Cloud recovery · read only' : status === 'loading' ? 'Checking account'
     : status !== 'signed-in' ? 'Local mode'
       : isOnline === false || syncStatus === 'offline' ? 'Offline · changes saved'
         : syncStatus === 'syncing' ? 'Syncing account'
           : syncStatus === 'waiting' ? 'Sync pending'
             : syncStatus === 'error' ? 'Sync needs attention'
-              : syncStatus === 'complete' ? 'Synced'
+              : syncStatus === 'complete' ? 'Last sync complete'
                 : 'Account ready'
-  const compactSyncLabel = status === 'loading' ? 'Checking'
+  const compactSyncLabel = cloudRecoveryPending ? 'Pausing' : cloudRecoveryMode && cloudRecoveryOperationsPending ? 'Operation pending' : cloudRecoveryMode ? 'Read only' : status === 'loading' ? 'Checking'
     : status !== 'signed-in' ? 'Local'
       : isOnline === false || syncStatus === 'offline' ? 'Offline'
         : syncStatus === 'syncing' ? 'Syncing'
           : syncStatus === 'waiting' ? 'Pending'
             : syncStatus === 'error' ? 'Error'
-              : syncStatus === 'complete' ? 'Synced'
+              : syncStatus === 'complete' ? 'Last sync'
                 : 'Ready'
-  const syncTone = syncStatus === 'error' ? 'error' : syncStatus === 'offline' || isOnline === false ? 'offline' : syncStatus === 'syncing' ? 'syncing' : syncStatus === 'complete' ? 'complete' : 'local'
+  const syncTone = cloudRecoveryMode || cloudRecoveryPending ? 'offline' : syncStatus === 'error' ? 'error' : syncStatus === 'offline' || isOnline === false ? 'offline' : syncStatus === 'syncing' ? 'syncing' : syncStatus === 'complete' ? 'complete' : 'local'
   const expectedWorkspaceUserId = status === 'signed-in' ? user?.id ?? null : null
   const accountSettingsHref = status === 'signed-in' ? '/settings#personal-information' : '/auth'
   const syncSettingsHref = status === 'signed-in' ? '/settings#sync-data' : '/auth'
@@ -136,7 +137,7 @@ export function AppShell() {
 
   return (
     <ToastProvider><div className="app-frame">
-      {status === 'signed-in' && user?.id && <BadgeCelebrationMonitor userId={user.id} />}
+      {status === 'signed-in' && user?.id && !cloudRecoveryMode && !cloudRecoveryPending && <BadgeCelebrationMonitor userId={user.id} />}
       <a className="skip-link" href="#main-content" onClick={(event) => {
         event.preventDefault()
         document.getElementById('main-content')?.focus()
@@ -165,7 +166,7 @@ export function AppShell() {
             </div>}
             {showAccountNavigation && <NavLink to={contextualNavigation.to} className="nav-link secondary-link"><AppIcon className="nav-icon" name={contextualNavigation.icon} />{contextualNavigation.label}</NavLink>}
           </nav>
-          <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>
+          {cloudRecoveryMode || cloudRecoveryPending ? <span className={`sync-state ${syncTone}`} role="status"><span className="sync-dot" /><span>{syncLabel}</span></span> : <Link className={`sync-state ${syncTone}`} to={syncSettingsHref}><span className="sync-dot" /><span>{syncLabel}</span><span className="sync-note">· details</span></Link>}
         </div>
       </aside>
 
@@ -175,20 +176,26 @@ export function AppShell() {
           <div className="topbar-spacer" />
           <span className="date-chip">A little progress, every day</span>
           <InstallAppPrompt />
-          <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref} aria-label={`${syncLabel}. Open sync details`}><span className="sync-dot" aria-hidden="true" /><span className="sync-status-full" aria-hidden="true">{syncLabel}</span><span className="sync-status-compact" aria-hidden="true">{compactSyncLabel}</span></Link>
-          <AIHelpAssistant />
-          <NotificationCenter ownerUserId={workspaceReady ? expectedWorkspaceUserId : null} ready={workspaceReady} />
+          {cloudRecoveryMode || cloudRecoveryPending ? <span className={`topbar-sync-state ${syncTone}`} role="status" aria-label={syncLabel}><span className="sync-dot" aria-hidden="true" /><span className="sync-status-full" aria-hidden="true">{syncLabel}</span><span className="sync-status-compact" aria-hidden="true">{compactSyncLabel}</span></span> : <Link className={`topbar-sync-state ${syncTone}`} to={syncSettingsHref} aria-label={`${syncLabel}. Open sync details`}><span className="sync-dot" aria-hidden="true" /><span className="sync-status-full" aria-hidden="true">{syncLabel}</span><span className="sync-status-compact" aria-hidden="true">{compactSyncLabel}</span></Link>}
+          {!cloudRecoveryMode && !cloudRecoveryPending && <AIHelpAssistant />}
+          <NotificationCenter ownerUserId={workspaceReady && !cloudRecoveryMode && !cloudRecoveryPending ? expectedWorkspaceUserId : null} ready={workspaceReady && !cloudRecoveryMode && !cloudRecoveryPending} />
           <Link className="avatar" to={accountSettingsHref} aria-label={status === 'signed-in' ? 'Open profile settings' : 'Open account and sign-in'}>
             {getAvatarInitial(user) ? <span aria-hidden="true">{getAvatarInitial(user)}</span> : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>}
           </Link>
         </header>
         <div id="main-content" className="page-content" data-ai-capability={routeCapabilityId(location.pathname)} tabIndex={-1}>
-          {!workspaceReady && !guestChoiceReady ? (
+          {cloudRecoveryPending ? <p className="workspace-gate" role="status">Pausing new sync work before opening read-only recovery…</p> : cloudRecoveryMode && status === 'signed-in' && user?.id ? <CloudRecoveryPanel key={user.id} userId={user.id} onRetryLocal={retryWorkspace} operationsPending={cloudRecoveryOperationsPending} operationsSettled={cloudRecoveryPriorOperationsSettled} initializationPending={workspaceInitializationPending} /> : !workspaceReady && !guestChoiceReady ? (
             workspaceStatus === 'error' ? <section className="workspace-gate" role="alert">
               <h1>Workspace unavailable</h1>
               <p>{workspaceError}</p>
-              <button className="button button-secondary button-medium" onClick={retryWorkspace}>Try again</button>
-            </section> : <WorkspaceLoadingState />
+              <div className="workspace-choice-actions"><button className="button button-secondary button-medium" onClick={retryWorkspace}>Retry local workspace</button>{status === 'signed-in' && user?.id && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>
+            </section> : <section className="workspace-gate" aria-live="polite">
+              <WorkspaceLoadingState />
+              {workspaceInitializationStalled && status === 'signed-in' && user?.id && <div role="status" className="workspace-choice-actions">
+                <p>Your workspace is still loading. This delay does not confirm a storage failure. You can inspect cloud-saved data in read-only recovery while the local operation continues.</p>
+                <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>
+              </div>}
+            </section>
           ) : guestChoiceReady ? (
             <section className="workspace-gate" aria-labelledby="guest-import-title">
               <h1 id="guest-import-title">You have progress saved as a guest</h1>

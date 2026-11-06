@@ -12,6 +12,7 @@ import { isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnab
 import { getSupabaseClient } from './client'
 import { ensureAccountWorkspaceTimeZone } from './workspaceTimeZone'
 import { normalizeSyncTimestamp, normalizeTrackerEntryTimestamps, normalizeTrackerTimestamps } from './syncTimestamps'
+import { reportSyncFailure } from './syncFailureDiagnostics'
 import { historicalMetricMeaningChange, trackerMetricTypeChange } from '../../domain/trackers/invariants'
 import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaVersionGate'
 import { publishHolidayDeletionNotification } from '../holidayDeletionNotifications'
@@ -873,6 +874,7 @@ async function runSynchronization(userId: string, injectedClient?: SupabaseClien
   const measure = measureDevPerformance('sync.workspace')
   try { return await runSynchronizationCore(userId, injectedClient) }
   catch (cause) {
+    reportSyncFailure(cause)
     const category = cause instanceof Error && cause.name === 'ZodError' ? 'invalid-tracker-definition'
       : isUnsupportedSchemaFailure(cause) ? 'unsupported-schema-version'
         : isNetworkFailure(cause) ? 'network-failure' : 'sync-failure'

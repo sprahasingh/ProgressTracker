@@ -38,9 +38,15 @@ function Probe() {
     <span data-testid="sync-state">{auth.syncStatus}</span>
     <span data-testid="sync-error">{auth.syncError}</span>
     <span data-testid="sync-summary">{auth.syncSummary?.conflicts ?? 0}</span>
+    <span data-testid="cloud-recovery-state">{auth.cloudRecoveryPending ? 'pausing' : auth.cloudRecoveryMode ? 'active' : 'off'}</span>
+    <span data-testid="cloud-operations-pending">{auth.cloudRecoveryOperationsPending ? 'pending' : 'settled'}</span>
+    <span data-testid="workspace-init-stalled">{auth.workspaceInitializationStalled ? 'stalled' : 'normal'}</span>
+    <span data-testid="workspace-init-pending">{auth.workspaceInitializationPending ? 'pending' : 'settled'}</span>
     <span data-testid="push-ownership">{auth.pushOwnershipStatus}:{auth.pushOwnershipMessage}</span>
     <span data-testid="auth-user">{auth.status}:{auth.user?.id ?? 'guest'}</span>
     <button onClick={() => void auth.syncNow()}>manual-sync</button>
+    <button onClick={auth.enterCloudRecovery}>enter-cloud-recovery</button>
+    <button onClick={auth.retryWorkspace}>retry-workspace</button>
     <button onClick={() => void auth.chooseGuestData('kept-separate')}>keep-guest</button>
     <button onClick={() => void auth.signOut()}>auth-signout</button>
   </div>
@@ -53,8 +59,26 @@ function emit(event: string, userId?: string) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+function captureRecoveryDelays() {
+  const callbacks = new Map<number, () => void>()
+  const nativeTimeout = window.setTimeout.bind(window)
+  vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    if (typeof handler === 'function' && (timeout === 5_000 || timeout === 1_500)) {
+      callbacks.set(timeout, handler as () => void)
+      return 0
+    }
+    return nativeTimeout(handler, timeout, ...args)
+  }) as typeof window.setTimeout)
+  return (delay: number) => {
+    const callback = callbacks.get(delay)
+    if (!callback) throw new Error(`Expected a captured ${delay}ms recovery timer.`)
+    act(callback)
+  }
 }
 
 describe('AuthProvider automatic sync lifecycle', () => {
@@ -98,6 +122,145 @@ describe('AuthProvider automatic sync lifecycle', () => {
 
     expect(providerMocks.synchronizeWorkspace).not.toHaveBeenCalled()
     expect(screen.getByTestId('sync-state')).toHaveTextContent('idle')
+  })
+
+  it('keeps normal synchronization paused while explicit cloud recovery mode is active', async () => {
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'recovery-mode-account')
+    await waitFor(() => expect(screen.getByTestId('workspace-state')).toHaveTextContent('ready:recovery-mode-account'))
+    providerMocks.synchronizeWorkspace.mockClear()
+    await act(async () => { screen.getByRole('button', { name: 'enter-cloud-recovery' }).click() })
+    await act(async () => { await screen.getByRole('button', { name: 'manual-sync' }).click() })
+    act(() => publishWorkspaceMutation('recovery-mode-account'))
+    await new Promise((resolve) => setTimeout(resolve, 550))
+    expect(providerMocks.synchronizeWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('waits for an already-running sync to settle before exposing cloud recovery', async () => {
+    const inFlight = deferred<{ uploaded: number; downloaded: number; conflicts: number; failed: number }>()
+    providerMocks.synchronizeWorkspace.mockReturnValue(inFlight.promise)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'recovery-waits-for-sync')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce())
+    await act(async () => { screen.getByRole('button', { name: 'enter-cloud-recovery' }).click() })
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('pausing')
+    await act(async () => { inFlight.resolve({ uploaded: 0, downloaded: 0, conflicts: 0, failed: 0 }); await inFlight.promise })
+    await waitFor(() => expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active'))
+  })
+
+  it('opens recovery after a stalled initialization and ignores its late completion until explicit retry', async () => {
+    const fireDelay = captureRecoveryDelays()
+    const opening = deferred<void>()
+    providerMocks.activateWorkspace.mockImplementation((ownerId: string | null) => ownerId === 'stalled-account' ? opening.promise : Promise.resolve())
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'stalled-account')
+    expect(providerMocks.activateWorkspace).toHaveBeenCalledWith('stalled-account')
+
+    fireDelay(5_000)
+    expect(screen.getByTestId('workspace-init-stalled')).toHaveTextContent('stalled')
+    screen.getByRole('button', { name: 'enter-cloud-recovery' }).click()
+    fireDelay(1_500)
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+    expect(screen.getByTestId('cloud-operations-pending')).toHaveTextContent('pending')
+
+    await act(async () => { opening.resolve(); await opening.promise })
+    await waitFor(() => expect(screen.getByTestId('cloud-operations-pending')).toHaveTextContent('settled'))
+    expect(screen.getByTestId('workspace-state')).toHaveTextContent('loading:guest')
+
+    await act(async () => { screen.getByRole('button', { name: 'retry-workspace' }).click() })
+    await waitFor(() => expect(screen.getByTestId('workspace-state')).toHaveTextContent('ready:stalled-account'))
+  })
+
+  it('does not let a late initialization rejection leave recovery or the account stuck', async () => {
+    const fireDelay = captureRecoveryDelays()
+    const opening = deferred<void>()
+    providerMocks.activateWorkspace.mockReturnValue(opening.promise)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'rejecting-account')
+    fireDelay(5_000)
+    screen.getByRole('button', { name: 'enter-cloud-recovery' }).click()
+    fireDelay(1_500)
+    await act(async () => { opening.reject(new Error('late storage failure')); await opening.promise.catch(() => undefined) })
+    await waitFor(() => expect(screen.getByTestId('cloud-operations-pending')).toHaveTextContent('settled'))
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+    expect(screen.getByTestId('workspace-state')).toHaveTextContent('loading:guest')
+  })
+
+  it('keeps a stalled previous-account initialization from changing the replacement workspace', async () => {
+    const fireDelay = captureRecoveryDelays()
+    const accountAOpening = deferred<void>()
+    providerMocks.activateWorkspace.mockImplementation((ownerId: string | null) => ownerId === 'account-a' ? accountAOpening.promise : Promise.resolve())
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    fireDelay(5_000)
+    screen.getByRole('button', { name: 'enter-cloud-recovery' }).click()
+    fireDelay(1_500)
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+
+    emit('SIGNED_IN', 'account-b')
+    await waitFor(() => expect(screen.getByTestId('workspace-state')).toHaveTextContent('ready:account-b'))
+    await act(async () => { accountAOpening.resolve(); await accountAOpening.promise })
+    expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-in:account-b')
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('off')
+    expect(screen.getByTestId('workspace-state')).toHaveTextContent('ready:account-b')
+  })
+
+  it('cleans the stalled-initialization timer when the provider unmounts', () => {
+    const clear = vi.spyOn(window, 'clearTimeout')
+    captureRecoveryDelays()
+    const opening = deferred<void>()
+    providerMocks.activateWorkspace.mockReturnValue(opening.promise)
+    const view = render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'unmount-account')
+    expect(providerMocks.activateWorkspace).toHaveBeenCalledWith('unmount-account')
+    view.unmount()
+    expect(clear).toHaveBeenCalledWith(0)
+  })
+
+  it.each(['resolve', 'reject'] as const)('keeps recovery active and suppresses stale sync state when a timed-out sync later %s', async (completion) => {
+    const inFlight = deferred<{ uploaded: number; downloaded: number; conflicts: number; failed: number }>()
+    providerMocks.synchronizeWorkspace.mockReturnValue(inFlight.promise)
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'late-sync-account')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce())
+    const fireDelay = captureRecoveryDelays()
+    screen.getByRole('button', { name: 'enter-cloud-recovery' }).click()
+    fireDelay(1_500)
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+    expect(screen.getByTestId('cloud-operations-pending')).toHaveTextContent('pending')
+    await act(async () => { screen.getByRole('button', { name: 'manual-sync' }).click() })
+    expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledOnce()
+    screen.getByRole('button', { name: 'retry-workspace' }).click()
+    expect(providerMocks.activateWorkspace).toHaveBeenCalledTimes(1)
+
+    if (completion === 'resolve') inFlight.resolve({ uploaded: 0, downloaded: 99, conflicts: 0, failed: 0 })
+    else inFlight.reject(new Error('late network failure'))
+    await act(async () => { await inFlight.promise.catch(() => undefined) })
+    await waitFor(() => expect(screen.getByTestId('cloud-operations-pending')).toHaveTextContent('settled'))
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+    expect(screen.getByTestId('sync-summary')).toHaveTextContent('0')
+    await act(async () => { screen.getByRole('button', { name: 'retry-workspace' }).click() })
+    await waitFor(() => expect(providerMocks.activateWorkspace).toHaveBeenCalledTimes(2))
+  })
+
+  it('clears recovery for a switched account and ignores the previous account sync completion', async () => {
+    const accountA = deferred<{ uploaded: number; downloaded: number; conflicts: number; failed: number }>()
+    providerMocks.synchronizeWorkspace.mockImplementation((ownerId: string) => ownerId === 'account-a' ? accountA.promise : Promise.resolve({ uploaded: 0, downloaded: 1, conflicts: 0, failed: 0 }))
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(providerMocks.synchronizeWorkspace).toHaveBeenCalledWith('account-a'))
+    const fireDelay = captureRecoveryDelays()
+    screen.getByRole('button', { name: 'enter-cloud-recovery' }).click()
+    fireDelay(1_500)
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('active')
+
+    emit('SIGNED_IN', 'account-b')
+    await waitFor(() => expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-in:account-b'))
+    expect(screen.getByTestId('cloud-recovery-state')).toHaveTextContent('off')
+    accountA.resolve({ uploaded: 0, downloaded: 99, conflicts: 0, failed: 0 })
+    await act(async () => { await accountA.promise })
+    expect(screen.getByTestId('auth-user')).toHaveTextContent('signed-in:account-b')
+    expect(screen.getByTestId('sync-summary')).not.toHaveTextContent('99')
   })
 
   it('revokes Account A with Account A’s captured token before allowing a direct Account A to B switch', async () => {

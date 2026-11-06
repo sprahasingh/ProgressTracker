@@ -25,6 +25,14 @@ import type {
 } from './models'
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
+import { reportBlockedDatabaseOpen, reportStorageFailure, storageFailureMessage, type StorageFailureCategory, type StorageFailureStage } from './storageDiagnostics'
+
+export class LocalStorageFailure extends Error {
+  constructor(readonly category: StorageFailureCategory, readonly stage: StorageFailureStage, cause?: unknown) {
+    super(storageFailureMessage(category), { cause })
+    this.name = 'LocalStorageFailure'
+  }
+}
 
 type LegacySyncRecord = {
   createdAt?: string
@@ -68,6 +76,16 @@ export class ProgressTrackerDatabase extends Dexie {
 
   constructor(name = 'ProgressTracker') {
     super(name)
+    this.on('blocked', () => { reportBlockedDatabaseOpen('ProgressTrackerDatabase.open') })
+    const rawTransaction = this.transaction.bind(this) as (...args: unknown[]) => Promise<unknown>
+    ;(this as unknown as { transaction: (...args: unknown[]) => Promise<unknown> }).transaction = (...args) => {
+      const tableNames = args.flat(2).flatMap((value) => value && typeof value === 'object' && 'name' in value && typeof value.name === 'string' ? [value.name] : [])
+      const operation = `ProgressTrackerDatabase.transaction${tableNames.length ? `:${[...new Set(tableNames)].sort().join(',')}` : ''}`
+      return rawTransaction(...args).catch((cause) => {
+        reportStorageFailure(operation, 'transaction', cause)
+        throw cause
+      })
+    }
 
     // Version 1 is retained so future changes can upgrade already-installed copies.
     this.version(1).stores({
@@ -551,13 +569,16 @@ export async function queueSyncMutation(
 
 export async function openDatabase(): Promise<ProgressTrackerDatabase> {
   if (typeof indexedDB === 'undefined') {
-    throw new Error('ProgressTracker needs browser IndexedDB to save your local data.')
+    const cause = Object.assign(new Error('IndexedDB is unavailable in this browser context.'), { name: 'NotSupportedError' })
+    const diagnostic = reportStorageFailure('openDatabase', 'initialize', cause)
+    throw new LocalStorageFailure(diagnostic.category, 'initialize', cause)
   }
 
   try {
     await db.open()
     return db
   } catch (cause) {
-    throw new Error('ProgressTracker could not open local storage. Your browser may be blocking site data.', { cause })
+    const diagnostic = reportStorageFailure('openDatabase', 'open', cause)
+    throw new LocalStorageFailure(diagnostic.category, 'open', cause)
   }
 }

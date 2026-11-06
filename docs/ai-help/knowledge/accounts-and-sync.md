@@ -14,7 +14,7 @@
 - src/services/supabase/syncEngine.ts
 - src/features/auth/AuthProvider.tsx
 **Answer:**
-Tracker data is stored locally in the browser, so you can continue working while offline. Signed-in account data synchronizes when a connection is available again. Until then, changes on that device may not appear elsewhere.
+Tracker data is stored locally in the browser, so you can continue working while offline when browser storage is available. Signed-in account data synchronizes when a connection is available again. If local storage cannot open, Cloud Recovery — Read Only can show cloud records but not unsynchronized offline changes; keep the browser’s site data intact and retry the local workspace before editing again.
 
 ### ID: cross-device-sync
 **Category:** accounts-sync
@@ -109,7 +109,7 @@ Signing out ends the account session; it does not itself delete the local worksp
 - src/services/supabase/syncEngine.ts
 - src/features/auth/AuthProvider.tsx
 **Answer:**
-The check-in is saved locally and its account-sync work remains pending until a connection is available. If that tracker has a blocked or conflicted definition change, the check-in stays queued until a newer definition is acknowledged. If you explicitly confirm permanently deleting the tracker, that deletion supersedes its pending tracker and check-in writes; those writes are not uploaded. The check-in may not appear on another device before synchronization completes.
+The check-in is saved locally and its account-sync work remains pending until a connection is available. If that tracker has a blocked or conflicted definition change, the check-in stays queued until a newer definition is acknowledged. If you explicitly confirm permanently deleting the tracker, that deletion supersedes its pending tracker and check-in writes; those writes are not uploaded. The check-in may not appear on another device before synchronization completes, and it is not shown by read-only Cloud Recovery until it reaches the cloud.
 
 ### ID: sync-deletion
 **Category:** accounts-sync
@@ -154,3 +154,22 @@ When a revision conflict cannot be reconciled safely, the sync flow records the 
 - src/features/settings/UnifiedSettings.test.tsx
 **Answer:**
 Appearance is stored locally on each device. A signed-in workspace's time zone is saved to the account and synchronized between devices; guest workspaces keep it locally.
+
+### ID: local-storage-cloud-recovery
+**Category:** accounts-sync
+**Question:** What should I do if ProgressTracker cannot open local storage?
+**Aliases:**
+- Can I see my cloud trackers if this device cannot load data?
+- Is Cloud Recovery safe when I have offline check-ins?
+**Keywords:** IndexedDB, local storage, cloud recovery, offline check-in, read only, device data
+**Suggestible:** true
+**Sources:**
+- src/db/database.ts
+- src/db/storageDiagnostics.ts
+- src/features/auth/CloudRecoveryPanel.tsx
+- src/features/auth/CloudRecoveryPanel.test.tsx
+- src/services/supabase/cloudRecovery.ts
+- src/services/supabase/cloudRecovery.test.ts
+- src/app/AppShell.tsx
+**Answer:**
+Keep this browser’s site data intact; do not clear storage to troubleshoot. If signed in, choose **Cloud Recovery — Read Only** to read the tracker and check-in records currently visible to your account on the cloud. If the workspace remains loading for several seconds, the app may offer recovery; that delay does not prove storage failed. The recovery view does not open local storage, start sync, or allow edits. Offline changes that have not uploaded are not shown. Any workspace, sync, or device-account operation already in progress is not cancelled and may finish work it had already started; the app identifies this state and disables local retry until it settles. When the app says it has settled, that does not confirm synchronization succeeded. The retrieval time does not confirm that local and cloud records match, and an empty cloud result does not prove that device-local records are absent. When local access is available and no earlier operation is pending, choose **Retry local workspace** to return to the normal workspace and its conflict-safe sync flow. The recovery view does not calculate streaks, achievements, or XP awards. If the cloud schema predates explicit holiday-treatment storage, the view identifies that limitation; an older schema could not contain saved explicit treatment values.

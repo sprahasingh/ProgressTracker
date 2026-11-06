@@ -32,6 +32,18 @@ describe('TrackerLibraryPage initial cloud state', () => {
     expect(screen.getByRole('link', { name: 'Account and sync status' })).toHaveAttribute('href', '/auth')
   })
 
+  it('shows a local read failure instead of leaving the page loading, and can retry', async () => {
+    libraryMocks.listTrackers.mockRejectedValueOnce(new Error('IndexedDB unavailable')).mockResolvedValueOnce([])
+    const user = userEvent.setup()
+    render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
+
+    expect(await screen.findByRole('heading', { name: 'Couldn’t load your trackers' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByText(/This failed read did not change records/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry local read' }))
+    expect(await screen.findByText('Checking your cloud progress')).toBeInTheDocument()
+  })
+
   it('defaults to Active and composes All, Active, and Archived with the kind filter', async () => {
     libraryMocks.listTrackers.mockResolvedValue([
       trackerRow('active-habit', 'Active habit', 'habit', 'active'),
