@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Surface } from '../../components/ui/Surface'
 import { CloudRecoveryFailure, readCloudRecoverySnapshot, type CloudRecoverySnapshot } from '../../services/supabase/cloudRecovery'
+import { inspectLocalScheduling, type LocalSchedulingDiagnostic } from '../../db/localSchedulingDiagnostic'
 
 export function CloudRecoveryPanel({ userId, onRetryLocal, operationsPending = false, operationsSettled = false, initializationPending = false }: { userId: string; onRetryLocal: () => void; operationsPending?: boolean; operationsSettled?: boolean; initializationPending?: boolean }) {
   const [snapshot, setSnapshot] = useState<CloudRecoverySnapshot | null>(null)
   const [failure, setFailure] = useState<CloudRecoveryFailure | null>(null)
   const [loading, setLoading] = useState(true)
+  const [localDiagnostic, setLocalDiagnostic] = useState<LocalSchedulingDiagnostic | null>(null)
+  const [localDiagnosticError, setLocalDiagnosticError] = useState<string | null>(null)
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const diagnosticRequest = useRef(0)
   const trackerNames = useMemo(() => new Map((snapshot?.trackers ?? []).map(({ record }) => [record.id, record.name])), [snapshot])
+
+  useEffect(() => () => { diagnosticRequest.current += 1 }, [userId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -22,6 +30,34 @@ export function CloudRecoveryPanel({ userId, onRetryLocal, operationsPending = f
     }
   }, [userId])
 
+  const inspectLocal = useCallback(async () => {
+    const request = ++diagnosticRequest.current
+    setDiagnosticLoading(true)
+    setLocalDiagnostic(null)
+    setLocalDiagnosticError(null)
+    setCopyStatus(null)
+    try {
+      const result = await inspectLocalScheduling(userId)
+      if (diagnosticRequest.current === request) setLocalDiagnostic(result)
+    } catch (error) {
+      if (diagnosticRequest.current === request) {
+        setLocalDiagnosticError(error instanceof Error ? error.message : 'The local scheduling diagnostic could not be read.')
+      }
+    } finally {
+      if (diagnosticRequest.current === request) setDiagnosticLoading(false)
+    }
+  }, [userId])
+
+  const copyDiagnostic = useCallback(async () => {
+    if (!localDiagnostic) return
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(localDiagnostic, null, 2))
+      setCopyStatus('Diagnostic JSON copied.')
+    } catch {
+      setCopyStatus('Copy was unavailable in this browser. The diagnostic remains visible for manual copying.')
+    }
+  }, [localDiagnostic])
+
   useEffect(() => { void load() }, [load])
 
   return <section className="workspace-gate cloud-recovery" aria-labelledby="cloud-recovery-title">
@@ -36,6 +72,20 @@ export function CloudRecoveryPanel({ userId, onRetryLocal, operationsPending = f
       <button className="button button-secondary button-medium" onClick={() => void load()} disabled={loading}>{loading ? 'Reading cloud snapshot…' : 'Retry cloud read'}</button>
       <button className="button button-primary button-medium" onClick={onRetryLocal} disabled={operationsPending}>Retry local workspace</button>
     </div>
+    <Surface className="cloud-recovery-local-diagnostic">
+      <h2>Temporary local scheduling diagnostic</h2>
+      <p>This reads only an already-open database for this signed-in account. It does not open or upgrade a database, read check-ins, synchronize, or change local data. The report includes tracker IDs and scheduling dates; keep it private.</p>
+      <button className="button button-secondary button-medium" onClick={() => void inspectLocal()} disabled={diagnosticLoading}>
+        {diagnosticLoading ? 'Reading local scheduling data…' : 'Inspect local scheduling data (read only)'}
+      </button>
+      {localDiagnosticError && <p role="alert">{localDiagnosticError}</p>}
+      {localDiagnostic && <div>
+        <p role="status">Raw IndexedDB scheduling fields and independently calculated deadlines are labeled separately. Calculation failures are isolated per tracker.</p>
+        <button className="button button-secondary button-medium" onClick={() => void copyDiagnostic()}>Copy Diagnostic JSON</button>
+        {copyStatus && <p role="status">{copyStatus}</p>}
+        <pre className="cloud-recovery-diagnostic-json">{JSON.stringify(localDiagnostic, null, 2)}</pre>
+      </div>}
+    </Surface>
     {failure && <p className="form-alert" role="alert">{failure.message}</p>}
     {loading && <p role="status" className="tracker-loading">Reading your cloud snapshot…</p>}
     {snapshot && <>

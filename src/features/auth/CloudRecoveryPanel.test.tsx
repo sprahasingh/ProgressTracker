@@ -5,8 +5,9 @@ import { CloudRecoveryFailure, type CloudRecoverySnapshot } from '../../services
 import appStyles from '../../styles.css?raw'
 import { CloudRecoveryPanel } from './CloudRecoveryPanel'
 
-const mocks = vi.hoisted(() => ({ read: vi.fn() }))
+const mocks = vi.hoisted(() => ({ read: vi.fn(), inspectLocal: vi.fn() }))
 vi.mock('../../services/supabase/cloudRecovery', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../services/supabase/cloudRecovery')>()), readCloudRecoverySnapshot: mocks.read }))
+vi.mock('../../db/localSchedulingDiagnostic', () => ({ inspectLocalScheduling: mocks.inspectLocal }))
 
 const snapshot: CloudRecoverySnapshot = {
   retrievedAt: '2026-11-06T09:00:00.000Z',
@@ -20,7 +21,7 @@ const snapshot: CloudRecoverySnapshot = {
   entries: [{ record: { id: 'entry-a', trackerId: 'track-a', date: '2026-11-06', outcome: 'recorded', values: { pages: 4 }, note: '', createdAt: '2026-11-06T08:00:00.000Z', updatedAt: '2026-11-06T08:00:00.000Z', deletedAt: null }, serverRevision: 5 }],
 }
 
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('CloudRecoveryPanel', () => {
   it('discloses a pre-existing operation that remains pending and prevents local retry until it settles', () => {
@@ -72,5 +73,36 @@ describe('CloudRecoveryPanel', () => {
     mocks.read.mockResolvedValue({ ...snapshot, schemaCompatibility: 'legacy-no-holiday-treatment' })
     render(<CloudRecoveryPanel userId="owner-a" onRetryLocal={vi.fn()} />)
     expect(await screen.findByText(/predates explicit holiday-treatment storage/)).toHaveAttribute('role', 'status')
+  })
+
+  it('runs the local read-only scheduling diagnostic even when cloud retrieval fails', async () => {
+    mocks.read.mockRejectedValue(new CloudRecoveryFailure('network'))
+    mocks.inspectLocal.mockResolvedValue({
+      generatedAt: '2026-11-06T09:00:00.000Z', readOnly: true,
+      database: { name: 'account-local', version: 12, accountScopeVerified: true },
+      stores: { trackers: 'read', workspaceMetadata: 'read', accountHolidays: 'read', trackerHolidays: 'read', settings: 'read' },
+      workspaceTimeZone: 'Asia/Calcutta', cloudReference: 'reported-production-configuration',
+      accountHolidays: [{ date: '2026-11-05', deletedAt: null }], trackerHolidays: [], cloudHolidayComparison: [],
+      trackers: [{ trackerId: 'tracker-local', name: '92 Day DSA', rawStored: {
+        schemaVersion: 6, status: 'active', deletedAt: null, startDate: '2026-10-29', createdAt: '2026-10-29T00:00:00.000Z',
+        savedDeadline: '2027-01-28', scheduling: { mode: 'effective', effectiveDays: 92 },
+        recurrence: { kind: 'every-day' }, ruleVersions: null,
+      }, validation: [], calculated: { mode: 'effective', deadline: '2027-01-29' }, cloudComparison: { status: 'matches', differences: [] } }],
+    })
+    const user = userEvent.setup()
+    render(<CloudRecoveryPanel userId="owner-a" onRetryLocal={vi.fn()} />)
+    await screen.findByText('The cloud snapshot could not be reached. Check the connection and retry.')
+    await user.click(screen.getByRole('button', { name: 'Inspect local scheduling data (read only)' }))
+    expect(await screen.findByText(/Raw IndexedDB scheduling fields and independently calculated deadlines/)).toBeInTheDocument()
+    expect(mocks.inspectLocal).toHaveBeenCalledWith('owner-a')
+    expect(screen.getByRole('button', { name: 'Copy Diagnostic JSON' })).toBeInTheDocument()
+    expect(screen.getByText(/2026-11-05/)).toBeInTheDocument()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    await user.click(screen.getByRole('button', { name: 'Copy Diagnostic JSON' }))
+    expect(writeText).toHaveBeenCalledOnce()
+    expect(writeText.mock.calls[0]?.[0]).toContain('"rawStored"')
+    expect(writeText.mock.calls[0]?.[0]).not.toContain('entry-a')
+    expect(await screen.findByText('Diagnostic JSON copied.')).toHaveAttribute('role', 'status')
   })
 })

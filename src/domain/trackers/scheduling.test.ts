@@ -83,4 +83,31 @@ describe('unified scheduling calculations', () => {
     const fixed = { ...daily, deadline: '2027-01-22', scheduling: { mode: 'calendar' as const } }
     expect(deriveSchedulingDeadline({ tracker: fixed, holidays: new Set(['2026-10-20']) })).toBe('2027-01-22')
   })
+
+  it('derives deadlines across a calendar-year boundary without changing inclusive counting', () => {
+    const effective = {
+      ...tracker({ kind: 'every-day' }), startDate: '2026-12-31',
+      scheduling: { mode: 'effective' as const, effectiveDays: 2, planningTimeZone: 'UTC' },
+    }
+    expect(deriveSchedulingDeadline({ tracker: effective })).toBe('2027-01-01')
+  })
+
+  it.each(['Asia/Calcutta', 'Asia/Kolkata'])('reproduces the 92-day planned-activity deadline with %s', (timeZone) => {
+    const effective: TrackerDefinition = {
+      ...tracker({ kind: 'every-day' }),
+      schemaVersion: 6,
+      name: '92 Day DSA',
+      startDate: '2026-10-29',
+      deadline: '2027-01-28',
+      scheduling: {
+        mode: 'effective', effectiveDays: 92,
+        effectiveDayCounting: 'planned-activity-days', planningTimeZone: timeZone,
+      },
+    }
+    expect(() => new Intl.DateTimeFormat('en', { timeZone })).not.toThrow()
+    expect(() => deriveSchedulingDeadline({ tracker: effective, timeZone })).not.toThrow()
+    expect(deriveSchedulingDeadline({ tracker: effective, timeZone })).toBe('2027-01-28')
+    expect(deriveSchedulingDeadline({ tracker: effective, timeZone, holidays: new Set(['2026-11-05']) })).toBe('2027-01-29')
+    expect(deriveSchedulingDeadline({ tracker: effective, timeZone, holidays: new Set(['2026-10-10', '2026-10-11']) })).toBe('2027-01-28')
+  })
 })
