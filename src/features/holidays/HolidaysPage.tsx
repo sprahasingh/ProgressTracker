@@ -117,25 +117,24 @@ export function HolidaysPage() {
         if (selectedTrackerIds.length === 0) throw new Error('Select at least one Standard Mode tracker.')
         await localRepository.setTrackerHolidaySelections(dates.map((date) => ({ date, trackerIds: selectedTrackerIds })))
       }
-      await refresh()
       const key = `holidays:${scope}:${startDate}:${endDate}`
       notify({ kind: 'success', title: dates.length === 1 ? 'Holiday added' : 'Holidays added', description: `${dates.length} ${dates.length === 1 ? 'date was' : 'dates were'} saved.`, dedupeKey: key })
       await syncHolidayChanges(key, 'Your holiday is saved on this device. Sync again when your connection is available.')
     } catch (cause) { notify({ kind: 'error', title: 'Couldn’t save holiday dates', description: cause instanceof Error ? cause.message : 'Your changes were not saved. Please try again.', duration: 0, dedupeKey: 'holidays' }) }
   }
   async function remove(date: CalendarDate) {
-    try { await localRepository.removeAccountHoliday(date); await refresh(); notify({ kind: 'success', title: 'Holiday removed', description: `${calendarDateLabel(date)} was removed. Activity history was preserved.`, dedupeKey: `holiday:${date}` }) }
+    try { await localRepository.removeAccountHoliday(date); notify({ kind: 'success', title: 'Holiday removed', description: `${calendarDateLabel(date)} was removed. Activity history was preserved.`, dedupeKey: `holiday:${date}` }) }
     catch { notify({ kind: 'error', title: 'Couldn’t remove holiday', description: 'The holiday is unchanged. Please try again.', duration: 0, dedupeKey: `holiday:${date}` }) }
   }
   async function restore(date: CalendarDate) {
-    try { await localRepository.restoreAccountHoliday(date); await refresh(); notify({ kind: 'success', title: 'Holiday restored', description: `${calendarDateLabel(date)} is a holiday again.`, dedupeKey: `holiday:${date}` }) }
+    try { await localRepository.restoreAccountHoliday(date); notify({ kind: 'success', title: 'Holiday restored', description: `${calendarDateLabel(date)} is a holiday again.`, dedupeKey: `holiday:${date}` }) }
     catch { notify({ kind: 'error', title: 'Couldn’t restore holiday', description: 'The holiday is unchanged. Please try again.', duration: 0, dedupeKey: `holiday:${date}` }) }
   }
 
   const trackerHolidayGroups = groupTrackerHolidays(trackerHolidays)
   async function removeTrackerHolidayGroup(group: TrackerHolidayGroup) {
     const key = `holiday:selected:${group.date}`
-    try { await localRepository.setTrackerHolidaySelections([{ date: group.date, trackerIds: [] }]); await refresh(); notify({ kind: 'success', title: 'Selected holiday removed', description: `${calendarDateLabel(group.date)} was removed from the selected trackers.`, dedupeKey: key }); await syncHolidayChanges(key, 'Your change is saved on this device. Sync again when your connection is available.') }
+    try { await localRepository.setTrackerHolidaySelections([{ date: group.date, trackerIds: [] }]); notify({ kind: 'success', title: 'Selected holiday removed', description: `${calendarDateLabel(group.date)} was removed from the selected trackers.`, dedupeKey: key }); await syncHolidayChanges(key, 'Your change is saved on this device. Sync again when your connection is available.') }
     catch { notify({ kind: 'error', title: 'Couldn’t remove selected holiday', description: 'The holiday was not changed.', duration: 0, dedupeKey: key }) }
   }
 
@@ -162,7 +161,6 @@ export function HolidaysPage() {
         await localRepository.setTrackerHolidaySelections(updates)
       }
     }
-    await refresh()
     setEditingHoliday(null)
     const key = `holiday:${value.scope}:${value.date}`
     notify({ kind: 'success', title: 'Holiday updated', description: owner ? (isOnline ? 'Changes are saved on this device and syncing with your account.' : 'Changes are saved on this device. Sync will resume when you are online.') : 'Your holiday changes were saved on this device.', dedupeKey: key })

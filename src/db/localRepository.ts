@@ -56,14 +56,24 @@ async function assertTrackerVerificationComplete(database: Awaited<ReturnType<ty
 
 async function resolveTrackersScheduling(database: Awaited<ReturnType<typeof openDatabase>>, trackers: StoredTrackerDefinition[]): Promise<StoredTrackerDefinition[]> {
   if (!trackers.some((tracker) => schedulingMode(tracker) === 'effective')) return trackers
-  const [holidays, settings] = await Promise.all([database.accountHolidays.toArray(), database.settings.get('general')])
+  const [holidays, trackerHolidays, settings] = await Promise.all([
+    database.accountHolidays.toArray(), database.trackerHolidays.toArray(), database.settings.get('general'),
+  ])
   const activeHolidays = new Set(holidays.filter((holiday) => holiday.deletedAt === null).map((holiday) => holiday.date))
+  const activeTrackerHolidays = new Map<string, Set<string>>()
+  for (const holiday of trackerHolidays) {
+    if (holiday.deletedAt !== null) continue
+    const dates = activeTrackerHolidays.get(holiday.trackerId) ?? new Set<string>()
+    dates.add(holiday.date)
+    activeTrackerHolidays.set(holiday.trackerId, dates)
+  }
   const defaultTimeZone = normalizeSettings(settings).timezone
   return trackers.map((tracker) => {
     if (schedulingMode(tracker) !== 'effective') return tracker
     const timeZone = tracker.scheduling?.planningTimeZone ?? defaultTimeZone
+    const effectiveHolidays = new Set([...activeHolidays, ...(activeTrackerHolidays.get(tracker.id) ?? [])])
     try {
-      const deadline = deriveSchedulingDeadline({ tracker, holidays: activeHolidays, timeZone })
+      const deadline = deriveSchedulingDeadline({ tracker, holidays: effectiveHolidays, timeZone })
       return { ...tracker, deadline }
     } catch (cause) {
       if (!(cause instanceof RangeError)) throw cause

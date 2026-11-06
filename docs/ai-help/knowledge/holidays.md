@@ -120,7 +120,7 @@ Strict Mode treats every date in the tracker’s active period as an opportunity
 - src/domain/trackers/activityStatus.ts
 - supabase/migrations/20261124000100_holiday_checkin_treatment.sql
 **Answer:**
-Open Holidays & breaks, choose **Selected trackers**, then select one or more eligible Standard Mode trackers. Strict Mode trackers are omitted and cannot receive exemptions. On a selected holiday, choose **Keep as Holiday** to save work while keeping the date neutral, or **Count as Normal Check-in** to apply normal scheduled rules. Clearing the check-in restores the holiday treatment. Changes sync with the account when online.
+Open Holidays & breaks, choose **Selected trackers**, then select one or more eligible Standard Mode trackers. Strict Mode trackers are omitted and cannot receive exemptions. Active global holidays apply to every tracker; selected holidays apply only to the chosen trackers. For an effective-day schedule, an applicable holiday does not count toward the target and extends its deadline to the next eligible date. A finite recurrence with no eligible date remaining cannot be extended. On a selected holiday, choose **Keep as Holiday** to save work while keeping the date neutral, or **Count as Normal Check-in** to apply normal scheduled rules. Clearing the check-in restores the holiday treatment. Changes sync with the account when online.
 
 ### ID: holiday-clear-restores
 **Category:** holidays

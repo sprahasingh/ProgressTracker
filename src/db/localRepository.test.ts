@@ -5,6 +5,7 @@ import { calendarDateInTimeZone } from './calendarDate'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
 import type { CalendarDate, StoredTrackerDefinition } from './models'
 import { versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
+import { getChallengeDayDisplay } from '../domain/trackers/challengeDay'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'local-event-tracker', name: 'Local event test', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -715,7 +716,7 @@ describe('workspace mutation notifications', () => {
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
     await activateWorkspace('synthetic-92-day-dsa')
     const effective: StoredTrackerDefinition = {
-      ...tracker, id: 'synthetic-92-day-dsa-tracker', name: '92 Day DSA', schemaVersion: 6,
+      ...tracker, id: 'synthetic-92-day-dsa-tracker', name: '92 Day DSA', kind: 'challenge', schemaVersion: 6,
       startDate: '2026-10-29', deadline: '2027-01-28', schedule: { kind: 'every-day' },
       scheduling: { mode: 'effective', effectiveDays: 92, effectiveDayCounting: 'planned-activity-days', planningTimeZone: 'Asia/Calcutta' },
     }
@@ -724,14 +725,19 @@ describe('workspace mutation notifications', () => {
     await localRepository.removeAccountHoliday('2026-10-10')
     await localRepository.removeAccountHoliday('2026-10-11')
 
-    await expect(localRepository.listTrackers()).resolves.toMatchObject([{ id: effective.id, deadline: '2027-01-29' }])
+    const withHoliday = (await localRepository.listTrackers()).find(({ id }) => id === effective.id)!
+    expect(withHoliday.deadline).toBe('2027-01-29')
+    expect(getChallengeDayDisplay(withHoliday, '2026-11-06', 'Asia/Calcutta', new Set(['2026-11-05']))?.label).toBe('Day 8 of 92')
+    expect(getChallengeDayDisplay({ ...withHoliday, deadline: undefined, deadlineCalculation: 'unavailable' }, '2026-11-06', 'Asia/Calcutta', new Set(['2026-11-05']))?.label).toBe('Day 8 of 92')
     await expect(db.accountHolidays.where('date').equals('2026-10-10').first()).resolves.toMatchObject({ deletedAt: expect.any(String) })
     await expect(db.accountHolidays.where('date').equals('2026-10-11').first()).resolves.toMatchObject({ deletedAt: expect.any(String) })
     await expect(db.accountHolidays.where('date').equals('2026-11-05').first()).resolves.toMatchObject({ deletedAt: null })
     await expect(db.trackers.get(effective.id)).resolves.toMatchObject({ deadline: '2027-01-28' })
 
     await localRepository.removeAccountHoliday('2026-11-05')
-    await expect(localRepository.listTrackers()).resolves.toMatchObject([{ id: effective.id, deadline: '2027-01-28' }])
+    const withoutHoliday = (await localRepository.listTrackers()).find(({ id }) => id === effective.id)!
+    expect(withoutHoliday.deadline).toBe('2027-01-28')
+    expect(getChallengeDayDisplay(withoutHoliday, '2026-11-06', 'Asia/Calcutta')?.label).toBe('Day 9 of 92')
   })
 
   it('loads valid trackers beside a malformed effective schedule without changing persisted data', async () => {

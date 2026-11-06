@@ -49,7 +49,10 @@ export function isEffectiveDateEligible(
   if (date < trackerActiveStartDate(tracker, timeZone) || holidays.has(date)) return false
   const method = tracker.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
   if (method === 'planned-activity-days' && tracker.schedule.kind !== 'none') {
-    return isTrackerScheduledOccurrence({ ...tracker, deadline: undefined }, date, timeZone)
+    // An effective schedule's saved deadline is only a cached boundary. Applying
+    // it while finding a new holiday-adjusted deadline can make the target
+    // unreachable forever after one excluded day.
+    return isTrackerScheduledOccurrence({ ...tracker, deadline: undefined }, date, timeZone, { ignoreDeadline: true })
   }
   return true
 }

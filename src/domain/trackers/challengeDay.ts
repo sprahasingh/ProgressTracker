@@ -8,6 +8,14 @@ const parseDate = (date: string) => Date.parse(`${date}T00:00:00.000Z`)
 const dayDifference = (from: string, to: string) => Math.round((parseDate(to) - parseDate(from)) / DAY_MS)
 const dateText = (time: number) => new Date(time).toISOString().slice(0, 10)
 
+function countsChallengeDate(tracker: TrackerDefinition, date: string, timeZone: string | undefined, holidays: ReadonlySet<string>): boolean {
+  const evaluation = trackerDefinitionForDate(tracker, date)
+  const mode = schedulingMode(evaluation)
+  if (mode === 'calendar') return isTrackerInActivePeriod(tracker, date, timeZone)
+  if (mode === 'effective') return isEffectiveDateEligible(evaluation, date, holidays, timeZone)
+  return false
+}
+
 /** Count challenge days using the evaluation settings effective on each date. */
 export function challengeDaysElapsed(tracker: TrackerDefinition, throughDate: string, timeZone?: string, holidays: ReadonlySet<string> = new Set()): number {
   const start = trackerEvaluationHistoryStartDate(tracker, timeZone)
@@ -15,10 +23,7 @@ export function challengeDaysElapsed(tracker: TrackerDefinition, throughDate: st
   let count = 0
   for (let time = parseDate(start); time <= parseDate(throughDate); time += DAY_MS) {
     const date = dateText(time)
-    const evaluation = trackerDefinitionForDate(tracker, date)
-    if (!isTrackerInActivePeriod(tracker, date, timeZone)) continue
-    if (schedulingMode(evaluation) === 'calendar') count += 1
-    else if (schedulingMode(evaluation) === 'effective' && isEffectiveDateEligible(evaluation, date, holidays, timeZone)) count += 1
+    if (countsChallengeDate(tracker, date, timeZone, holidays)) count += 1
   }
   return count
 }
@@ -30,10 +35,7 @@ export function firstChallengeDateAtDay(tracker: TrackerDefinition, targetDay: n
   let count = 0
   for (let time = parseDate(start); time <= parseDate(throughDate); time += DAY_MS) {
     const date = dateText(time)
-    const evaluation = trackerDefinitionForDate(tracker, date)
-    if (!isTrackerInActivePeriod(tracker, date, timeZone)) continue
-    const mode = schedulingMode(evaluation)
-    if (mode === 'calendar' || mode === 'effective' && isEffectiveDateEligible(evaluation, date, holidays, timeZone)) count += 1
+    if (countsChallengeDate(tracker, date, timeZone, holidays)) count += 1
     if (count >= targetDay) return date
   }
   return null
@@ -45,10 +47,7 @@ function deadlineForCurrentEffectiveVersion(tracker: TrackerDefinition, date: st
   const startTime = parseDate(date) + DAY_MS
   for (let offset = 0; offset < 366_000; offset += 1) {
     const nextDate = dateText(startTime + offset * DAY_MS)
-    const evaluation = trackerDefinitionForDate(tracker, nextDate)
-    if (!isTrackerInActivePeriod(tracker, nextDate, timeZone)) continue
-    const mode = schedulingMode(evaluation)
-    if (mode === 'calendar' || mode === 'effective' && isEffectiveDateEligible(evaluation, nextDate, holidays, timeZone)) elapsed += 1
+    if (countsChallengeDate(tracker, nextDate, timeZone, holidays)) elapsed += 1
     if (elapsed >= totalDays) return nextDate
   }
   return undefined
@@ -96,10 +95,7 @@ export function getChallengeDayDisplay(
       let next: string | undefined
       for (let offset = 1; offset <= 366_000; offset += 1) {
         const candidateDate = dateText(parseDate(date) + offset * DAY_MS)
-        const candidateEvaluation = trackerDefinitionForDate(tracker, candidateDate)
-        if (!isTrackerInActivePeriod(tracker, candidateDate, timeZone)) continue
-        const candidateMode = schedulingMode(candidateEvaluation)
-        if (candidateMode === 'calendar' || candidateMode === 'effective' && isEffectiveDateEligible(candidateEvaluation, candidateDate, holidays, timeZone)) { next = candidateDate; break }
+        if (countsChallengeDate(tracker, candidateDate, timeZone, holidays)) { next = candidateDate; break }
       }
       const elapsed = day
       const holiday = holidays.has(date)

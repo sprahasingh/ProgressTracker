@@ -6,8 +6,9 @@ import { TrackerLibraryPage } from './TrackerLibraryPage'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localCalendarDate } from '../shared/localDates'
 import type { StoredTrackerDefinition } from '../../db/models'
+import * as challengeDay from '../../domain/trackers/challengeDay'
 
-const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), listTrackerEntriesForTracker: vi.fn().mockResolvedValue([]), listAccountHolidays: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
+const libraryMocks = vi.hoisted(() => ({ listTrackers: vi.fn(), listTrackerEntriesBetween: vi.fn().mockResolvedValue([]), listTrackerEntriesForTracker: vi.fn().mockResolvedValue([]), listAccountHolidays: vi.fn().mockResolvedValue([]), listTrackerHolidays: vi.fn().mockResolvedValue([]), archiveTracker: vi.fn(), unarchiveTracker: vi.fn(), deleteTracker: vi.fn() }))
 vi.mock('../../db/localRepository', () => ({ localRepository: libraryMocks }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ status: 'signed-in', user: { id: 'account-a' }, workspaceStatus: 'ready', workspaceUserId: 'account-a', syncStatus: 'syncing', isOnline: true }) }))
 
@@ -30,6 +31,21 @@ describe('TrackerLibraryPage initial cloud state', () => {
     expect(await screen.findByText('Checking your cloud progress')).toBeInTheDocument()
     expect(screen.queryByText('A blank page is a good start')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Account and sync status' })).toHaveAttribute('href', '/auth')
+  })
+
+  it('derives a challenge day once per tracker card render', async () => {
+    const longChallenge = {
+      ...trackerRow('long-challenge', 'Long challenge', 'challenge', 'active'),
+      startDate: '2000-01-01',
+      deadline: '2030-01-01',
+      scheduling: { mode: 'effective' as const, effectiveDays: 10_000, planningTimeZone: 'UTC' },
+    }
+    libraryMocks.listTrackers.mockResolvedValue([longChallenge])
+    const deriveChallengeDay = vi.spyOn(challengeDay, 'getChallengeDayDisplay')
+    render(<ToastProvider><MemoryRouter><TrackerLibraryPage /></MemoryRouter></ToastProvider>)
+
+    expect(await screen.findByRole('heading', { name: 'Long challenge' })).toBeInTheDocument()
+    expect(deriveChallengeDay).toHaveBeenCalledTimes(1)
   })
 
   it('shows a local read failure instead of leaving the page loading, and can retry', async () => {
