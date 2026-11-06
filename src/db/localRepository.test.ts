@@ -710,6 +710,22 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v6-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 6, scheduling: effective.scheduling } })
   })
 
+  it('identifies a malformed local effective-schedule date without exposing the date value', async () => {
+    await activateWorkspace('synthetic-invalid-effective-date')
+    await db.trackers.put({
+      ...tracker, id: 'synthetic-invalid-effective-date-tracker', schemaVersion: 6, startDate: '2026-99-99', deadline: '2026-12-31',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    })
+
+    let thrown: unknown
+    try { await localRepository.listTrackers() } catch (cause) { thrown = cause }
+    expect(thrown).toMatchObject({ name: 'RangeError' })
+    expect((thrown as { diagnostic?: unknown }).diagnostic).toMatchObject({
+      operation: 'localRepository.listTrackers.deriveSchedulingDeadline', category: 'unknown', errorName: 'RangeError',
+    })
+    expect(JSON.stringify((thrown as { diagnostic?: unknown }).diagnostic)).not.toContain('2026-99-99')
+  })
+
   it('round-trips v7 counting settings locally and recalculates planned-day deadlines on holiday changes', async () => {
     vi.stubEnv('PROD', true)
     vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')

@@ -978,11 +978,11 @@ describe('Today check-ins', () => {
 
   it('shows a retry state rather than treating a failed local read as an empty day', async () => {
     const user = userEvent.setup()
-    vi.spyOn(localRepository, 'listTrackers').mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    vi.spyOn(localRepository, 'listTrackers').mockRejectedValueOnce(new RangeError('Invalid calendar date: 2026-99-99'))
     render(<MemoryRouter><TodayPage /></MemoryRouter>)
     expect(await screen.findByRole('alert')).toHaveTextContent('underlying failure is not yet identified')
-    expect(screen.getByText('Today.snapshot.read')).toBeInTheDocument()
-    expect(screen.getByText('Error')).toBeInTheDocument()
+    expect(screen.getByText('Today.snapshot.listTrackers')).toBeInTheDocument()
+    expect(screen.getByText('RangeError')).toBeInTheDocument()
     expect(screen.getByText('Couldn’t load today’s check-ins')).toBeInTheDocument()
     expect(screen.queryByText('Nothing scheduled today')).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Retry local read' }))

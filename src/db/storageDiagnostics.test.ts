@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyStorageFailure, findStorageDiagnostic, reportBlockedDatabaseOpen, reportStorageFailure, storageDiagnosticEventName, storageFailureMessage } from './storageDiagnostics'
+import { annotateStorageFailure, classifyStorageFailure, findStorageDiagnostic, reportBlockedDatabaseOpen, reportStorageFailure, storageDiagnosticEventName, storageFailureMessage } from './storageDiagnostics'
 import { LocalStorageFailure, openDatabase, ProgressTrackerDatabase } from './database'
 import { getLastStorageDiagnostic } from './storageDiagnostics'
 
@@ -37,6 +37,14 @@ describe('privacy-safe storage diagnostics', () => {
 
   it('does not label an unrelated generic exception as an IndexedDB transaction failure', () => {
     expect(classifyStorageFailure(new Error('private detail'), 'transaction')).toBe('unknown')
+  })
+
+  it('adds a safe sub-operation to RangeError diagnostics without including its message', () => {
+    const error = new RangeError('invalid tracker date 2026-99-99')
+    const annotated = annotateStorageFailure('Today.snapshot.listTrackers', 'transaction', error)
+    const diagnostic = findStorageDiagnostic(annotated)
+    expect(diagnostic).toMatchObject({ operation: 'Today.snapshot.listTrackers', stage: 'transaction', category: 'unknown', errorName: 'RangeError' })
+    expect(JSON.stringify(diagnostic)).not.toContain('2026-99-99')
   })
 
   it('reports a blocked open without exposing database or account names', () => {
