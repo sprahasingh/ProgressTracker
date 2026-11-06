@@ -710,20 +710,50 @@ describe('workspace mutation notifications', () => {
     await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals(['scheduling-v6-account', 'tracker', effective.id]).first()).resolves.toMatchObject({ payload: { schemaVersion: 6, scheduling: effective.scheduling } })
   })
 
-  it('identifies a malformed local effective-schedule date without exposing the date value', async () => {
+  it('derives the production-shaped 92-day deadline using active holidays and ignoring tombstones', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    await activateWorkspace('synthetic-92-day-dsa')
+    const effective: StoredTrackerDefinition = {
+      ...tracker, id: 'synthetic-92-day-dsa-tracker', name: '92 Day DSA', schemaVersion: 6,
+      startDate: '2026-10-29', deadline: '2027-01-28', schedule: { kind: 'every-day' },
+      scheduling: { mode: 'effective', effectiveDays: 92, effectiveDayCounting: 'planned-activity-days', planningTimeZone: 'Asia/Calcutta' },
+    }
+    await localRepository.saveTracker(effective)
+    await localRepository.saveAccountHolidays(['2026-10-10', '2026-10-11', '2026-11-05'], null)
+    await localRepository.removeAccountHoliday('2026-10-10')
+    await localRepository.removeAccountHoliday('2026-10-11')
+
+    await expect(localRepository.listTrackers()).resolves.toMatchObject([{ id: effective.id, deadline: '2027-01-29' }])
+    await expect(db.accountHolidays.where('date').equals('2026-10-10').first()).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.accountHolidays.where('date').equals('2026-10-11').first()).resolves.toMatchObject({ deletedAt: expect.any(String) })
+    await expect(db.accountHolidays.where('date').equals('2026-11-05').first()).resolves.toMatchObject({ deletedAt: null })
+    await expect(db.trackers.get(effective.id)).resolves.toMatchObject({ deadline: '2027-01-28' })
+
+    await localRepository.removeAccountHoliday('2026-11-05')
+    await expect(localRepository.listTrackers()).resolves.toMatchObject([{ id: effective.id, deadline: '2027-01-28' }])
+  })
+
+  it('loads valid trackers beside a malformed effective schedule without changing persisted data', async () => {
     await activateWorkspace('synthetic-invalid-effective-date')
+    const valid: StoredTrackerDefinition = {
+      ...tracker, id: 'synthetic-valid-effective-date-tracker', schemaVersion: 6, startDate: '2026-11-01', deadline: '2026-12-31',
+      scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
+    }
+    await db.trackers.put(valid)
     await db.trackers.put({
       ...tracker, id: 'synthetic-invalid-effective-date-tracker', schemaVersion: 6, startDate: '2026-99-99', deadline: '2026-12-31',
       scheduling: { mode: 'effective', effectiveDays: 3, planningTimeZone: 'UTC' },
     })
 
-    let thrown: unknown
-    try { await localRepository.listTrackers() } catch (cause) { thrown = cause }
-    expect(thrown).toMatchObject({ name: 'RangeError' })
-    expect((thrown as { diagnostic?: unknown }).diagnostic).toMatchObject({
-      operation: 'localRepository.listTrackers.deriveSchedulingDeadline', category: 'unknown', errorName: 'RangeError',
+    const loaded = await localRepository.listTrackers()
+    expect(loaded).toHaveLength(2)
+    expect(loaded.find(({ id }) => id === valid.id)).toMatchObject({ id: valid.id, deadline: '2026-11-03' })
+    expect(loaded.find(({ id }) => id === 'synthetic-invalid-effective-date-tracker')).toMatchObject({
+      startDate: '2026-99-99', deadline: undefined, deadlineCalculation: 'unavailable',
     })
-    expect(JSON.stringify((thrown as { diagnostic?: unknown }).diagnostic)).not.toContain('2026-99-99')
+    expect(await db.trackers.get(valid.id)).toEqual(valid)
+    expect(await db.trackers.get('synthetic-invalid-effective-date-tracker')).toMatchObject({ startDate: '2026-99-99', deadline: '2026-12-31' })
   })
 
   it('round-trips v7 counting settings locally and recalculates planned-day deadlines on holiday changes', async () => {
