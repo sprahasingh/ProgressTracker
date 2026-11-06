@@ -1,6 +1,6 @@
 import type { TrackerDefinition } from './types'
 import { isTrackerInActivePeriod, isTrackerScheduledOccurrence, trackerActiveStartDate, trackerEvaluationHistoryStartDate } from './planning'
-import { isEffectiveDateEligible, schedulingMode } from './scheduling'
+import { finiteEffectiveDatesWithinSearch, isEffectiveDateEligible, schedulingMode } from './scheduling'
 import { trackerDefinitionForDate } from './ruleVersions'
 
 const DAY_MS = 86_400_000
@@ -44,6 +44,10 @@ export function firstChallengeDateAtDay(tracker: TrackerDefinition, targetDay: n
 function deadlineForCurrentEffectiveVersion(tracker: TrackerDefinition, date: string, totalDays: number, timeZone: string | undefined, holidays: ReadonlySet<string>): string | undefined {
   let elapsed = challengeDaysElapsed(tracker, date, timeZone, holidays)
   if (elapsed >= totalDays) return firstChallengeDateAtDay(tracker, totalDays, date, timeZone, holidays) ?? date
+  const remaining = totalDays - elapsed
+  const nextDate = dateText(parseDate(date) + DAY_MS)
+  const finiteDates = finiteEffectiveDatesWithinSearch({ tracker, startDate: nextDate, holidays, timeZone })
+  if (finiteDates) return finiteDates[remaining - 1]
   const startTime = parseDate(date) + DAY_MS
   for (let offset = 0; offset < 366_000; offset += 1) {
     const nextDate = dateText(startTime + offset * DAY_MS)
@@ -93,9 +97,13 @@ export function getChallengeDayDisplay(
     const day = Math.min(challengeDaysElapsed(tracker, date, timeZone, holidays), totalDays)
     if (!eligible) {
       let next: string | undefined
-      for (let offset = 1; offset <= 366_000; offset += 1) {
-        const candidateDate = dateText(parseDate(date) + offset * DAY_MS)
-        if (countsChallengeDate(tracker, candidateDate, timeZone, holidays)) { next = candidateDate; break }
+      const finiteDates = finiteEffectiveDatesWithinSearch({ tracker, startDate: dateText(parseDate(date) + DAY_MS), holidays, timeZone })
+      if (finiteDates) next = finiteDates[0]
+      else {
+        for (let offset = 1; offset <= 366_000; offset += 1) {
+          const candidateDate = dateText(parseDate(date) + offset * DAY_MS)
+          if (countsChallengeDate(tracker, candidateDate, timeZone, holidays)) { next = candidateDate; break }
+        }
       }
       const elapsed = day
       const holiday = holidays.has(date)

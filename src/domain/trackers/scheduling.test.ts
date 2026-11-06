@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deriveSchedulingDeadline, effectiveDayNumber, effectiveDaysRemaining, isEffectiveDateEligible, nthEffectiveDate, trackerScheduling } from './scheduling'
 import type { TrackerDefinition } from './types'
+import { versionTrackerRuleChange } from './ruleVersions'
 
 const tracker = (schedule: TrackerDefinition['schedule']): TrackerDefinition => ({
   schemaVersion: 1, id: 'schedule-test', name: 'Study', description: '', kind: 'challenge', status: 'active', categoryId: null,
@@ -75,6 +76,52 @@ describe('unified scheduling calculations', () => {
     }
     expect(() => nthEffectiveDate({ tracker: once, startDate: '2026-10-15', effectiveDays: 1, holidays: new Set(['2026-10-15']), maxSearchDays: 5 }))
       .toThrow(/Could not find 1 eligible days within 5 calendar days/)
+  })
+
+  it('exhausts finite schedules at their candidate dates under the default production search limit', () => {
+    class CountingHolidays extends Set<string> {
+      evaluations = 0
+      override has(value: string): boolean { this.evaluations += 1; return super.has(value) }
+    }
+
+    const once = {
+      ...tracker({ kind: 'once', date: '2026-10-15' }),
+      scheduling: { mode: 'effective' as const, effectiveDays: 1, effectiveDayCounting: 'planned-activity-days' as const },
+    }
+    const onceHoliday = new CountingHolidays(['2026-10-15'])
+    expect(() => nthEffectiveDate({ tracker: once, startDate: '2026-10-15', effectiveDays: 1, holidays: onceHoliday }))
+      .toThrow(/Could not find 1 eligible days within 366000 calendar days/)
+    expect(onceHoliday.evaluations).toBe(1)
+
+    const selectedDates = {
+      ...tracker({ kind: 'specific-dates', dates: ['2026-10-15', '2026-10-20', '2026-11-01'] }),
+      scheduling: { mode: 'effective' as const, effectiveDays: 3, effectiveDayCounting: 'planned-activity-days' as const },
+    }
+    const excludedDates = new CountingHolidays(['2026-10-15', '2026-10-20', '2026-11-01'])
+    expect(() => nthEffectiveDate({ tracker: selectedDates, startDate: '2026-10-15', effectiveDays: 3, holidays: excludedDates }))
+      .toThrow(/Could not find 3 eligible days within 366000 calendar days/)
+    expect(excludedDates.evaluations).toBe(3)
+
+    const oneAvailable = new CountingHolidays(['2026-10-15', '2026-10-20'])
+    expect(nthEffectiveDate({ tracker: selectedDates, startDate: '2026-10-15', effectiveDays: 1, holidays: oneAvailable })).toBe('2026-11-01')
+    expect(oneAvailable.evaluations).toBe(3)
+  })
+
+  it('keeps searching when a future rule version introduces recurring eligible dates', () => {
+    const once = {
+      ...tracker({ kind: 'once', date: '2026-10-15' }),
+      scheduling: { mode: 'effective' as const, effectiveDays: 2, effectiveDayCounting: 'planned-activity-days' as const },
+    }
+    const transitioned = versionTrackerRuleChange({
+      before: once,
+      after: { ...once, schedule: { kind: 'every-day' as const } },
+      application: 'apply-from-today',
+      today: '2026-10-17',
+      historyStartDate: '2026-10-15',
+      recordedAt: '2026-10-17T00:00:00.000Z',
+    })
+    expect(nthEffectiveDate({ tracker: transitioned, startDate: '2026-10-15', effectiveDays: 2, holidays: new Set(['2026-10-15']) }))
+      .toBe('2026-10-18')
   })
 
   it('preserves v6 Effective Days as every non-holiday date and forces No Recurrence to flexible duration counting', () => {
