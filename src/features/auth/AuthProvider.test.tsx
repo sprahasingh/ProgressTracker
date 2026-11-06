@@ -42,6 +42,7 @@ function Probe() {
     <span data-testid="cloud-operations-pending">{auth.cloudRecoveryOperationsPending ? 'pending' : 'settled'}</span>
     <span data-testid="workspace-init-stalled">{auth.workspaceInitializationStalled ? 'stalled' : 'normal'}</span>
     <span data-testid="workspace-init-pending">{auth.workspaceInitializationPending ? 'pending' : 'settled'}</span>
+    <span data-testid="workspace-diagnostic-operation">{auth.workspaceDiagnostic?.operation ?? 'none'}</span>
     <span data-testid="push-ownership">{auth.pushOwnershipStatus}:{auth.pushOwnershipMessage}</span>
     <span data-testid="auth-user">{auth.status}:{auth.user?.id ?? 'guest'}</span>
     <button onClick={() => void auth.syncNow()}>manual-sync</button>
@@ -108,6 +109,15 @@ describe('AuthProvider automatic sync lifecycle', () => {
       const request = indexedDB.deleteDatabase('progress-tracker-push-ownership')
       request.onsuccess = request.onerror = request.onblocked = () => resolve()
     })
+  })
+
+  it('preserves the low-level storage diagnostic through workspace initialization handling', async () => {
+    const diagnostic = { operation: 'openDatabase', stage: 'open', category: 'database-open', browser: 'safari', occurredAt: '2026-11-06T00:00:00.000Z', errorName: 'InvalidStateError' }
+    providerMocks.activateWorkspace.mockRejectedValueOnce(Object.assign(new Error('sanitized cause'), { diagnostic }))
+    render(<AuthProvider><Probe /></AuthProvider>)
+    emit('INITIAL_SESSION', 'account-a')
+    await waitFor(() => expect(screen.getByTestId('workspace-state')).toHaveTextContent(/^error:/))
+    expect(screen.getByTestId('workspace-diagnostic-operation')).toHaveTextContent('openDatabase')
   })
 
   it('pauses automatic, mutation-triggered, and manual cloud sync for recovery inspection', async () => {

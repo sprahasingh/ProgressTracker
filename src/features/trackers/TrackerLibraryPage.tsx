@@ -7,7 +7,8 @@ import { Surface } from '../../components/ui/Surface'
 import { useToast } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
-import { reportStorageFailure, storageFailureMessage } from '../../db/storageDiagnostics'
+import { reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
+import { StorageDiagnosticDetails } from '../auth/StorageDiagnosticDetails'
 import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
@@ -38,7 +39,7 @@ export function TrackerLibraryPage() {
   const [pendingBinTracker, setPendingBinTracker] = useState<StoredTrackerDefinition | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
   const [loading, setLoading] = useState(true)
-  const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string } | null>(null)
+  const [errorState, setErrorState] = useState<{ workspaceKey: string; message: string; diagnostic: StorageDiagnostic } | null>(null)
   const trackers = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackers : []
   const savedEntries = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.entries : []
   const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
@@ -66,7 +67,7 @@ export function TrackerLibraryPage() {
     } catch (cause) {
       const diagnostic = reportStorageFailure('Trackers.snapshot.read', 'transaction', cause)
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
-        setErrorState({ workspaceKey: context.key, message: storageFailureMessage(diagnostic.category) })
+        setErrorState({ workspaceKey: context.key, message: storageFailureMessage(diagnostic.category), diagnostic })
       }
     } finally {
       if (readGenerationRef.current === generation) setLoading(false)
@@ -133,7 +134,14 @@ export function TrackerLibraryPage() {
           {(['all', 'active', 'archived'] as const).map((filter) => <button key={filter} type="button" className={`tracker-status-option${statusFilter === filter ? ' selected' : ''}`} aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>{filter === 'all' ? 'All' : filter === 'active' ? 'Active' : 'Archived'}</button>)}
         </div>
       </div>
-      {error ? <Surface><EmptyState title="Couldn’t load your trackers" description={`${error} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><button className="button button-secondary button-medium" onClick={() => void refresh()}>Retry local read</button>{authStatus === 'signed-in' && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>} /></Surface> : visibleLoading ? <p role="status" className="tracker-loading">Loading your trackers…</p> : trackers.length === 0 ? (
+      {error ? (
+        <Surface>
+          <EmptyState title="Couldn’t load your trackers" description={`${error} This failed read did not change records.`} action={<div className="cloud-recovery-actions"><button className="button button-secondary button-medium" onClick={() => void refresh()}>Retry local read</button>{authStatus === 'signed-in' && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>} />
+          <StorageDiagnosticDetails diagnostic={errorState?.diagnostic ?? null} />
+        </Surface>
+      ) : visibleLoading ? (
+        <p role="status" className="tracker-loading">Loading your trackers…</p>
+      ) : trackers.length === 0 ? (
         <Surface>
           {authStatus === 'signed-in' && (syncStatus === 'waiting' || syncStatus === 'syncing' || syncStatus === 'offline') ? (
             <EmptyState title={isOnline === false ? 'Cloud progress has not loaded yet' : 'Checking your cloud progress'} description={isOnline === false ? 'You are offline. Any progress on this device stays available, and the account’s cloud records will be checked after reconnecting.' : 'This account’s saved trackers are being checked. You can keep using this workspace while the check finishes.'} action={<Link className="button button-secondary button-medium" to="/auth">Account and sync status</Link>} />

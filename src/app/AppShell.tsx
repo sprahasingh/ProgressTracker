@@ -12,6 +12,7 @@ import { AIHelpAssistant } from '../features/ai-help/AIHelpAssistant'
 import { useMaintainerAccess } from '../features/ai-knowledge/useMaintainerAccess'
 import { BadgeCelebrationMonitor } from '../features/dashboard/BadgeCelebrationDialog'
 import { CloudRecoveryPanel } from '../features/auth/CloudRecoveryPanel'
+import { StorageDiagnosticDetails } from '../features/auth/StorageDiagnosticDetails'
 
 type NavigationDestination = {
   group: 'primary' | 'more'
@@ -60,7 +61,7 @@ export function getAvatarInitial(user: { email?: string | null; user_metadata?: 
 }
 
 export function AppShell() {
-  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, isOnline } = useAuth()
+  const { status, user, passwordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, guestSummary, workspaceError, workspaceDiagnostic, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, isOnline } = useAuth()
   const maintainerAccess = useMaintainerAccess()
   const navigate = useNavigate()
   const location = useLocation()
@@ -188,6 +189,7 @@ export function AppShell() {
             workspaceStatus === 'error' ? <section className="workspace-gate" role="alert">
               <h1>Workspace unavailable</h1>
               <p>{workspaceError}</p>
+              <StorageDiagnosticDetails diagnostic={workspaceDiagnostic} />
               <div className="workspace-choice-actions"><button className="button button-secondary button-medium" onClick={retryWorkspace}>Retry local workspace</button>{status === 'signed-in' && user?.id && <button className="button button-primary button-medium" onClick={() => void enterCloudRecovery()}>Open Cloud Recovery — Read Only</button>}</div>
             </section> : <section className="workspace-gate" aria-live="polite">
               <WorkspaceLoadingState />

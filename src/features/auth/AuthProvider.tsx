@@ -46,6 +46,7 @@ type AuthState = {
   pushOwnershipMessage: string
   guestSummary: GuestWorkspaceSummary | null
   workspaceError: string | null
+  workspaceDiagnostic: StorageDiagnostic | null
   chooseGuestData: (decision: GuestDataDecision) => Promise<void>
   retryWorkspace: () => void
   cloudRecoveryMode: boolean
@@ -85,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pushOwnershipMessage, setPushOwnershipMessage] = useState('Checking this device’s subscription owner…')
   const [guestSummary, setGuestSummary] = useState<GuestWorkspaceSummary | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [workspaceDiagnostic, setWorkspaceDiagnostic] = useState<StorageDiagnostic | null>(null)
   const [workspaceRetry, setWorkspaceRetry] = useState(0)
   const [cloudRecoveryMode, setCloudRecoveryMode] = useState(false)
   const [cloudRecoveryPending, setCloudRecoveryPending] = useState(false)
@@ -344,6 +346,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = status === 'signed-in' ? user?.id ?? null : null
     setWorkspaceStatus('loading')
     setWorkspaceError(null)
+    setWorkspaceDiagnostic(null)
     setSyncStatus('idle')
     setSyncSummary(null)
     setSyncError(null)
@@ -373,6 +376,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (cause) {
         if (!current || workspaceInitializationIdRef.current !== initializationId || cloudRecoveryModeRef.current) return
         const diagnostic = reportStorageFailure('AuthProvider.workspace.initialize', 'transaction', cause)
+        setWorkspaceDiagnostic(diagnostic)
         setWorkspaceError(storageFailureMessage(diagnostic.category))
         setWorkspaceStatus('error')
       } finally {
@@ -654,7 +658,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null
   }
 
-  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, pushOwnershipStatus, pushOwnershipMessage, guestSummary, workspaceError, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ status, user, passwordRecovery, completePasswordRecovery, workspaceStatus, workspaceUserId, sessionTransitionPending, pushOwnershipStatus, pushOwnershipMessage, guestSummary, workspaceError, workspaceDiagnostic, chooseGuestData, retryWorkspace, cloudRecoveryMode, cloudRecoveryPending, cloudRecoveryOperationsPending, cloudRecoveryPriorOperationsSettled, workspaceInitializationStalled, workspaceInitializationPending, enterCloudRecovery, syncStatus, syncTrigger, isOnline, syncSummary, syncError, syncNow, signOut, accountDeletionNotice, prepareAccountDeletion, resumeAccountSyncAfterDeletionFailure, finishAccountDeletion }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {
