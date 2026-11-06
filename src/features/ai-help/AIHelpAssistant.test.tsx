@@ -26,7 +26,10 @@ function findAssistantPanel(role: 'region' | 'dialog') {
   return screen.findByRole(role, { name: 'Ask ProgressTracker' }, { timeout: 5_000 })
 }
 function visibleAnswerText(answer: string) {
-  return answer.replace(/\*\*([^*]+)\*\*/g, '$1')
+  return answer.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1')
+}
+function visibleAnswerBlocks(answer: string) {
+  return answer.split(/\n{2,}/).map(visibleAnswerText)
 }
 
 describe('AI Help Assistant', () => {
@@ -58,6 +61,10 @@ describe('AI Help Assistant', () => {
   })
 
   it('answers a clicked verified suggestion locally and keeps answer actions available', async () => {
+    const multilineAnswer = verifiedQuestionCatalog.find((entry) => entry.id === 'points-and-rewards')!
+    vi.spyOn(aiHelpService, 'selectCatalogSuggestions').mockResolvedValueOnce([
+      { id: multilineAnswer.id, question: multilineAnswer.question },
+    ])
     const user = userEvent.setup()
     renderAssistant('/analytics')
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))
@@ -67,7 +74,11 @@ describe('AI Help Assistant', () => {
     const text = question.textContent!.trim()
     const answer = verifiedQuestionCatalog.find((entry) => entry.question === text)!.answer
     await user.click(question)
-    await waitFor(() => expect(document.querySelector('.ai-help-message.assistant .ai-help-formatted')?.textContent).toBe(visibleAnswerText(answer)))
+    await waitFor(() => {
+      const formattedAnswer = document.querySelector('.ai-help-message.assistant .ai-help-formatted')
+      expect(formattedAnswer).not.toBeNull()
+      expect([...formattedAnswer!.children].map((block) => block.textContent)).toEqual(visibleAnswerBlocks(answer))
+    })
     const formattedAnswer = document.querySelector('.ai-help-message.assistant .ai-help-formatted')
     const expectedEmphasis = [...answer.matchAll(/\*\*([^*]+)\*\*/g)].map(([, text]) => text)
     expect([...formattedAnswer!.querySelectorAll('strong')].map((element) => element.textContent)).toEqual(expectedEmphasis)
@@ -298,6 +309,10 @@ describe('AI Help Assistant', () => {
 
   it('serves the local FAQ without contacting the backend while offline', async () => {
     mocks.isOnline = false
+    const offlineAnswer = verifiedQuestionCatalog.find((entry) => entry.id === 'cross-device-sync')!
+    vi.spyOn(aiHelpService, 'selectCatalogSuggestions').mockResolvedValueOnce([
+      { id: offlineAnswer.id, question: offlineAnswer.question },
+    ])
     const user = userEvent.setup()
     renderAssistant()
     await user.click(screen.getByRole('button', { name: 'Open AI Help Assistant' }))

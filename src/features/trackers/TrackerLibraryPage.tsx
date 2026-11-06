@@ -157,6 +157,7 @@ export function TrackerLibraryPage() {
             <Surface key={tracker.id} className="tracker-card">
               <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span><span className="tracker-card-policy">{tracker.strictMode ? <>Strict Mode <InfoButton title="Strict Mode" summary="This tracker requires qualifying progress every calendar day." description="Holidays, weekends, and unscheduled rest days count as streak opportunities. A qualifying voluntary check-in can preserve the streak without changing this tracker’s schedule or the holiday." /></> : 'Standard Mode'}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
+              {tracker.deadlineCalculation === 'unavailable' && <p role="status">This tracker’s saved schedule could not be used to calculate a deadline. Its saved data has not been changed.</p>}
               {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
               {getChallengeDayDisplay(tracker, today, timeZone, holidays) && <p className="challenge-day-label" aria-label={`Challenge ${getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}`}>{getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}</p>}
               <TrackerCardTargets tracker={tracker} />

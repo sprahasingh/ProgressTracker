@@ -183,6 +183,8 @@ export type TrackerDefinition = {
   strictMode?: boolean
   /** v10: ordered inclusive start dates; the next version implicitly closes the previous one. */
   ruleVersions?: TrackerRuleVersion[]
+  /** Read-only repository metadata; omitted from persisted tracker records. */
+  deadlineCalculation?: 'unavailable'
   createdAt: string
   updatedAt: string
   archivedAt: string | null
