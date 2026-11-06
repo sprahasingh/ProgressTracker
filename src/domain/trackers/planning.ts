@@ -277,13 +277,18 @@ function sumDecimalValues(values: readonly number[]): number {
 }
 
 /** Returns whether this tracker definition's recurrence places an occurrence on a date. */
-export function isTrackerScheduledOccurrence(tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning' | 'ruleVersions'>, date: string, timeZone?: string): boolean {
+export function isTrackerScheduledOccurrence(
+  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'deadline' | 'createdAt' | 'goalPlanning' | 'ruleVersions'>,
+  date: string,
+  timeZone?: string,
+  options: { ignoreDeadline?: boolean } = {},
+): boolean {
   const time = parseDate(date)
   const version = trackerRuleVersionForDate(tracker, date)
   const evaluation = version?.evaluation
   const activeStart = trackerActiveStartDate({ ...tracker, startDate: evaluation ? evaluation.startDate ?? undefined : tracker.startDate }, timeZone)
   if (date < activeStart) return false
-  const deadline = evaluation ? evaluation.deadline ?? undefined : tracker.deadline
+  const deadline = options.ignoreDeadline ? undefined : evaluation ? evaluation.deadline ?? undefined : tracker.deadline
   if (deadline && date > deadline) return false
   const weekday = new Date(time).getUTCDay()
   const schedule = evaluation?.schedule ?? tracker.schedule

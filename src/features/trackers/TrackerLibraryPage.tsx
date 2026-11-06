@@ -9,7 +9,7 @@ import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import { reportStorageFailure, storageFailureMessage, type StorageDiagnostic } from '../../db/storageDiagnostics'
 import { StorageDiagnosticDetails } from '../auth/StorageDiagnosticDetails'
-import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday } from '../../db/models'
 import { useAuth } from '../auth/AuthProvider'
 import { useWorkspaceTimeZone } from '../settings/WorkspaceTimeZone'
 import { isScheduledDate } from '../../domain/trackers/planning'
@@ -34,7 +34,7 @@ export function TrackerLibraryPage() {
   const workspaceRef = useRef({ key: workspaceKey, ready: workspaceReady })
   workspaceRef.current = { key: workspaceKey, ready: workspaceReady }
   const readGenerationRef = useRef(0)
-  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; checkedInToday: string[]; holidays: string[] } | null>(null)
+  const [trackerSnapshot, setTrackerSnapshot] = useState<{ workspaceKey: string; trackers: StoredTrackerDefinition[]; entries: StoredTrackerEntry[]; checkedInToday: string[]; holidays: string[]; trackerHolidays: TrackerHoliday[] } | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
   const [pendingBinTracker, setPendingBinTracker] = useState<StoredTrackerDefinition | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | StoredTrackerDefinition['kind']>('all')
@@ -44,6 +44,7 @@ export function TrackerLibraryPage() {
   const savedEntries = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.entries : []
   const checkedInToday = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.checkedInToday : [])
   const holidays = new Set(workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.holidays : [])
+  const trackerHolidayRows = workspaceKey && trackerSnapshot?.workspaceKey === workspaceKey ? trackerSnapshot.trackerHolidays : []
   const error = workspaceKey && errorState?.workspaceKey === workspaceKey ? errorState.message : ''
   const visibleLoading = !error && (loading || !workspaceReady || Boolean(workspaceKey && trackerSnapshot?.workspaceKey !== workspaceKey))
   const statusFilteredTrackers = statusFilter === 'all' ? trackers : trackers.filter((tracker) => tracker.status === statusFilter)
@@ -56,13 +57,14 @@ export function TrackerLibraryPage() {
     setLoading(true)
     setErrorState(null)
     try {
-      const [result, holidayRows] = await Promise.all([
+      const [result, holidayRows, selectedHolidayRows] = await Promise.all([
         localRepository.listTrackers(true),
         localRepository.listAccountHolidays(),
+        localRepository.listTrackerHolidays(),
       ])
       const entries = (await Promise.all(result.map((tracker) => localRepository.listTrackerEntriesForTracker(tracker.id)))).flat()
       if (readGenerationRef.current === generation && workspaceRef.current.ready && workspaceRef.current.key === context.key) {
-        setTrackerSnapshot({ workspaceKey: context.key, trackers: result, entries, checkedInToday: entries.filter((entry) => entry.deletedAt === null && entry.date === today).map((entry) => entry.trackerId), holidays: holidayRows.map((holiday) => holiday.date) })
+        setTrackerSnapshot({ workspaceKey: context.key, trackers: result, entries, checkedInToday: entries.filter((entry) => entry.deletedAt === null && entry.date === today).map((entry) => entry.trackerId), holidays: holidayRows.map((holiday) => holiday.date), trackerHolidays: selectedHolidayRows })
       }
     } catch (cause) {
       const diagnostic = reportStorageFailure('Trackers.snapshot.read', 'transaction', cause)
@@ -153,15 +155,18 @@ export function TrackerLibraryPage() {
         </Surface>
       ) : visibleTrackers.length === 0 ? <Surface><p>{statusFilter === 'archived' ? 'No archived trackers match these filters.' : statusFilter === 'active' ? 'No active trackers match these filters.' : 'No trackers match these filters.'}</p></Surface> : (
         <div className="tracker-card-grid">
-          {visibleTrackers.map((tracker) => (
-            <Surface key={tracker.id} className="tracker-card">
+          {visibleTrackers.map((tracker) => {
+            const trackerHolidayDates = trackerHolidayRows.filter((holiday) => holiday.trackerId === tracker.id && holiday.deletedAt === null).map((holiday) => holiday.date)
+            const effectiveHolidays = new Set([...holidays, ...trackerHolidayDates])
+            const challengeDay = getChallengeDayDisplay(tracker, today, timeZone, effectiveHolidays)
+            return <Surface key={tracker.id} className="tracker-card">
               <div className="tracker-card-top"><span className="tracker-kind-chip">{kindLabels[tracker.kind]}</span><span className="tracker-card-policy">{tracker.strictMode ? <>Strict Mode <InfoButton title="Strict Mode" summary="This tracker requires qualifying progress every calendar day." description="Holidays, weekends, and unscheduled rest days count as streak opportunities. A qualifying voluntary check-in can preserve the streak without changing this tracker’s schedule or the holiday." /></> : 'Standard Mode'}</span>{tracker.status === 'archived' && <span className="tracker-archived-chip">Archived</span>}</div>
               <h2>{tracker.name}</h2>
               {tracker.deadlineCalculation === 'unavailable' && <p role="status">This tracker’s saved schedule could not be used to calculate a deadline. Its saved data has not been changed.</p>}
               {tracker.description && <p className="tracker-card-description">{tracker.description}</p>}
-              {getChallengeDayDisplay(tracker, today, timeZone, holidays) && <p className="challenge-day-label" aria-label={`Challenge ${getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}`}>{getChallengeDayDisplay(tracker, today, timeZone, holidays)!.label}</p>}
+              {challengeDay && <p className="challenge-day-label" aria-label={`Challenge ${challengeDay.label}`}>{challengeDay.label}</p>}
               <TrackerCardTargets tracker={tracker} />
-              {tracker.milestones.length > 0 && <details className="tracker-card-milestones"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={savedEntries.filter((entry) => entry.trackerId === tracker.id)} asOfDate={today} holidays={holidays} timeZone={timeZone} /></details>}
+              {tracker.milestones.length > 0 && <details className="tracker-card-milestones"><summary>Milestones <span>{tracker.milestones.length}</span></summary><MilestoneProgressList tracker={tracker} entries={savedEntries.filter((entry) => entry.trackerId === tracker.id)} asOfDate={today} holidays={effectiveHolidays} timeZone={timeZone} /></details>}
               <div className="tracker-card-meta">
                 <span>{trackerScheduleLabel(tracker.schedule)}</span>
                 {tracker.deadline && <span>Due {calendarDateLabel(tracker.deadline)}</span>}
@@ -172,7 +177,7 @@ export function TrackerLibraryPage() {
                 <TrackerActionsMenu tracker={tracker} onArchive={() => archive(tracker.id)} onRestore={() => unarchive(tracker.id)} onDelete={() => setPendingBinTracker(tracker)} />
               </div>
             </Surface>
-          ))}
+          })}
         </div>
       )}
       {pendingBinTracker && <ConfirmActionDialog title={`Move “${pendingBinTracker.name}” to Bin?`} description="Your tracker and its saved progress will be moved to the Bin. You can restore it while it’s in the Bin. Moving it won’t remove your earned XP, badges, or achievements. When you permanently delete the tracker, you can choose what happens to its Wins." actionLabel="Move to Bin" onCancel={() => setPendingBinTracker(null)} onConfirm={() => { const tracker = pendingBinTracker; setPendingBinTracker(null); void moveToBin(tracker) }} />}

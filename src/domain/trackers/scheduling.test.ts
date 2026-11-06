@@ -62,6 +62,21 @@ describe('unified scheduling calculations', () => {
     expect(isEffectiveDateEligible({ ...weekdays, scheduling: { ...weekdays.scheduling!, effectiveDayCounting: 'all-non-holiday-days' } }, '2026-11-07')).toBe(true)
   })
 
+  it('uses remaining specific dates after holidays and bounds finite once schedules with no eligible date', () => {
+    const selectedDates = {
+      ...tracker({ kind: 'specific-dates', dates: ['2026-10-15', '2026-10-16', '2026-10-18'] }),
+      scheduling: { mode: 'effective' as const, effectiveDays: 2, effectiveDayCounting: 'planned-activity-days' as const },
+    }
+    expect(nthEffectiveDate({ tracker: selectedDates, startDate: '2026-10-15', effectiveDays: 2, holidays: new Set(['2026-10-15']) })).toBe('2026-10-18')
+
+    const once = {
+      ...tracker({ kind: 'once', date: '2026-10-15' }),
+      scheduling: { mode: 'effective' as const, effectiveDays: 1, effectiveDayCounting: 'planned-activity-days' as const },
+    }
+    expect(() => nthEffectiveDate({ tracker: once, startDate: '2026-10-15', effectiveDays: 1, holidays: new Set(['2026-10-15']), maxSearchDays: 5 }))
+      .toThrow(/Could not find 1 eligible days within 5 calendar days/)
+  })
+
   it('preserves v6 Effective Days as every non-holiday date and forces No Recurrence to flexible duration counting', () => {
     const legacyV6 = { ...tracker({ kind: 'weekdays' }), schemaVersion: 6 as const, scheduling: { mode: 'effective' as const, effectiveDays: 3 } }
     expect(nthEffectiveDate({ tracker: legacyV6, startDate: '2026-11-01', effectiveDays: 3 })).toBe('2026-11-03')
