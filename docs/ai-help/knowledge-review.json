@@ -587,9 +587,9 @@
     "src/features/trackers/TrackerSetupPage.tsx": "5d910679ac5d98cb508a1f01c8dbc6aba477c39c0d7e20ab7dde3b96b9159757"
   },
   "tracker-duration-modes": {
-    "src/domain/trackers/scheduling.ts": "f845a61221a860b0a146c13fce4f0766cbed3ce65bf75ac693f277e2567945f8",
+    "src/domain/trackers/scheduling.ts": "b02db784d6248a67e69536758bc1a72e3464d07d9a2175f10135241de8960650",
     "src/features/trackers/TrackerSetupPage.tsx": "5d910679ac5d98cb508a1f01c8dbc6aba477c39c0d7e20ab7dde3b96b9159757",
-    "src/domain/trackers/challengeDay.ts": "63dc27c4a6112a582a9aa9411724abf8eafc9e8b28f7cbf8d22f2895de971d0c"
+    "src/domain/trackers/challengeDay.ts": "500b91ecffbdd324603baa1b745dc276fa2b0fd0fe57b86f74c41d1527a51657"
   },
   "retire-measure": {
     "src/features/trackers/TrackerConfigurationEditor.tsx": "eb68e9b0ceb15c5ff7d43ae85d55cd326f85cb3b304353771277fbba3c0eceff",

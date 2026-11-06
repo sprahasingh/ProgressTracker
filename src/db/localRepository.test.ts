@@ -740,6 +740,35 @@ describe('workspace mutation notifications', () => {
     expect(getChallengeDayDisplay(withoutHoliday, '2026-11-06', 'Asia/Calcutta')?.label).toBe('Day 9 of 92')
   })
 
+  it('keeps exhausted global and selected finite schedules readable without changing saved deadlines', async () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V6', 'true')
+    await activateWorkspace('finite-holiday-schedule-owner')
+    const once: StoredTrackerDefinition = {
+      ...tracker, id: 'finite-global-once', schemaVersion: 6, kind: 'challenge', startDate: '2026-10-15', deadline: '2026-10-15',
+      schedule: { kind: 'once', date: '2026-10-15' },
+      scheduling: { mode: 'effective', effectiveDays: 1, effectiveDayCounting: 'planned-activity-days' },
+    }
+    const selected: StoredTrackerDefinition = {
+      ...tracker, id: 'finite-selected-dates', schemaVersion: 6, kind: 'challenge', startDate: '2026-10-15', deadline: '2026-10-17',
+      schedule: { kind: 'specific-dates', dates: ['2026-10-16', '2026-10-17'] },
+      scheduling: { mode: 'effective', effectiveDays: 2, effectiveDayCounting: 'planned-activity-days' },
+    }
+    await db.trackers.bulkPut([once, selected])
+    await localRepository.saveAccountHolidays(['2026-10-15'], null)
+    await localRepository.setTrackerHolidaySelections([
+      { date: '2026-10-16', trackerIds: [selected.id] },
+      { date: '2026-10-17', trackerIds: [selected.id] },
+    ])
+
+    await expect(localRepository.listTrackers()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: once.id, deadline: undefined, deadlineCalculation: 'unavailable' }),
+      expect.objectContaining({ id: selected.id, deadline: undefined, deadlineCalculation: 'unavailable' }),
+    ]))
+    await expect(db.trackers.get(once.id)).resolves.toMatchObject({ deadline: '2026-10-15' })
+    await expect(db.trackers.get(selected.id)).resolves.toMatchObject({ deadline: '2026-10-17' })
+  })
+
   it('loads valid trackers beside a malformed effective schedule without changing persisted data', async () => {
     await activateWorkspace('synthetic-invalid-effective-date')
     const valid: StoredTrackerDefinition = {

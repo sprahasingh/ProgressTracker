@@ -51,6 +51,21 @@ describe('getChallengeDayDisplay', () => {
     expect(getChallengeDayDisplay(tracker, '2026-10-18', 'UTC', holidays)?.label).toBe('Day 3 of 3 · Rest day')
   })
 
+  it('does not enumerate the production search bound for an exhausted once challenge', () => {
+    class CountingHolidays extends Set<string> {
+      evaluations = 0
+      override has(value: string): boolean { this.evaluations += 1; return super.has(value) }
+    }
+    const tracker: TrackerDefinition = {
+      ...challenge('2026-10-15', '2026-10-15'),
+      schedule: { kind: 'once', date: '2026-10-15' },
+      scheduling: { mode: 'effective', effectiveDays: 1, effectiveDayCounting: 'planned-activity-days' },
+    }
+    const holidays = new CountingHolidays(['2026-10-15'])
+    expect(getChallengeDayDisplay(tracker, '2026-10-15', 'UTC', holidays)).toBeNull()
+    expect(holidays.evaluations).toBe(1)
+  })
+
   it('advances Include rest days numbering on unscheduled dates and pauses only on holidays', () => {
     const tracker = { ...challenge('2026-10-15', '2026-10-20'), schemaVersion: 7 as const, schedule: { kind: 'weekdays' as const }, scheduling: { mode: 'effective' as const, effectiveDays: 3, effectiveDayCounting: 'all-non-holiday-days' as const } }
     expect(getChallengeDayDisplay(tracker, '2026-10-17')?.label).toBe('Day 3 of 3 · Rest day')

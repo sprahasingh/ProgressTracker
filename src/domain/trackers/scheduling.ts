@@ -1,5 +1,6 @@
 import type { TrackerDefinition, TrackerSchedule, TrackerScheduling, TrackerSchedulingMode } from './types'
 import { isTrackerScheduledOccurrence, trackerActiveStartDate } from './planning'
+import { trackerRuleVersionForDate } from './ruleVersions'
 
 const DAY_MS = 86_400_000
 const MAX_SEARCH_DAYS = 366_000
@@ -9,6 +10,63 @@ const parse = (value: string) => {
   return time
 }
 const text = (time: number) => new Date(time).toISOString().slice(0, 10)
+
+type EffectiveSchedulingTracker = Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline' | 'ruleVersions'>
+
+function trackerForEffectiveDate(tracker: EffectiveSchedulingTracker, date: string): EffectiveSchedulingTracker {
+  const version = trackerRuleVersionForDate(tracker, date)
+  if (!version) return tracker
+  return {
+    ...tracker,
+    ...version.evaluation,
+    startDate: version.evaluation.startDate ?? undefined,
+    deadline: version.evaluation.deadline ?? undefined,
+    scheduling: version.evaluation.scheduling ?? undefined,
+  }
+}
+
+type FiniteEffectiveDateSearch = {
+  tracker: EffectiveSchedulingTracker
+  startDate: string
+  maxSearchDays?: number
+  holidays?: ReadonlySet<string>
+  timeZone?: string
+}
+
+/** Returns all eligible dates when every applicable rule version has a finite planned recurrence. */
+export function finiteEffectiveDatesWithinSearch(input: FiniteEffectiveDateSearch): string[] | null {
+  const limit = Math.min(input.maxSearchDays ?? MAX_SEARCH_DAYS, MAX_SEARCH_DAYS)
+  const start = parse(input.startDate)
+  const lastDate = text(start + (limit - 1) * DAY_MS)
+  const transitions = [...new Set([
+    input.startDate,
+    ...(input.tracker.ruleVersions ?? [])
+      .map((version) => version.effectiveFrom)
+      .filter((date) => date > input.startDate && date <= lastDate),
+  ])].sort()
+  const eligibleDates: string[] = []
+
+  for (let index = 0; index < transitions.length; index += 1) {
+    const segmentStart = transitions[index]!
+    const segmentEnd = transitions[index + 1] ? text(parse(transitions[index + 1]!) - DAY_MS) : lastDate
+    const evaluation = trackerForEffectiveDate(input.tracker, segmentStart)
+    const scheduling = evaluation.scheduling
+    if (scheduling?.mode !== 'effective' || scheduling.effectiveDayCounting !== 'planned-activity-days') return null
+
+    let dates: readonly string[]
+    if (evaluation.schedule.kind === 'once') dates = [evaluation.schedule.date]
+    else if (evaluation.schedule.kind === 'specific-dates') dates = evaluation.schedule.dates
+    else return null
+
+    for (const date of dates) {
+      if (date < segmentStart || date > segmentEnd || date < input.startDate || date > lastDate) continue
+      try { parse(date) } catch { continue }
+      if (isEffectiveDateEligible(input.tracker, date, input.holidays, input.timeZone)) eligibleDates.push(date)
+    }
+  }
+
+  return [...new Set(eligibleDates)].sort()
+}
 
 /** Legacy records retain their old behavior: a saved deadline is calendar-bound, otherwise ongoing. */
 export function trackerScheduling(tracker: Pick<TrackerDefinition, 'scheduling' | 'deadline'>): TrackerScheduling {
@@ -41,25 +99,26 @@ export function trackerScheduleLabel(schedule: TrackerSchedule): string {
 }
 
 export function isEffectiveDateEligible(
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>,
+  tracker: EffectiveSchedulingTracker,
   date: string,
   holidays: ReadonlySet<string> = new Set(),
   timeZone?: string,
 ): boolean {
-  if (date < trackerActiveStartDate(tracker, timeZone) || holidays.has(date)) return false
-  const method = tracker.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
-  if (method === 'planned-activity-days' && tracker.schedule.kind !== 'none') {
+  const evaluation = trackerForEffectiveDate(tracker, date)
+  if (date < trackerActiveStartDate(evaluation, timeZone) || holidays.has(date)) return false
+  const method = evaluation.scheduling?.effectiveDayCounting ?? 'all-non-holiday-days'
+  if (method === 'planned-activity-days' && evaluation.schedule.kind !== 'none') {
     // An effective schedule's saved deadline is only a cached boundary. Applying
     // it while finding a new holiday-adjusted deadline can make the target
     // unreachable forever after one excluded day.
-    return isTrackerScheduledOccurrence({ ...tracker, deadline: undefined }, date, timeZone, { ignoreDeadline: true })
+    return isTrackerScheduledOccurrence({ ...evaluation, deadline: undefined }, date, timeZone, { ignoreDeadline: true })
   }
   return true
 }
 
 /** Finds the Nth eligible calendar date with a strict bound to reject impossible schedules. */
 export function nthEffectiveDate(input: {
-  tracker: Pick<TrackerDefinition, 'schedule' | 'startDate' | 'createdAt' | 'goalPlanning' | 'scheduling' | 'deadline'>
+  tracker: EffectiveSchedulingTracker
   startDate: string
   effectiveDays: number
   holidays?: ReadonlySet<string>
@@ -69,6 +128,11 @@ export function nthEffectiveDate(input: {
   if (!Number.isInteger(input.effectiveDays) || input.effectiveDays < 1) throw new RangeError('Effective days must be a positive whole number.')
   const limit = Math.min(input.maxSearchDays ?? MAX_SEARCH_DAYS, MAX_SEARCH_DAYS)
   const tracker = { ...input.tracker, startDate: input.startDate }
+  const finiteDates = finiteEffectiveDatesWithinSearch({ ...input, tracker })
+  if (finiteDates) {
+    if (finiteDates.length >= input.effectiveDays) return finiteDates[input.effectiveDays - 1]!
+    throw new RangeError(`Could not find ${input.effectiveDays} eligible days within ${limit} calendar days. Change the recurrence or target.`)
+  }
   let eligible = 0
   const start = parse(input.startDate)
   for (let offset = 0; offset < limit; offset += 1) {
