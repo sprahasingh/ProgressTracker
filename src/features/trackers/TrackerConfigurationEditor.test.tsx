@@ -177,4 +177,39 @@ describe('Tracker configuration explanations', () => {
     expect(screen.queryByRole('option', { name: 'Greater than' })).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Condition' })).toHaveAccessibleName('Condition')
   })
+
+  it('configures a Combined Sum from compatible units and shows its live summary', async () => {
+    const user = userEvent.setup()
+    const compatible: TrackerMetricDefinition[] = [metric, { id: 'cf', name: 'Codeforces', valueType: 'quantity', unit: 'pages' }, { id: 'distance', name: 'Distance', valueType: 'quantity', unit: 'km' }]
+    function RuleHarness() {
+      const [rule, setRule] = useState<TrackerRule | undefined>()
+      return <TrackerConfigurationEditor combinedSumAvailable section="rules" metrics={compatible} onMetricsChange={vi.fn()} rule={rule} onRuleChange={setRule}
+        customFields={[]} onCustomFieldsChange={vi.fn()} milestones={[]} onMilestonesChange={vi.fn()} />
+    }
+    render(<RuleHarness />)
+    await user.click(screen.getByRole('button', { name: '＋ Add success rule' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Success condition type' }), 'combined-sum')
+    expect(screen.getByText('Progress is the sum of these measures. Their individual targets do not affect this condition.')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Codeforces/ })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: /Distance/ })).not.toBeInTheDocument()
+    const target = screen.getByRole('spinbutton', { name: 'Combined target' })
+    await user.clear(target)
+    await user.type(target, '5')
+    expect(screen.getByText('Success summary: Pages + Codeforces totals at least 5 pages')).toBeInTheDocument()
+  })
+  it('hides Combined Sum when unsupported and locks an existing rule without changing it', async () => {
+    const combined: TrackerRule = { kind: 'all', operands: [
+      { kind: 'combined-sum', metricIds: ['pages', 'cf'], target: 5 },
+      { kind: 'comparison', metricId: 'pages', operator: 'at-least', value: 1 },
+    ] }
+    const onRuleChange = vi.fn()
+    render(<TrackerConfigurationEditor section="rules" metrics={[metric, { id: 'cf', name: 'Codeforces', valueType: 'quantity', unit: 'pages' }]} onMetricsChange={vi.fn()} rule={combined} onRuleChange={onRuleChange}
+      customFields={[]} onCustomFieldsChange={vi.fn()} milestones={[]} onMilestonesChange={vi.fn()} />)
+    expect(screen.queryByRole('option', { name: 'Combined Sum' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Combined Sum (unavailable)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Clear rule' })).toBeDisabled()
+    expect(screen.getAllByRole('combobox', { name: 'Success condition type' }).find((element) => element.getAttribute('data-validation-path') === 'qualificationRule')).toBeDisabled()
+    expect(onRuleChange).not.toHaveBeenCalled()
+  })
+
 })

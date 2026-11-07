@@ -24,6 +24,8 @@ import { isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../
 import { isSchemaV4WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled, isTrackerEditHistorySyncGuardEnabled } from '../../domain/trackers/schemaVersionGate'
 import { deriveSchedulingDeadline, inclusiveCalendarDays, trackerScheduleLabel, trackerScheduling, countScheduledActivityDays } from '../../domain/trackers/scheduling'
 import type { CalendarDate } from '../../db/models'
+import { refreshCombinedSumCapability, subscribeToCombinedSumCapability, type CombinedSumCapability } from '../../services/supabase/combinedSumCapability'
+import { trackerUsesCombinedSum } from '../../domain/trackers/combinedSumRules'
 
 type FormValues = { name: string; description: string; kind: TrackerKind; schedule: string; customWeekdays: number[]; startDate: string; deadline: string; schedulingMode: TrackerSchedulingMode; effectiveDays: string; effectiveDayCounting: 'planned-activity-days' | 'all-non-holiday-days'; strictMode: boolean }
 
@@ -71,6 +73,7 @@ function starterRule(metric: TrackerMetricDefinition): TrackerRule {
 
 function rebaseMetricRule(rule: TrackerRule | undefined, metric: TrackerMetricDefinition): TrackerRule | undefined {
   if (!rule) return undefined
+  if (rule.kind === 'combined-sum') return rule
   if (rule.kind === 'threshold' || rule.kind === 'comparison') return rule.metricId === metric.id ? starterRule(metric) : rule
   return { ...rule, operands: rule.operands.map((operand) => rebaseMetricRule(operand, metric)!) }
 }
@@ -161,6 +164,7 @@ export function TrackerSetupPage() {
   const navigate = useNavigate()
   const returnToToday = (location.state as { returnTo?: unknown } | null)?.returnTo === 'today'
   const [existing, setExisting] = useState<TrackerDefinition>()
+  const [combinedSumCapability, setCombinedSumCapability] = useState<CombinedSumCapability>({ status: 'unknown' })
   const [archivedStatusAfterSave, setArchivedStatusAfterSave] = useState<'archived' | 'active'>('archived')
   const [metricsWithHistory, setMetricsWithHistory] = useState<string[]>([])
   const [customFieldsWithHistory, setCustomFieldsWithHistory] = useState<string[]>([])
@@ -208,6 +212,14 @@ export function TrackerSetupPage() {
 
   useEffect(() => {
     void localRepository.listAccountHolidays().then((holidays) => setHolidayDates(holidays.map((holiday) => holiday.date))).catch(() => setHolidayDates([]))
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCombinedSumCapability(setCombinedSumCapability)
+    void refreshCombinedSumCapability().then(setCombinedSumCapability)
+    const refreshWhenOnline = () => { void refreshCombinedSumCapability(true).then(setCombinedSumCapability) }
+    window.addEventListener('online', refreshWhenOnline)
+    return () => { unsubscribe(); window.removeEventListener('online', refreshWhenOnline) }
   }, [])
 
   useEffect(() => {
@@ -456,7 +468,7 @@ export function TrackerSetupPage() {
   function requestRemoveMetric(metricId: string) {
     const metric = configuration.metrics.find((item) => item.id === metricId)
     if (!metric) return
-    const usesRule = (rule?: TrackerRule): boolean => !rule ? false : rule.kind === 'threshold' || rule.kind === 'comparison'
+    const usesRule = (rule?: TrackerRule): boolean => !rule ? false : rule.kind === 'combined-sum' ? rule.metricIds.includes(metricId) : rule.kind === 'threshold' || rule.kind === 'comparison'
       ? rule.metricId === metricId
       : rule.operands.some(usesRule)
     const hasPlan = [goalPlanning.progressSemantics, goalPlanning.dailyTargets, goalPlanning.cumulativeTargets, goalPlanning.allocations, goalPlanning.manualAllocations].some((map) => Boolean(map?.[metricId]))
@@ -927,7 +939,13 @@ export function TrackerSetupPage() {
   const milestoneV9WriteBlocked = typedMilestonesNeedV9 && !isSchemaV9WriteEnabled()
   const ruleV10WriteBlocked = existing?.schemaVersion === 10 && !isSchemaV10WriteEnabled()
   const streakV8WriteBlocked = (configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled()
-  const saveBlockReason = ruleV10WriteBlocked
+  const candidateHasCombinedSum = trackerUsesCombinedSum({ ...(existing ?? {} as TrackerDefinition), qualificationRule: configuration.rule, streakRule: configuration.streakRule, ruleVersions: existing?.ruleVersions })
+  const combinedSumWriteBlocked = candidateHasCombinedSum && combinedSumCapability.status !== 'enabled'
+  const saveBlockReason = combinedSumWriteBlocked
+    ? combinedSumCapability.status === 'disabled'
+      ? 'Combined Sum is not supported by this server. Existing Combined Sum data is preserved; no changes were saved.'
+      : 'Combined Sum support is unverified. Connect and retry availability before saving this tracker.'
+    : ruleV10WriteBlocked
     ? 'Saving this tracker needs schema v10 enabled for this production build.'
     : milestoneV9WriteBlocked
       ? 'Saving these milestones needs schema v9 enabled for this production build.'
@@ -977,6 +995,7 @@ export function TrackerSetupPage() {
           }
         }} onClickCapture={(event) => { const target = event.target; if (target instanceof HTMLButtonElement && target.type !== 'submit' && !target.hasAttribute('data-discard-trigger') && !target.closest('.info-button, [data-ignore-dirty]')) setDirty(true) }} noValidate>
           {error && <div role="alert" className="form-alert">{error}</div>}
+          {combinedSumCapability.status !== 'enabled' && <div className="field-hint form-field-wide" role="note">Combined Sum is {combinedSumCapability.status === 'disabled' ? 'not supported by this server' : 'not yet verified'}. Existing rules remain preserved. <Button type="button" variant="quiet" size="small" onClick={() => { void refreshCombinedSumCapability(true).then(setCombinedSumCapability) }}>Retry availability</Button></div>}
           {!existing && <fieldset className="tracker-kind-picker"><legend>What do you want to track?</legend><div className="tracker-kind-options tracker-kind-options-primary">{kindOptions.slice(0, 2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div><details className="other-tracker-types"><summary>Challenge or project?</summary><div className="tracker-kind-options">{kindOptions.slice(2).map((item) => <TrackerKindOption key={item.kind} item={item} selected={values.kind === item.kind} onChange={changeKind} />)}</div></details></fieldset>}
           {existing && <div className="editing-kind-note"><span className="tracker-kind-chip">{kindOptions.find((item) => item.kind === existing.kind)?.title}</span><p>{kindOptions.find((item) => item.kind === existing.kind)?.description} Type stays the same so saved progress keeps its meaning.</p></div>}
           {existing?.status === 'archived' && <fieldset className="tracker-status-after-save"><legend>Tracker status after saving</legend><label><input type="radio" name="archived-status-after-save" value="archived" checked={archivedStatusAfterSave === 'archived'} onChange={() => setArchivedStatusAfterSave('archived')} /><span>Keep archived</span></label><label><input type="radio" name="archived-status-after-save" value="active" checked={archivedStatusAfterSave === 'active'} onChange={() => setArchivedStatusAfterSave('active')} /><span>Move to active</span></label></fieldset>}
@@ -1022,8 +1041,8 @@ export function TrackerSetupPage() {
                 <p className="field-hint form-field-wide">Marked holidays pause scheduled activity expectations and Goal Auto allocations. Recorded work remains saved.</p>
               </div></details>
               <details className="advanced-subsection"><summary>Measures, precision & targets</summary><TrackerConfigurationEditor section="metrics" firstMetricTypeMode={existing ? 'locked' : 'setup'} persistedMetricIds={existing?.metrics.map((metric) => metric.id)} metricsWithHistory={metricsWithHistory} onRemoveMetric={requestRemoveMetric} onMetricNameEdit={markPrimaryMeasureNameCustomized} planning={goalPlanning} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
-              <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
-              <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection"><summary>Success rule</summary><TrackerConfigurationEditor combinedSumAvailable={combinedSumCapability.status === 'enabled'} section="rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
+              <details className="advanced-subsection"><summary>Streak rule</summary><TrackerConfigurationEditor combinedSumAvailable={combinedSumCapability.status === 'enabled'} section="streak-rules" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} streakRuleMode={configuration.streakRuleMode} streakRule={configuration.streakRule} onStreakRuleModeChange={changeStreakRuleMode} onStreakRuleChange={(streakRule) => setConfiguration((current) => ({ ...current, streakRule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               {(configuration.streakRuleMode !== 'legacy' || existing?.schemaVersion === 8) && !isSchemaV8WriteEnabled() && <p className="field-hint" role="note">Streak rules need the schema v8 migration and production flag before these changes can be saved.</p>}
               <details className="advanced-subsection"><summary>Extra check-in details</summary><TrackerConfigurationEditor section="fields" metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} customFieldsWithHistory={customFieldsWithHistory} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>
               <details className="advanced-subsection" data-ai-capability="goals.milestones"><summary>Milestones</summary>{milestoneV9WriteBlocked && <p className="field-hint" role="note">Typed milestones need the schema v9 migration and VITE_ENABLE_TRACKER_SCHEMA_V9 before they can be saved in production.</p>}<TrackerConfigurationEditor section="milestones" milestoneContext={milestoneContext} immutableMilestoneIds={existing?.milestones.map((milestone) => milestone.id)} metrics={configuration.metrics} onMetricsChange={changeMetrics} rule={configuration.rule} onRuleChange={(rule) => setConfiguration((current) => ({ ...current, rule }))} customFields={configuration.customFields} onCustomFieldsChange={(customFields) => setConfiguration((current) => ({ ...current, customFields }))} milestones={configuration.milestones} onMilestonesChange={(milestones) => setConfiguration((current) => ({ ...current, milestones }))} /></details>

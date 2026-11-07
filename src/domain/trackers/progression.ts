@@ -294,6 +294,7 @@ function qualifiesForLegacyStreak(tracker: TrackerDefinition, entry: TrackerEntr
       const hasMinimum = metric?.thresholds?.minimum !== undefined
       return (!hasMinimum || metricQualifies(metric!)) && evaluateTrackerEntry(tracker, entry).achievedMetricIds.includes(rule.metricId)
     }
+    if (rule.kind === 'combined-sum') return evaluateQualificationRule(rule, activeTrackerMetrics(tracker.metrics), entry.values).qualified
     return false
   }
   return evaluate(tracker.qualificationRule)

@@ -4,8 +4,10 @@ import { localRepository } from './localRepository'
 import { calendarDateInTimeZone } from './calendarDate'
 import { subscribeToWorkspaceMutations } from './workspaceMutationEvents'
 import type { CalendarDate, StoredTrackerDefinition } from './models'
-import { versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
+import { trackerEvaluationSnapshot, versionTrackerRuleChange } from '../domain/trackers/ruleVersions'
 import { getChallengeDayDisplay } from '../domain/trackers/challengeDay'
+import { refreshCombinedSumCapability, resetCombinedSumCapabilityForTests } from '../services/supabase/combinedSumCapability'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const tracker: StoredTrackerDefinition = {
   schemaVersion: 1, id: 'local-event-tracker', name: 'Local event test', description: '', kind: 'habit', status: 'active', categoryId: null,
@@ -20,7 +22,9 @@ const plannedGoal: StoredTrackerDefinition = {
 }
 
 afterEach(async () => {
+  resetCombinedSumCapabilityForTests()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   db.close()
   await db.delete()
 })
@@ -896,5 +900,99 @@ describe('workspace mutation notifications', () => {
     const second = await localRepository.saveTrackerEntry({ trackerId: tracker.id, date: '2026-10-09', outcome: 'recorded', values: {}, note: 'corrected' })
     expect(second).toMatchObject({ id: first.id, deletedAt: null, note: 'corrected' })
     await expect(db.trackerEntries.where('[trackerId+date]').equals([tracker.id, '2026-10-09']).count()).resolves.toBe(1)
+  })
+})
+
+describe('Combined Sum local write capability gate', () => {
+  it('preserves an existing ordinary tracker and rejects unsupported edits and queue entries even below schema v10', async () => {
+    const owner = 'combined-sum-unknown-owner'
+    await activateWorkspace(owner)
+    const original: StoredTrackerDefinition = {
+      ...tracker, id: 'combined-sum-gated', schemaVersion: 1,
+      metrics: [
+        { id: 'a', name: 'A', valueType: 'quantity', unit: 'problems' },
+        { id: 'b', name: 'B', valueType: 'quantity', unit: 'problems' },
+      ],
+      qualificationRule: { kind: 'comparison', metricId: 'a', operator: 'at-least', value: 1 },
+    }
+    await localRepository.saveTracker(original)
+    const combined = { ...original, qualificationRule: { kind: 'combined-sum' as const, metricIds: ['a', 'b'], target: 5 } }
+    await expect(localRepository.saveTracker(combined)).rejects.toThrow(/support could not be verified/i)
+    await expect(localRepository.getTracker(original.id)).resolves.toMatchObject({ qualificationRule: original.qualificationRule })
+    await expect(queueSyncMutation(db, owner, 'tracker', combined)).rejects.toThrow(/support could not be verified/i)
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', original.id]).toArray()).resolves.toHaveLength(1)
+  })
+
+  it('saves and queues Combined Sum after a verified authenticated capability response', async () => {
+    const owner = 'combined-sum-enabled-owner'
+    await activateWorkspace(owner)
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: owner } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({ data: { version: 1, capabilities: { combinedSum: true } }, error: null }),
+    } as unknown as SupabaseClient
+    await expect(refreshCombinedSumCapability(true, client)).resolves.toMatchObject({ status: 'enabled', userId: owner })
+    const base: StoredTrackerDefinition = {
+      ...tracker, id: 'combined-sum-enabled',
+      metrics: [{ id: 'a', name: 'A', valueType: 'quantity', unit: 'problems' }, { id: 'b', name: 'B', valueType: 'quantity', unit: 'problems' }],
+      qualificationRule: { kind: 'comparison', metricId: 'a', operator: 'at-least', value: 1 },
+    }
+    await localRepository.saveTracker(base)
+    const supported = { ...base, qualificationRule: { kind: 'combined-sum' as const, metricIds: ['a', 'b'], target: 5 } }
+    await expect(localRepository.saveTracker(supported)).resolves.toMatchObject({ qualificationRule: supported.qualificationRule })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', supported.id]).first()).resolves.toMatchObject({ status: 'pending', payload: expect.objectContaining({ id: supported.id, qualificationRule: supported.qualificationRule }) })
+  })
+
+  it('permits offline Combined Sum saves only while this authenticated session has verified support', async () => {
+    const owner = 'combined-sum-offline-enabled-owner'
+    await activateWorkspace(owner)
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: owner } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({ data: { version: 1, capabilities: { combinedSum: true } }, error: null }),
+    } as unknown as SupabaseClient
+    await refreshCombinedSumCapability(true, client)
+    vi.stubGlobal('navigator', { ...navigator, onLine: false })
+    const supported: StoredTrackerDefinition = {
+      ...tracker, id: 'combined-sum-offline-enabled',
+      metrics: [{ id: 'a', name: 'A', valueType: 'quantity', unit: 'problems' }, { id: 'b', name: 'B', valueType: 'quantity', unit: 'problems' }],
+      qualificationRule: { kind: 'combined-sum', metricIds: ['a', 'b'], target: 5 },
+    }
+    await expect(localRepository.saveTracker(supported)).resolves.toMatchObject({ qualificationRule: supported.qualificationRule })
+    const edited: StoredTrackerDefinition = { ...supported, qualificationRule: { kind: 'combined-sum', metricIds: ['a', 'b'], target: 6 } }
+    await expect(localRepository.saveTracker(edited)).resolves.toMatchObject({ qualificationRule: edited.qualificationRule })
+    await expect(db.syncOperations.where('[ownerUserId+entity+entityId]').equals([owner, 'tracker', supported.id]).first()).resolves.toMatchObject({ status: 'pending', payload: expect.objectContaining({ qualificationRule: edited.qualificationRule }) })
+  })
+
+  it('rejects a valid server response that explicitly disables Combined Sum', async () => {
+    const owner = 'combined-sum-disabled-owner'
+    await activateWorkspace(owner)
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: owner } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({ data: { version: 1, capabilities: { combinedSum: false } }, error: null }),
+    } as unknown as SupabaseClient
+    await expect(refreshCombinedSumCapability(true, client)).resolves.toMatchObject({ status: 'disabled' })
+    const unsupported: StoredTrackerDefinition = {
+      ...tracker, id: 'combined-sum-disabled', metrics: [{ id: 'a', name: 'A', valueType: 'quantity', unit: 'pages' }, { id: 'b', name: 'B', valueType: 'quantity', unit: 'pages' }],
+      qualificationRule: { kind: 'combined-sum', metricIds: ['a', 'b'], target: 5 },
+    }
+    await expect(localRepository.saveTracker(unsupported)).rejects.toThrow(/not supported by the signed-in ProgressTracker server/i)
+    await expect(db.trackers.get(unsupported.id)).resolves.toBeUndefined()
+  })
+
+  it('detects Combined Sum in a historical rule snapshot', async () => {
+    const owner = 'combined-sum-history-owner'
+    await activateWorkspace(owner)
+    vi.stubEnv('VITE_ENABLE_TRACKER_SCHEMA_V10', 'true')
+    const base: StoredTrackerDefinition = {
+      ...tracker, id: 'combined-sum-historical', schemaVersion: 10, startDate: '2026-01-01', scheduling: { mode: 'ongoing' }, streakRuleMode: 'same-as-success',
+      metrics: [{ id: 'a', name: 'A', valueType: 'quantity', unit: 'problems' }, { id: 'b', name: 'B', valueType: 'quantity', unit: 'problems' }],
+      qualificationRule: { kind: 'comparison', metricId: 'a', operator: 'at-least', value: 1 },
+    }
+    const oldEvaluation = trackerEvaluationSnapshot({ ...base, qualificationRule: { kind: 'combined-sum', metricIds: ['a', 'b'], target: 5 } })
+    const current = { ...base, ruleVersions: [
+      { id: 'v1', effectiveFrom: '2026-01-01', revision: 1, application: 'baseline' as const, recordedAt: '2026-01-01T00:00:00Z', evaluation: oldEvaluation },
+      { id: 'v2', effectiveFrom: '2026-02-01', revision: 2, application: 'apply-from-today' as const, recordedAt: '2026-02-01T00:00:00Z', evaluation: trackerEvaluationSnapshot(base) },
+    ] }
+    await expect(localRepository.saveTracker(current)).rejects.toThrow(/support could not be verified/i)
+    await expect(db.trackers.get(current.id)).resolves.toBeUndefined()
   })
 })

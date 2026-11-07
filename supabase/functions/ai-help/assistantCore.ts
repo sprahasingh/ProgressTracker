@@ -425,6 +425,8 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
   const followupTerms = new Set(isFollowUp(question) ? history.filter((message) => message.role === 'user').slice(-2).flatMap(({ content }) => identifierTerms(content)) : [])
   const pageTerms = new Set(identifierTerms(pageContext))
   const normalizedQuestion = canonicalize(question)
+  const asksStartDateBehavior = /\b(?:start date|starting date|beginning date)\b/.test(normalizedQuestion)
+    && /\b(?:progress|check.?ins?|entries|history|change|move|edit|remember|keep)\b/.test(normalizedQuestion)
   const asksBin = /\b(?:bin|deleted items?|deleted trackers?|permanent(?:ly)? delet(?:e|ed|ing|ion)|delet(?:e|ed|ing|ion) permanently|recover(?:y|able)|restore (?:a |the )?tracker|restore it|restore this)\b/.test(normalizedQuestion)
   const asksStaleServerRevision = /\b(?:revision|version|updated timestamp)\b/.test(normalizedQuestion)
     && /\b(?:stale|outdated|changed|mismatch|reject(?:ed|s)?|conflict)\b/.test(normalizedQuestion)
@@ -437,6 +439,8 @@ export function rankSourceIndex(question: string, history: AssistantHistoryItem[
       : ['src/features/trackers/TrackerBinPage.tsx']
     : asksStaleServerRevision
     ? ['syncEngine', 'syncConflictRepository']
+    : asksStartDateBehavior
+      ? ['src/features/trackers/TrackerSetupPage.tsx', 'src/features/trackers/TrackerConfigurationEditor.tsx', 'src/domain/trackers/planning.ts', 'src/db/localRepository.ts']
     : /\b(?:sync|synchroni[sz]ation|two devices|conflict|offline)\b/.test(normalizedQuestion)
     ? ['syncEngine', 'syncConflictRepository']
     : /\bmilestone\b/.test(normalizedQuestion)

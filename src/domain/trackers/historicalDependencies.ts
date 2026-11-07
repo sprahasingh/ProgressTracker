@@ -16,6 +16,7 @@ export function referencedMetricIds(...rules: Array<TrackerRule | null | undefin
       ids.add(rule.metricId)
       return
     }
+    if (rule.kind === 'combined-sum') { rule.metricIds.forEach((id) => ids.add(id)); return }
     rule.operands.forEach(visit)
   }
   rules.forEach(visit)

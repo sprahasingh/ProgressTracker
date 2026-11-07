@@ -26,6 +26,18 @@ describe('generic tracker schemas', () => {
     expect(trackerDefinitionSchema.safeParse(tracker).success).toBe(true)
   })
 
+  it('validates Combined Sum membership, quantity types, units, and a positive target', () => {
+    const combinedRule = { kind: 'combined-sum' as const, metricIds: ['pages', 'minutes'], target: 25 }
+    const combined = { ...tracker, qualificationRule: combinedRule, metrics: [
+      { ...tracker.metrics[0]!, unit: 'problems' }, { ...tracker.metrics[1]!, unit: 'problems' },
+    ] }
+    expect(trackerDefinitionSchema.safeParse(combined).success).toBe(true)
+    expect(trackerDefinitionSchema.safeParse({ ...combined, metrics: [combined.metrics[0]!, { ...combined.metrics[1]!, unit: 'minutes' }] }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...combined, qualificationRule: { ...combinedRule, target: 0 } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...combined, qualificationRule: { ...combinedRule, metricIds: ['pages'] } }).success).toBe(false)
+    expect(trackerDefinitionSchema.safeParse({ ...combined, metrics: [combined.metrics[0]!, { ...combined.metrics[1]!, valueType: 'boolean' }] }).success).toBe(false)
+  })
+
   it('keeps older definitions valid and round-trips the optional Strict Mode field without a schema bump', () => {
     expect(trackerDefinitionSchema.parse(tracker).strictMode).toBeUndefined()
     expect(trackerDefinitionSchema.parse({ ...tracker, strictMode: true })).toMatchObject({ schemaVersion: 1, strictMode: true })

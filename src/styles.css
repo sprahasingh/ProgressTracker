@@ -1483,6 +1483,7 @@ a { color: inherit; text-decoration: none; }
 .inline-editor-row .auth-input { flex: 1; }
 .form-check { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 11px; }
 .form-check input { accent-color: var(--accent); }
+.rule-capability-lock { min-width: 0; margin: 0; padding: 0; border: 0; }
 .rule-node { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); }
 .rule-node-nested { margin-top: 4px; margin-left: 14px; border-left: 3px solid var(--accent-soft); }
 .rule-node-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -3031,6 +3032,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .today-compact-metric small, .today-compact-more { color: var(--ink-muted); font-size: 11px; }
 .today-compact-progress { display: block; width: 100%; height: 4px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--status-fg) 18%, transparent); }
 .today-compact-progress i { display: block; height: 100%; border-radius: inherit; background: var(--status-fg); }
+.today-combined-sum { display: grid; flex: 1 1 180px; min-width: min(100%, 180px); gap: 4px; }
+.today-combined-sum .today-compact-progress { margin-top: 1px; }
+.combined-sum-completion { font-weight: 650; }
 .today-open-hint { display: flex; justify-content: space-between; color: var(--ink-muted); font-size: 11px; }
 .today-requirements-trigger { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; border: 0; border-radius: 50%; color: var(--status-fg); background: transparent; font: 700 19px/1 var(--font-sans); cursor: pointer; }
 .today-requirements-trigger span { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid currentColor; border-radius: 50%; font: 700 16px/1 var(--font-sans); }

@@ -17,12 +17,12 @@ import { useVisualViewportBounds } from '../../components/ui/useVisualViewportBo
 import { localRepository } from '../../db/localRepository'
 import { useWorkspaceDataChanges } from '../../db/useWorkspaceDataChanges'
 import type { AccountHoliday, CalendarDate, StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
-import { evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
+import { calculateCombinedSumProgress, evaluateTrackerEntry, isScheduledDate, isTrackerInActivePeriod } from '../../domain/trackers/planning'
 import { getTrackerActivityStatus, hasPositiveProgress, ACTIVITY_STATUS_PRESENTATION, type ActivityStatus } from '../../domain/trackers/activityStatus'
 import { selectMissingCheckIns } from '../../domain/trackers/missingCheckIns'
 import { qualifiesForStreak } from '../../domain/trackers/progression'
 import { isActiveTracker } from '../../domain/trackers/lifecycle'
-import { activeTrackerMetrics, type TrackerValue } from '../../domain/trackers/types'
+import { activeTrackerMetrics, type TrackerRule, type TrackerValue } from '../../domain/trackers/types'
 import { validateTrackerEntryValues } from '../../domain/trackers/schema'
 import { trackerDefinitionForDate } from '../../domain/trackers/ruleVersions'
 import { calculateCumulativeMetricPlan, trackerActiveStartDate } from '../../domain/trackers/planning'
@@ -390,6 +390,21 @@ type CheckinCardProps = {
 
 function CheckinCard({ tracker, entry, today, timeZone, entries, holidays, status, historical = false, onOpen, onTrigger }: CheckinCardProps) {
   const details = getTodayMetricDetails(tracker, entry, today, entries, holidays, timeZone)
+  const effectiveTracker = trackerDefinitionForDate(tracker, today)
+  const combinedSums: { key: string; source: 'success' | 'streak'; rule: Extract<TrackerRule, { kind: 'combined-sum' }> }[] = []
+  const collectCombinedSums = (rule: TrackerRule | undefined, source: 'success' | 'streak') => {
+    if (!rule) return
+    if (rule.kind === 'combined-sum') { combinedSums.push({ key: `${source}:${combinedSums.filter((item) => item.source === source).length}`, source, rule }); return }
+    if (rule.kind === 'threshold' || rule.kind === 'comparison') return
+    rule.operands.forEach((operand) => collectCombinedSums(operand, source))
+  }
+  collectCombinedSums(effectiveTracker.qualificationRule, 'success')
+  if (effectiveTracker.streakRuleMode === 'custom') collectCombinedSums(effectiveTracker.streakRule, 'streak')
+  const progressValues = entry?.outcome === 'recorded' ? entry.values : {}
+  const combinedSumProgress = combinedSums.flatMap((item) => {
+    const progress = calculateCombinedSumProgress(item.rule, activeTrackerMetrics(effectiveTracker.metrics), progressValues)
+    return progress ? [{ ...item, progress, completed: entry?.outcome !== 'skipped' && progress.qualified }] : []
+  })
   const challengeDay = getChallengeDayDisplay(tracker, today, timeZone, holidays)
   const summaryMetrics = details.slice(0, 2)
   const primary = summaryMetrics[0]
@@ -402,6 +417,16 @@ function CheckinCard({ tracker, entry, today, timeZone, entries, holidays, statu
         {tracker.description && <span className="today-card-description">{tracker.description}</span>}
         {challengeDay && <span className="challenge-day-label" aria-label={`Challenge ${challengeDay.label}`}>{challengeDay.label}</span>}
         <span className="today-compact-metrics">
+          {combinedSumProgress.map(({ key, source, rule, progress, completed }) => {
+            const ruleMetrics = activeTrackerMetrics(effectiveTracker.metrics)
+            const label = source === 'streak' ? 'Streak rule' : effectiveTracker.streakRuleMode === 'same-as-success' ? 'Success and streak rule' : 'Success rule'
+            const unitSuffix = progress.unit ? ` ${progress.unit}` : ''
+            const percent = progress.target > 0 ? Math.min(100, Math.max(0, progress.total / progress.target * 100)) : 0
+            return <span className="today-combined-sum" key={key}>
+              <span className="today-compact-metric combined-sum-progress"><span>Combined Sum · {label}</span><small className="today-compact-expectation">{rule.metricIds.map((id) => ruleMetrics.find((metric) => metric.id === id)?.name ?? 'Measure').join(' + ')}</small><strong>{formatTrackerNumber(progress.total)} / {formatTrackerNumber(progress.target)}{unitSuffix}</strong><small className="combined-sum-completion">{completed ? 'Target met' : 'Target not met'}</small></span>
+              <span className="today-compact-progress combined-sum-progress-bar" role="progressbar" aria-label={`${label} Combined Sum progress`} aria-valuemin={0} aria-valuemax={progress.target} aria-valuenow={Math.min(progress.total, progress.target)} aria-valuetext={`${formatTrackerNumber(progress.total)} of ${formatTrackerNumber(progress.target)}${unitSuffix}; ${completed ? 'target met' : 'target not met'}`}><i style={{ width: `${percent}%` }} /></span>
+            </span>
+          })}
           {summaryMetrics.map((metric) => <span className="today-compact-metric" key={metric.id}><span>{metric.name}</span>{metric.expectedLabel && <small className="today-compact-expectation">{historical ? metric.expectedLabel.replace('Today’s', `${calendarDateLabel(today)} ·`) : metric.expectedLabel === 'Today’s suggested allocation' ? 'Suggested today' : metric.expectedLabel === 'Today’s saved allocation' ? 'Saved allocation today' : metric.expectedLabel}</small>}<strong>{metric.isBoolean ? metric.booleanValue === 'true' ? 'Done' : metric.booleanValue === 'false' ? 'Not Done' : 'Unrecorded' : metric.expected !== undefined ? `${formatTrackerNumber(Number(metric.completed))} / ${formatTrackerNumber(metric.expected)}${metric.unit}` : metric.completed ? `${formatTrackerNumber(Number(metric.completed))}${metric.unit} recorded` : 'No progress recorded'}</strong>{metric.remaining !== undefined && <small>{formatTrackerNumber(metric.remaining)}{metric.unit} remaining</small>}</span>)}
           {details.length > 2 && <small className="today-compact-more">+{details.length - 2} more measures</small>}
           {!details.length && <span className="today-compact-metric"><strong>{entry ? 'Activity recorded' : 'Open for details'}</strong></span>}

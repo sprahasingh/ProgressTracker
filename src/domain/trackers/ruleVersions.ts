@@ -68,6 +68,7 @@ function collectRuleMetricIds(rule: TrackerRule | null | undefined, ids: Set<str
     ids.add(rule.metricId)
     return
   }
+  if (rule.kind === 'combined-sum') { rule.metricIds.forEach((id) => ids.add(id)); return }
   for (const operand of rule.operands) collectRuleMetricIds(operand, ids)
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, getTargetProgress, isScheduledDate, metricObservationForMilestone, trackerActiveStartDate } from './planning'
+import { calculateCombinedSumProgress, classifyAchievement, createWorkPlan, evaluateQualificationRule, evaluateTrackerEntry, getTargetProgress, isScheduledDate, metricObservationForMilestone, trackerActiveStartDate } from './planning'
 import type { TrackerDefinition } from './types'
 
 const base = (schedule: TrackerDefinition['schedule'] = { kind: 'every-day' }): TrackerDefinition => ({
@@ -208,6 +208,31 @@ describe('qualification rules', () => {
     expect(evaluateQualificationRule({ kind: 'at-least', required: 2, operands: rule.operands }, metrics, { pages: 8, minutes: 30 }).qualified).toBe(true)
     const tracker = { ...base(), qualificationRule: rule }
     expect(evaluateTrackerEntry(tracker, { id: 'e', trackerId: tracker.id, date: '2026-01-01', outcome: 'skipped', values: {}, note: '', createdAt: tracker.createdAt, updatedAt: tracker.updatedAt, deletedAt: null }).qualified).toBe(false)
+  })
+
+  it('evaluates Combined Sum at the boundary, treats omitted values as zero, and ignores individual thresholds', () => {
+    const metrics = [
+      { id: 'lc', name: 'LeetCode', valueType: 'quantity' as const, unit: 'problems', thresholds: { direction: 'increase' as const, target: 500, streakQualification: 'target' as const } },
+      { id: 'cf', name: 'Codeforces', valueType: 'quantity' as const, unit: 'problems', thresholds: { direction: 'increase' as const, target: 100, streakQualification: 'target' as const } },
+      { id: 'cc', name: 'CodeChef', valueType: 'quantity' as const, unit: 'problems' },
+    ]
+    const rule = { kind: 'combined-sum' as const, metricIds: ['lc', 'cf', 'cc'], target: 5 }
+    expect(evaluateQualificationRule(rule, metrics, { lc: 2, cf: 2, cc: 1 }).qualified).toBe(true)
+    expect(evaluateQualificationRule(rule, metrics, { lc: 2, cf: 2 }).qualified).toBe(false)
+    expect(evaluateQualificationRule(rule, metrics, { lc: 2, cf: 2, cc: 0 }).qualified).toBe(false)
+    expect(evaluateQualificationRule(rule, metrics, { lc: 3, cf: 2 }).qualified).toBe(true)
+  })
+
+  it('shares Combined Sum display totals and completion semantics with rule evaluation', () => {
+    const metrics = [
+      { id: 'lc', name: 'Study count', valueType: 'quantity' as const, unit: 'minutes' },
+      { id: 'minutes', name: 'Study', valueType: 'duration' as const, unit: 'minutes' },
+    ]
+    const rule = { kind: 'combined-sum' as const, metricIds: ['lc', 'minutes'], target: 5 }
+    expect(calculateCombinedSumProgress(rule, metrics, { lc: 2, minutes: 3 })).toEqual({ total: 5, target: 5, unit: 'minutes', qualified: true })
+    expect(calculateCombinedSumProgress(rule, metrics, { lc: 2 })).toEqual({ total: 2, target: 5, unit: 'minutes', qualified: false })
+    expect(calculateCombinedSumProgress(rule, metrics, { lc: 2, minutes: Number.NaN })).toBeUndefined()
+    expect(evaluateQualificationRule(rule, metrics, { lc: 2, minutes: 3 }).qualified).toBe(calculateCombinedSumProgress(rule, metrics, { lc: 2, minutes: 3 })?.qualified)
   })
 })
 

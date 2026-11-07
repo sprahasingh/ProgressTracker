@@ -1,6 +1,7 @@
 import { openDatabase, queueSyncMutation } from './database'
 import { assertCalendarDate, assertDateRange, calendarDateInTimeZone } from './calendarDate'
 import type { AccountHoliday, AppNotification, AppSettings, CalendarDate, Category, DailyEntry, DailyEntryDraft, DailyJournal, DailyJournalDraft, Goal, HolidayReason, HolidayPermanentDeletionLedgerEntry, HolidayPermanentDeletionRequest, LocalMotivationMessage, LocalNotificationPreferences, PendingTrackerRestore, PermanentDeletionLedgerEntry, PermanentDeletionRequest, StoredTrackerDefinition, StoredTrackerEntry, TrackerHoliday, TrackerWinsRetention } from './models'
+import type { TrackerDefinition } from '../domain/trackers/types'
 import { trackerDefinitionSchema, trackerEntrySchema, validateTrackerEntryValues } from '../domain/trackers/schema'
 import { trackerDefinitionForDate, trackerStrictModeForDate } from '../domain/trackers/ruleVersions'
 import { publishWorkspaceDataChange, publishWorkspaceMutation } from './workspaceMutationEvents'
@@ -15,6 +16,7 @@ import { deriveSchedulingDeadline, schedulingMode } from '../domain/trackers/sch
 import { publishPermanentDeletionNotification } from '../services/permanentDeletionNotifications'
 import { publishHolidayDeletionNotification } from '../services/holidayDeletionNotifications'
 import { milestoneAdditionIssue } from '../domain/trackers/milestones'
+import { assertCombinedSumCapability } from '../services/supabase/combinedSumCapability'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -592,10 +594,13 @@ export const localRepository = {
     const checked = trackerDefinitionSchema.safeParse(draft)
     if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? 'Tracker details are invalid.')
     const database = await openDatabase()
+    const preflightWorkspace = await database.workspaceMetadata.get('workspace')
+    assertCombinedSumCapability(checked.data as TrackerDefinition, preflightWorkspace?.userId ?? null)
     let ownerUserId: string | null = null
     const saved = await database.transaction('rw', [database.trackers, database.trackerEntries, database.trackerHolidays, database.syncOperations, database.syncRecords, database.syncConflicts, database.workspaceMetadata, database.settings, database.permanentDeletionLedger, database.trackerVerification], async () => {
       const workspace = await database.workspaceMetadata.get('workspace')
       const activeOwner = workspace?.userId ?? null
+      assertCombinedSumCapability(checked.data as TrackerDefinition, activeOwner)
       await assertTrackerVerificationComplete(database, activeOwner, draft.id)
       if (activeOwner && await database.permanentDeletionLedger.get(permanentDeletionKey(activeOwner, draft.id))) {
         throw new Error('This tracker was permanently deleted from the account and cannot be changed or restored.')

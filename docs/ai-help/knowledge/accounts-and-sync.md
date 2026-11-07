@@ -14,7 +14,7 @@
 - src/services/supabase/syncEngine.ts
 - src/features/auth/AuthProvider.tsx
 **Answer:**
-Tracker data is stored locally in the browser, so you can continue working while offline when browser storage is available. Signed-in account data synchronizes when a connection is available again. If local storage cannot open, Cloud Recovery — Read Only can show cloud records but not unsynchronized offline changes; keep the browser’s site data intact and retry the local workspace before editing again.
+Tracker data is stored locally in the browser, so you can continue working while offline when browser storage is available. Signed-in account data synchronizes when a connection is available again. New or edited Combined Sum rules require support to have been verified for the current authenticated session; that valid session check can be reused offline until it expires. A fresh offline session cannot create or edit Combined Sum rules until the server can be checked, and existing rules and queued operations are preserved. If local storage cannot open, Cloud Recovery — Read Only can show cloud records but not unsynchronized offline changes; keep the browser’s site data intact and retry the local workspace before editing again.
 
 ### ID: cross-device-sync
 **Category:** accounts-sync
