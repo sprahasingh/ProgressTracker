@@ -79,6 +79,15 @@ describe('historical rule dependency compatibility', () => {
     expect(historicalRuleDependencyIssue(before, after)).toBe('This measure was unavailable during part of the selected period.')
   })
 
+  it('treats every Combined Sum measure as a historical dependency', () => {
+    const before = tracker({ metrics: [originalMetric, { id: 'problems-cf', name: 'Codeforces', valueType: 'quantity', unit: 'problems' }] })
+    const after = tracker({
+      metrics: [...before.metrics, { id: 'problems-cc', name: 'CodeChef', valueType: 'quantity', unit: 'problems' }],
+      qualificationRule: { kind: 'combined-sum', metricIds: ['pages', 'problems-cc'], target: 5 },
+    })
+    expect(historicalRuleDependencyIssue(before, after)).toBe('This measure was unavailable during part of the selected period.')
+  })
+
   it('blocks retired gaps and reactivation gaps in saved date-effective snapshots', () => {
     const first = tracker()
     const gapEvaluation = { ...trackerEvaluationSnapshot(first), metrics: [{ ...originalMetric, retiredAt: '2026-02-01' }] }

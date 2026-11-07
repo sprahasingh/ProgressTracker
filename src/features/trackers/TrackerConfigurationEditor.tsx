@@ -7,6 +7,7 @@ import { isSchemaV4WriteEnabled } from '../../domain/trackers/schemaVersionGate'
 import { AppIcon } from '../../components/ui/AppIcon'
 import { activeTrackerMetrics } from '../../domain/trackers/types'
 import { availableMilestoneTypes, milestoneConfigurationIssue, milestonePreview, milestoneTargetLabel, milestoneTypeLabel, type MilestoneConfigurationContext } from '../../domain/trackers/milestones'
+import { ruleUsesCombinedSum } from '../../domain/trackers/combinedSumRules'
 
 function freshMetric(index: number): TrackerMetricDefinition {
   return { id: crypto.randomUUID(), name: `Measure ${index + 1}`, valueType: 'quantity', unit: '', thresholds: { direction: 'increase', streakQualification: 'any-recorded-value' } }
@@ -22,19 +23,21 @@ function defaultRule(metric: TrackerMetricDefinition): TrackerRule {
 
 function ruleUsesMetric(rule: TrackerRule | undefined, metricId: string): boolean {
   if (!rule) return false
+  if (rule.kind === 'combined-sum') return rule.metricIds.includes(metricId)
   if (rule.kind === 'threshold' || rule.kind === 'comparison') return rule.metricId === metricId
   return rule.operands.some((operand) => ruleUsesMetric(operand, metricId))
 }
 
 function replaceRuleMetric(rule: TrackerRule | undefined, metricId: string, metric: TrackerMetricDefinition): TrackerRule | undefined {
   if (!rule) return undefined
+  if (rule.kind === 'combined-sum') return rule
   if (rule.kind === 'threshold' || rule.kind === 'comparison') return rule.metricId === metricId ? defaultRule(metric) : rule
   return { ...rule, operands: rule.operands.map((operand) => replaceRuleMetric(operand, metricId, metric)!) }
 }
 
-type RuleNodeProps = { rule: TrackerRule; metrics: TrackerMetricDefinition[]; path: number[]; onChange: (path: number[], rule: TrackerRule) => void; onRemove?: (path: number[]) => void; ruleName: 'Success' | 'Streak'; pathRoot: 'qualificationRule' | 'streakRule' }
+type RuleNodeProps = { rule: TrackerRule; metrics: TrackerMetricDefinition[]; path: number[]; onChange: (path: number[], rule: TrackerRule) => void; onRemove?: (path: number[]) => void; ruleName: 'Success' | 'Streak'; pathRoot: 'qualificationRule' | 'streakRule'; combinedSumAvailable: boolean }
 
-function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot }: RuleNodeProps) {
+function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot, combinedSumAvailable }: RuleNodeProps) {
   // A saved greater-than-zero comparison gets the friendly preset label when
   // reopened. Keep an in-session choice of the generic operator visible while
   // its boundary is still zero so the user can edit it without the select
@@ -54,6 +57,10 @@ function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot 
     } else if (kind === 'at-least') {
       const fallback = metric ? defaultRule(metric) : null
       if (fallback) onChange(path, { kind, required: 1, operands: [fallback] })
+    } else if (kind === 'combined-sum') {
+      const first = metrics.find((item) => !item.retiredAt && (item.valueType === 'quantity' || item.valueType === 'duration') && Boolean(item.unit?.trim()) && metrics.some((other) => other.id !== item.id && !other.retiredAt && (other.valueType === 'quantity' || other.valueType === 'duration') && other.unit?.trim().toLocaleLowerCase() === item.unit!.trim().toLocaleLowerCase()))
+      const compatible = first ? metrics.filter((item) => !item.retiredAt && (item.valueType === 'quantity' || item.valueType === 'duration') && item.unit?.trim().toLocaleLowerCase() === first.unit!.trim().toLocaleLowerCase()) : []
+      if (compatible.length >= 2) onChange(path, { kind: 'combined-sum', metricIds: compatible.slice(0, 2).map((item) => item.id), target: 1 })
     } else if (metric && kind === 'threshold') {
       const levels = ['minimum', 'target', 'stretch'] as const
       const level = levels.find((name) => metric.thresholds?.[name] !== undefined)
@@ -76,6 +83,7 @@ function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot 
         <select data-validation-path={validationPath} aria-label={`${ruleName} condition type`} className="auth-input" value={rule.kind} onChange={(event) => selectKind(event.target.value)}>
           <option value="comparison">Metric comparison</option>
           {metric && (['minimum', 'target', 'stretch'] as const).some((level) => metric.thresholds?.[level] !== undefined) && <option value="threshold">Achievement threshold</option>}
+          {(combinedSumAvailable || rule.kind === 'combined-sum') && metrics.filter((item) => !item.retiredAt && (item.valueType === 'quantity' || item.valueType === 'duration') && Boolean(item.unit?.trim())).some((item, index, all) => all.some((other, otherIndex) => otherIndex !== index && item.unit!.trim().toLocaleLowerCase() === other.unit!.trim().toLocaleLowerCase())) && <option value="combined-sum" disabled={!combinedSumAvailable}>Combined Sum{!combinedSumAvailable ? ' (unavailable)' : ''}</option>}
           <option value="all">All conditions (AND)</option><option value="any">Any condition (OR)</option><option value="at-least">At least N conditions</option>
         </select>
         <InfoButton title="Condition type" summary={`Choose how this ${ruleName.toLowerCase()} rule evaluates one or more conditions.`} description="Metric comparison checks a value directly. Achievement threshold checks the metric’s minimum, target, or stretch level. All (AND) requires every child rule; Any (OR) requires at least one; At least N lets you choose how many child rules must pass." />
@@ -120,9 +128,22 @@ function RuleNode({ rule, metrics, path, onChange, onRemove, ruleName, pathRoot 
           </>}
         </div>
       )}
+      {rule.kind === 'combined-sum' && (() => {
+        const selected = metrics.find((item) => rule.metricIds.includes(item.id))
+        const unitKey = (selected?.unit ?? '').trim().toLocaleLowerCase()
+        const compatible = metrics.filter((item) => !item.retiredAt && (item.valueType === 'quantity' || item.valueType === 'duration') && Boolean(item.unit?.trim()) && item.unit!.trim().toLocaleLowerCase() === unitKey)
+        return <div className="rule-leaf-controls combined-sum-controls">
+          <fieldset className="form-field-wide"><legend>Measures to combine</legend><div className="combined-sum-measures">{compatible.map((item) => <label key={item.id}><input type="checkbox" checked={rule.metricIds.includes(item.id)} onChange={(event) => {
+            const metricIds = event.target.checked ? [...rule.metricIds, item.id] : rule.metricIds.filter((id) => id !== item.id)
+            if (metricIds.length >= 2) onChange(path, { ...rule, metricIds })
+          }} />{item.name} <small>{item.unit}</small></label>)}</div><small>Select at least two measures that use the same unit.</small></fieldset>
+          <label className="form-field"><span>Combined target <small>{selected?.unit}</small></span><input aria-label="Combined target" data-validation-path={`${validationPath}.target`} className="auth-input" type="number" min="0.000001" step="any" value={rule.target} onChange={(event) => onChange(path, { ...rule, target: Number(event.target.value) })} /></label>
+          <p className="field-hint form-field-wide">Progress is the sum of these measures. Their individual targets do not affect this condition.</p>
+        </div>
+      })()}
       {(rule.kind === 'all' || rule.kind === 'any' || rule.kind === 'at-least') && <div className="rule-operands">
         {rule.kind === 'at-least' && <label className="form-field rule-required"><span>Required conditions <InfoButton title="Required conditions" summary="Set how many child conditions must pass." description="Choose a number from one up to the number of listed conditions. The overall success rule qualifies when at least this many child conditions are true." /></span><input data-validation-path={`${validationPath}.required`} className="auth-input" type="number" min={1} max={rule.operands.length} value={rule.required} onChange={(event) => onChange(path, { ...rule, required: Math.min(rule.operands.length, Math.max(1, Number(event.target.value) || 1)) })} /></label>}
-        {rule.operands.map((operand, index) => <RuleNode key={index} rule={operand} metrics={metrics} path={[...path, index]} onChange={changeOperand} ruleName={ruleName} pathRoot={pathRoot} onRemove={(childPath) => {
+        {rule.operands.map((operand, index) => <RuleNode key={index} rule={operand} metrics={metrics} path={[...path, index]} onChange={changeOperand} ruleName={ruleName} pathRoot={pathRoot} combinedSumAvailable={combinedSumAvailable} onRemove={(childPath) => {
           const position = childPath.at(-1)
           if (position === undefined) return
           const remaining = rule.operands.filter((_, i) => i !== position)
@@ -161,6 +182,7 @@ type Props = {
   onStreakRuleChange?: (rule: TrackerRule | undefined) => void
   milestoneContext?: MilestoneConfigurationContext
   immutableMilestoneIds?: string[]
+  combinedSumAvailable?: boolean
 }
 
 function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinition[]): string {
@@ -173,6 +195,7 @@ function ruleSummary(rule: TrackerRule, metrics: readonly TrackerMetricDefinitio
     const value = typeof rule.value === 'boolean' ? rule.value ? 'Done' : 'Not Done' : `${rule.value}${metric?.unit ? ` ${metric.unit}` : ''}`
     return `${metricName(rule.metricId)} ${operator} ${value}`
   }
+  if (rule.kind === 'combined-sum') return `${rule.metricIds.map(metricName).join(' + ')} totals at least ${rule.target}${metrics.find((metric) => metric.id === rule.metricIds[0])?.unit ? ` ${metrics.find((metric) => metric.id === rule.metricIds[0])?.unit}` : ''}`
   const parts = rule.operands.map((operand) => ruleSummary(operand, metrics))
   if (rule.kind === 'at-least') return `At least ${rule.required} of (${parts.join('; ')})`
   return `(${parts.join(rule.kind === 'all' ? ' AND ' : ' OR ')})`
@@ -316,7 +339,7 @@ function MilestoneEditor({ metrics, milestones, onMilestonesChange, context, sec
   </section>
 }
 
-export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, customFieldsWithHistory = [], milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, onMetricNameEdit, planning, streakRuleMode = 'legacy', streakRule, onStreakRuleModeChange, onStreakRuleChange, milestoneContext, immutableMilestoneIds = [] }: Props) {
+export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, rule, onRuleChange, customFields, onCustomFieldsChange, customFieldsWithHistory = [], milestones, onMilestonesChange, firstMetricTypeMode = 'setup', persistedMetricIds = [], metricsWithHistory = [], onRemoveMetric, onMetricNameEdit, planning, streakRuleMode = 'legacy', streakRule, onStreakRuleModeChange, onStreakRuleChange, milestoneContext, immutableMilestoneIds = [], combinedSumAvailable = false }: Props) {
   const duplicateNameFor = (metric: TrackerMetricDefinition) => {
     const normalized = metric.name.trim().toLowerCase()
     if (!normalized) return ''
@@ -419,8 +442,8 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
       </section>}
 
       {(!section || section === 'rules') && <section data-validation-path="qualificationRule" className="configuration-section" aria-label={section === 'rules' ? 'Success rule' : undefined} aria-labelledby={section === 'rules' ? undefined : 'rule-heading'}>
-        <SectionHeader title={section === 'rules' ? undefined : 'Success rule'} headingId={section === 'rules' ? undefined : 'rule-heading'} description="Define what makes a check-in successful." help={{ title: 'Success rule', summary: 'Define what makes a check-in qualify as a success.', description: 'A rule can compare a measure to a value or achievement threshold. Combine conditions using AND (all), OR (any), or At least N. Success qualification drives success rates and daily success XP. Streak qualification has its own setting.' }} action={rule ? <Button type="button" variant="quiet" size="small" onClick={() => onRuleChange(undefined)}>Clear rule</Button> : metrics.length > 0 ? <Button type="button" variant="secondary" size="small" onClick={() => onRuleChange(defaultRule(metrics[0]!))}>＋ Add success rule</Button> : undefined} />
-        {rule && metrics.length > 0 && <><RuleNode rule={rule} metrics={metrics} path={[]} onChange={(_, changed) => onRuleChange(changed)} ruleName="Success" pathRoot="qualificationRule" /><p className="field-hint rule-readable-summary" aria-live="polite">Success summary: {ruleSummary(rule, metrics)}</p></>}
+        <SectionHeader title={section === 'rules' ? undefined : 'Success rule'} headingId={section === 'rules' ? undefined : 'rule-heading'} description="Define what makes a check-in successful." help={{ title: 'Success rule', summary: 'Define what makes a check-in qualify as a success.', description: 'A rule can compare a measure to a value or achievement threshold. Combine conditions using AND (all), OR (any), or At least N. Success qualification drives success rates and daily success XP. Streak qualification has its own setting.' }} action={rule ? <Button type="button" variant="quiet" size="small" disabled={!combinedSumAvailable && ruleUsesCombinedSum(rule)} onClick={() => onRuleChange(undefined)}>Clear rule</Button> : metrics.length > 0 ? <Button type="button" variant="secondary" size="small" onClick={() => onRuleChange(defaultRule(metrics[0]!))}>＋ Add success rule</Button> : undefined} />
+        {rule && metrics.length > 0 && <>{!combinedSumAvailable && ruleUsesCombinedSum(rule) && <p className="field-hint" role="status">This saved Combined Sum rule is preserved. Verify server availability before editing it.</p>}<fieldset className="rule-capability-lock" disabled={!combinedSumAvailable && ruleUsesCombinedSum(rule)}><RuleNode rule={rule} metrics={metrics} path={[]} onChange={(_, changed) => onRuleChange(changed)} ruleName="Success" pathRoot="qualificationRule" combinedSumAvailable={combinedSumAvailable} /></fieldset><p className="field-hint rule-readable-summary" aria-live="polite">Success summary: {ruleSummary(rule, metrics)}</p></>}
       </section>}
 
       {(!section || section === 'streak-rules') && <section data-validation-path="streakRule" className="configuration-section" aria-label={section === 'streak-rules' ? 'Streak rule' : undefined} aria-labelledby={section === 'streak-rules' ? undefined : 'streak-rule-heading'}>
@@ -433,7 +456,7 @@ export function TrackerConfigurationEditor({ section, metrics, onMetricsChange, 
         {streakRuleMode === 'same-as-success' && <p className="field-hint rule-readable-summary">Streak summary: follows Success Rule changes{rule ? ` · ${ruleSummary(rule, metrics)}` : ' · the existing implicit success condition'}.</p>}
         {streakRuleMode === 'custom' && <>
           <p className="field-hint">This rule stays independent when the Success Rule changes.</p>
-          {streakRule && metrics.length > 0 ? <><RuleNode rule={streakRule} metrics={metrics} path={[]} onChange={(_, changed) => onStreakRuleChange?.(changed)} ruleName="Streak" pathRoot="streakRule" /><p className="field-hint rule-readable-summary" aria-live="polite">Streak summary: {ruleSummary(streakRule, metrics)}</p></>
+          {streakRule && metrics.length > 0 ? <>{!combinedSumAvailable && ruleUsesCombinedSum(streakRule) && <p className="field-hint" role="status">This saved Combined Sum streak rule is preserved. Verify server availability before editing it.</p>}<fieldset className="rule-capability-lock" disabled={!combinedSumAvailable && ruleUsesCombinedSum(streakRule)}><RuleNode rule={streakRule} metrics={metrics} path={[]} onChange={(_, changed) => onStreakRuleChange?.(changed)} ruleName="Streak" pathRoot="streakRule" combinedSumAvailable={combinedSumAvailable} /></fieldset><p className="field-hint rule-readable-summary" aria-live="polite">Streak summary: {ruleSummary(streakRule, metrics)}</p></>
             : metrics.length > 0 && <Button type="button" variant="secondary" size="small" onClick={() => onStreakRuleChange?.(rule ?? defaultRule(metrics[0]!))}>＋ Add streak rule</Button>}
         </>}
       </section>}

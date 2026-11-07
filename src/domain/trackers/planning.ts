@@ -444,6 +444,19 @@ export function getTargetProgress(value: number, target: number, direction: 'inc
 
 export type RuleEvaluation = { qualified: boolean; achievedMetricIds: string[]; failedMetricIds: string[] }
 
+export type CombinedSumProgress = { total: number; target: number; unit: string; qualified: boolean }
+
+/** Shared Combined Sum arithmetic for rule evaluation and progress displays. */
+export function calculateCombinedSumProgress(rule: Extract<TrackerRule, { kind: 'combined-sum' }>, metrics: readonly TrackerMetricDefinition[], values: Record<string, TrackerValue>): CombinedSumProgress | undefined {
+  const byId = new Map(metrics.map((metric) => [metric.id, metric]))
+  const selected = rule.metricIds.map((metricId) => byId.get(metricId))
+  if (selected.length < 2 || selected.some((metric) => !metric || (metric.valueType !== 'quantity' && metric.valueType !== 'duration'))) return undefined
+  const valuesForMeasures = rule.metricIds.map((metricId) => values[metricId])
+  if (valuesForMeasures.some((value) => value !== undefined && value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0))) return undefined
+  const total = valuesForMeasures.reduce<number>((sum, value) => sum + (typeof value === 'number' ? value : 0), 0)
+  return { total, target: rule.target, unit: selected[0]?.unit ?? '', qualified: total >= rule.target }
+}
+
 export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly TrackerMetricDefinition[], values: Record<string, TrackerValue>): RuleEvaluation {
   const byId = new Map(metrics.map((metric) => [metric.id, metric]))
   const achieved = new Set<string>()
@@ -452,6 +465,11 @@ export function evaluateQualificationRule(rule: TrackerRule, metrics: readonly T
     if (node.kind === 'all') return node.operands.every(evaluate)
     if (node.kind === 'any') return node.operands.some(evaluate)
     if (node.kind === 'at-least') return node.operands.filter(evaluate).length >= node.required
+    if (node.kind === 'combined-sum') {
+      const result = calculateCombinedSumProgress(node, metrics, values)?.qualified ?? false
+      for (const metricId of node.metricIds) (result ? achieved : failed).add(metricId)
+      return result
+    }
     if (node.kind !== 'threshold' && node.kind !== 'comparison') return false
     const metricId = node.metricId
     const metric = byId.get(metricId)

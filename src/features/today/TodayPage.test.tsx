@@ -6,7 +6,8 @@ import { db } from '../../db/database'
 import { ToastProvider } from '../../components/ui/ToastProvider'
 import { localRepository } from '../../db/localRepository'
 import { publishWorkspaceDataChange } from '../../db/workspaceMutationEvents'
-import type { StoredTrackerDefinition } from '../../db/models'
+import type { StoredTrackerDefinition, StoredTrackerEntry } from '../../db/models'
+import type { TrackerRule } from '../../domain/trackers/types'
 import { calendarDateLabel } from '../shared/localDates'
 import { TodayPage } from './TodayPage'
 import { TrackerSetupPage } from '../trackers/TrackerSetupPage'
@@ -27,7 +28,101 @@ const tracker = (schedule: StoredTrackerDefinition['schedule'] = { kind: 'every-
   milestones: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', archivedAt: null, deletedAt: null,
 })
 
+const combinedRule = (metricIds: string[], target: number): TrackerRule => ({ kind: 'combined-sum', metricIds, target })
+const combinedTracker = (overrides: Partial<StoredTrackerDefinition> = {}): StoredTrackerDefinition => ({
+  ...tracker(), schemaVersion: 8, id: 'combined-today', name: 'Coding practice', customFields: [], scheduling: { mode: 'ongoing' },
+  metrics: [
+    { id: 'lc', name: 'LeetCode', valueType: 'quantity', unit: 'problems' },
+    { id: 'cf', name: 'Codeforces', valueType: 'quantity', unit: 'problems' },
+    { id: 'study', name: 'Study', valueType: 'duration', unit: 'minutes' },
+    { id: 'reading', name: 'Reading', valueType: 'duration', unit: 'minutes' },
+  ],
+  qualificationRule: combinedRule(['lc', 'cf'], 5), streakRuleMode: 'same-as-success', ...overrides,
+})
+
+async function renderCombinedTracker(definition: StoredTrackerDefinition, values?: Record<string, number>) {
+  await db.open()
+  await db.trackers.put(definition)
+  if (values) {
+    const timestamp = new Date().toISOString()
+    const entry: StoredTrackerEntry = { id: `entry-${definition.id}`, trackerId: definition.id, date: today(), outcome: 'recorded', values, note: '', createdAt: timestamp, updatedAt: timestamp, deletedAt: null }
+    await db.trackerEntries.put(entry)
+  }
+  render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
+  const heading = await screen.findByRole('heading', { name: definition.name })
+  return heading.closest('.today-checkin-card')! as HTMLElement
+}
+
 describe('Today check-ins', () => {
+  it('shows a single Combined Sum at the exact success boundary with an accessible completion state', async () => {
+    const card = await renderCombinedTracker(combinedTracker(), { lc: 2, cf: 3 })
+    expect(within(card).getByText('Combined Sum · Success and streak rule')).toBeInTheDocument()
+    expect(card.querySelector('.combined-sum-progress strong')).toHaveTextContent('5 / 5 problems')
+    expect(within(card).getByText('Target met')).toBeInTheDocument()
+    expect(within(card).getByRole('progressbar', { name: 'Success and streak rule Combined Sum progress' })).toHaveAttribute('aria-valuetext', '5 of 5 problems; target met')
+  })
+
+  it('shows every nested Success Sum and independent custom Streak Sum once', async () => {
+    const success = { kind: 'all' as const, operands: [
+      combinedRule(['lc', 'cf'], 5),
+      { kind: 'any' as const, operands: [combinedRule(['study', 'reading'], 20), { kind: 'threshold' as const, metricId: 'lc', level: 'minimum' as const }] },
+    ] }
+    const streak = { kind: 'any' as const, operands: [combinedRule(['lc', 'cf'], 4), combinedRule(['study', 'reading'], 30)] }
+    const card = await renderCombinedTracker(combinedTracker({ qualificationRule: success, streakRuleMode: 'custom', streakRule: streak }), { lc: 2, cf: 2, study: 10, reading: 10 })
+    expect(within(card).getAllByText('Combined Sum · Success rule')).toHaveLength(2)
+    expect(within(card).getAllByText('Combined Sum · Streak rule')).toHaveLength(2)
+    expect(within(card).getAllByRole('progressbar')).toHaveLength(4)
+    const values = [...card.querySelectorAll('.combined-sum-progress strong')].map((element) => element.textContent)
+    expect(values).toContain('20 / 20 minutes')
+    expect(values).toContain('4 / 5 problems')
+    expect(within(card).getAllByText('Target met')).toHaveLength(2)
+    expect(within(card).getAllByText('Target not met')).toHaveLength(2)
+  })
+
+  it('shows a custom Streak Sum even when Success uses ordinary rules', async () => {
+    const card = await renderCombinedTracker(combinedTracker({
+      qualificationRule: { kind: 'threshold', metricId: 'lc', level: 'minimum' },
+      streakRuleMode: 'custom', streakRule: combinedRule(['study', 'reading'], 15),
+    }), { study: 5, reading: 0 })
+    expect(within(card).getByText('Combined Sum · Streak rule')).toBeInTheDocument()
+    expect(card.querySelector('.combined-sum-progress strong')).toHaveTextContent('5 / 15 minutes')
+    expect(within(card).getByText('Target not met')).toBeInTheDocument()
+    expect(within(card).queryByText(/Combined Sum · Success rule/)).not.toBeInTheDocument()
+  })
+
+  it('shows zero progress for a missing entry without claiming completion', async () => {
+    const card = await renderCombinedTracker(combinedTracker())
+    expect(card.querySelector('.combined-sum-progress strong')).toHaveTextContent('0 / 5 problems')
+    expect(within(card).getByText('Target not met')).toBeInTheDocument()
+  })
+
+  it('shows zero progress for explicitly recorded zero values without claiming completion', async () => {
+    const card = await renderCombinedTracker(combinedTracker(), { lc: 0, cf: 0 })
+    expect(card.querySelector('.combined-sum-progress strong')).toHaveTextContent('0 / 5 problems')
+    expect(within(card).getByText('Target not met')).toBeInTheDocument()
+  })
+
+  it('uses the date-effective Combined Sum rule and active historical measures', async () => {
+    const definition = combinedTracker({ schemaVersion: 10, qualificationRule: combinedRule(['lc', 'cf'], 99), ruleVersions: [{
+      id: 'today-version', effectiveFrom: today(), revision: 1, application: 'apply-from-today', recordedAt: `${today()}T00:00:00.000Z`,
+      evaluation: {
+        schedule: { kind: 'every-day' }, startDate: null, deadline: null, scheduling: { mode: 'ongoing' },
+        metrics: combinedTracker().metrics, qualificationRule: combinedRule(['lc', 'cf'], 5), streakRuleMode: 'same-as-success', strictMode: false,
+      },
+    }] })
+    const card = await renderCombinedTracker(definition, { lc: 2, cf: 3 })
+    expect(card.querySelector('.combined-sum-progress strong')).toHaveTextContent('5 / 5 problems')
+    expect(within(card).getByText('Target met')).toBeInTheDocument()
+  })
+
+  it.each([320, 360, 390, 430])('keeps multiple Combined Sum indicators accessible and wrap-ready at %ipx', async (width) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    const card = await renderCombinedTracker(combinedTracker({ qualificationRule: { kind: 'any', operands: [combinedRule(['lc', 'cf'], 5), combinedRule(['study', 'reading'], 20)] } }))
+    expect(within(card).getAllByRole('progressbar')).toHaveLength(2)
+    expect(todayStyles).toMatch(/\.today-combined-sum\s*\{[^}]*flex:\s*1 1 180px/s)
+    expect(todayStyles).toMatch(/\.today-compact-metrics\s*\{[^}]*flex-wrap:\s*wrap/s)
+  })
+
   it('welcomes a first-time guest and links straight to tracker creation', async () => {
     render(<ToastProvider><MemoryRouter><TodayPage /></MemoryRouter></ToastProvider>)
     expect(await screen.findByRole('heading', { name: 'Start tracking what matters.' }, { timeout: 3000 })).toBeInTheDocument()

@@ -88,6 +88,7 @@ const milestoneSchema = z.object({
 const ruleSchema: z.ZodType<unknown> = z.lazy(() => z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('threshold'), metricId: id, level: z.enum(['minimum', 'target', 'stretch']) }),
   z.object({ kind: z.literal('comparison'), metricId: id, operator: z.enum(['equals', 'greater-than', 'at-least', 'at-most']), value: z.union([z.boolean(), z.number().finite().min(0, 'Target must be zero or greater.')]) }),
+  z.object({ kind: z.literal('combined-sum'), metricIds: z.array(id).min(2).refine(unique), target: z.number().finite().gt(0, 'Combined target must be greater than zero.') }),
   z.object({ kind: z.enum(['all', 'any']), operands: z.array(ruleSchema).min(2) }),
   z.object({ kind: z.literal('at-least'), required: z.number().int().positive(), operands: z.array(ruleSchema).min(1) }).superRefine((rule, context) => {
     if (rule.required > rule.operands.length) context.addIssue({ code: 'custom', path: ['required'], message: 'Required count cannot exceed the number of operands.' })
@@ -166,7 +167,16 @@ function isIanaTimeZone(value: string): boolean {
 const ruleMetricsCheck = (rule: unknown, metrics: Map<string, z.infer<typeof metricSchema>>, context: z.RefinementCtx, path: (string | number)[] = []) => {
   if (typeof rule !== 'object' || rule === null) return
   const value = rule as Record<string, unknown>
-  if (value.kind === 'threshold' || value.kind === 'comparison') {
+  if (value.kind === 'combined-sum') {
+    const selected = value.metricIds as string[]
+    const measures = selected.map((metricId) => metrics.get(metricId))
+    if (measures.some((metric) => !metric || (metric.valueType !== 'quantity' && metric.valueType !== 'duration') || metric.retiredAt !== undefined)) {
+      context.addIssue({ code: 'custom', path, message: 'Combined Sum can use only active quantity or duration measures.' })
+    } else {
+      const units = measures.map((metric) => (metric!.unit ?? '').trim().toLocaleLowerCase())
+      if (!units[0] || units.some((unit) => unit !== units[0])) context.addIssue({ code: 'custom', path, message: 'Combined Sum measures must use the same non-empty unit.' })
+    }
+  } else if (value.kind === 'threshold' || value.kind === 'comparison') {
     const metric = metrics.get(String(value.metricId))
     if (!metric) context.addIssue({ code: 'custom', path, message: 'Rule references an unknown metric.' })
     else if (value.kind === 'threshold') {

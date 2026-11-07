@@ -26,6 +26,7 @@ import type {
 import { categoryToTracker, dailyEntryToTrackerEntry } from '../domain/trackers/legacyAdapters'
 import { isAutomaticBinCleanupEnabled, isPermanentDeletionEnabled, isSchemaV3WriteEnabled, isSchemaV4WriteEnabled, isSchemaV5WriteEnabled, isSchemaV6WriteEnabled, isSchemaV7WriteEnabled, isSchemaV8WriteEnabled, isSchemaV9WriteEnabled, isSchemaV10WriteEnabled } from '../domain/trackers/schemaVersionGate'
 import { reportBlockedDatabaseOpen, reportStorageFailure, storageFailureMessage, type StorageFailureCategory, type StorageFailureStage } from './storageDiagnostics'
+import { assertCombinedSumCapability } from '../services/supabase/combinedSumCapability'
 
 export class LocalStorageFailure extends Error {
   constructor(readonly category: StorageFailureCategory, readonly stage: StorageFailureStage, cause?: unknown, readonly diagnostic?: import('./storageDiagnostics').StorageDiagnostic) {
@@ -526,6 +527,7 @@ export async function queueSyncMutation(
   payload: StoredTrackerDefinition | StoredTrackerEntry | AccountHoliday | TrackerHoliday,
   holidayScopeConversion?: { id: string; role: 'source' | 'target' },
 ): Promise<void> {
+  if (entity === 'tracker') assertCombinedSumCapability(payload as StoredTrackerDefinition, ownerUserId)
   if (entity === 'tracker' && (payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
     throw new Error('Versioned tracker rule writes are disabled until the schema v10 migration is applied and verified.')
   }

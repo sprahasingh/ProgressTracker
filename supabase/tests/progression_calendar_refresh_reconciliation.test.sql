@@ -53,6 +53,12 @@ values ('00000000-0000-4000-8000-000000009101','2026-10-01T00:00:00Z',2,'unavail
 on conflict(user_id) do update set initialized_at=excluded.initialized_at,scoring_version=2,legacy_xp_kind='unavailable';
 update public.progression_achievement_accounts set initialized_at='2026-10-01T00:00:00Z'
 where user_id in ('00000000-0000-4000-8000-000000009101','00000000-0000-4000-8000-000000009102');
+-- Keep the repeatable-achievement cutover earlier than the fixed October 31
+-- repair date. The migration default is its application timestamp, which
+-- otherwise makes this historical fixture pre-cutover on later test runs.
+update public.progression_achievement_repeatable_cutover
+set recorded_at='2026-10-01T00:00:00Z'
+where id;
 update public.progression_policy_cutovers
 set perfect_week_start=date_trunc('week',current_date::timestamp)::date,
     perfect_month_start=date_trunc('month',current_date::timestamp)::date,

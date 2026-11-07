@@ -143,6 +143,18 @@ describe('streak calculation', () => {
     expect(evaluateTrackerProgressionDay({ tracker: legacy, entries: [entry('2026-01-01', { pages: 2 })], date: '2026-01-01', today: '2026-01-01' }).state).toBe('qualified')
   })
 
+  it('uses Combined Sum for success and same-as-success streak qualification', () => {
+    const combined = { kind: 'combined-sum' as const, metricIds: ['pages', 'minutes'], target: 5 }
+    const configured = tracker({ schemaVersion: 8, qualificationRule: combined, streakRuleMode: 'same-as-success' })
+    const onBoundary = entry('2026-01-01', { pages: 2, minutes: 3 })
+    const belowBoundary = entry('2026-01-02', { pages: 2, minutes: 2.9 })
+    expect(evaluateTrackerEntry(configured, onBoundary).qualified).toBe(true)
+    expect(evaluateTrackerProgressionDay({ tracker: configured, entries: [onBoundary], date: onBoundary.date, today: onBoundary.date }).state).toBe('qualified')
+    expect(qualifiesForStreak(configured, onBoundary)).toBe(true)
+    expect(evaluateTrackerEntry(configured, belowBoundary).qualified).toBe(false)
+    expect(calculateStreak(configured, [onBoundary, belowBoundary], '2026-01-03')).toMatchObject({ current: 0, longest: 1, qualifyingCount: 1 })
+  })
+
   it('uses Any positive value independently for success, streak continuity, and backdated history', () => {
     const separateMeasures = tracker({
       schemaVersion: 8,

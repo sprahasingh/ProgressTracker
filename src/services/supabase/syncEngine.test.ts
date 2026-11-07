@@ -7,6 +7,7 @@ import { subscribeToPermanentDeletionNotifications } from '../permanentDeletionN
 import { subscribeToHolidayDeletionNotifications } from '../holidayDeletionNotifications'
 import type { StoredTrackerDefinition } from '../../db/models'
 import { synchronizeWorkspace } from './syncEngine'
+import { resetCombinedSumCapabilityForTests } from './combinedSumCapability'
 import { trackerEvaluationSnapshot } from '../../domain/trackers/ruleVersions'
 
 const tracker = (id = 'sync-tracker'): StoredTrackerDefinition => ({
@@ -50,6 +51,7 @@ function fakeClient(options: { userId?: string; rpcResult?: unknown; rpcResults?
 }
 
 afterEach(async () => {
+  resetCombinedSumCapabilityForTests()
   vi.unstubAllEnvs()
   db.close()
   await db.delete()
@@ -1372,5 +1374,38 @@ describe('account-scoped sync engine', () => {
     expect(rpc).not.toHaveBeenCalled()
     await expect(db.trackers.get(malformed.id)).resolves.toMatchObject({ createdAt: 'not-a-datetime' })
     await expect(db.syncOperations.where('ownerUserId').equals('sync-user').first()).resolves.toMatchObject({ status: 'in-flight', attempts: 1 })
+  })
+})
+
+describe('Combined Sum synchronization capability gate', () => {
+  it('leaves unsupported pending operations untouched and retries after capability recovery', async () => {
+    const owner = 'combined-sum-sync-owner'
+    await activateWorkspace(owner)
+    const definition: StoredTrackerDefinition = {
+      ...tracker('combined-sum-sync'),
+      metrics: [{ id: 'a', name: 'A', valueType: 'quantity', unit: 'problems' }, { id: 'b', name: 'B', valueType: 'quantity', unit: 'problems' }],
+      qualificationRule: { kind: 'combined-sum', metricIds: ['a', 'b'], target: 5 },
+    }
+    await db.trackers.put(definition)
+    const operation = { id: 'combined-sum-op', ownerUserId: owner, entity: 'tracker' as const, entityId: definition.id, operation: 'upsert' as const, expectedRevision: null, payload: definition, createdAt: '2026-01-02T00:00:00.000Z', attempts: 0, status: 'pending' as const, lastError: null }
+    await db.syncOperations.put(operation)
+    const { client, rpc } = fakeClient({ userId: owner, rpcResults: [{ data: null, error: { message: 'RPC unavailable', code: 'PGRST202' } }] })
+
+    await expect(synchronizeWorkspace(owner, client)).resolves.toMatchObject({ failed: 1, uploaded: 0 })
+    await expect(db.syncOperations.get(operation.id)).resolves.toMatchObject({ status: 'pending', attempts: 0, payload: definition })
+    expect(rpc).toHaveBeenCalledWith('progress_tracker_capabilities', {})
+    expect(rpc).not.toHaveBeenCalledWith('apply_tracker_sync_operation', expect.anything())
+
+    rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'progress_tracker_capabilities') return { data: { version: 1, capabilities: { combinedSum: true } }, error: null }
+      const payload = args.p_record as StoredTrackerDefinition
+      return { data: { status: 'applied', record: {
+        id: definition.id, user_id: owner, schema_version: payload.schemaVersion, kind: payload.kind, status: payload.status,
+        name: payload.name, definition: payload, created_at: payload.createdAt, updated_at: payload.updatedAt, deleted_at: payload.deletedAt, server_revision: 1,
+      } }, error: null }
+    })
+    await expect(synchronizeWorkspace(owner, client)).resolves.toMatchObject({ uploaded: 1, failed: 0 })
+    expect(rpc).toHaveBeenCalledWith('apply_tracker_sync_operation', expect.anything())
+    await expect(db.syncOperations.get(operation.id)).resolves.toBeUndefined()
   })
 })

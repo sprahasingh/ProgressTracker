@@ -18,6 +18,8 @@ import { isHolidayPermanentDeletionEnabled } from '../../domain/trackers/schemaV
 import { publishHolidayDeletionNotification } from '../holidayDeletionNotifications'
 import { hasTrackerEditSyncGuardsContract } from './trackerEditSyncGuards'
 import { isNetworkFailure, isUnsupportedSchemaFailure, reportTrackerWriteDiagnostic } from '../../utils/trackerWriteDiagnostics'
+import { trackerUsesCombinedSum } from '../../domain/trackers/combinedSumRules'
+import { verifyCombinedSumCapabilityForSync } from './combinedSumCapability'
 
 type ServerTracker = { id: string; user_id: string; schema_version: number; kind: string; status: string; name: string; definition: unknown; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
 type ServerEntry = { id: string; user_id: string; tracker_id: string; entry_date: string; outcome: 'recorded' | 'skipped'; holiday_treatment?: 'keep-holiday' | 'count-normal' | null; entry_values: Record<string, unknown>; note: string; created_at: string; updated_at: string; deleted_at: string | null; server_revision: number }
@@ -379,6 +381,7 @@ async function processPermanentDeletionRequests(database: ProgressTrackerDatabas
 }
 
 async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient, userId: string, entity: 'tracker' | 'tracker_entry' | 'account_holiday' | 'tracker_holiday', heldTrackerIds: ReadonlySet<string> = new Set()): Promise<{ uploaded: number; conflicts: number; failed: number }> {
+  const deferredTrackerIds = new Set(heldTrackerIds)
   const allOperations = await database.syncOperations.where('ownerUserId').equals(userId).toArray()
   const candidates = allOperations
     .filter((operation) => operation.entity === entity && operation.status !== 'conflict' && operation.status !== 'blocked' && operation.status !== 'superseded' && operation.status !== 'discarded')
@@ -413,8 +416,8 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
           : candidate.entity === 'account_holiday'
       })
     if (conversionTargetPending || legacyTargetPending) return false
-    if (entity === 'tracker') return !heldTrackerIds.has(operation.entityId)
-    if (entity === 'tracker_holiday') return !heldTrackerIds.has((operation.payload as TrackerHoliday | undefined)?.trackerId ?? trackerHolidaysById[index]?.trackerId ?? '')
+    if (entity === 'tracker') return !deferredTrackerIds.has(operation.entityId)
+    if (entity === 'tracker_holiday') return !deferredTrackerIds.has((operation.payload as TrackerHoliday | undefined)?.trackerId ?? trackerHolidaysById[index]?.trackerId ?? '')
     if (entity !== 'tracker_entry') return true
     const payloadTrackerId = (operation.payload as StoredTrackerEntry | undefined)?.trackerId
     const localTrackerId = entriesById[index]?.trackerId
@@ -425,12 +428,23 @@ async function uploadQueue(database: ProgressTrackerDatabase, client: SyncClient
   let uploaded = 0
   let conflicts = 0
   let failed = 0
+  let combinedSumCapabilityCheck: Promise<Awaited<ReturnType<typeof verifyCombinedSumCapabilityForSync>>> | null = null
   for (const queued of operations) {
     let operation: SyncOperation | undefined
     let phase: 'workspace-preflight' | 'payload-validation' | 'server-request' | 'server-acknowledgement' = 'workspace-preflight'
     try {
       operation = await database.syncOperations.get(queued.id)
       if (!operation || operation.status === 'conflict' || operation.status === 'blocked' || operation.status === 'superseded' || operation.status === 'discarded') continue
+      if (entity === 'tracker' && deferredTrackerIds.has(operation.entityId)) continue
+      if (operation.entity === 'tracker' && trackerUsesCombinedSum(operation.payload as StoredTrackerDefinition)) {
+        combinedSumCapabilityCheck ??= verifyCombinedSumCapabilityForSync(client as unknown as SupabaseClient)
+        const capability = await combinedSumCapabilityCheck
+        if (capability.status !== 'enabled') {
+          deferredTrackerIds.add(operation.entityId)
+          failed += 1
+          continue
+        }
+      }
       if (operation.entity === 'tracker' && (operation.payload as StoredTrackerDefinition).schemaVersion === 10 && !isSchemaV10WriteEnabled()) {
         reportUnsupportedSyncSchema(operation)
         await markPermanentlyBlocked(database, operation, 'UNSUPPORTED_SCHEMA_VERSION', 'Schema v10 versioned tracker rule cloud writes are disabled until the hosted migration is applied and verified.')
